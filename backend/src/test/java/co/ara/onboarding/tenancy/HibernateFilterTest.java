@@ -4,6 +4,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.identity.UserStatus;
@@ -106,7 +107,7 @@ class HibernateFilterTest extends PostgresTestBase {
 
     private AppUser newUser(UUID tenantId, String email) {
         AppUser u = new AppUser();
-        u.setId(UUID.randomUUID());
+        u.setId(Uuid7.generate());
         u.setTenantId(tenantId);
         u.setEmail(email);
         u.setPasswordHash("x");

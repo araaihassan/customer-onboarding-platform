@@ -1,5 +1,6 @@
 package co.ara.onboarding.support;
 
+import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.*;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -22,7 +23,7 @@ public class TenantFixture {
 
     public UUID createTenant(String slug) {
         Tenant t = new Tenant();
-        t.setId(UUID.randomUUID());
+        t.setId(Uuid7.generate());
         t.setSlug(slug);
         t.setName(slug);
         t.setStatus(TenantStatus.ACTIVE);

@@ -26,8 +26,19 @@ public class AppUser extends TenantScopedEntity {
     @Column(name = "mfa_secret") private String mfaSecret;
     @Column(name = "last_login_at") private Instant lastLoginAt;
 
+    // team_member.tenant_id is NOT NULL and RLS-checked (V4__identity.sql), but a
+    // single-join-column mapping leaves Hibernate no way to populate it -- its
+    // generated INSERT would only ever set user_id and team_id. Declaring
+    // tenant_id as a second join column, mapped back to the owning AppUser's own
+    // tenant_id column, makes Hibernate populate it from the owner on every
+    // insert. Verified empirically: without this, INSERT INTO team_member
+    // (user_id, team_id) VALUES (?, ?) fails RLS's WITH CHECK (tenant_id is left
+    // NULL); with it, the generated SQL includes tenant_id and the row persists.
     @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "team_member", joinColumns = @JoinColumn(name = "user_id"))
+    @CollectionTable(name = "team_member", joinColumns = {
+            @JoinColumn(name = "user_id", referencedColumnName = "id"),
+            @JoinColumn(name = "tenant_id", referencedColumnName = "tenant_id")
+    })
     @Column(name = "team_id")
     private Set<UUID> teamIds = new HashSet<>();
 
