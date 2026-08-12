@@ -13,6 +13,12 @@ java {
 
 repositories { mavenCentral() }
 
+// Override Spring Boot 3.4.1's managed Testcontainers version (1.20.4). That version's
+// docker-java client fails to negotiate with newer Docker Engine/Desktop releases
+// (observed: "client version 1.32 is too old, minimum supported API version is 1.40"
+// against Docker Desktop server 29.6.2 / API 1.55), breaking container startup for every
+// test that extends PostgresTestBase. 1.21.4 fixes the negotiation. Do not revert to the
+// Boot-managed default without confirming your Docker Engine's API version is compatible.
 extra["testcontainers.version"] = "1.21.4"
 
 dependencies {
