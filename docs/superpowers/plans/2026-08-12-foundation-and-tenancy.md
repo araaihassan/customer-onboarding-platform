@@ -28,7 +28,8 @@ Every task's requirements implicitly include this section.
 - **TDD.** Every task writes a failing test first. Security tests are written before the mechanism they verify.
 - **Commit at the end of every task.** Conventional Commits (`feat:`, `test:`, `chore:`, `fix:`).
 - **Test commands** are written as `./gradlew` (Git Bash). On PowerShell use `.\gradlew.bat` with the same arguments.
-- **UUIDv7-style primary keys** via `UUID` columns, generated in application code.
+- **UUIDv7 primary keys** via `UUID` columns, generated in application code by `co.ara.onboarding.platform.Uuid7.generate()` (implemented in Task 2). Time-ordered keys keep B-tree inserts local, which matters most for `audit_event`, the highest-volume append-only table.
+  **Every `UUID.randomUUID()` appearing in this plan's code samples means `Uuid7.generate()`** — the samples were written before the utility was named. The sole exceptions are values that must be unpredictable rather than merely unique; those use `SecureRandom` directly and never a UUID (refresh tokens, invitation tokens).
 - **All timestamps** are `timestamptz`, stored in UTC.
 
 ---
@@ -324,6 +325,8 @@ Creates the non-superuser role that RLS will actually constrain, plus the `tenan
 
 **Files:**
 - Create: `backend/src/main/resources/db/migration/V2__app_role_and_tenant.sql`
+- Create: `backend/src/main/java/co/ara/onboarding/platform/Uuid7.java`
+- Create: `backend/src/test/java/co/ara/onboarding/platform/Uuid7Test.java`
 - Create: `backend/src/main/java/co/ara/onboarding/platform/BaseEntity.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/Tenant.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantRepository.java`
@@ -426,6 +429,137 @@ Add to `PostgresTestBase`:
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.support.AppRoleTest"`
 Expected: PASS
+
+- [ ] **Step 5b: Write the failing test for UUIDv7 generation**
+
+`backend/src/test/java/co/ara/onboarding/platform/Uuid7Test.java`:
+
+```java
+package co.ara.onboarding.platform;
+
+import org.junit.jupiter.api.Test;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class Uuid7Test {
+
+    @Test
+    void hasVersionSevenAndRfc4122Variant() {
+        UUID id = Uuid7.generate();
+        assertThat(id.version()).isEqualTo(7);
+        assertThat(id.variant()).isEqualTo(2);
+    }
+
+    @Test
+    void idsGeneratedInSequenceSortAscending() {
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < 5000; i++) ids.add(Uuid7.generate());
+
+        List<UUID> sorted = new ArrayList<>(ids);
+        sorted.sort(Uuid7::compareUnsigned);
+        assertThat(sorted)
+            .as("time-ordered keys must be monotonic even within the same millisecond")
+            .isEqualTo(ids);
+    }
+
+    @Test
+    void encodesCurrentTimeInTheLeading48Bits() {
+        long before = System.currentTimeMillis();
+        UUID id = Uuid7.generate();
+        long after = System.currentTimeMillis();
+
+        long timestamp = id.getMostSignificantBits() >>> 16;
+        assertThat(timestamp).isBetween(before, after);
+    }
+
+    @Test
+    void generatesDistinctValuesUnderContention() throws Exception {
+        var ids = java.util.Collections.synchronizedSet(new java.util.HashSet<UUID>());
+        var threads = new ArrayList<Thread>();
+        for (int t = 0; t < 8; t++) {
+            Thread thread = new Thread(() -> {
+                for (int i = 0; i < 2000; i++) ids.add(Uuid7.generate());
+            });
+            threads.add(thread);
+            thread.start();
+        }
+        for (Thread thread : threads) thread.join();
+        assertThat(ids).hasSize(8 * 2000);
+    }
+}
+```
+
+- [ ] **Step 5c: Implement `Uuid7`**
+
+```java
+package co.ara.onboarding.platform;
+
+import java.security.SecureRandom;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * RFC 9562 version 7 UUIDs: a 48-bit millisecond timestamp followed by
+ * randomness, so primary keys sort by creation time and index inserts stay
+ * local instead of scattering across the B-tree.
+ *
+ * These IDs deliberately leak creation time. That is acceptable for entity
+ * identifiers; anything that must be unpredictable (refresh tokens,
+ * invitation tokens) uses SecureRandom bytes directly and never a UUID.
+ */
+public final class Uuid7 {
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    /** Packs the last timestamp and counter into one long for lock-free CAS. */
+    private static final AtomicLong LAST = new AtomicLong();
+
+    private static final int COUNTER_BITS = 12;
+    private static final long COUNTER_MASK = (1L << COUNTER_BITS) - 1;
+
+    private Uuid7() {}
+
+    public static UUID generate() {
+        long stamp = nextStamp();
+        long millis = stamp >>> COUNTER_BITS;
+        long counter = stamp & COUNTER_MASK;
+
+        // 48 bits timestamp | 4 bits version (7) | 12 bits monotonic counter
+        long msb = (millis << 16) | (0x7L << 12) | counter;
+
+        // 2 bits variant (RFC 4122) | 62 bits randomness
+        long lsb = (RANDOM.nextLong() & 0x3FFFFFFFFFFFFFFFL) | 0x8000000000000000L;
+
+        return new UUID(msb, lsb);
+    }
+
+    /**
+     * Returns a strictly increasing (millis, counter) pair. Within a single
+     * millisecond the counter advances; if it saturates, the timestamp is
+     * borrowed forward so ordering is never violated.
+     */
+    private static long nextStamp() {
+        while (true) {
+            long previous = LAST.get();
+            long now = System.currentTimeMillis();
+            long candidate = (now << COUNTER_BITS);
+            long next = (candidate > previous) ? candidate : previous + 1;
+            if (LAST.compareAndSet(previous, next)) return next;
+        }
+    }
+
+    /** UUIDs compare signed by default, which breaks ordering above 0x7F. */
+    public static int compareUnsigned(UUID a, UUID b) {
+        int high = Long.compareUnsigned(a.getMostSignificantBits(), b.getMostSignificantBits());
+        return high != 0 ? high
+                : Long.compareUnsigned(a.getLeastSignificantBits(), b.getLeastSignificantBits());
+    }
+}
+```
+
+`java.util.UUID.compareTo` compares signed, so it orders v7 IDs incorrectly once the high bit is set. Sort with `Uuid7::compareUnsigned` in application code; PostgreSQL's `uuid` type already compares unsigned, so index ordering is correct there regardless.
 
 - [ ] **Step 6: Write the failing test for the tenant entity**
 
