@@ -1,0 +1,35 @@
+# Agent / tooling scratch
+.superpowers/
+.claude/worktrees/
+
+# Java / Gradle
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+*.class
+*.log
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+frontend/src/lib/api/generated.ts.tmp
+*.tsbuildinfo
+
+# Test artifacts
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Editors / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
