@@ -2010,6 +2010,14 @@ public class RequestAuditContext {
 
 `AuditEvent` extends `TenantScopedEntity` and maps every column in the migration. Use `@Column(columnDefinition = "jsonb") String payload` with Hibernate's `@JdbcTypeCode(SqlTypes.JSON)`.
 
+**On the primary key mismatch, which will look wrong and is not.** PostgreSQL requires the partition key to be part of any primary key, so the table declares `PRIMARY KEY (id, occurred_at)` while the entity inherits a single `@Id UUID id` from `BaseEntity`. Leave it that way:
+
+- `id` is a UUIDv7 and is unique on its own, so a single-column `@Id` is a correct entity identity.
+- Hibernate's `validate` mode checks columns and types, not primary-key composition, so this does not fail startup.
+- Do **not** "fix" it with an `@IdClass` or `@EmbeddedId` of `(id, occurredAt)`. That would push `occurredAt` into every association and lookup for no benefit, and audit rows are written far more often than they are fetched by id.
+
+The one real consequence: `findById` cannot prune partitions and will scan all of them. That is acceptable here because audit events are read through time-bounded, tenant-scoped queries, never by bare id in any hot path.
+
 ```java
 package co.ara.onboarding.audit;
 
@@ -3858,24 +3866,38 @@ Each `runAsUser` call simulates a distinct request, which is what makes the "nex
 ```java
     /** Runs the action as an authenticated user in a fresh request scope. */
     public void runAsUser(UUID tenantId, UUID userId, Runnable action) {
-        var attributes = new org.springframework.web.context.request.RequestContextHolder();
-        var request = new org.springframework.mock.web.MockHttpServletRequest();
-        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
-                new org.springframework.web.context.request.ServletRequestAttributes(request));
-        var auth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
-                new AuthenticatedPrincipal(tenantId, userId), null, java.util.List.of());
-        org.springframework.security.core.context.SecurityContextHolder.getContext()
-                .setAuthentication(auth);
+        // A request scope must exist because AuthorizationService and
+        // RequestAuditContext are @RequestScope beans; without it, resolving
+        // their scoped proxies throws IllegalStateException.
+        var request = new MockHttpServletRequest();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        var auth = new UsernamePasswordAuthenticationToken(
+                new AuthenticatedPrincipal(tenantId, userId), null, List.of());
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
         try {
             runAs(tenantId, action);
         } finally {
-            org.springframework.security.core.context.SecurityContextHolder.clearContext();
-            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+            SecurityContextHolder.clearContext();
+            RequestContextHolder.resetRequestAttributes();
         }
     }
 ```
 
-Add `spring-boot-starter-test`'s `MockHttpServletRequest` — already on the test classpath from Task 1.
+with these imports on `TenantFixture`:
+
+```java
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+```
+
+`RequestContextHolder` is a static utility — do not try to instantiate it. `MockHttpServletRequest` comes from `spring-boot-starter-test`, already on the test classpath from Task 1.
+
+Note the interaction with Task 14: once the permission gate is live, `runAs` itself must run privileged, so `runAs` delegates to `runAsUser` with a tenant administrator. Both methods therefore establish request scope, and nesting them is safe because `setRequestAttributes` is idempotent for this purpose.
 
 - [ ] **Step 3: Define the authenticated principal**
 
@@ -5078,6 +5100,17 @@ public class RefreshTokenService {
 Add to `AuthController`. On login, also issue a refresh cookie:
 
 ```java
+    // Injected on the controller; the same value the refresh token is issued with.
+    private final Duration refreshTtl;
+
+    public AuthController(/* existing dependencies */,
+                          RefreshTokenService refreshTokens,
+                          @Value("${app.refresh-token.ttl}") Duration refreshTtl) {
+        // ...
+        this.refreshTokens = refreshTokens;
+        this.refreshTtl = refreshTtl;
+    }
+
     private ResponseCookie refreshCookie(String tenantSlug, String rawToken, Duration maxAge) {
         return ResponseCookie.from("refresh_token", rawToken)
                 .httpOnly(true)
