@@ -2000,6 +2000,12 @@ import java.util.*;
 
 public final class AuditActions {
 
+    // MUST be declared before the constants below. Static initialisers run in
+    // declaration order, and each of() call writes into this map — declaring it
+    // afterwards leaves it null at that point and the class fails to load with
+    // ExceptionInInitializerError.
+    private static final Map<String, AuditAction> BY_KEY = new LinkedHashMap<>();
+
     public static final AuditAction TENANT_CREATED            = of("tenant.created", false);
     public static final AuditAction USER_CREATED              = of("user.created", false);
     public static final AuditAction USER_ROLE_ASSIGNED        = of("user.role_assigned", false);
@@ -2014,8 +2020,6 @@ public final class AuditActions {
     public static final AuditAction CUSTOMER_DEACTIVATED      = of("customer.deactivated", true);
     public static final AuditAction INVITATION_SENT           = of("invitation.sent", true);
     public static final AuditAction INVITATION_ACCEPTED       = of("invitation.accepted", true);
-
-    private static final Map<String, AuditAction> BY_KEY = new LinkedHashMap<>();
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
