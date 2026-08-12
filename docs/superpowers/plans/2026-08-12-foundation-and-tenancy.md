@@ -22,6 +22,7 @@ Every task's requirements implicitly include this section.
 - **Every tenant-owned table** has a non-null `tenant_id`, an RLS policy, and `ALTER TABLE ... FORCE ROW LEVEL SECURITY`, all created in the same migration as the table.
 - **Migrations are forward-only.** Never edit a migration that has been committed.
 - **No hard deletes** of business records. Deactivate instead (spec §9.4).
+- **DELETE is deny-by-default at the database layer.** `ALTER DEFAULT PRIVILEGES` grants `SELECT, INSERT, UPDATE` only; `V2_1__revoke_default_delete.sql` strips `DELETE` from the default grant and from `tenant`. Any table that genuinely needs deletion must carry an explicit `GRANT DELETE ON <table> TO onboarding_app;` in its own migration, with a comment saying why. In sub-project 1 that is only: `role`, `role_grant`, `user_role`, `team_member`, and `login_attempt` — all authorization or session bookkeeping, never business records. Grant-then-revoke is the wrong shape here: a table nobody remembered to revoke stays deletable, which is precisely backwards from how RLS, scope predicates, and the permission model all fail closed.
 - **No deny grants** in authorization. Absence of a grant is the denial (spec §6.5).
 - **Permissions are never embedded in tokens.** Authority is resolved server-side per request (spec §6.7, §7.2).
 - **Out-of-scope records return 404, never 403** (spec §6.8).
@@ -408,7 +409,7 @@ CREATE TABLE tenant (
 );
 
 -- tenant is intentionally NOT tenant-scoped: it is the tenant registry itself.
--- It appears on the RLS meta-test allowlist in Task 6.
+-- It appears on the RLS meta-test allowlist in Task 7.
 GRANT SELECT, INSERT, UPDATE ON tenant TO onboarding_app;
 ```
 
@@ -689,6 +690,59 @@ Expected: PASS
 ```bash
 git add backend/
 git commit -m "feat: add onboarding_app database role and tenant registry"
+```
+
+- [ ] **Step 11: Make DELETE deny-by-default**
+
+`ALTER DEFAULT PRIVILEGES` in `V2` grants `DELETE` on every table created afterwards, which silently overrides the narrower per-table grants and leaves `onboarding_app` able to `DELETE FROM tenant`. Since `V2` is already committed and migrations are forward-only, correct it with a new migration rather than an edit.
+
+`backend/src/main/resources/db/migration/V2_1__revoke_default_delete.sql`:
+
+```sql
+-- DELETE is deny-by-default. V2's ALTER DEFAULT PRIVILEGES granted it on all
+-- future tables, which defeats per-table grants and contradicts the project's
+-- no-hard-deletes rule. Tables that genuinely need DELETE grant it explicitly
+-- in their own migration, with a comment saying why.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE DELETE ON TABLES FROM onboarding_app;
+
+REVOKE DELETE ON tenant FROM onboarding_app;
+```
+
+Flyway orders `V2` < `V2.1` < `V3`, so this slots in without renumbering any later migration.
+
+- [ ] **Step 12: Write the test that proves it**
+
+Add to `backend/src/test/java/co/ara/onboarding/support/AppRoleTest.java`:
+
+```java
+    @Test
+    void applicationRoleCannotDeleteFromTenantRegistry() {
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM tenant"))
+                .hasMessageContaining("permission denied");
+    }
+
+    @Test
+    void deleteIsNotGrantedByDefaultOnNewTables() {
+        // Proves the default-privilege change, not just the one-off tenant revoke:
+        // a table created after V2_1 must not inherit DELETE.
+        jdbc.execute("CREATE TABLE IF NOT EXISTS delete_probe (id uuid PRIMARY KEY)");
+        jdbc.execute("GRANT SELECT, INSERT ON delete_probe TO onboarding_app");
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM delete_probe"))
+                .hasMessageContaining("permission denied");
+    }
+```
+
+The second test is the one that matters. Revoking on `tenant` alone would pass a test that only checks `tenant`, while every future table silently kept the inherited grant.
+
+- [ ] **Step 13: Run and commit**
+
+Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.support.AppRoleTest"`
+Expected: PASS — three tests.
+
+```bash
+git add backend/
+git commit -m "fix: make DELETE deny-by-default for the application role"
 ```
 
 ---
@@ -1493,8 +1547,12 @@ SELECT enable_tenant_rls('team');
 SELECT enable_tenant_rls('app_user');
 SELECT enable_tenant_rls('team_member');
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON department, team, app_user, team_member TO onboarding_app;
+GRANT SELECT, INSERT, UPDATE ON department, team, app_user, team_member TO onboarding_app;
 GRANT SELECT, INSERT, UPDATE ON platform_admin TO onboarding_app;
+
+-- team_member is a pure join table: changing someone's teams means removing
+-- rows. Users, departments and teams are deactivated, never deleted.
+GRANT DELETE ON team_member TO onboarding_app;
 ```
 
 - [ ] **Step 5: Implement the enums**
@@ -1775,7 +1833,7 @@ GRANT SELECT, INSERT ON audit_event TO onboarding_app;
 REVOKE UPDATE, DELETE ON audit_event FROM onboarding_app;
 ```
 
-Because `ALTER DEFAULT PRIVILEGES` in Task 2 grants `UPDATE, DELETE` on new tables, the explicit `REVOKE` here is required. Do not remove it.
+The explicit `REVOKE` is required for `UPDATE`, which `ALTER DEFAULT PRIVILEGES` in Task 2 does grant on new tables. `DELETE` is already deny-by-default after `V2_1`, so revoking it here is redundant — keep it anyway, because this table's append-only guarantee is important enough to state at its own definition rather than rely on a default set three migrations earlier.
 
 - [ ] **Step 4: Implement the action registry**
 
@@ -2228,7 +2286,9 @@ CREATE TABLE permission (
     allowed_scopes  varchar(255) NOT NULL
 );
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON permission TO onboarding_app;
+-- No DELETE: orphaned permissions are logged and ignored, never auto-removed,
+-- so a mistaken catalog removal stays revertible (spec 6.2).
+GRANT SELECT, INSERT, UPDATE ON permission TO onboarding_app;
 ```
 
 - [ ] **Step 4: Implement `Scope`, `Permission`, `PermissionKeys`, `PermissionCatalog`**
@@ -2560,7 +2620,13 @@ SELECT enable_tenant_rls('role');
 SELECT enable_tenant_rls('role_grant');
 SELECT enable_tenant_rls('user_role');
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON role, role_grant, user_role TO onboarding_app;
+GRANT SELECT, INSERT, UPDATE ON role, role_grant, user_role TO onboarding_app;
+
+-- Explicit DELETE (deny-by-default since V2_1). These are authorization
+-- metadata, not business records: a role is deletable once no users hold it,
+-- updateGrants replaces a role's grants wholesale, and unassigning a role
+-- removes its user_role row.
+GRANT DELETE ON role, role_grant, user_role TO onboarding_app;
 ```
 
 - [ ] **Step 5: Implement the entities**
@@ -3190,8 +3256,8 @@ SELECT enable_tenant_rls('customer');
 SELECT enable_tenant_rls('customer_contact');
 
 GRANT SELECT, INSERT, UPDATE ON customer, customer_contact TO onboarding_app;
--- No DELETE grant: business records are deactivated, never deleted (spec 9.4).
-REVOKE DELETE ON customer, customer_contact FROM onboarding_app;
+-- No DELETE grant, and none is inherited: DELETE is deny-by-default since
+-- V2_1. Business records are deactivated, never deleted (spec 9.4).
 ```
 
 The `REVOKE DELETE` turns "no hard deletes" from a code convention into a database guarantee. Sub-projects 2–9 should follow this pattern for their own business tables.
@@ -4782,7 +4848,9 @@ CREATE TABLE refresh_token (
 CREATE INDEX refresh_token_family_idx ON refresh_token (tenant_id, family_id);
 
 SELECT enable_tenant_rls('refresh_token');
-GRANT SELECT, INSERT, UPDATE, DELETE ON refresh_token TO onboarding_app;
+-- No DELETE: tokens are retired via used_at / revoked_at, never removed, so
+-- reuse detection can still recognise a replayed token after rotation.
+GRANT SELECT, INSERT, UPDATE ON refresh_token TO onboarding_app;
 ```
 
 - [ ] **Step 4: Implement `RefreshTokenService`**
@@ -5061,7 +5129,10 @@ CREATE TABLE login_attempt (
 );
 
 SELECT enable_tenant_rls('login_attempt');
-GRANT SELECT, INSERT, UPDATE, DELETE ON login_attempt TO onboarding_app;
+GRANT SELECT, INSERT, UPDATE ON login_attempt TO onboarding_app;
+-- Explicit DELETE (deny-by-default since V2_1): a successful login clears the
+-- counter by removing the row. Throttling state, not a business record.
+GRANT DELETE ON login_attempt TO onboarding_app;
 ```
 
 - [ ] **Step 4: Implement `LoginThrottleService`**
