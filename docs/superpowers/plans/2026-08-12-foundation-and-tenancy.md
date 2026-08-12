@@ -726,9 +726,11 @@ Add to `backend/src/test/java/co/ara/onboarding/support/AppRoleTest.java`:
     void deleteIsNotGrantedByDefaultOnNewTables() {
         // Proves the default-privilege change, not just the one-off tenant revoke:
         // a table created after V2_1 must not inherit DELETE.
-        jdbc.execute("CREATE TABLE IF NOT EXISTS delete_probe (id uuid PRIMARY KEY)");
-        jdbc.execute("GRANT SELECT, INSERT ON delete_probe TO onboarding_app");
-        assertThatThrownBy(() -> jdbc.execute("DELETE FROM delete_probe"))
+        // Named rls_probe_* so Task 7's RlsCoverageTest, which is deny-by-default
+        // over every table in the schema, skips it. Do not rename.
+        jdbc.execute("CREATE TABLE IF NOT EXISTS rls_probe_delete (id uuid PRIMARY KEY)");
+        jdbc.execute("GRANT SELECT, INSERT ON rls_probe_delete TO onboarding_app");
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM rls_probe_delete"))
                 .hasMessageContaining("permission denied");
     }
 ```
