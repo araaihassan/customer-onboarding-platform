@@ -27,6 +27,19 @@ Every task's requirements implicitly include this section.
 - **Permissions are never embedded in tokens.** Authority is resolved server-side per request (spec §6.7, §7.2).
 - **Out-of-scope records return 404, never 403** (spec §6.8).
 - **TDD.** Every task writes a failing test first. Security tests are written before the mechanism they verify.
+- **Never assert an exception *inside* a `fixture.runAs(...)` / `runAsUser(...)` lambda.** Those helpers run the action in a `TransactionTemplate`. Catching an exception inside the lambda — which is what `assertThatThrownBy` does — leaves the transaction marked rollback-only while execution continues to normal completion, so the template then attempts a commit and throws `UnexpectedRollbackException`, masking the exception you meant to assert on. Wrap the helper instead:
+
+  ```java
+  // WRONG — UnexpectedRollbackException masks the real failure
+  fixture.runAs(tenant, () ->
+      assertThatThrownBy(() -> roles.createRole(...)).isInstanceOf(InvalidGrantException.class));
+
+  // RIGHT — the exception propagates out, the template rolls back and rethrows it
+  assertThatThrownBy(() -> fixture.runAs(tenant, () -> roles.createRole(...)))
+      .isInstanceOf(InvalidGrantException.class);
+  ```
+
+  Several code samples later in this plan still show the wrong form; correct them as you encounter them rather than copying them verbatim. This applies to any exception that marks the transaction rollback-only, which includes every `RuntimeException` crossing a `@Transactional` boundary — `DataIntegrityViolationException`, `AccessDeniedException`, `InvalidGrantException`, `NoSuchElementException`, and `IllegalStateException` among them.
 - **Commit at the end of every task.** Conventional Commits (`feat:`, `test:`, `chore:`, `fix:`).
 - **Test commands** are written as `./gradlew` (Git Bash). On PowerShell use `.\gradlew.bat` with the same arguments.
 - **UUIDv7 primary keys** via `UUID` columns, generated in application code by `co.ara.onboarding.platform.Uuid7.generate()` (implemented in Task 2). Time-ordered keys keep B-tree inserts local, which matters most for `audit_event`, the highest-volume append-only table.
