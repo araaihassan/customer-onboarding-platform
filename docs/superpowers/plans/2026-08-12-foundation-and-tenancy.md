@@ -1690,8 +1690,20 @@ public class AppUser extends TenantScopedEntity {
     @Column(name = "mfa_secret") private String mfaSecret;
     @Column(name = "last_login_at") private Instant lastLoginAt;
 
+    /**
+     * tenant_id must be a second join column. team_member.tenant_id is NOT NULL
+     * and RLS-checked, and a single-join-column mapping emits
+     * INSERT INTO team_member (user_id, team_id) — omitting tenant_id entirely,
+     * so every write fails the NOT NULL constraint. Hibernate populates both
+     * columns from the owner when they are declared here.
+     */
     @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "team_member", joinColumns = @JoinColumn(name = "user_id"))
+    @CollectionTable(
+            name = "team_member",
+            joinColumns = {
+                @JoinColumn(name = "user_id",   referencedColumnName = "id"),
+                @JoinColumn(name = "tenant_id", referencedColumnName = "tenant_id")
+            })
     @Column(name = "team_id")
     private Set<UUID> teamIds = new HashSet<>();
 
