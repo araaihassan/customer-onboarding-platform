@@ -1,6 +1,7 @@
 package co.ara.onboarding.support;
 
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -46,5 +47,17 @@ public abstract class PostgresTestBase {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", () -> "onboarding_app");
         registry.add("spring.datasource.password", () -> "onboarding_app");
+    }
+
+    /**
+     * JdbcTemplate bound to the container's owner role, for DDL and GRANT only.
+     * Never assert privilege or RLS behaviour through this — the owner bypasses
+     * both, so an assertion made here proves nothing.
+     */
+    protected static JdbcTemplate ownerJdbc() {
+        var ds = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        ds.setDriverClassName("org.postgresql.Driver");
+        return new JdbcTemplate(ds);
     }
 }
