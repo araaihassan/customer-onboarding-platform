@@ -21,4 +21,20 @@ class AuditAppendOnlyTest extends PostgresTestBase {
         assertThatThrownBy(() -> jdbc.execute("DELETE FROM audit_event"))
                 .hasStackTraceContaining("permission denied for table audit_event");
     }
+
+    // Partitions are independent relations that inherit V2's default-privilege
+    // GRANT SELECT, INSERT, UPDATE at CREATE TABLE time; naming one directly
+    // bypasses both the append-only grant AND RLS applied only to the parent
+    // (V5's enable_tenant_rls('audit_event') does not reach partitions accessed
+    // by their own name). V5_1 closes this by revoking the schema-wide default
+    // grant, stripping what the partitions already inherited, and enabling RLS
+    // on each partition as defence in depth.
+    @Test
+    void applicationRoleCannotAccessPartitionsDirectly() {
+        assertThatThrownBy(() -> jdbc.execute("SELECT * FROM audit_event_2026_08"))
+                .hasStackTraceContaining("permission denied for table audit_event_2026_08");
+
+        assertThatThrownBy(() -> jdbc.execute("UPDATE audit_event_2026_08 SET summary = 'tampered'"))
+                .hasStackTraceContaining("permission denied for table audit_event_2026_08");
+    }
 }

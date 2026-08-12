@@ -38,4 +38,16 @@ class AuditRecorderTest extends PostgresTestBase {
     void rejectsActionOutsideRegistry() {
         assertThat(AuditActions.byKey("not.a.real.action")).isEmpty();
     }
+
+    // Without this, both tests above would still pass if BY_KEY were left
+    // empty by a future refactor: recordsEventWithTenantAndAction uses the
+    // CUSTOMER_CREATED constant directly, never byKey, and
+    // rejectsActionOutsideRegistry only exercises the not-found case. This is
+    // exactly the static-init-order bug fixed earlier in this task, now
+    // covered.
+    @Test
+    void byKeyReturnsSeededAction() {
+        assertThat(AuditActions.byKey("customer.created"))
+                .contains(AuditActions.CUSTOMER_CREATED);
+    }
 }
