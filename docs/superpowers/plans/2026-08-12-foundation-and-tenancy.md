@@ -1753,12 +1753,55 @@ public interface PlatformAdminRepository extends JpaRepository<PlatformAdmin, UU
 }
 ```
 
-- [ ] **Step 8: Run it to verify it passes**
+- [ ] **Step 8: Prove the Hibernate filter is actually registered and filtering**
 
-Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.identity.*"`
+Carried forward from Task 4's review. `@FilterDef`/`@Filter` live on `TenantScopedEntity`, a `@MappedSuperclass`, and Hibernate only registers the filter once metadata scanning walks a **concrete entity** that extends it. Until Task 5 there was no such entity, so `TenantConnectionCustomizer.bind` guards the call with a `getDefinedFilterNames().contains(...)` check.
+
+`AppUser` is the first real entity, so this is the first moment the guard can be verified. A guard that silently stays false forever would remove the application-layer half of the two-layer isolation design while everything still appeared to work — RLS underneath would keep returning correct results and hide it.
+
+`backend/src/test/java/co/ara/onboarding/tenancy/HibernateFilterTest.java`:
+
+```java
+package co.ara.onboarding.tenancy;
+
+import co.ara.onboarding.support.PostgresTestBase;
+import jakarta.persistence.EntityManager;
+import org.hibernate.SessionFactory;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class HibernateFilterTest extends PostgresTestBase {
+
+    @Autowired EntityManager entityManager;
+
+    @Test
+    void tenantFilterIsRegisteredNowThatAConcreteEntityExists() {
+        var names = entityManager.getEntityManagerFactory()
+                .unwrap(SessionFactory.class)
+                .getDefinedFilterNames();
+
+        assertThat(names)
+            .as("the guard in TenantConnectionCustomizer must now pass, not silently skip")
+            .contains("tenantFilter");
+    }
+}
+```
+
+- [ ] **Step 9: Prove the filter actually excludes other tenants' rows**
+
+Registration is not the same as enforcement. This test asserts the filter *works* through JPA, which no existing test does — `RlsIsolationTest` exercises RLS through raw JDBC only.
+
+Add to `HibernateFilterTest` a test that creates users in two tenants, then reads through `AppUserRepository` inside `fixture.runAs(tenantA, …)` and asserts only tenant A's users come back. Because RLS would also produce that result, temporarily disabling the filter must **not** change the outcome — so to prove the filter specifically, assert on the generated SQL instead: enable Hibernate's `SessionFactory` statistics or use a query-count/SQL-capture approach and confirm the emitted SQL contains a `tenant_id = ?` predicate that the application added.
+
+If capturing SQL proves awkward, the acceptable fallback is asserting `session.getEnabledFilter("tenantFilter")` is non-null and carries the expected `tenantId` parameter after `bind()` runs. State in the report which approach you used and why.
+
+- [ ] **Step 10: Run it to verify it passes**
+
+Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.identity.*" --tests "co.ara.onboarding.tenancy.HibernateFilterTest"`
 Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 11: Commit**
 
 ```bash
 git add backend/
@@ -2221,8 +2264,25 @@ class ModuleBoundaryTest {
             noClasses().that().haveSimpleNameEndingWith("Service")
                 .should().dependOnClassesThat().haveSimpleNameEndingWith("Controller")
                 .because("controllers are an entry point, never a dependency of the domain");
+
+    /**
+     * Carried forward from Task 4's review. Spring Data repository proxies get
+     * their own transaction handling and do NOT trigger TenantTransactionBinder,
+     * so a repository called outside an enclosing @Transactional service method
+     * runs with no tenant bound. RLS then fails closed and the query returns
+     * nothing — silently, with no error to follow.
+     *
+     * Controllers must therefore never touch a repository directly.
+     */
+    @ArchTest
+    static final ArchRule controllersDoNotUseRepositoriesDirectly =
+            noClasses().that().haveSimpleNameEndingWith("Controller")
+                .should().dependOnClassesThat().haveSimpleNameEndingWith("Repository")
+                .because("a repository call outside a @Transactional service has no tenant bound");
 }
 ```
+
+`TenantDebugController` is the one current violation — it injects `TenantRepository`. It is deleted in Task 20, so either exclude it by name with a comment referencing that task, or move its lookup behind a small service. Do not weaken the rule.
 
 **Do not use `layeredArchitecture().definedBy("co.ara.onboarding..*Controller")` here.** `definedBy(String...)` takes *package* identifiers, not class-name patterns, so `*Controller` would be read as a package segment and match nothing — producing a layer that is empty and a rule that can never fail. This project also has no `..controller..` package; controllers live directly in their domain module. The `noClasses()` form above expresses the same intent and actually binds to real classes.
 
