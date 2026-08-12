@@ -959,8 +959,13 @@ public class TenantConnectionCustomizer {
         this.entityManager = entityManager;
     }
 
-    /** Binds the current tenant to both the DB session and the Hibernate filter. */
-    @Transactional
+    /**
+     * Binds the current tenant to both the DB session and the Hibernate filter.
+     * MANDATORY is deliberate: set_config(..., true) is transaction-scoped, so
+     * binding outside a transaction would silently discard the setting and leave
+     * every RLS-protected query returning nothing. Fail loudly instead.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
     public void bind(UUID tenantId) {
         Session session = entityManager.unwrap(Session.class);
         session.doWork(connection -> {
@@ -993,6 +998,8 @@ Resolves `/api/t/{slug}` into a bound tenant for the request, and guarantees the
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantResolver.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/PathPrefixTenantResolver.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantContextFilter.java`
+- Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantTransactionBinder.java`
+- Create: `backend/src/main/java/co/ara/onboarding/platform/TransactionConfig.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/UnknownTenantException.java`
 - Create: `backend/src/main/java/co/ara/onboarding/platform/ApiExceptionHandler.java`
 - Test: `backend/src/test/java/co/ara/onboarding/tenancy/TenantResolutionTest.java`
@@ -1290,7 +1297,7 @@ import java.util.UUID;
  */
 @Aspect
 @Component
-@Order(0)
+@Order(200)   // MUST be a larger number than the transaction advisor's order — see below
 public class TenantTransactionBinder {
 
     private final TenantConnectionCustomizer binder;
@@ -1305,6 +1312,36 @@ public class TenantTransactionBinder {
     }
 }
 ```
+
+**The ordering is the whole trick, and getting it backwards fails silently.** In Spring, a *lower* order value means *higher* precedence, which means the advice runs *further out* — before the transaction begins. Spring's transaction advisor defaults to `Ordered.LOWEST_PRECEDENCE`, so an aspect at `@Order(0)` would run outside the transaction entirely. `bind()` would then open its own short-lived transaction, apply `set_config('app.tenant_id', …, true)` — which is transaction-scoped — and commit, throwing the setting away before the real transaction ever starts. Every RLS-protected query would return zero rows, and because RLS fails closed, the symptom is "everything is mysteriously empty" rather than an error.
+
+So give the transaction advisor an explicit, higher precedence and place the binder inside it.
+
+`platform/TransactionConfig.java`:
+
+```java
+package co.ara.onboarding.platform;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+/**
+ * Pins the transaction advisor's order so TenantTransactionBinder (@Order(200))
+ * runs INSIDE the transaction it is binding the tenant to.
+ */
+@Configuration
+@EnableTransactionManagement(order = 100)
+public class TransactionConfig {}
+```
+
+And make the failure loud rather than silent by requiring an active transaction in `TenantConnectionCustomizer.bind` — change its annotation from `@Transactional` to:
+
+```java
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void bind(UUID tenantId) {
+```
+
+With `MANDATORY`, a mis-ordered aspect throws `IllegalTransactionStateException` on the first request instead of quietly returning empty result sets for the rest of the project.
 
 - [ ] **Step 9: Write a test proving the binding actually reaches the database**
 
