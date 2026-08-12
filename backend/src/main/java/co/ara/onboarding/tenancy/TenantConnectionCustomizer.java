@@ -31,6 +31,16 @@ public class TenantConnectionCustomizer {
                 stmt.execute();
             }
         });
-        session.enableFilter("tenantFilter").setParameter("tenantId", tenantId);
+        // "tenantFilter" is declared on the TenantScopedEntity @MappedSuperclass, but
+        // Hibernate only registers a @FilterDef with the SessionFactory when some
+        // concrete entity actually extends the superclass that declares it. As of
+        // Task 4, nothing extends TenantScopedEntity yet, so enabling the filter
+        // unconditionally throws UnknownFilterException on every request. Guard it
+        // so the primary mechanism -- set_config, which is what RLS reads -- still
+        // runs; once a real TenantScopedEntity subclass exists, the filter becomes
+        // defined and this starts enabling it with no code change needed here.
+        if (session.getSessionFactory().getDefinedFilterNames().contains("tenantFilter")) {
+            session.enableFilter("tenantFilter").setParameter("tenantId", tenantId);
+        }
     }
 }
