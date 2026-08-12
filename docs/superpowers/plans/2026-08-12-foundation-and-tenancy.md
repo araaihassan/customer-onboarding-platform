@@ -2116,7 +2116,7 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
-import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 @AnalyzeClasses(
@@ -2129,13 +2129,16 @@ class ModuleBoundaryTest {
             slices().matching("co.ara.onboarding.(*)..").should().beFreeOfCycles();
 
     @ArchTest
-    static final ArchRule domainModulesDoNotDependOnControllers =
-            layeredArchitecture().consideringOnlyDependenciesInLayers()
-                .layer("Controllers").definedBy("..controller..", "co.ara.onboarding..*Controller")
-                .layer("Services").definedBy("co.ara.onboarding..*Service")
-                .whereLayer("Controllers").mayNotBeAccessedByAnyLayer();
+    static final ArchRule servicesDoNotDependOnControllers =
+            noClasses().that().haveSimpleNameEndingWith("Service")
+                .should().dependOnClassesThat().haveSimpleNameEndingWith("Controller")
+                .because("controllers are an entry point, never a dependency of the domain");
 }
 ```
+
+**Do not use `layeredArchitecture().definedBy("co.ara.onboarding..*Controller")` here.** `definedBy(String...)` takes *package* identifiers, not class-name patterns, so `*Controller` would be read as a package segment and match nothing — producing a layer that is empty and a rule that can never fail. This project also has no `..controller..` package; controllers live directly in their domain module. The `noClasses()` form above expresses the same intent and actually binds to real classes.
+
+Verify it can fail: temporarily add a field of a `*Controller` type to any `*Service`, run the test, confirm FAIL, then revert.
 
 - [ ] **Step 5: Write the authorization coverage test, disabled for now**
 
@@ -2185,7 +2188,13 @@ public @interface RequirePermission {
 }
 ```
 
-Services that legitimately need no gate — provisioning run by platform admins, internal helpers — must be annotated `@RequirePermission(PermissionKeys.PLATFORM_ADMIN)` or excluded by an explicit, commented `.and().areNotDeclaredIn(...)` clause. Never by deleting the rule.
+Services that legitimately need no gate — `TenantProvisioningService`, which runs before any tenant user exists — are excluded by an explicit, commented clause naming the class:
+
+```java
+                     .and().areNotDeclaredIn(TenantProvisioningService.class)
+```
+
+Never by deleting or weakening the rule. There is deliberately **no** `PermissionKeys.PLATFORM_ADMIN` catch-all: a permission that means "skip the check" would be indistinguishable from a real grant in the catalog, and every future ungated service would reach for it. Platform-admin endpoints are secured at the HTTP layer instead (Task 22 Step 9).
 
 - [ ] **Step 6: Run all architecture tests**
 
@@ -4277,20 +4286,33 @@ Add to `AuthorizationCoverageTest`:
 
 ```java
     /**
-     * Services must read tenant data through AuthorizedQuery. Calling repository
-     * finders directly would skip the scope predicate entirely.
+     * Services must read tenant business data through AuthorizedQuery. Calling
+     * repository finders directly would skip the scope predicate entirely.
      */
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
-            noClasses().that().haveSimpleNameEndingWith("Service")
-                .and().resideInAPackage("co.ara.onboarding.customer..")
+            noClasses().that().resideInAPackage("co.ara.onboarding.customer..")
+                .and().haveSimpleNameEndingWith("Service")
                 .should().callMethodWhere(
-                    target(owner(assignableTo(JpaSpecificationExecutor.class)))
-                        .and(target(nameMatching("findAll|findOne|findById"))))
+                        target(name("findAll"))
+                        .or(target(name("findOne")))
+                        .or(target(name("findById")))
+                        .or(target(nameStartingWith("findBy"))))
                 .because("reads must go through AuthorizedQuery so scope cannot be bypassed");
 ```
 
-Scope the rule to `co.ara.onboarding.customer..` for now. As each later sub-project adds a domain module, add its package here. Note in a comment that `TenantProvisioningService` and `RoleService` are exempt because they operate on authorization metadata rather than scoped business records.
+These are the exact static imports it needs — get them wrong and the failure is a confusing compile error rather than an obvious one:
+
+```java
+import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameStartingWith;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+```
+
+The `findBy*` clause matters as much as the rest: a derived query like `contactRepository.findByCustomerId(id)` carries no scope predicate either, so it bypasses authorization exactly as `findAll()` would. `CustomerContactService` must therefore reach contacts through `AuthorizedQuery` with a `customerId` specification rather than through a derived finder.
+
+Scope the rule to `co.ara.onboarding.customer..` for now; each later sub-project adds its own domain package here. `TenantProvisioningService` and `RoleService` are outside that package and unaffected — they operate on authorization metadata, not scoped business records.
 
 - [ ] **Step 7: Repair the earlier tests this task deliberately breaks**
 
