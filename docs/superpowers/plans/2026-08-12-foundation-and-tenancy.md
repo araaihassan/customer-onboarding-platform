@@ -864,16 +864,22 @@ RETURNS void AS $$
 BEGIN
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', target_table);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', target_table);
+    -- current_setting('app.tenant_id', true) returns NULL when the GUC was
+    -- never set in this session, but PostgreSQL resets a custom (placeholder)
+    -- GUC to '' -- not NULL -- on RESET, and ''::uuid raises a cast error
+    -- rather than failing closed. nullif(...,'') collapses both "never set"
+    -- and "reset" to NULL so tenant_id = NULL (never true) is what actually
+    -- runs in both cases -- fail-closed without an exception.
     EXECUTE format($f$
         CREATE POLICY tenant_isolation ON %I
-        USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-        WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)
+        USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+        WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
     $f$, target_table);
 END;
 $$ LANGUAGE plpgsql;
 ```
 
-Note: `current_setting('app.tenant_id', true)` returns NULL when unset, and `tenant_id = NULL` is never true — so an unset tenant context sees **nothing** rather than everything. That fail-closed behaviour is deliberate.
+The `nullif` is not decoration. `current_setting(name, true)` returns NULL only when the setting was *never* established in the session; once `SET app.tenant_id` has run, a subsequent `RESET` leaves it as the empty string. `''::uuid` then raises `invalid input syntax for type uuid`, so the policy would error rather than fail closed. An erroring policy still denies access, but it turns a clean "you see nothing" into an exception surfacing from arbitrary queries — and the obvious fix under time pressure is to loosen the predicate, which is how a fail-closed policy becomes a fail-open one. Collapsing both cases to NULL keeps `tenant_id = NULL` (never true) as the actual evaluated expression.
 
 - [ ] **Step 4: Run it to verify it passes**
 
