@@ -719,7 +719,7 @@ Add to `backend/src/test/java/co/ara/onboarding/support/AppRoleTest.java`:
     @Test
     void applicationRoleCannotDeleteFromTenantRegistry() {
         assertThatThrownBy(() -> jdbc.execute("DELETE FROM tenant"))
-                .hasMessageContaining("permission denied");
+                .hasStackTraceContaining("permission denied for table tenant");
     }
 
     @Test
@@ -728,14 +728,23 @@ Add to `backend/src/test/java/co/ara/onboarding/support/AppRoleTest.java`:
         // a table created after V2_1 must not inherit DELETE.
         // Named rls_probe_* so Task 7's RlsCoverageTest, which is deny-by-default
         // over every table in the schema, skips it. Do not rename.
-        jdbc.execute("CREATE TABLE IF NOT EXISTS rls_probe_delete (id uuid PRIMARY KEY)");
-        jdbc.execute("GRANT SELECT, INSERT ON rls_probe_delete TO onboarding_app");
+        // DDL as owner — onboarding_app has no CREATE on the schema — but the
+        // DELETE under test must run as onboarding_app or it proves nothing.
+        ownerJdbc().execute("CREATE TABLE IF NOT EXISTS rls_probe_delete (id uuid PRIMARY KEY)");
+        ownerJdbc().execute("GRANT SELECT, INSERT ON rls_probe_delete TO onboarding_app");
         assertThatThrownBy(() -> jdbc.execute("DELETE FROM rls_probe_delete"))
-                .hasMessageContaining("permission denied");
+                .hasStackTraceContaining("permission denied for table rls_probe_delete");
     }
 ```
 
 The second test is the one that matters. Revoking on `tenant` alone would pass a test that only checks `tenant`, while every future table silently kept the inherited grant.
+
+Two mechanics that are easy to get wrong here, both discovered the hard way:
+
+- **`hasStackTraceContaining`, not `hasMessageContaining`.** `JdbcTemplate` wraps the driver's error in a `BadSqlGrammarException` whose own message is generic; the Postgres text `permission denied for table …` lives on the cause. A `hasMessageContaining("permission denied")` assertion never matches, so the test fails even when the migration is correct — and the tempting conclusion is that the migration is broken.
+- **DDL as owner, assertion as `onboarding_app`.** `onboarding_app` has no `CREATE` on the schema, so creating the probe through the autowired template fails outright. Creating *and* deleting as the owner would "pass" while testing nothing, since the owner bypasses the privilege being checked.
+
+`ownerJdbc()` is added to `PostgresTestBase` in Task 3 Step 0; if you are doing Task 2 before that exists, add the helper here and Task 3 will simply use it.
 
 - [ ] **Step 13: Run and commit**
 
@@ -767,7 +776,31 @@ Introduces the thread-local tenant, the connection-level `app.tenant_id` setting
   - `TenantScopedEntity extends BaseEntity` — adds `@Column(name="tenant_id") UUID tenantId` with getter/setter, and declares the Hibernate `@FilterDef`/`@Filter` named `tenantFilter`.
   - SQL function `enable_tenant_rls(text)` — applied to every tenant-owned table in later migrations.
 
+- [ ] **Step 0: Add an owner-role JDBC helper to `PostgresTestBase`**
+
+Tests in this task and in Tasks 6 and 7 need to run DDL and `GRANT` statements, which `onboarding_app` deliberately cannot do — it has no `CREATE` on the schema. Running those statements through the ordinary autowired `JdbcTemplate` fails with `permission denied for schema public`. Worse, if a test ran its *assertions* as the owner too, it would be testing ownership bypass rather than the privilege or policy under test.
+
+So expose a second template bound to the migration-owner role, and keep the distinction explicit: **DDL and grants as owner; the behaviour under test as `onboarding_app`.**
+
+Add to `PostgresTestBase`:
+
+```java
+    /**
+     * JdbcTemplate bound to the container's owner role, for DDL and GRANT only.
+     * Never assert privilege or RLS behaviour through this — the owner bypasses
+     * both, so an assertion made here proves nothing.
+     */
+    protected static JdbcTemplate ownerJdbc() {
+        var ds = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        ds.setDriverClassName("org.postgresql.Driver");
+        return new JdbcTemplate(ds);
+    }
+```
+
 - [ ] **Step 1: Write the failing isolation test**
+
+Note the split: `ownerJdbc()` creates and grants; the autowired `jdbc` (which is `onboarding_app`) does the inserts and selects whose visibility is the actual subject of the test.
 
 `backend/src/test/java/co/ara/onboarding/tenancy/RlsIsolationTest.java`:
 
@@ -787,12 +820,13 @@ class RlsIsolationTest extends PostgresTestBase {
 
     @Test
     void rlsHidesRowsOfOtherTenants() {
-        jdbc.execute("""
+        // DDL and grants as owner; everything asserted below runs as onboarding_app.
+        ownerJdbc().execute("""
             CREATE TABLE IF NOT EXISTS rls_probe (
                 id uuid PRIMARY KEY, tenant_id uuid NOT NULL, label text NOT NULL)
             """);
-        jdbc.execute("SELECT enable_tenant_rls('rls_probe')");
-        jdbc.execute("GRANT SELECT, INSERT ON rls_probe TO onboarding_app");
+        ownerJdbc().execute("SELECT enable_tenant_rls('rls_probe')");
+        ownerJdbc().execute("GRANT SELECT, INSERT ON rls_probe TO onboarding_app");
 
         UUID tenantA = UUID.randomUUID();
         UUID tenantB = UUID.randomUUID();
@@ -853,12 +887,12 @@ Add to `RlsIsolationTest`:
 ```java
     @Test
     void unsetTenantContextSeesNothing() {
-        jdbc.execute("""
+        ownerJdbc().execute("""
             CREATE TABLE IF NOT EXISTS rls_probe2 (
                 id uuid PRIMARY KEY, tenant_id uuid NOT NULL)
             """);
-        jdbc.execute("SELECT enable_tenant_rls('rls_probe2')");
-        jdbc.execute("GRANT SELECT, INSERT ON rls_probe2 TO onboarding_app");
+        ownerJdbc().execute("SELECT enable_tenant_rls('rls_probe2')");
+        ownerJdbc().execute("GRANT SELECT, INSERT ON rls_probe2 TO onboarding_app");
 
         UUID tenant = UUID.randomUUID();
         jdbc.execute("SET app.tenant_id = '" + tenant + "'");
@@ -1815,11 +1849,14 @@ class AuditAppendOnlyTest extends PostgresTestBase {
 
     @Test
     void applicationRoleCannotUpdateOrDeleteAuditEvents() {
+        // hasStackTraceContaining, not hasMessageContaining: JdbcTemplate wraps the
+        // driver error in a BadSqlGrammarException whose own message is generic,
+        // so the Postgres text only appears on the cause.
         assertThatThrownBy(() -> jdbc.execute("UPDATE audit_event SET summary = 'tampered'"))
-                .hasMessageContaining("permission denied");
+                .hasStackTraceContaining("permission denied for table audit_event");
 
         assertThatThrownBy(() -> jdbc.execute("DELETE FROM audit_event"))
-                .hasMessageContaining("permission denied");
+                .hasStackTraceContaining("permission denied for table audit_event");
     }
 }
 ```
