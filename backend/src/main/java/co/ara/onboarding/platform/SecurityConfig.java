@@ -47,6 +47,11 @@ public class SecurityConfig {
                 // TODO(task-20): removed with TenantDebugController.
                 .requestMatchers("/api/t/*/_debug/**").permitAll()
                 .requestMatchers("/api/platform/**").permitAll()   // secured in Task 22
+                // The frontend generates its types from this document, and Task 19's
+                // OpenApiDocumentTest reads it. It describes endpoint shapes, not data.
+                // TODO(task-22): decide whether to expose it outside dev — springdoc
+                // can be disabled per profile rather than secured here.
+                .requestMatchers("/v3/api-docs/**", "/v3/api-docs").permitAll()
                 .anyRequest().authenticated())
             .build();
     }

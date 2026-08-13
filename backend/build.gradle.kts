@@ -46,3 +46,24 @@ dependencies {
 }
 
 tasks.withType<Test> { useJUnitPlatform() }
+
+/**
+ * The OpenAPI document is produced by OpenApiDocumentTest, which writes
+ * build/openapi.json during `./gradlew test`. That keeps the contract a real build
+ * artifact -- regenerable from a checkout, diffable in CI -- rather than something
+ * only obtainable by starting the application and running curl by hand.
+ */
+tasks.register("openApiSpec") {
+    description = "Produces build/openapi.json for frontend type generation"
+    group = "documentation"
+    dependsOn("test")
+    val output = layout.buildDirectory.file("openapi.json")
+    outputs.file(output)
+    doLast {
+        val file = output.get().asFile
+        if (!file.exists()) {
+            throw GradleException("openapi.json was not produced; did OpenApiDocumentTest run?")
+        }
+        println("OpenAPI document written to ${'$'}{file.absolutePath}")
+    }
+}

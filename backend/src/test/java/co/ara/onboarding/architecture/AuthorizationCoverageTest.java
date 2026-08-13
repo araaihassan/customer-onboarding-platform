@@ -2,6 +2,7 @@ package co.ara.onboarding.architecture;
 
 import co.ara.onboarding.auth.ActivationService;
 import co.ara.onboarding.auth.LoginService;
+import co.ara.onboarding.auth.MeService;
 import co.ara.onboarding.auth.PasswordResetService;
 import co.ara.onboarding.auth.LoginThrottleService;
 import co.ara.onboarding.auth.RefreshTokenService;
@@ -60,6 +61,11 @@ class AuthorizationCoverageTest {
      *   - ActivationService, PasswordResetService — the caller holds a token and
      *     nothing else; they have no session and no roles to check.
      *
+     * Returns only the caller's own record, so no permission applies:
+     *   - MeService — there is no catalogued permission for knowing who you are, and
+     *     inventing one would be a permission every role must hold, which is the same
+     *     as no permission at all.
+     *
      * Note what is NOT excluded: InvitationService. Issuing an invitation is an
      * authenticated staff action and invitation.send is a real catalogued permission,
      * so it is gated. That is exactly why issuing and accepting are separate classes
@@ -100,6 +106,7 @@ class AuthorizationCoverageTest {
                      .and().areNotDeclaredIn(LoginThrottleService.class)
                      .and().areNotDeclaredIn(ActivationService.class)
                      .and().areNotDeclaredIn(PasswordResetService.class)
+                     .and().areNotDeclaredIn(MeService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
 

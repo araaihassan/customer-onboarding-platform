@@ -5928,9 +5928,15 @@ git commit -m "feat: add invitation, activation and password reset flows"
 Supplies the frontend's permission-aware UI and produces the contract the frontend types are generated from.
 
 **Files:**
+- Create: `backend/src/main/java/co/ara/onboarding/auth/MeService.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/MeController.java`
-- Modify: `backend/build.gradle.kts`
+- Modify: `backend/build.gradle.kts`, `platform/SecurityConfig.java`
 - Test: `backend/src/test/java/co/ara/onboarding/auth/MeControllerTest.java`
+- Test: `backend/src/test/java/co/ara/onboarding/architecture/OpenApiDocumentTest.java`
+
+**The controller must not inject `AppUserRepository`.** It violates `ModuleBoundaryTest.controllersDoNotUseRepositoriesDirectly`, and here the rule is preventing a real bug rather than enforcing taste: a controller is not `@Transactional`, so a repository call from one runs with no tenant bound on the connection, RLS returns nothing, and the plan's `orElseThrow()` becomes a 500 on every request. Put the lookup in a `@Transactional` `MeService`.
+
+`MeService` then needs an `AuthorizationCoverageTest` exclusion, in a third category the list did not have: it returns only the caller's own record, and there is no catalogued permission for knowing who you are — inventing one would be a permission every role must hold, which is the same as no permission at all.
 
 **Interfaces:**
 - Consumes: `AuthorizationService`, `AuthContextProvider`.
@@ -5990,7 +5996,13 @@ class MeControllerTest extends PostgresTestBase {
 }
 ```
 
-Note the JSON path expects a single value because `jsonPath` on a one-element array unwraps it; if the assertion proves awkward, assert on `$.permissions['customer.view'][0]` instead.
+`jsonPath` does **not** unwrap a one-element array — `.value("TEAM")` compares a `List` to a `String` and fails. Use a Hamcrest matcher against the array itself: `jsonPath("$.permissions['customer.view']", hasItem("TEAM"))`. Matching the array is also the honest assertion, since a permission can be held at several scopes.
+
+Three tests beyond the plan's two:
+
+- `permissionsUnionScopesAcrossRoles` — the case the UI actually depends on, and the one a response that keeps only one scope would fail. The plan's single-scope test cannot detect that.
+- `userWithNoRolesGetsAnEmptyPermissionMap` — the frontend reads the map unconditionally, and holding nothing is normal for a freshly invited user.
+- `tokenFromAnotherTenantCannotReadMe` — `/me` returns a profile, so it is worth proving the token's tenant check covers it.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -6049,24 +6061,37 @@ public class MeController {
 
 This response drives UI affordances only. It is convenience, never security — every endpoint enforces independently (spec §10.3).
 
+**Return a typed record, not `Map<String, Object>`.** Both serialise identically, but a Map documents as an untyped object in the OpenAPI schema — useless to the generator this task exists to feed. With a record, `Me` appears as a real schema alongside `LoginRequest` and `LoginResponse`.
+
 - [ ] **Step 4: Add the OpenAPI export task**
 
 Add to `build.gradle.kts`:
 
+**Generate the document from a test, not from a printed curl command.** `OpenApiDocumentTest` fetches `/v3/api-docs` through MockMvc, asserts the endpoints the frontend depends on are present, and writes `build/openapi.json`. Two things that buys:
+
+- The contract becomes a real build artifact, produced by `./gradlew test` with no manually started server — regenerable from a checkout, diffable in CI.
+- springdoc genuinely can fail to describe a type. Caught here as a failing backend test rather than as a broken frontend build days later.
+
+Writing a file from a test is a deliberate impurity; the alternative is a contract nobody can regenerate without running the application by hand.
+
 ```kotlin
 tasks.register("openApiSpec") {
-    description = "Writes build/openapi.json for frontend type generation"
-    dependsOn("bootJar")
+    description = "Produces build/openapi.json for frontend type generation"
+    group = "documentation"
+    dependsOn("test")
+    val output = layout.buildDirectory.file("openapi.json")
+    outputs.file(output)
     doLast {
-        // springdoc serves the document at /v3/api-docs when the app runs.
-        // Fetch it with the app started, or run:
-        //   curl -s http://localhost:8080/v3/api-docs > build/openapi.json
-        println("Start the app and run: curl -s http://localhost:8080/v3/api-docs > build/openapi.json")
+        if (!output.get().asFile.exists()) {
+            throw GradleException("openapi.json was not produced; did OpenApiDocumentTest run?")
+        }
     }
 }
 ```
 
-Generating the document requires a running application. Task 23 documents the exact frontend command that consumes it.
+**`/v3/api-docs` must be added to `permitAll` in `SecurityConfig`**, or `.anyRequest().authenticated()` answers 401 and both the test and `openapi-typescript` fail. It describes endpoint shapes rather than data; Task 22 should decide whether to expose it outside development, which is better done by disabling springdoc per profile than by securing the path.
+
+Task 23 documents the exact frontend command that consumes it.
 
 - [ ] **Step 5: Run it to verify it passes**
 
