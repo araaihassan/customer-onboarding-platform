@@ -92,6 +92,12 @@ public class AuthController {
             case LoginOutcome.MfaRequired ignored ->
                     throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED,
                             "MFA is not yet supported");
+
+            // 429 rather than a sixth 401, so the client can say "try again later"
+            // instead of "wrong password". Task 25 distinguishes the two messages.
+            case LoginOutcome.LockedOut ignored ->
+                    throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                            "Too many attempts");
         };
     }
 

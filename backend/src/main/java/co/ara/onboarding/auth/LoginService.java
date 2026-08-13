@@ -13,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Credential verification and access-token issue.
@@ -34,24 +35,34 @@ public class LoginService {
     private final PasswordEncoder passwords;
     private final TokenService tokens;
     private final RefreshTokenService refreshTokens;
+    private final LoginThrottleService throttle;
     private final AuditRecorder audit;
     private final RequestAuditContext requestContext;
 
     public LoginService(AppUserRepository users, PasswordEncoder passwords,
                         TokenService tokens, RefreshTokenService refreshTokens,
+                        LoginThrottleService throttle,
                         AuditRecorder audit, RequestAuditContext requestContext) {
         this.users = users;
         this.passwords = passwords;
         this.tokens = tokens;
         this.refreshTokens = refreshTokens;
+        this.throttle = throttle;
         this.audit = audit;
         this.requestContext = requestContext;
     }
 
     @Transactional
     public LoginOutcome login(String email, String rawPassword) {
-        AppUser user = users.findByTenantIdAndEmailIgnoreCase(
-                TenantContext.getRequired(), email).orElse(null);
+        UUID tenantId = TenantContext.getRequired();
+
+        // Checked before the password is even looked at, so a locked account cannot
+        // be probed for credential correctness.
+        if (throttle.isLockedOut(tenantId, email)) {
+            return new LoginOutcome.LockedOut();
+        }
+
+        AppUser user = users.findByTenantIdAndEmailIgnoreCase(tenantId, email).orElse(null);
 
         boolean valid = user != null
                 && user.getStatus() == UserStatus.ACTIVE
@@ -59,6 +70,8 @@ public class LoginService {
                 && passwords.matches(rawPassword, user.getPasswordHash());
 
         if (!valid) {
+            // Recorded whether or not the account exists -- see recordFailure's javadoc.
+            throttle.recordFailure(tenantId, email);
             audit.record(AuditActions.LOGIN_FAILED, "app_user",
                     user == null ? null : user.getId(),
                     "Failed login for " + email, Map.of());
@@ -75,6 +88,7 @@ public class LoginService {
             return new LoginOutcome.MfaRequired();
         }
 
+        throttle.recordSuccess(tenantId, email);
         user.setLastLoginAt(Instant.now());
         users.save(user);
         audit.record(AuditActions.LOGIN_SUCCEEDED, "app_user", user.getId(),

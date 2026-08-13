@@ -5554,10 +5554,12 @@ Progressive delay and lockout counted in PostgreSQL, since Redis is out of scope
 - Create: `backend/src/main/java/co/ara/onboarding/auth/LoginAttempt.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/LoginAttemptRepository.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/LoginThrottleService.java`
-- Create: `backend/src/main/java/co/ara/onboarding/auth/TooManyAttemptsException.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/platform/ApiExceptionHandler.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/LoginService.java`, `LoginOutcome.java`, `AuthController.java`
 - Test: `backend/src/test/java/co/ara/onboarding/auth/LoginThrottleTest.java`
+
+**No `TooManyAttemptsException` and no `ApiExceptionHandler` change.** Mapping an `auth` exception in `platform` closes the `platform → auth` cycle for the third time in this phase. Add a `LockedOut` case to `LoginOutcome` instead — the throttle decision belongs on the same outcome type as the other two login rejections, and the controller maps it to 429.
+
+Throttling is wired into **`LoginService`**, not `AuthController`. The controller is not transactional (Task 16), and `recordFailure` is a write that must commit even though the request is rejected — the same constraint that shaped `LoginOutcome` and `RotationOutcome`.
 
 **Interfaces:**
 - Consumes: `AuditRecorder`.
@@ -5637,8 +5639,11 @@ CREATE TABLE login_attempt (
     locked_until   timestamptz,
     created_at     timestamptz NOT NULL,
     updated_at     timestamptz NOT NULL,
-    UNIQUE (tenant_id, email)
 );
+
+-- NOT "UNIQUE (tenant_id, email)" as earlier drafts had it -- see below.
+CREATE UNIQUE INDEX login_attempt_tenant_email_key
+    ON login_attempt (tenant_id, lower(email));
 
 SELECT enable_tenant_rls('login_attempt');
 GRANT SELECT, INSERT, UPDATE ON login_attempt TO onboarding_app;
@@ -5655,14 +5660,40 @@ Policy constants: `MAX_FAILURES = 5`, `WINDOW = Duration.ofMinutes(15)`, `LOCKOU
 
 Counting per `(tenant, email)` rather than per IP is deliberate: it protects accounts against distributed guessing, which IP-based counting does not.
 
-- [ ] **Step 5: Wire it into `AuthController.login`**
+**Three corrections, each a real hole in the version above.**
 
-Call `throttle.checkAllowed(...)` before verifying the password, `throttle.recordFailure(...)` on the failure path, and `throttle.recordSuccess(...)` after a successful login. Map `TooManyAttemptsException` to 429 in `ApiExceptionHandler`.
+**1. Case-insensitivity, in two places.** `app_user` is unique on `lower(email)`, so counting failures against the raw string is a lockout bypass. The unique index must be on `(tenant_id, lower(email))`, *and* the service must lowercase before reading. The two protect different things and fail differently, which is worth knowing:
+
+- The index makes the **count** correct — the UPSERT's conflict target matches across capitalisations regardless of what the service does.
+- Lowercasing makes the **lookup** correct — the finder is an exact match, so without it `isLockedOut` misses a row stored under another casing.
+
+Tested by removing the lowercasing: the count stayed right and `isLockedOut` returned `false`. The account was locked and the check silently did not fire, which is worse than a wrong count because nothing looks broken. Use `Locale.ROOT` — in a Turkish locale `"I".toLowerCase()` is `"ı"` and would not match the database's `lower()`.
+
+**2. `recordFailure` must be an atomic UPSERT, not a read-modify-write.** Concurrent failed logins for one address are exactly the case that matters, and they collide on the unique index; in PostgreSQL that violation poisons the transaction, so the attempt is never counted. An attacker firing requests in parallel would stay under the threshold indefinitely. Use `INSERT … ON CONFLICT (tenant_id, lower(email)) DO UPDATE`, applying the window inside the statement, then a separate idempotent `UPDATE … WHERE failure_count >= 5 AND (locked_until IS NULL OR locked_until <= now)` to apply the lock. Two concurrent callers both setting the lock is harmless, so the two statements need no coordination. The `@Modifying` query needs `clearAutomatically = true`, or a stale first-level cache entry reports the pre-increment count.
+
+**3. `recordFailure` must be called for unknown addresses too.** If only real accounts could ever lock out, then 429-versus-401 tells an attacker which addresses exist — undoing the shared 401 that the login flow returns precisely to hide that.
+
+Prefer `isLockedOut(...)` returning a boolean over a `checkAllowed(...)` that throws: `LoginService` needs to turn the answer into an outcome, and an exception thrown inside its transaction would roll back the failure it just recorded.
+
+- [ ] **Step 5: Wire it into `LoginService.login`**
+
+Check `isLockedOut(...)` **before** the password is looked at, so a locked account cannot be probed for credential correctness. Call `recordFailure(...)` on the failure path and `recordSuccess(...)` after a successful login. Return `LoginOutcome.LockedOut` and let `AuthController` map it to 429 — `auth` maps its own statuses, `platform` does not name `auth` types.
+
+`LoginThrottleService` needs an `AuthorizationCoverageTest` exclusion, in the pre-authentication category alongside `LoginService` and `RefreshTokenService`.
 
 - [ ] **Step 6: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.LoginThrottleTest"`
-Expected: PASS
+Expected: PASS.
+
+Four tests beyond the plan's three, all covering behaviour nothing else reaches:
+
+- `lockoutIgnoresEmailCase` — five capitalisations of one address must be five failures and **one row**. Assert both; the row count is what catches a missing index and the lockout flag is what catches a missing `toLowerCase`.
+- `failuresOutsideTheWindowStartAFreshCount` — age `first_failure` past the window rather than waiting fifteen minutes. Without this the window is never exercised.
+- `sixthAttemptOverHttpAnswers429` — proves the policy is wired to the endpoint, and that a *correct* password is still refused while locked. Task 25 shows a different message for 429 than 401, so the status is a contract.
+- `unknownAddressesAreThrottledSoTheStatusLeaksNothing` — the reason correction 3 exists.
+
+Also assert the negative edge in the lockout test: four failures must **not** lock. Asserting only the fifth cannot distinguish a threshold of five from a threshold of one.
 
 - [ ] **Step 7: Commit**
 

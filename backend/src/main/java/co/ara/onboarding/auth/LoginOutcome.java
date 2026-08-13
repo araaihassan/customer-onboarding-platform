@@ -33,4 +33,11 @@ public sealed interface LoginOutcome {
 
     /** Credentials were correct, but the account requires a second factor (spec 7.8). */
     record MfaRequired() implements LoginOutcome {}
+
+    /**
+     * Too many recent failures for this address (→ 429). Returned without even
+     * looking at the password, and returned for unknown addresses too — if only real
+     * accounts could lock out, the status itself would reveal which addresses exist.
+     */
+    record LockedOut() implements LoginOutcome {}
 }

@@ -1,6 +1,7 @@
 package co.ara.onboarding.architecture;
 
 import co.ara.onboarding.auth.LoginService;
+import co.ara.onboarding.auth.LoginThrottleService;
 import co.ara.onboarding.auth.RefreshTokenService;
 import co.ara.onboarding.auth.TokenService;
 import co.ara.onboarding.authz.AuthorizationService;
@@ -52,6 +53,8 @@ class AuthorizationCoverageTest {
      *     permission would be unsatisfiable by construction.
      *   - RefreshTokenService — how a session stays authenticated. The credential it
      *     verifies is a cookie, not an authority.
+     *   - LoginThrottleService — runs during authentication, counting attempts before
+     *     any identity is established.
      *
      * Infrastructure that the gate itself depends on, so gating it is circular:
      *   - AuthorizationService — it *is* the mechanism. Resolving the gate would
@@ -84,6 +87,7 @@ class AuthorizationCoverageTest {
                      .and().areNotDeclaredIn(LoginService.class)
                      .and().areNotDeclaredIn(TokenService.class)
                      .and().areNotDeclaredIn(RefreshTokenService.class)
+                     .and().areNotDeclaredIn(LoginThrottleService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
 
