@@ -6816,13 +6816,24 @@ git commit -m "test: add the eight required negative security tests"
 - [ ] **Step 1: Scaffold**
 
 ```bash
-npx create-next-app@latest frontend --typescript --tailwind --app --eslint --src-dir --no-import-alias
+npx create-next-app@15 frontend --typescript --tailwind --app --eslint --src-dir \
+  --no-import-alias --no-turbopack --use-npm --skip-install --disable-git
 cd frontend
+npm install
 npm install @tanstack/react-query next-themes zod
-npm install -D openapi-typescript vitest @testing-library/react @playwright/test
-npx shadcn@latest init
-npx shadcn@latest add button input label card table dialog dropdown-menu badge sonner
+npm install -D openapi-typescript vitest @testing-library/react @testing-library/jest-dom \
+  jsdom @vitejs/plugin-react
 ```
+
+Pin `create-next-app@15`, not `@latest` — latest is Next 16, and the stated stack is 15. Jumping a major version is a decision, not a default.
+
+`--no-turbopack` is required: without it the generator prompts interactively and hangs. `--disable-git` matters too, since this lands inside an existing repository.
+
+The scaffold ships **Geist**; replace it with **Archivo** and **IBM Plex Mono** in `layout.tsx` and point `--ob-font-family-ui` / `--ob-font-family-data` at the `next/font` variables, so the tokens stay the source of truth. Mono for machine-generated values, Archivo for human text, is one of the four decisions that erode quietly.
+
+`layout.tsx` needs `suppressHydrationWarning` on `<html>` — `next-themes` writes `data-theme` before hydration, so server and client markup differ by that attribute by design.
+
+**shadcn/ui is deferred to Task 26**, where the first components that need it are built. `shadcn init` is interactive and rewrites `globals.css`, which would overwrite the token imports set up in Step 6; running it after the token layer exists means reconciling the two by hand.
 
 - [ ] **Step 2: Enable TypeScript strict mode**
 
@@ -6923,7 +6934,13 @@ Three details the plan previously got wrong or omitted:
 
 - **`attribute="data-theme"`, not `attribute="class"`.** `tokens.css` keys its dark theme on `[data-theme="dark"]`. With `next-themes` set to `class` the dark tokens never apply and the app renders light-on-light in dark mode. Keep `defaultTheme="system"`; `tokens.css` already has a `prefers-color-scheme: dark` block for that case.
 - **Map shadcn's variables onto the semantic layer** rather than keeping its default palette. shadcn expects `--background`, `--foreground`, `--primary` and so on; point each at the corresponding `--ob-*` role (`--background: var(--ob-bg-page)`, `--primary: var(--ob-accent)`, …). Two palettes coexisting is how a design system dies in month two.
-- **Never reference a primitive token from a component.** `--ob-paper-400` is deliberately not exposed as a Tailwind utility so nobody can bypass the semantic layer. Use `border-default`, not `paper-400`.
+- **Never reference a primitive token from a component.** `--ob-paper-400` is deliberately not exposed as a Tailwind utility so nobody can bypass the semantic layer.
+
+**The Tailwind utility names are not what `tailwind.css` documents.** Its header says classes like `bg-surface`, `text-muted` and `border-default` resolve to tokens. They do not. The `@theme` block declares `--color-bg-surface`, `--color-text-muted`, `--color-border-default`, and Tailwind v4 forms a utility as `<namespace>-<name>` — so the real classes are **`bg-bg-surface`, `text-text-muted`, `border-border-default`**. Names without the category prefix (`--color-accent`) are unaffected, which is why `bg-accent` and `rounded-card` work as written.
+
+Use the generated names rather than inventing a short alias layer — a second set of utilities for the same tokens is the parallel-system problem the token layer exists to prevent. **The real fix belongs in `design/scripts/build_tokens.py`**, dropping the category prefix from the `--color-*` names so the generated utilities match the documentation. Until then, verify with `grep '\.bg-bg-surface' .next/static/css/*.css` after a build: an unrecognised class emits nothing at all rather than failing, so a typo is silent.
+
+**One semantic role is missing from the generated set.** `tokens.md` documents `paper-600` as a graphics-only tier valid at 3:1 for 20px+ marks, but exposes no semantic name for it — and components must not reference primitives. Its own guidance covers this case: add a semantic role pointing at the primitive. Declared as `--ob-graphic-muted` in `globals.css`, which is the non-generated file; it belongs in `build_tokens.py` if the dark theme ever needs a different value.
 
 Contrast is already solved and must not be "improved": `text-faint` and `text-disabled` intentionally resolve to the same value because this palette has no room for a third quiet grey that clears AA, and `paper-600` is a **graphics-only** tier that is not valid for text. The derivation is in `05-review/ux-design-review.md` §1. If you add any text colour, run `design/scripts/contrast.py`.
 
@@ -6958,7 +6975,16 @@ In `package.json`:
 }
 ```
 
-Run it with the backend running. Commit the generated file so the frontend builds without a live backend, and regenerate whenever a backend contract changes — a stale file then surfaces as a compile error, which is the point.
+Two scripts, and the local one is the default:
+
+```json
+"generate:api": "openapi-typescript ../backend/build/openapi.json -o src/lib/api/generated.ts",
+"generate:api:live": "openapi-typescript http://localhost:8080/v3/api-docs -o src/lib/api/generated.ts"
+```
+
+Task 19's `OpenApiDocumentTest` writes `backend/build/openapi.json` during `./gradlew test`, so types regenerate from a checkout with no server running. Keep the live variant for checking against a deployed backend.
+
+Commit the generated file so the frontend builds without a live backend, and regenerate whenever a backend contract changes — a stale file then surfaces as a compile error, which is the point.
 
 - [ ] **Step 8: Run the test to verify it passes**
 

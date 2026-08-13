@@ -1,0 +1,68 @@
+/* Order matters: tokens.css defines the --ob-* variables that tailwind-theme.css
+ * points at, and Tailwind itself must come first so @theme can extend it. Both
+ * files are copied from docs/uispecs/design/02-tokens/ and are GENERATED — edit
+ * them there and re-run build_tokens.py, never here. */
+@import "tailwindcss";
+@import "./tokens.css";
+@import "./tailwind-theme.css";
+
+/* shadcn/ui expects its own variable names. Mapping them onto the semantic layer
+ * rather than keeping shadcn's default palette is what stops two colour systems
+ * coexisting — which is how a design system dies in month two. Every value here
+ * is a pointer; none is a colour. */
+:root {
+  --background: var(--ob-bg-page);
+  --foreground: var(--ob-text-primary);
+  --card: var(--ob-bg-surface);
+  --card-foreground: var(--ob-text-primary);
+  --popover: var(--ob-bg-overlay);
+  --popover-foreground: var(--ob-text-primary);
+  --primary: var(--ob-accent);
+  --primary-foreground: var(--ob-text-on-accent);
+  --secondary: var(--ob-bg-inset);
+  --secondary-foreground: var(--ob-text-secondary);
+  --muted: var(--ob-bg-surface-subtle);
+  --muted-foreground: var(--ob-text-muted);
+  --accent: var(--ob-accent-tint);
+  --accent-foreground: var(--ob-accent);
+  --destructive: var(--ob-solid-blocked);
+  --destructive-foreground: var(--ob-text-on-accent);
+  --border: var(--ob-border-default);
+  --input: var(--ob-border-default);
+  --ring: var(--ob-accent);
+  --radius: var(--ob-radius-control);
+}
+
+/* A semantic role the generated token set is missing.
+ *
+ * tokens.md documents paper-600 as a graphics-only tier — valid at 3:1 for a 20px+
+ * glyph or decorative mark, never for text — but exposes no semantic name for it,
+ * and components must never reference a primitive directly. Its own guidance for
+ * this case is to add a semantic role pointing at the existing primitive, which is
+ * what this is. If the dark theme ever needs a different value, this belongs in
+ * build_tokens.py rather than here.
+ */
+:root { --ob-graphic-muted: var(--ob-paper-600); }
+[data-theme="dark"] { --ob-graphic-muted: var(--ob-slate-600, var(--ob-paper-600)); }
+
+/* Point the token families at the next/font variables, so the tokens stay the
+ * single source of truth and next/font handles loading and fallback metrics. */
+:root {
+  --ob-font-family-ui: var(--font-archivo), 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --ob-font-family-data: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+body {
+  background: var(--ob-bg-page);
+  color: var(--ob-text-primary);
+  font-family: var(--ob-font-family-ui);
+}
+
+/* Review finding 2: the prototype had no focus indicator anywhere, a straight
+ * WCAG 2.4.7 failure. :where() keeps specificity at zero so any component can
+ * override it; :focus-visible means mouse users never see it. */
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--ob-accent);
+  outline-offset: 2px;
+  border-radius: 5px;
+}
