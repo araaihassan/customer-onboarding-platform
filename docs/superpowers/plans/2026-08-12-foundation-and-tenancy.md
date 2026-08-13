@@ -4770,9 +4770,16 @@ Argon2id hashing and a login endpoint issuing a 15-minute access token that carr
 - Create: `backend/src/main/java/co/ara/onboarding/auth/PasswordEncoderConfig.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/TokenService.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/JwtAuthenticationFilter.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/LoginService.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/LoginOutcome.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`
 - Modify: `backend/src/main/java/co/ara/onboarding/platform/SecurityConfig.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/tenancy/TenantContextFilter.java` (order)
 - Test: `backend/src/test/java/co/ara/onboarding/auth/LoginTest.java`
+
+**The login logic goes in a `LoginService`, not in `AuthController`.** `AuthController` injecting `AppUserRepository` violates `ModuleBoundaryTest.controllersDoNotUseRepositoriesDirectly`. The service then needs an `AuthorizationCoverageTest` exclusion — login is how a caller *becomes* authenticated, so requiring a permission is unsatisfiable. `TokenService` needs one too: it is named `*Service` but signs and parses JWTs, and issuing a token cannot require a token.
+
+**`LoginService` must return an outcome, not throw.** It records `LOGIN_FAILED` before rejecting, and `AuditRecorder` is `@Transactional(MANDATORY)` — so throwing to signal failure marks the transaction rollback-only and discards the very audit row that records the attempt. Task 17's throttling depends on failed attempts being durable. Use a sealed `LoginOutcome` with `Success`, `InvalidCredentials` and `MfaRequired`, and let the controller map each to a status.
 
 **Interfaces:**
 - Consumes: `AppUserRepository`, `TenantContext`, `AuditRecorder`, `AuthenticatedPrincipal`.
@@ -4869,7 +4876,9 @@ class LoginTest extends PostgresTestBase {
 }
 ```
 
-Add `createUserWithPassword(UUID, String, String)` returning `AppUser` and `createInvitedUser(UUID, String, String)` to `TenantFixture`, both encoding the password with the injected `PasswordEncoder`.
+Add `createUserWithPassword(UUID, String, String)` returning `AppUser`, an overload taking `boolean mfaEnabled`, and `createInvitedUser(UUID, String, String)` to `TenantFixture`, all encoding the password with the injected `PasswordEncoder`.
+
+Unlike the other create helpers these should bind the tenant themselves via `runUnauthenticated` rather than requiring an enclosing `runAs`: login tests have no other reason to open one, and `app_user` is RLS-protected so calling them unbound fails the policy's `WITH CHECK`. Nesting inside an existing `runAs` stays safe — the `TransactionTemplate` joins the outer transaction.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -5022,6 +5031,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 The tenant match is essential. Test 1 of the negative suite in Task 21 depends on it.
 
+**`@Component @Order(20)` does not work, and the ordering here is the trickiest part of this task.** Spring Security's `FilterChainProxy` registers at order **-100**, so an `@Order(20)` servlet-filter bean runs *after* the security chain has already evaluated `authorizeHttpRequests` — with `.anyRequest().authenticated()` every request 401s regardless of the token presented. Two changes:
+
+1. Register the filter **inside** the security chain: `http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)`. Also add a `FilterRegistrationBean` with `setEnabled(false)` to suppress Boot's automatic servlet-chain registration, so the filter exists in exactly one place. (`OncePerRequestFilter` would dedupe a double registration, so the symptom would not be a visible double execution but an unanswered ordering question.)
+2. Change `TenantContextFilter` from `@Order(10)` to an order **below -100** (`-110`). This filter must run before the security chain, because the JWT filter inside that chain compares the token's `tid` claim against `TenantContext`. At order 10 the tenant is still unbound when the chain runs, `getOrNull()` returns null, and every bearer token is silently rejected.
+
+Inject the filter into `SecurityConfig` as `@Qualifier("jwtAuthenticationFilter") OncePerRequestFilter` rather than by its concrete type — `auth` depends on `platform`, so naming `JwtAuthenticationFilter` there would close a cycle. Note that injecting `OncePerRequestFilter` unqualified is ambiguous, since `TenantContextFilter` is one too.
+
+**Add a test for the tenant match.** Nothing else in this task exercises the filter, so the check could be missing or inverted and every other test would still pass. Assert both directions against a path with no handler: a token from tenant A gets 401 on tenant B's path, and 404 on its own — 404 proving it authenticated and reached routing. Without the same-tenant half, a filter that rejected everything would satisfy the assertion.
+
 - [ ] **Step 6: Implement `AuthController` login**
 
 ```java
@@ -5103,9 +5121,17 @@ Replace the `permitAll` rule from Task 4:
                                  "/api/t/*/auth/refresh",
                                  "/api/t/*/auth/activate",
                                  "/api/t/*/auth/password-reset/**").permitAll()
-                .requestMatchers("/api/platform/**").permitAll()   // secured in Task 21
+                .requestMatchers("/api/t/*/_debug/**").permitAll()  // TODO(task-20): with TenantDebugController
+                .requestMatchers("/api/platform/**").permitAll()   // secured in Task 22
                 .anyRequest().authenticated())
+            .exceptionHandling(e -> e.authenticationEntryPoint(
+                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
 ```
+
+Two additions the plan's version omits, both found by tests failing:
+
+- **The `_debug` matcher.** `TenantResolutionTest`'s four tests hit `/api/t/*/_debug/**`; without it they all 401. Removed in Task 20 along with the controller.
+- **The 401 entry point.** With none configured, Spring Security installs `Http403ForbiddenEntryPoint`, so a missing or expired bearer token answers **403**. Task 24's API client refreshes on 401 only — it would never retry, and the user would be silently logged out. 403 stays correct for an authenticated caller lacking a permission, which goes through the `AccessDeniedHandler` instead.
 
 - [ ] **Step 8: Add the reserved MFA challenge step**
 
@@ -5120,9 +5146,11 @@ Spec §7.8 requires the login flow to reserve a place for MFA without implementi
         }
 ```
 
-Failing closed is deliberate: an account flagged for MFA must not be able to sign in with a password alone just because the second factor is unimplemented.
+Failing closed is deliberate: an account flagged for MFA must not be able to sign in with a password alone just because the second factor is unimplemented. Keep it **after** credential verification, so the 501 cannot be used to discover which accounts have MFA enabled.
 
-Add a test asserting an `mfaEnabled` user receives 501 rather than a token.
+With the `LoginOutcome` shape this becomes `return new LoginOutcome.MfaRequired();` and the controller maps it to 501 — 501 rather than 401 because the credentials were correct, making this a missing capability rather than a rejected identity.
+
+Add a test asserting an `mfaEnabled` user receives 501 and no token.
 
 - [ ] **Step 9: Run it to verify it passes**
 

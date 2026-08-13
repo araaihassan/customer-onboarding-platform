@@ -26,6 +26,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestAttributes;
@@ -47,6 +48,7 @@ public class TenantFixture {
     private final TeamRepository teams;
     private final CustomerRepository customers;
     private final RoleRepository roleRepository;
+    private final PasswordEncoder passwords;
     private final UserRoleRepository userRoleRepository;
     private final TenantConnectionCustomizer binder;
     private final TransactionTemplate tx;
@@ -60,6 +62,7 @@ public class TenantFixture {
                          TeamRepository teams,
                          CustomerRepository customers,
                          RoleRepository roleRepository,
+                         PasswordEncoder passwords,
                          UserRoleRepository userRoleRepository,
                          TenantConnectionCustomizer binder,
                          TransactionTemplate tx) {
@@ -69,6 +72,7 @@ public class TenantFixture {
         this.teams = teams;
         this.customers = customers;
         this.roleRepository = roleRepository;
+        this.passwords = passwords;
         this.userRoleRepository = userRoleRepository;
         this.binder = binder;
         this.tx = tx;
@@ -105,6 +109,47 @@ public class TenantFixture {
         u.setUserType(UserType.INTERNAL);
         u.setStatus(UserStatus.ACTIVE);
         return users.saveAndFlush(u).getId();
+    }
+
+    /**
+     * A real Argon2id-hashed password, unlike {@link #createUser}'s placeholder.
+     *
+     * Unlike the other create helpers, this one binds the tenant itself rather than
+     * requiring an enclosing runAs — login tests have no other reason to open one,
+     * and the returned AppUser is detached on purpose so they can read its id and
+     * tenant outside the transaction. Nesting inside an existing runAs is still
+     * safe: the TransactionTemplate joins the outer transaction.
+     */
+    public AppUser createUserWithPassword(UUID tenantId, String email, String rawPassword) {
+        return createUserWithPassword(tenantId, email, rawPassword, false);
+    }
+
+    public AppUser createUserWithPassword(UUID tenantId, String email,
+                                          String rawPassword, boolean mfaEnabled) {
+        return savePasswordUser(tenantId, email, rawPassword, UserStatus.ACTIVE, mfaEnabled);
+    }
+
+    /** INVITED, so it must not be able to log in even with the right password. */
+    public AppUser createInvitedUser(UUID tenantId, String email, String rawPassword) {
+        return savePasswordUser(tenantId, email, rawPassword, UserStatus.INVITED, false);
+    }
+
+    private AppUser savePasswordUser(UUID tenantId, String email, String rawPassword,
+                                     UserStatus status, boolean mfaEnabled) {
+        var saved = new AtomicReference<AppUser>();
+        runUnauthenticated(tenantId, () -> {
+            AppUser u = new AppUser();
+            u.setId(Uuid7.generate());
+            u.setTenantId(tenantId);
+            u.setEmail(email);
+            u.setFullName(email);
+            u.setPasswordHash(passwords.encode(rawPassword));
+            u.setUserType(UserType.INTERNAL);
+            u.setStatus(status);
+            u.setMfaEnabled(mfaEnabled);
+            saved.set(users.saveAndFlush(u));
+        });
+        return saved.get();
     }
 
     /**

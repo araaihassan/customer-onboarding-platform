@@ -1,5 +1,7 @@
 package co.ara.onboarding.architecture;
 
+import co.ara.onboarding.auth.LoginService;
+import co.ara.onboarding.auth.TokenService;
 import co.ara.onboarding.authz.AuthorizationService;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.provisioning.TenantProvisioningService;
@@ -36,19 +38,28 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 class AuthorizationCoverageTest {
 
     /**
-     * Services that legitimately need no gate are excluded by an explicit,
-     * commented clause naming the class — never by deleting or weakening the rule.
-     * The one case is TenantProvisioningService, which runs before any tenant user
-     * exists and so has no actor to authorize. Inventing a "may create tenants"
-     * permission would be worse than excluding it: the permission would sit in the
-     * catalog where any tenant role could be granted it. That endpoint is secured
-     * at the HTTP layer instead (Task 22 Step 9).
+     * Exclusions are explicit, commented clauses naming a class — never a deleted or
+     * weakened rule. They fall into two categories, and both matter when judging
+     * whether a NEW exclusion is legitimate.
      *
-     * AuthorizationService is excluded for a different reason: it *is* the
-     * mechanism. Gating "what may this user do" on holding a permission is
-     * circular — resolving the gate would require resolving the gate. It is named
-     * *Service and so matches the rule, but it is authorization infrastructure
-     * rather than a domain service.
+     * Runs before there is an actor to authorize:
+     *   - TenantProvisioningService — no tenant user exists yet. Inventing a "may
+     *     create tenants" permission would be worse than excluding it: the permission
+     *     would sit in the catalog where any tenant role could be granted it. Secured
+     *     at the HTTP layer instead (Task 22 Step 9).
+     *   - LoginService — this is how a caller becomes authenticated, so requiring a
+     *     permission would be unsatisfiable by construction.
+     *
+     * Infrastructure that the gate itself depends on, so gating it is circular:
+     *   - AuthorizationService — it *is* the mechanism. Resolving the gate would
+     *     require resolving the gate.
+     *   - TokenService — signs and parses JWTs. No domain authority is involved, and
+     *     issuing a token cannot require a token.
+     *
+     * Anything that does not fit one of those two descriptions should be annotated,
+     * not added here. In particular a future auth/InvitationService must be gated:
+     * INVITATION_SEND is a real catalogued permission, which is why these are
+     * excluded per class rather than by excluding the whole auth package.
      *
      * Excluding by class rather than by name pattern is deliberate — a second
      * service that happens to end in "ProvisioningService" would not inherit the
@@ -67,6 +78,8 @@ class AuthorizationCoverageTest {
                      .and().areDeclaredInClassesThat().resideInAPackage("co.ara.onboarding..")
                      .and().areNotDeclaredIn(TenantProvisioningService.class)
                      .and().areNotDeclaredIn(AuthorizationService.class)
+                     .and().areNotDeclaredIn(LoginService.class)
+                     .and().areNotDeclaredIn(TokenService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
 

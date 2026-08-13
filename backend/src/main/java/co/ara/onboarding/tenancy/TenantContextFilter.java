@@ -11,7 +11,13 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
 import java.io.IOException;
 
 @Component
-@Order(10)
+// Must run BEFORE Spring Security's FilterChainProxy, which registers at order
+// -100. JwtAuthenticationFilter lives inside that chain and validates a token's
+// tid claim against the resolved tenant, so the tenant has to be bound by the
+// time the chain runs. At the original @Order(10) this filter ran after the whole
+// security chain, TenantContext.getOrNull() was still null, and every bearer token
+// was silently rejected.
+@Order(-110)
 public class TenantContextFilter extends OncePerRequestFilter {
 
     private final TenantResolver resolver;
