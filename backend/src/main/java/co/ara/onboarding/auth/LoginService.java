@@ -5,6 +5,7 @@ import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.identity.UserStatus;
+import co.ara.onboarding.platform.RequestAuditContext;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -32,14 +33,19 @@ public class LoginService {
     private final AppUserRepository users;
     private final PasswordEncoder passwords;
     private final TokenService tokens;
+    private final RefreshTokenService refreshTokens;
     private final AuditRecorder audit;
+    private final RequestAuditContext requestContext;
 
     public LoginService(AppUserRepository users, PasswordEncoder passwords,
-                        TokenService tokens, AuditRecorder audit) {
+                        TokenService tokens, RefreshTokenService refreshTokens,
+                        AuditRecorder audit, RequestAuditContext requestContext) {
         this.users = users;
         this.passwords = passwords;
         this.tokens = tokens;
+        this.refreshTokens = refreshTokens;
         this.audit = audit;
+        this.requestContext = requestContext;
     }
 
     @Transactional
@@ -74,8 +80,13 @@ public class LoginService {
         audit.record(AuditActions.LOGIN_SUCCEEDED, "app_user", user.getId(),
                 "Successful login", Map.of());
 
+        // A successful login starts a NEW token family. Reusing one would mean a
+        // reuse detection on an old session could revoke a freshly logged-in one.
+        String refreshToken = refreshTokens.issue(
+                user, requestContext.ip(), requestContext.userAgent());
+
         return new LoginOutcome.Success(
-                tokens.issueAccessToken(user), tokens.ttlSeconds(),
+                tokens.issueAccessToken(user), tokens.ttlSeconds(), refreshToken,
                 user.getId(), user.getFullName(), user.getUserType());
     }
 }

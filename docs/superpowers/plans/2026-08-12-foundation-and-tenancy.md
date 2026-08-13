@@ -5194,10 +5194,17 @@ The mechanism that provides breach *detection* rather than only breach resistanc
 - Create: `backend/src/main/java/co/ara/onboarding/auth/RefreshToken.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/RefreshTokenRepository.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/RefreshTokenService.java`
-- Create: `backend/src/main/java/co/ara/onboarding/auth/RefreshTokenReuseException.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/platform/ApiExceptionHandler.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/RotationOutcome.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`, `LoginService.java`, `LoginOutcome.java`
 - Test: `backend/src/test/java/co/ara/onboarding/auth/RefreshTokenTest.java`
+
+**`rotate` must return an outcome, not throw — this is the most important correction in the task.** Reuse detection revokes the family and writes a `REFRESH_REUSE_DETECTED` audit event, and both are writes inside `rotate`'s transaction. Throwing to signal the rejection marks that transaction rollback-only, so **both writes are discarded**: the replayed token gets its 401 while the stolen family stays fully live.
+
+Verified, not reasoned about. With the plan's throw in place, replaying a retired token produced the 401 and then the *legitimate* token still rotated successfully, issuing a fresh one. Reuse detection that does not revoke is worse than none, because the 401 makes it look like it worked.
+
+So there is no `RefreshTokenReuseException` and no `ApiExceptionHandler` change — which also removes the `platform → auth` cycle that mapping it in `platform` would have created. Use a sealed `RotationOutcome` with `Rotated(user, newRawToken)` and `Rejected(Reason)` where `Reason ∈ {UNKNOWN, REUSED, EXPIRED, REVOKED}`. The reason is for logs, metrics and tests only — every case answers an identical 401, or the endpoint becomes an oracle for which tokens ever existed.
+
+**`AuthController` must not be `@Transactional`.** The plan puts `@Transactional` on `refresh` and `logout`, which reintroduces the same problem one layer up: the controller throws `ResponseStatusException` to produce the 401, and an open transaction there would roll back the service's committed revocation. Let the services own their transactions and have the controller translate an outcome into a status with no transaction open. Same for `login`.
 
 **Interfaces:**
 - Consumes: `TokenService`, `AppUserRepository`, `AuditRecorder`.
@@ -5445,7 +5452,15 @@ public class RefreshTokenService {
 }
 ```
 
-`RefreshTokenReuseException extends RuntimeException`; map it to 401 in `ApiExceptionHandler`.
+Three further corrections to the sample above:
+
+- **`UUID.randomUUID()` means `Uuid7.generate()`** for the entity id and the family id, per Global Constraints. The *token* is the exception: it stays `SecureRandom`, because it must be unpredictable rather than merely unique, and a UUIDv7 leaks its creation time and is guessable from a neighbour.
+- **Check `revokedAt` and `usedAt` separately**, not with `||`. They mean different things — already-revoked (by earlier reuse detection or by logout) versus replay-of-a-rotated-token — and only the second is evidence of theft. Collapsing them makes every post-logout refresh look like an attack and pollutes the audit log with false reuse events.
+- **`RefreshTokenService` needs an `AuthorizationCoverageTest` exclusion**, in the same category as `LoginService`: refreshing is how a session *stays* authenticated, and the credential it verifies is a cookie rather than an authority.
+
+Note that revoking the family on **expiry** is safe, and worth saying why: an unused token is by definition the newest in its family, so nothing live is being cut off.
+
+Login must also issue a refresh token, in a **new family** — reusing one would let a reuse detection on an old session revoke a freshly logged-in one. Thread the raw value out through `LoginOutcome.Success` so the controller can set the cookie; `ip` and `userAgent` come from `RequestAuditContext`.
 
 - [ ] **Step 5: Add refresh and logout endpoints**
 
@@ -5511,7 +5526,15 @@ Add `revokeByRawToken(String)` to `RefreshTokenService`, which looks the token u
 - [ ] **Step 6: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.RefreshTokenTest"`
-Expected: PASS — all four tests.
+Expected: PASS.
+
+**Each rotation in the reuse test must be in its own `runAs`.** The plan's version does all of them inside one, which cannot detect the rollback defect above — inside a single transaction the revocation is visible whether or not it would ever commit. Separate transactions are what make the assertion mean "committed". (The plan's version also asserts exceptions inside a `runAs` lambda, which Global Constraints forbids.)
+
+Three tests worth adding beyond the plan's four:
+
+- `unknownTokenIsRejected` — the `Reason.UNKNOWN` path is otherwise never exercised.
+- `tokenCannotBeRotatedUnderADifferentTenant` — `refresh_token` is RLS-protected and the endpoint runs with the tenant resolved from the path, so a stolen cookie must be useless against another tenant. Assert it rotates fine in its own tenant too, or a filter that rejects everything would satisfy the test.
+- `logoutRevokesTheFamilySoOlderRotationsAlsoDie` — logout revoking the family is a deliberate decision and nothing else covers it.
 
 - [ ] **Step 7: Commit**
 

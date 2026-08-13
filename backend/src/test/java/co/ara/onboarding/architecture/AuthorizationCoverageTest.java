@@ -1,6 +1,7 @@
 package co.ara.onboarding.architecture;
 
 import co.ara.onboarding.auth.LoginService;
+import co.ara.onboarding.auth.RefreshTokenService;
 import co.ara.onboarding.auth.TokenService;
 import co.ara.onboarding.authz.AuthorizationService;
 import co.ara.onboarding.authz.RequirePermission;
@@ -49,6 +50,8 @@ class AuthorizationCoverageTest {
      *     at the HTTP layer instead (Task 22 Step 9).
      *   - LoginService — this is how a caller becomes authenticated, so requiring a
      *     permission would be unsatisfiable by construction.
+     *   - RefreshTokenService — how a session stays authenticated. The credential it
+     *     verifies is a cookie, not an authority.
      *
      * Infrastructure that the gate itself depends on, so gating it is circular:
      *   - AuthorizationService — it *is* the mechanism. Resolving the gate would
@@ -80,6 +83,7 @@ class AuthorizationCoverageTest {
                      .and().areNotDeclaredIn(AuthorizationService.class)
                      .and().areNotDeclaredIn(LoginService.class)
                      .and().areNotDeclaredIn(TokenService.class)
+                     .and().areNotDeclaredIn(RefreshTokenService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
 

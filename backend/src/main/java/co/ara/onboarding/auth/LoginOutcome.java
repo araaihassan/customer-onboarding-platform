@@ -18,7 +18,11 @@ import java.util.UUID;
  */
 public sealed interface LoginOutcome {
 
-    record Success(String accessToken, long expiresInSeconds,
+    /**
+     * refreshToken is the raw value, which exists only in this object and in the
+     * Set-Cookie header the controller writes from it — the database holds a hash.
+     */
+    record Success(String accessToken, long expiresInSeconds, String refreshToken,
                    UUID userId, String fullName, UserType userType) implements LoginOutcome {}
 
     /**
