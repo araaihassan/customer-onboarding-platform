@@ -5,6 +5,7 @@ import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.customer.ContactInvitationSender;
 import co.ara.onboarding.customer.CustomerContact;
 import co.ara.onboarding.customer.CustomerContactRepository;
 import co.ara.onboarding.platform.Uuid7;
@@ -25,9 +26,13 @@ import java.util.UUID;
  * catalogued permission so issuing must be gated, while accepting is performed by
  * someone holding only a token and cannot be. A single service carrying both could
  * not satisfy AuthorizationCoverageTest without exempting the gated half as well.
+ *
+ * Implements customer.ContactInvitationSender so the customer API can offer "invite
+ * this contact" without customer depending on auth — auth already depends on
+ * customer, so the reverse edge would close a cycle. See that interface.
  */
 @Service
-public class InvitationService {
+public class InvitationService implements ContactInvitationSender {
 
     /** Seven days: long enough to survive a holiday, short enough to expire. */
     static final Duration ACTIVATION_TTL = Duration.ofDays(7);
@@ -55,6 +60,7 @@ public class InvitationService {
      * invitation.send is applied at record level too: a contact outside the caller's
      * scope is not found, and answers 404 rather than being invitable.
      */
+    @Override
     @RequirePermission(PermissionKeys.INVITATION_SEND)
     @Transactional
     public String issue(UUID contactId) {
@@ -81,4 +87,5 @@ public class InvitationService {
 
         return raw;
     }
+
 }

@@ -39,16 +39,13 @@ class ModuleBoundaryTest {
      *
      * Controllers must therefore never touch a repository directly.
      *
-     * TenantDebugController is the one exemption: it injects TenantRepository
-     * and is deleted in Task 20, which removes this clause with it. Excluded by
-     * name rather than by weakening the rule, so any NEW controller is still
-     * caught.
+     * There are no exemptions. TenantDebugController held the only one and was
+     * deleted in Task 20 along with this clause, so the rule now applies to every
+     * controller in the codebase without qualification.
      */
     @ArchTest
     static final ArchRule controllersDoNotUseRepositoriesDirectly =
             noClasses().that().haveSimpleNameEndingWith("Controller")
-                .and().doNotHaveSimpleName("TenantDebugController")
                 .should().dependOnClassesThat().haveSimpleNameEndingWith("Repository")
-                .because("a repository call outside a @Transactional service has no tenant bound")
-                .allowEmptyShould(true);
+                .because("a repository call outside a @Transactional service has no tenant bound");
 }

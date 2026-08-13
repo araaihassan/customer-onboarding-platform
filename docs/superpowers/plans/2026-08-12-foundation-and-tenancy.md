@@ -6116,8 +6116,13 @@ The first real business surface, and the first place every mechanism built so fa
 - Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerContactService.java`
 - Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerController.java`
 - Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerContactController.java`
-- Create: `backend/src/main/java/co/ara/onboarding/customer/dto/` (request/response records)
+- Create: `backend/src/main/java/co/ara/onboarding/customer/ContactInvitationSender.java` (port)
 - Test: `backend/src/test/java/co/ara/onboarding/customer/CustomerServiceTest.java`
+- Test: `backend/src/test/java/co/ara/onboarding/customer/CustomerContactServiceTest.java`
+
+**`CustomerContactService` cannot call `auth.InvitationService` directly.** `auth` already depends on `customer` — `InvitationService` reads `CustomerContactRepository` — so a call the other way closes `customer → auth → customer`. Declare a `ContactInvitationSender` port in `customer` and have `InvitationService` implement it, the same shape as authz's `ActorDirectory`.
+
+**Name the port method exactly as the implementation's, `issue`.** A differently-named port method delegating to the real one is a self-invocation inside the bean, which bypasses the Spring proxy — and with it the `@RequirePermission` gate. One name, one gated method, no way around it. (Written the other way first; the `@Override` mismatch is what surfaced it.)
 
 **Interfaces:**
 - Consumes: `AuthorizedQuery`, `AuthContextProvider`, `AuditRecorder`, `InvitationService`, `EmailSender`.
@@ -6368,9 +6373,25 @@ public class CustomerService {
 
 Note `update` and `deactivate` fetch through `authorizedQuery.getById` with the *write* permission, not `CUSTOMER_VIEW`. Fetching with a read permission and then writing is a privilege-escalation bug; a user who can see a record is not necessarily allowed to change it.
 
+**Test that**, because none of the plan's four tests can detect it: `editingUsesTheWritePermissionNotTheReadOne` grants `CUSTOMER_VIEW` at `ALL` and `CUSTOMER_EDIT` at `ASSIGNED`, then asserts someone else's record is visible but not editable. With the read permission used for both fetches, every other test here still passes.
+
+`UUID.randomUUID()` means `Uuid7.generate()`, per Global Constraints.
+
+**Tighten `servicesDoNotCallRepositoryFindersDirectly` when this task lands.** `AuthorizedQuery`'s own methods are named `findAll` and `getById`, so the name-only predicate from Task 14 flags the sanctioned wrapper exactly as loudly as the bypass — the first correct implementation fails the guard. Exclude calls whose target owner is `AuthorizedQuery`:
+
+```java
+.and(not(target(owner(nameEndingWith("AuthorizedQuery")))))
+```
+
+Then re-prove it still binds, since the fix could easily have neutered it: a throwaway service calling `customers.findAll()` and `contacts.findByCustomerId(...)` must fail on both. Drop its `allowEmptyShould(true)` at the same time — the rule is no longer vacuous.
+
 - [ ] **Step 4: Implement `CustomerContactService`**
 
-Same shape. `list` and `create` gate on `CONTACT_VIEW` / `CONTACT_MANAGE`. `sendInvitation` gates on `INVITATION_SEND`, calls `InvitationService.issue(contactId)`, sends the email through `EmailSender`, and records `AuditActions.INVITATION_SENT`.
+Same shape. `list` and `create` gate on `CONTACT_VIEW` / `CONTACT_MANAGE`. `sendInvitation` gates on `INVITATION_SEND` and delegates to the `ContactInvitationSender` port.
+
+**`sendInvitation` must not also send the email or record the audit event** — `InvitationService.issue` already does both (Task 18). Doing it here as well double-sends and writes two `INVITATION_SENT` rows for one action.
+
+**`list` must use a `customerId` Specification through `AuthorizedQuery`, never `repository.findByCustomerId`.** A derived finder carries no scope predicate, so it returns every contact of that customer regardless of whether the caller may see it. This is the exact case `servicesDoNotCallRepositoryFindersDirectly` names, and Task 20 is where that rule stops being vacuous.
 
 - [ ] **Step 5: Implement the controllers**
 
@@ -6432,9 +6453,25 @@ public class CustomerController {
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.customer.*"`
 Expected: PASS
 
+The plan has **no contact tests at all**, despite `CustomerContactService` being half the task and the only place the no-derived-finders rule binds. Add `CustomerContactServiceTest` covering: contacts of the named customer only; contacts inheriting scope from their parent customer (they carry no owner of their own, so `CustomerContactDescriptor` resolves through the customer); `create` refused without `CONTACT_MANAGE`; and `sendInvitation` both working through the port and refused without `INVITATION_SEND`.
+
+Two more on the customer side beyond the plan's four: `editingUsesTheWritePermissionNotTheReadOne` (above) and `creatorBecomesTheOwnerSoAssignedScopeSeesItImmediately`, which pins the default-owner behaviour the service comment claims — without it a user holding `customer.create` plus `customer.view` at `ASSIGNED` would create records they instantly cannot see.
+
+`deactivationSetsStatusAndWritesAudit` should assert the audit event, not only the status. Its name claims one, deactivation is the closest thing to a delete this system has, and that row is the only record it happened.
+
 - [ ] **Step 7: Remove the debug endpoint from Task 4**
 
-Delete `TenantDebugController` and the `_debug` assertions in `TenantResolutionTest`, replacing them with assertions against `/api/t/{slug}/customers` returning 401 when unauthenticated. The tenant pipeline is now covered by real endpoints.
+Delete `TenantDebugController` and the `_debug` assertions in `TenantResolutionTest`, replacing them with assertions against `/api/t/{slug}/customers`. The tenant pipeline is now covered by real endpoints.
+
+Three things go with it, and leaving any behind means an exemption outliving its reason:
+
+- the `doNotHaveSimpleName("TenantDebugController")` clause in `ModuleBoundaryTest`, which was that rule's only exemption;
+- the `/api/t/*/_debug/**` `permitAll` in `SecurityConfig`;
+- `TenantResolutionTest`'s four `_debug` requests.
+
+The replacements say more than the originals. Unauthenticated `/customers` answers **401** where an unknown tenant answers **404** — which is itself the proof that `TenantContextFilter` (order −110) runs ahead of Spring Security's chain (−100), and that an unknown tenant is rejected before authentication is considered, so the endpoint cannot be used to probe which tenants exist.
+
+For the old `app.tenant_id` assertion, make a real authenticated request instead of reading the GUC back through a debug endpoint. A 200 from `GET /customers` requires the entire chain: the filter resolves the tenant, the binder sets `app.tenant_id`, permission resolution reads three RLS-protected tables through that connection, the gate passes, and the scope predicate matches. Unbound, RLS would return no roles and the gate would answer 403.
 
 - [ ] **Step 8: Commit**
 

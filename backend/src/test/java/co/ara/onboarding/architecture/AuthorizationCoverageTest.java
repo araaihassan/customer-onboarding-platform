@@ -15,9 +15,12 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.base.DescribedPredicate.not;
 import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
 import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameEndingWith;
 import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameStartingWith;
+import static com.tngtech.archunit.core.domain.properties.HasOwner.Predicates.With.owner;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
@@ -124,18 +127,25 @@ class AuthorizationCoverageTest {
      * Scoped to co.ara.onboarding.customer.. for now; each later sub-project adds
      * its own domain package. RoleService and TenantProvisioningService are outside
      * it and unaffected — they operate on authorization metadata, not scoped
-     * business records. allowEmptyShould because no customer service exists until
-     * Task 20; ArchUnit fails a rule that matched nothing.
+     * business records.
+     *
+     * Live and non-vacuous as of Task 20, which added the first customer services;
+     * the allowEmptyShould it carried until then is gone.
      */
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
             noClasses().that().resideInAPackage("co.ara.onboarding.customer..")
                 .and().haveSimpleNameEndingWith("Service")
                 .should().callMethodWhere(
-                        target(name("findAll"))
-                        .or(target(name("findOne")))
-                        .or(target(name("findById")))
-                        .or(target(nameStartingWith("findBy"))))
-                .because("reads must go through AuthorizedQuery so scope cannot be bypassed")
-                .allowEmptyShould(true);
+                        (target(name("findAll"))
+                         .or(target(name("findOne")))
+                         .or(target(name("findById")))
+                         .or(target(nameStartingWith("findBy"))))
+                        // AuthorizedQuery's own methods are named findAll and getById,
+                        // so a name-only predicate flags the sanctioned wrapper exactly
+                        // as loudly as the bypass it exists to prevent. Excluding it by
+                        // owner states the rule's real intent: reach finders THROUGH
+                        // AuthorizedQuery, never around it.
+                        .and(not(target(owner(nameEndingWith("AuthorizedQuery"))))))
+                .because("reads must go through AuthorizedQuery so scope cannot be bypassed");
 }

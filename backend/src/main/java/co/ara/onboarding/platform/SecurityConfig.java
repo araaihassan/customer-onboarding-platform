@@ -44,8 +44,6 @@ public class SecurityConfig {
                                  "/api/t/*/auth/refresh",
                                  "/api/t/*/auth/activate",
                                  "/api/t/*/auth/password-reset/**").permitAll()
-                // TODO(task-20): removed with TenantDebugController.
-                .requestMatchers("/api/t/*/_debug/**").permitAll()
                 .requestMatchers("/api/platform/**").permitAll()   // secured in Task 22
                 // The frontend generates its types from this document, and Task 19's
                 // OpenApiDocumentTest reads it. It describes endpoint shapes, not data.
