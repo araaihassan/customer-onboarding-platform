@@ -63,6 +63,7 @@ Every task's requirements implicitly include this section.
 | `tenancy/TenantContext.java` | Thread-local current tenant |
 | `tenancy/TenantResolver.java`, `PathPrefixTenantResolver.java` | `/t/{slug}` resolution |
 | `tenancy/TenantContextFilter.java` | Sets `TenantContext` + `app.tenant_id` per request |
+| `tenancy/TenantExceptionHandler.java` | Maps `UnknownTenantException` → 404 (must not live in `platform`) |
 | `tenancy/TenantScopedEntity.java` | MappedSuperclass carrying `tenant_id` + Hibernate filter |
 | `tenancy/TenantProvisioningService.java` | Creates tenants, seeds role templates |
 | `identity/AppUser.java`, `Department.java`, `Team.java`, `PlatformAdmin.java` | Identity entities |
@@ -1239,12 +1240,33 @@ Note that `tenants.findBySlug` runs before any tenant is bound. That is correct 
 
 - [ ] **Step 5: Implement the exception handler**
 
+**Two files, not one.** The handler for `UnknownTenantException` must live in `tenancy`, not `platform`. `platform` is the foundation every domain module depends on — `Tenant` and `TenantScopedEntity` extend `platform.BaseEntity` — so a `platform` class naming a `tenancy` type closes a `platform → tenancy → platform` cycle, which Task 7's `ModuleBoundaryTest.noCyclesBetweenModules` rejects. This was found by that test failing on the first run after it was written. The rule generalizes: each module owns the HTTP mapping for the exceptions it defines, and `platform` keeps only the framework-level ones it can express without naming a domain.
+
+`tenancy/TenantExceptionHandler.java`:
+
+```java
+package co.ara.onboarding.tenancy;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+public class TenantExceptionHandler {
+
+    @ExceptionHandler(UnknownTenantException.class)
+    ProblemDetail unknownTenant(UnknownTenantException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Not found");
+    }
+}
+```
+
 `platform/ApiExceptionHandler.java`:
 
 ```java
 package co.ara.onboarding.platform;
 
-import co.ara.onboarding.tenancy.UnknownTenantException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
@@ -1254,11 +1276,6 @@ import java.util.NoSuchElementException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
-
-    @ExceptionHandler(UnknownTenantException.class)
-    ProblemDetail unknownTenant(UnknownTenantException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Not found");
-    }
 
     /** Out-of-scope records surface as absent, never as forbidden (spec 6.8). */
     @ExceptionHandler(NoSuchElementException.class)
@@ -2175,7 +2192,14 @@ These two tests are the reason the isolation and authorization design survives s
 
 **Interfaces:**
 - Consumes: everything built so far.
-- Produces: three always-on structural tests. `AuthorizationCoverageTest` is written now but asserts against `@RequirePermission`, which arrives in Task 13; until then it is `@Disabled` with an explicit reason.
+- Produces: three always-on structural tests. `AuthorizationCoverageTest` is written now but asserts against `@RequirePermission`; it is ignored until **Task 8**, which introduces the first `*Service` classes.
+
+**ArchUnit fails a rule whose `should()` matched nothing** — "failed to check any classes" — rather than passing it vacuously. Every rule in this task that has no matching classes yet therefore needs a deliberate decision, and there are only two correct answers:
+
+- `.allowEmptyShould(true)` on the rule, when it will start binding within a task or two and going green now is harmless.
+- `@ArchIgnore` on the class, when the obligation is further out and should stay visible in test reports.
+
+**`@ArchIgnore`, never JUnit's `@Disabled`.** `@ArchTest` fields are collected by ArchUnit's own JUnit 5 `TestEngine`, which does not process Jupiter annotations. `@Disabled` on an `@AnalyzeClasses` class is silently inert and the rule still runs — verified by observing exactly that.
 
 - [ ] **Step 1: Write the RLS coverage meta-test**
 
@@ -2262,7 +2286,11 @@ Expected: PASS. If it fails, a table from Task 5 or 6 is missing its `enable_ten
 
 - [ ] **Step 3: Prove the guard actually catches an unprotected table**
 
-Temporarily add to `V5__audit.sql` a table with no `enable_tenant_rls` call, re-run, confirm FAIL, then revert. A structural guard you have never seen fail is a guard you cannot trust.
+Add a **throwaway `V99__guard_probe_TEMPORARY.sql`**, re-run, confirm FAIL, then delete the file. Do not edit `V5__audit.sql` — migrations are forward-only, and a committed one stays untouched even for a temporary experiment.
+
+Give the probe two tables so both assertions are proven independently: one with a `tenant_id` but no `enable_tenant_rls()` call (trips the RLS test), one with no `tenant_id` at all (trips the column test). `GRANT SELECT` on both, and name them something other than `rls_probe*` or the meta-test will skip them. The `GRANT` is load-bearing: `information_schema.columns` hides columns the current role has no privilege on, so without it the column test would fail for lack of access rather than for the missing column — passing for the wrong reason.
+
+A structural guard you have never seen fail is a guard you cannot trust.
 
 - [ ] **Step 4: Write the module boundary test**
 
@@ -2311,13 +2339,17 @@ class ModuleBoundaryTest {
 }
 ```
 
-`TenantDebugController` is the one current violation — it injects `TenantRepository`. It is deleted in Task 20, so either exclude it by name with a comment referencing that task, or move its lookup behind a small service. Do not weaken the rule.
+Both `servicesDoNotDependOnControllers` and `controllersDoNotUseRepositoriesDirectly` need `.allowEmptyShould(true)` at this point in the plan: no `*Service` class exists until Task 8, and excluding `TenantDebugController` leaves the second rule with no controllers to check. Without it both go red for having nothing to check.
+
+`noCyclesBetweenModules` **will fail on the first run** against a faithful Task 4 implementation: `platform.ApiExceptionHandler` imports `tenancy.UnknownTenantException` while `tenancy.Tenant` extends `platform.BaseEntity`, closing a `platform → tenancy → platform` cycle. That is a real defect, not a rule to soften — fix it by moving the handler into `tenancy` (Task 4 Step 5, now amended). Confirm `TenantResolutionTest`'s `unknownTenantSlugReturns404` and `suspendedTenantReturns404` still pass afterwards; they are what prove the relocated `@RestControllerAdvice` is still registered.
+
+`TenantDebugController` is the one violation of the repository rule — it injects `TenantRepository`. It is deleted in Task 20, so exclude it by name (`.and().doNotHaveSimpleName("TenantDebugController")`) with a comment referencing that task, so any *new* controller is still caught. Do not weaken the rule.
 
 **Do not use `layeredArchitecture().definedBy("co.ara.onboarding..*Controller")` here.** `definedBy(String...)` takes *package* identifiers, not class-name patterns, so `*Controller` would be read as a package segment and match nothing — producing a layer that is empty and a rule that can never fail. This project also has no `..controller..` package; controllers live directly in their domain module. The `noClasses()` form above expresses the same intent and actually binds to real classes.
 
-Verify it can fail: temporarily add a field of a `*Controller` type to any `*Service`, run the test, confirm FAIL, then revert.
+Verify it can fail. There is no `*Service` yet to hang a `*Controller` field on, so prove the repository rule instead: temporarily drop the `doNotHaveSimpleName` clause, run, and confirm it reports the real `TenantDebugController` violations, then restore. Also drop `allowEmptyShould(true)` from `servicesDoNotDependOnControllers` once and confirm the "failed to check any classes" error, so the reason that flag is present is something you have seen rather than something you were told.
 
-- [ ] **Step 5: Write the authorization coverage test, disabled for now**
+- [ ] **Step 5: Write the authorization coverage test, ignored for now**
 
 `backend/src/test/java/co/ara/onboarding/architecture/AuthorizationCoverageTest.java`:
 
@@ -2351,7 +2383,13 @@ class AuthorizationCoverageTest {
 }
 ```
 
-This will not compile until Task 13 creates `RequirePermission`. Create the annotation now as an empty marker so the build stays green, and Task 13 gives it behaviour:
+Annotate the class `@ArchIgnore(reason = "No *Service classes exist until Task 8; ArchUnit fails an empty should(). Re-enable at Task 8.")`.
+
+**Re-enable at Task 8, not Task 13.** Task 8 introduces the first `*Service` classes and `RequirePermission` exists as of this task, so each service can declare its key as it is written; Task 13's `PermissionGateAspect` then makes those declarations enforceable. Waiting for Task 13 would leave the services from Tasks 8–12 unpoliced and force a retrofit across all of them at once.
+
+Before ignoring it, prove the rule binds: add a throwaway `*Service` class with one public method, confirm RED naming that method, add `@RequirePermission` to it, confirm GREEN, then delete the class. Do not annotate it `@Service` — ArchUnit reads bytecode, and a real bean would change the Spring context.
+
+This will not compile until `RequirePermission` exists. Create the annotation now as a marker so the build stays green, and Task 13 gives it behaviour:
 
 ```java
 package co.ara.onboarding.authz;
@@ -2371,12 +2409,16 @@ Services that legitimately need no gate — `TenantProvisioningService`, which r
                      .and().areNotDeclaredIn(TenantProvisioningService.class)
 ```
 
+That clause cannot be added in this task: `TenantProvisioningService` does not exist until Task 10 and the file would not compile. Record it as a comment now and add the code when re-enabling.
+
 Never by deleting or weakening the rule. There is deliberately **no** `PermissionKeys.PLATFORM_ADMIN` catch-all: a permission that means "skip the check" would be indistinguishable from a real grant in the catalog, and every future ungated service would reach for it. Platform-admin endpoints are secured at the HTTP layer instead (Task 22 Step 9).
 
 - [ ] **Step 6: Run all architecture tests**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.architecture.*"`
-Expected: PASS (`AuthorizationCoverageTest` will pass trivially while no `*Service` classes exist yet).
+Expected: PASS, with `AuthorizationCoverageTest` reported as **skipped**, not passed — it does not pass trivially. An ArchUnit rule matching zero classes fails; that test is green only because `@ArchIgnore` keeps it from running at all.
+
+Then run the whole suite (`./gradlew test`) before committing, not just the architecture package — Task 4's exception-handler relocation is verified by `TenantResolutionTest`, which lives elsewhere.
 
 - [ ] **Step 7: Commit**
 
