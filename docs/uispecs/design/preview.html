@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Onboard OS — Design System</title>
+<link rel="icon" href="01-brand/logo/favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *,*::before,*::after { box-sizing: border-box; }
+  :root {
+    --paper-0:#fff; --paper-50:#faf9f7; --paper-100:#f7f6f3; --paper-150:#f4f2ee;
+    --paper-200:#f2f0ec; --paper-400:#e6e3dd; --paper-600:#8f8a82; --paper-700:#716d67;
+    --paper-800:#625f5a; --paper-900:#4d4a46; --paper-950:#191a1e;
+    --rail:#17181c; --rail-raised:#2b2c31;
+    --accent:oklch(0.52 0.16 274); --accent-tint:oklch(0.95 0.03 274);
+    --accent-ink:oklch(0.42 0.16 274);
+    --green:oklch(0.6 0.12 155); --green-tint:oklch(0.95 0.04 155); --green-ink:oklch(0.45 0.12 155);
+    --amber:oklch(0.72 0.14 70); --amber-tint:oklch(0.96 0.05 70); --amber-ink:oklch(0.46 0.14 70);
+    --red:oklch(0.57 0.17 25); --red-tint:oklch(0.96 0.04 25); --red-ink:oklch(0.5 0.17 25);
+    --mono:'IBM Plex Mono', ui-monospace, monospace;
+  }
+  body { margin:0; background:var(--paper-100); color:var(--paper-950);
+         font-family:Archivo, Helvetica, sans-serif; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:1180px; margin:0 auto; padding:0 28px 96px; }
+
+  /* masthead */
+  header.top { background:var(--rail); color:var(--paper-200); margin-bottom:34px;
+               border-bottom:1px solid var(--rail-raised); }
+  .top .inner { max-width:1180px; margin:0 auto; padding:40px 28px 44px; }
+  .lockup { display:flex; align-items:center; gap:13px; margin-bottom:26px; }
+  .lockup .name { font-size:20px; font-weight:600; letter-spacing:-0.02em; }
+  .lockup .slug { font-family:var(--mono); font-size:10px; opacity:.5;
+                  letter-spacing:.06em; text-transform:uppercase; }
+  h1 { font-size:34px; font-weight:600; letter-spacing:-0.03em; margin:0 0 12px; color:#fff; }
+  .top p { font-size:14px; line-height:1.6; color:#b6b4af; max-width:66ch; margin:0; }
+  .stats { display:flex; gap:34px; flex-wrap:wrap; margin-top:30px; }
+  .stat .n { font-family:var(--mono); font-size:23px; font-weight:500; color:#fff;
+             letter-spacing:-0.02em; }
+  .stat .l { font-family:var(--mono); font-size:9.5px; letter-spacing:.09em;
+             text-transform:uppercase; opacity:.5; margin-top:5px; }
+
+  h2 { font-size:17px; font-weight:600; letter-spacing:-0.02em; margin:38px 0 4px; }
+  .sub { font-size:12.5px; color:var(--paper-800); margin:0 0 16px; }
+  .eyebrow { font-family:var(--mono); font-size:9.5px; letter-spacing:.09em;
+             text-transform:uppercase; color:var(--paper-700); }
+
+  .grid { display:grid; gap:14px; }
+  .g3 { grid-template-columns:repeat(auto-fit,minmax(268px,1fr)); }
+  .g2 { grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); }
+
+  .card { background:var(--paper-0); border:1px solid var(--paper-400); border-radius:13px;
+          padding:18px 20px; }
+  a.card { text-decoration:none; color:inherit; display:block; transition:border-color .15s ease; }
+  a.card:hover { border-color:#dbd7cf; }
+  a.card .go { font-family:var(--mono); font-size:10px; color:var(--accent-ink);
+               letter-spacing:.06em; text-transform:uppercase; margin-top:12px;
+               display:flex; align-items:center; gap:5px; }
+  .card h3 { font-size:14px; font-weight:600; margin:0 0 6px; }
+  .card p { font-size:12px; line-height:1.55; color:var(--paper-800); margin:0; }
+  .num { font-family:var(--mono); font-size:10px; color:var(--paper-700); }
+
+  /* swatches */
+  .ramp { display:flex; border-radius:9px; overflow:hidden; border:1px solid var(--paper-400); }
+  .ramp div { flex:1; height:44px; }
+  .ramp-l { display:flex; justify-content:space-between; font-family:var(--mono);
+            font-size:9px; color:var(--paper-700); margin-top:6px; }
+  .pills { display:flex; gap:8px; flex-wrap:wrap; }
+  .pill { font-family:var(--mono); font-size:9.5px; letter-spacing:.05em; text-transform:uppercase;
+          padding:3px 8px; border-radius:20px; white-space:nowrap; }
+
+  /* type */
+  table { width:100%; border-collapse:collapse; }
+  th,td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--paper-150);
+          font-size:12px; vertical-align:baseline; }
+  th { font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase;
+       color:var(--paper-700); background:var(--paper-50); }
+  td.m { font-family:var(--mono); font-size:11px; color:var(--paper-800); white-space:nowrap; }
+
+  /* icons */
+  .ico { width:20px; height:20px; fill:none; stroke:currentColor; stroke-width:1.5;
+         stroke-linecap:round; stroke-linejoin:round; }
+  .icostrip { display:flex; flex-wrap:wrap; gap:16px; }
+  .icostrip .i { display:flex; flex-direction:column; align-items:center; gap:7px; width:62px; }
+  .icostrip .i span { font-family:var(--mono); font-size:8.5px; color:var(--paper-700);
+                      text-align:center; line-height:1.3; }
+
+  .note { background:var(--amber-tint, #fff); border:1px solid oklch(0.9 0.05 70);
+          border-radius:13px; padding:16px 18px; }
+  .note h3 { font-size:13px; font-weight:600; margin:0 0 7px; }
+  .note p { font-size:12px; line-height:1.6; color:var(--paper-900); margin:0 0 7px; }
+  code { font-family:var(--mono); font-size:11px; }
+  .ok { color:var(--green-ink); }
+  .bad { color:var(--red-ink); }
+  footer { margin-top:44px; padding-top:20px; border-top:1px solid var(--paper-400);
+           font-size:11.5px; color:var(--paper-800); }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="inner">
+    <div class="lockup">
+      <svg width="34" height="34" viewBox="0 0 32 32" role="img" aria-label="Onboard OS">
+        <rect width="32" height="32" rx="9" fill="oklch(0.52 0.16 274)"></rect>
+        <path d="M19.74 9.52A7.49 7.49 0 1 1 12.26 9.52" fill="none" stroke="#fff"
+              stroke-width="3.01" stroke-linecap="round"></path>
+        <circle cx="16" cy="8.51" r="1.5" fill="#fff"></circle>
+      </svg>
+      <div>
+        <div class="name">Onboard OS</div>
+        <div class="slug">Design system</div>
+      </div>
+    </div>
+    <h1>Complete UI/UX design</h1>
+    <p>Brand and logo, a three-layer token system, a 56-icon set, component specifications and an
+    accessibility review for the Enterprise Customer Journey &amp; Onboarding Platform — with both
+    prototype files updated to use all of it.</p>
+    <div class="stats">
+      <div class="stat"><div class="n">56</div><div class="l">Icons</div></div>
+      <div class="stat"><div class="n">8</div><div class="l">Logo variants</div></div>
+      <div class="stat"><div class="n">175</div><div class="l">Tokens</div></div>
+      <div class="stat"><div class="n">17</div><div class="l">Component families</div></div>
+      <div class="stat"><div class="n">12</div><div class="l">Review findings</div></div>
+      <div class="stat"><div class="n">46</div><div class="l">Prototype edits</div></div>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h2>The deliverables</h2>
+  <p class="sub">Five numbered folders. Everything is generated from the scripts in
+  <code>scripts/</code>.</p>
+  <div class="grid g3">
+    <a class="card" href="01-brand/logo/logo-sheet.html">
+      <div class="eyebrow">01 · Brand</div>
+      <h3>Logo &amp; identity</h3>
+      <p>The progress-arc mark, its construction grid, eight variants, minimum sizes, and the
+      voice rules that keep copy consistent.</p>
+      <div class="go">Open logo sheet
+        <svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12h15M13 6l6 6l-6 6"/></svg>
+      </div>
+    </a>
+    <a class="card" href="02-tokens/tokens.md">
+      <div class="eyebrow">02 · Tokens</div>
+      <h3>Design tokens</h3>
+      <p>Primitive → semantic → component, in CSS, DTCG JSON and a Tailwind v4 theme. Light and
+      dark; only the middle layer changes.</p>
+      <div class="go">Read the docs
+        <svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12h15M13 6l6 6l-6 6"/></svg>
+      </div>
+    </a>
+    <a class="card" href="03-icons/icon-sheet.html">
+      <div class="eyebrow">03 · Icons</div>
+      <h3>Icon set</h3>
+      <p>56 outlined icons on a 24 grid, one path each — so they work as data, as a sprite, or
+      inline. Replaces 18 Unicode placeholders.</p>
+      <div class="go">Open icon sheet
+        <svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12h15M13 6l6 6l-6 6"/></svg>
+      </div>
+    </a>
+    <a class="card" href="04-components/component-specs.md">
+      <div class="eyebrow">04 · Components</div>
+      <h3>Component specs</h3>
+      <p>All 17 families in token terms, with the state matrices and accessibility requirements
+      the prototype left implicit.</p>
+      <div class="go">Read the specs
+        <svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12h15M13 6l6 6l-6 6"/></svg>
+      </div>
+    </a>
+    <a class="card" href="05-review/ux-design-review.md">
+      <div class="eyebrow">05 · Review</div>
+      <h3>UX &amp; accessibility review</h3>
+      <p>12 findings ranked by severity, 8 already fixed. Every number computed from the
+      prototype's real values.</p>
+      <div class="go">Read the review
+        <svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12h15M13 6l6 6l-6 6"/></svg>
+      </div>
+    </a>
+    <a class="card" href="README.md">
+      <div class="eyebrow">Index</div>
+      <h3>README</h3>
+      <p>What changed in the prototype files, how to regenerate everything, and how to carry this
+      into the target codebase.</p>
+      <div class="go">Read the index
+        <svg class="ico" viewBox="0 0 24 24" style="width:13px;height:13px"><path d="M4 12h15M13 6l6 6l-6 6"/></svg>
+      </div>
+    </a>
+  </div>
+
+  <h2>Colour</h2>
+  <p class="sub">Warm paper neutrals, indigo for action and "now", and four status roles. Colour
+  always means status &mdash; never decoration.</p>
+  <div class="grid g2">
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:10px">Paper &mdash; 18 steps</div>
+      <div class="ramp">
+        <div style="background:#fff"></div><div style="background:#fdfcfb"></div>
+        <div style="background:#faf9f7"></div><div style="background:#f7f6f3"></div>
+        <div style="background:#f4f2ee"></div><div style="background:#f2f0ec"></div>
+        <div style="background:#f0eee9"></div><div style="background:#efece7"></div>
+        <div style="background:#eae7e1"></div><div style="background:#e6e3dd"></div>
+        <div style="background:#dbd7cf"></div><div style="background:#d6d1c9"></div>
+        <div style="background:#ccc7bf"></div><div style="background:#8f8a82"></div>
+        <div style="background:#716d67"></div><div style="background:#625f5a"></div>
+        <div style="background:#4d4a46"></div><div style="background:#191a1e"></div>
+      </div>
+      <div class="ramp-l"><span>0</span><span>400</span><span>700</span><span>950</span></div>
+    </div>
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:10px">Accent &amp; status</div>
+      <div class="ramp">
+        <div style="background:oklch(0.97 0.02 274)"></div>
+        <div style="background:oklch(0.95 0.03 274)"></div>
+        <div style="background:oklch(0.86 0.04 274)"></div>
+        <div style="background:oklch(0.52 0.16 274)"></div>
+        <div style="background:oklch(0.42 0.16 274)"></div>
+        <div style="background:oklch(0.6 0.12 155)"></div>
+        <div style="background:oklch(0.72 0.14 70)"></div>
+        <div style="background:oklch(0.57 0.17 25)"></div>
+      </div>
+      <div class="ramp-l"><span>indigo 50&ndash;800</span><span>green</span><span>amber</span><span>red</span></div>
+      <div class="pills" style="margin-top:14px">
+        <span class="pill" style="background:var(--green-tint);color:var(--green-ink)">On track</span>
+        <span class="pill" style="background:var(--accent-tint);color:var(--accent-ink)">In progress</span>
+        <span class="pill" style="background:var(--amber-tint);color:var(--amber-ink)">At risk</span>
+        <span class="pill" style="background:var(--red-tint);color:var(--red-ink)">Blocked</span>
+        <span class="pill" style="background:var(--paper-200);color:var(--paper-800)">Pending</span>
+      </div>
+    </div>
+  </div>
+
+  <h2>Type</h2>
+  <p class="sub">Archivo for anything a person wrote. IBM Plex Mono for anything a machine
+  produced &mdash; IDs, dates, metrics, counts. The split carries meaning, not decoration.</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>Step</th><th>Specimen</th><th>Use</th></tr></thead>
+      <tbody>
+        <tr><td class="m">29 / 600</td>
+            <td style="font-size:29px;font-weight:600;letter-spacing:-0.03em;line-height:1.1">48</td>
+            <td>KPI value</td></tr>
+        <tr><td class="m">17 / 600</td>
+            <td style="font-size:17px;font-weight:600;letter-spacing:-0.02em">Journey workspace</td>
+            <td>Screen title</td></tr>
+        <tr><td class="m">13.5 / 600</td>
+            <td style="font-size:13.5px;font-weight:600">Pipeline by stage</td>
+            <td>Panel heading</td></tr>
+        <tr><td class="m">13 / 400</td>
+            <td style="font-size:13px">Northwind Logistics GmbH</td>
+            <td>Body, table cell</td></tr>
+        <tr><td class="m">11.5 / 400</td>
+            <td style="font-size:11.5px;color:var(--paper-800)">6 of 8 required documents received</td>
+            <td>Card sub-line</td></tr>
+        <tr><td class="m">11 mono</td>
+            <td class="m" style="font-size:11px">ONB-2026-0341 &middot; 22 Aug</td>
+            <td>IDs and dates</td></tr>
+        <tr><td class="m">9.5 mono</td>
+            <td style="font-family:var(--mono);font-size:9.5px;letter-spacing:.09em;
+                       text-transform:uppercase;color:var(--paper-700)">Viewing as</td>
+            <td>Micro-label</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>Icons</h2>
+  <p class="sub">A sample &mdash; the nine journey stages, iconised from the domain group. All 56
+  are in the <a href="03-icons/icon-sheet.html">icon sheet</a>.</p>
+  <div class="card">
+    <div class="icostrip">
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M15 20v-1.5a4 4 0 0 0-4-4H6.5a4 4 0 0 0-4 4V20M13 7.5a4 4 0 1 1-8 0a4 4 0 0 1 8 0M16.5 12.2l1.8 1.8 3.4-4"/></svg><span>Registration</span></div>
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M15 20v-1.5a4 4 0 0 0-4-4H6.5a4 4 0 0 0-4 4V20M13 7.5a4 4 0 1 1-8 0a4 4 0 0 1 8 0M16.5 12.2l1.8 1.8 3.4-4"/></svg><span>Sales approval</span></div>
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M8.5 16.5c1.3-2 2.6-2 3.9 0s2.6 2 3.9 0"/></svg><span>Agreement</span></div>
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M4 7.5a2 2 0 0 1 2-2h3.2l2 2.5H18a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg><span>Documents</span></div>
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M9 4.5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-12a2 2 0 0 0-2-2h-2M9 3h6a1 1 0 0 1 1 1v1.5a1 1 0 0 1-1 1H9a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM9 13.5l2 2 4-4.5"/></svg><span>Verification</span></div>
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M5 7h9M18 7h1M5 12h3M12 12h7M5 17h7M16 17h3M16 5v4M10 10v4M14 15v4"/></svg><span>Technical setup</span></div>
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M8.5 12.2l2.4 2.4 4.6-5.2M5.5 4.5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1z"/></svg><span>Testing</span></div>
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M12 5.5L21.5 9.5 12 13.5 2.5 9.5zM6.5 11.2v4.3c0 1.8 2.5 3 5.5 3s5.5-1.2 5.5-3v-4.3"/></svg><span>Training</span></div>
+      <div class="i"><svg class="ico" viewBox="0 0 24 24"><path d="M6 20V4.5h12l-2.5 4 2.5 4H6"/></svg><span>Go live</span></div>
+    </div>
+  </div>
+
+  <h2>The prototype files were updated</h2>
+  <p class="sub">Both now use the logo, the icon set, the token variables and the accessibility
+  fixes. 46 edits each, verified identical between the two.</p>
+  <div class="grid g2">
+    <div class="card">
+      <div class="eyebrow" style="margin-bottom:10px">What changed</div>
+      <table>
+        <tbody>
+          <tr><td>Logo placeholder &rarr; real mark</td><td class="m">1</td></tr>
+          <tr><td>Unicode glyphs &rarr; inline SVG</td><td class="m">18</td></tr>
+          <tr><td>Colour values darkened for AA</td><td class="m">6 &rarr; 86 uses</td></tr>
+          <tr><td>Near-duplicate literals folded</td><td class="m">9</td></tr>
+          <tr><td>Focus indicator added</td><td class="m ok">global</td></tr>
+          <tr><td>Reduced-motion support</td><td class="m ok">added</td></tr>
+          <tr><td><code>aria-label</code> on icon-only controls</td><td class="m ok">added</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note">
+      <h3>Contrast &mdash; the headline finding</h3>
+      <p><code>PRD.md</code> §16 requires WCAG compliance. 7 of 24 measured pairs failed AA, and
+      the worst was also the most-used colour in the interface:</p>
+      <p><code>#9a968f</code> at <span class="bad">2.80:1</span>, 49 occurrences, carrying every
+      table header, mono label and timestamp &rarr; now <code>#716d67</code> at
+      <span class="ok">4.52:1</span> worst case.</p>
+      <p>Solving for the accessible floor showed the palette cannot support three distinct
+      quiet-grey text tiers. The fix keeps two and documents the collapse.</p>
+    </div>
+  </div>
+
+  <footer>
+    Originals preserved as <code>*.orig</code>. Regenerate everything with the four scripts in
+    <code>design/scripts/</code> &mdash; standard library only, no dependencies, idempotent across
+    73 files.
+  </footer>
+</div>
+</body>
+</html>
