@@ -4620,6 +4620,12 @@ public class PermissionGateAspect {
 
 The gate answers only "does the user hold this permission at *any* scope". Which records they may touch is the predicate builder's job — the two are separate on purpose.
 
+**Annotate it `@Order(300)`.** The advice must run inside the transaction and after the tenant is bound, because resolving permissions queries `user_role`, `role` and `role_grant`, all RLS-protected: run it earlier and the query takes a pooled connection with no tenant GUC, RLS returns nothing, and the gate denies every request — a failure that reads as a permissions bug rather than an ordering one. The chain is transaction advisor (100, pinned in `TransactionConfig`) → `TenantTransactionBinder` (200) → gate (300).
+
+Note honestly that the annotation is explicitness rather than a fix: removing it was tested and the suite still passed, because an unordered aspect gets `LOWEST_PRECEDENCE` (`Integer.MAX_VALUE`) and is therefore already innermost. Keep it so a later aspect cannot be slipped between the binder and the gate without someone choosing a number deliberately.
+
+**Add a fourth test** the plan omits, and it is the gate's most important negative case: `gateIsNotSatisfiedByADifferentPermission`. Grant the user `customer.view` only, then call `createRole`, which is gated on `role.manage`. A gate implemented as "has any grant at all" passes all three planned tests, because their users hold either nothing or exactly the permission under test.
+
 - [ ] **Step 4: Implement `AuthorizedQuery`**
 
 ```java
@@ -4703,32 +4709,44 @@ The `findBy*` clause matters as much as the rest: a derived query like `contactR
 
 Scope the rule to `co.ara.onboarding.customer..` for now; each later sub-project adds its own domain package here. `TenantProvisioningService` and `RoleService` are outside that package and unaffected — they operate on authorization metadata, not scoped business records.
 
+It needs `.allowEmptyShould(true)`: no customer service exists until Task 20, and ArchUnit fails a rule that matched nothing. That makes the rule vacuous for now, so **prove it binds** — add a throwaway `customer/BypassProbeService` calling `customers.findAll()`, confirm the failure names that method and call, then delete it. (It will trip `serviceMethodsAreGated` too, which is its own confirmation that both guards cover new services.)
+
 - [ ] **Step 7: Repair the earlier tests this task deliberately breaks**
 
 Activating the gate breaks every earlier test that called a gated service through `fixture.runAs`, which establishes a tenant but no authenticated user. That fallout is expected — those tests were passing only because the annotation had no behaviour. Fix the fixture, not the services.
 
-Give `TenantFixture` a privileged variant, and change `runAs` to use it:
+`TenantFixture` needs **three** methods, not two, because `runAs` and `runAsUser` would otherwise recurse into each other — `runAsUser` currently calls `runAs` at its core (Task 13 Step 2), so making `runAs` delegate to `runAsUser` loops forever. Extract the tenant-binding primitive first:
 
 ```java
-    /**
-     * Runs with a tenant bound AND an authenticated administrator, so gated
-     * services work in setup code. Tests asserting authorization behaviour must
-     * use runAsUser with a specific user instead.
-     */
-    public void runAs(UUID tenantId, Runnable action) {
-        UUID admin = administratorFor(tenantId);
-        runAsUser(tenantId, admin, action);
-    }
+    /** Tenant bound, NO authenticated user. The primitive the other two build on. */
+    public void runUnauthenticated(UUID tenantId, Runnable action) { /* the old runAs body */ }
 
-    /** Lazily creates (once per tenant) an ACTIVE user holding the seeded Administrator role. */
-    private UUID administratorFor(UUID tenantId) { /* memoize per tenantId */ }
+    /** Tenant bound AND an authenticated administrator, so gated services work in setup. */
+    public void runAs(UUID tenantId, Runnable action) {
+        runAsUser(tenantId, administratorFor(tenantId), action);
+    }
 ```
+
+and change `runAsUser` to call `runUnauthenticated`, not `runAs`.
+
+`administratorFor` must **reuse the seeded "Administrator" role when one exists** and only create its own otherwise:
+
+```java
+    UUID roleId = roleRepository.findByTenantIdAndName(t, "Administrator")
+            .map(Role::getId)
+            .orElseGet(() -> createSuperuserRole(t));
+```
+
+Without that, a fixture role added to a provisioned tenant makes `TenantProvisioningTest`'s twelve templates thirteen. The role must be written through the repositories, not `RoleService.createRole` — that method is now gated on `role.manage`, so bootstrapping the administrator through the gate would require an administrator. Every catalogued permission allows `ALL`, so the superuser role can grant all of them at `ALL` with no filtering; keep `systemTemplate` false and the name distinctive.
 
 `runAsUser` must also establish request scope, because `AuthorizationService` is `@RequestScope`; it already does this via `RequestContextHolder` from Task 13 Step 2.
 
-Two consequences to handle:
-- `TenantProvisioningService.provision` runs before any user exists, so it must not be gated. Keep it ungated and add the documented ArchUnit exclusion from Task 7 Step 5.
+Three consequences to handle:
+- `TenantProvisioningService.provision` runs before any user exists, so it must not be gated. Keep it ungated; the ArchUnit exclusion was already added in Task 10.
 - Tests in Tasks 9, 10, 13 that used `runAs` for setup now run as an administrator, which is correct: setup should be privileged, and only the assertions should be scope-constrained.
+- **`HibernateFilterTest.tenantFilterExcludesOtherTenantsRowsAtTheSqlLevel` breaks, and its assertion is what needs fixing.** It asserts `containsExactly("a-user@example.com")`, but the fixture's administrator is a legitimate second tenant-A user, so tenant A now holds two. The test's actual claim is that tenant B's row is *excluded*; `containsExactly` conflated exclusion with cardinality. Replace it with `contains("a-user@…")` plus `doesNotContain("b-user@…")`.
+
+In practice this is the *only* test that breaks. Everything else adapts, because the fixture change is the whole repair.
 
 - [ ] **Step 8: Run the full suite**
 

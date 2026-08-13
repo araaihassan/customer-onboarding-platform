@@ -69,10 +69,15 @@ class HibernateFilterTest extends PostgresTestBase {
         try {
             fixture.runAs(tenantA, () -> {
                 List<AppUser> visible = users.findAll();
-                assertThat(visible)
-                        .as("only tenant A's user should come back")
-                        .extracting(AppUser::getEmail)
-                        .containsExactly("a-user@example.com");
+                // Exclusion, not cardinality. containsExactly was wrong once the
+                // permission gate made fixture.runAs privileged: the fixture's own
+                // administrator is a legitimate tenant-A user, so tenant A holds two.
+                // What this test actually claims is that tenant B's row is invisible.
+                assertThat(visible).extracting(AppUser::getEmail)
+                        .as("tenant A's own user must be visible")
+                        .contains("a-user@example.com")
+                        .as("tenant B's user must not cross the filter")
+                        .doesNotContain("b-user@example.com");
             });
         } finally {
             sqlLogger.setLevel(previousLevel);

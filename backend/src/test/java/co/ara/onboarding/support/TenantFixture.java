@@ -1,6 +1,14 @@
 package co.ara.onboarding.support;
 
 import co.ara.onboarding.authz.AuthenticatedPrincipal;
+import co.ara.onboarding.authz.Permission;
+import co.ara.onboarding.authz.PermissionCatalog;
+import co.ara.onboarding.authz.Role;
+import co.ara.onboarding.authz.RoleGrant;
+import co.ara.onboarding.authz.RoleRepository;
+import co.ara.onboarding.authz.Scope;
+import co.ara.onboarding.authz.UserRole;
+import co.ara.onboarding.authz.UserRoleRepository;
 import co.ara.onboarding.customer.Customer;
 import co.ara.onboarding.customer.CustomerRepository;
 import co.ara.onboarding.customer.CustomerStatus;
@@ -25,7 +33,10 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Component
 public class TenantFixture {
@@ -35,14 +46,21 @@ public class TenantFixture {
     private final DepartmentRepository departments;
     private final TeamRepository teams;
     private final CustomerRepository customers;
+    private final RoleRepository roleRepository;
+    private final UserRoleRepository userRoleRepository;
     private final TenantConnectionCustomizer binder;
     private final TransactionTemplate tx;
+
+    /** One fixture administrator per tenant, created on first privileged use. */
+    private final Map<UUID, UUID> administrators = new ConcurrentHashMap<>();
 
     public TenantFixture(TenantRepository tenants,
                          AppUserRepository users,
                          DepartmentRepository departments,
                          TeamRepository teams,
                          CustomerRepository customers,
+                         RoleRepository roleRepository,
+                         UserRoleRepository userRoleRepository,
                          TenantConnectionCustomizer binder,
                          TransactionTemplate tx) {
         this.tenants = tenants;
@@ -50,6 +68,8 @@ public class TenantFixture {
         this.departments = departments;
         this.teams = teams;
         this.customers = customers;
+        this.roleRepository = roleRepository;
+        this.userRoleRepository = userRoleRepository;
         this.binder = binder;
         this.tx = tx;
     }
@@ -141,12 +161,85 @@ public class TenantFixture {
         return customers.saveAndFlush(c).getId();
     }
 
-    /** Runs the action in a transaction with the tenant bound to both context and connection. */
-    public void runAs(UUID tenantId, Runnable action) {
+    /**
+     * Tenant bound, NO authenticated user. The primitive the other two build on.
+     *
+     * Use this only where the absence of a principal is the point — bootstrapping
+     * the fixture's own administrator, or asserting unauthenticated behaviour.
+     * Anything calling a @RequirePermission service through this will be denied,
+     * because there is no principal to resolve permissions for.
+     */
+    public void runUnauthenticated(UUID tenantId, Runnable action) {
         TenantContext.runAs(tenantId, () -> tx.executeWithoutResult(status -> {
             binder.bind(tenantId);
             action.run();
         }));
+    }
+
+    /**
+     * Runs with a tenant bound AND an authenticated administrator, so gated
+     * services work in setup code.
+     *
+     * This became privileged when Task 14 activated the permission gate. Setup
+     * should be privileged; only assertions should be scope-constrained. Tests
+     * asserting authorization behaviour must use {@link #runAsUser} with a specific
+     * user instead — using this one would grant them everything and prove nothing.
+     */
+    public void runAs(UUID tenantId, Runnable action) {
+        runAsUser(tenantId, administratorFor(tenantId), action);
+    }
+
+    /**
+     * The fixture's administrator for a tenant, created once per tenant.
+     *
+     * Reuses the seeded "Administrator" role when the tenant was provisioned
+     * through TenantProvisioningService, and only creates its own role otherwise.
+     * That matters for assertions that count roles: a fixture role added to a
+     * provisioned tenant would make its twelve templates thirteen.
+     *
+     * The role is written through the repositories rather than RoleService because
+     * RoleService.createRole is now gated on ROLE_MANAGE — bootstrapping the
+     * administrator through the gate would require an administrator.
+     */
+    private UUID administratorFor(UUID tenantId) {
+        return administrators.computeIfAbsent(tenantId, t -> {
+            var userId = new AtomicReference<UUID>();
+            runUnauthenticated(t, () -> {
+                userId.set(createUser(t, "fixture-admin+" + t + "@fixture.test"));
+                UUID roleId = roleRepository.findByTenantIdAndName(t, "Administrator")
+                        .map(Role::getId)
+                        .orElseGet(() -> createSuperuserRole(t));
+                userRoleRepository.saveAndFlush(new UserRole(t, userId.get(), roleId));
+            });
+            return userId.get();
+        });
+    }
+
+    /**
+     * A role granting every catalogued permission at ALL scope. Every permission in
+     * the catalog allows ALL, so this needs no per-permission filtering.
+     * systemTemplate stays false and the name is distinctive, so nothing mistakes
+     * it for one of the twelve seeded templates.
+     */
+    private UUID createSuperuserRole(UUID tenantId) {
+        Role role = new Role();
+        role.setId(Uuid7.generate());
+        role.setTenantId(tenantId);
+        role.setName("Fixture Superuser");
+        role.setDescription("Test fixture only");
+        role.setSystemTemplate(false);
+        role.setEnabled(true);
+
+        for (Permission p : PermissionCatalog.all()) {
+            RoleGrant grant = new RoleGrant();
+            grant.setId(Uuid7.generate());
+            grant.setTenantId(tenantId);
+            grant.setRole(role);
+            grant.setPermissionKey(p.key());
+            grant.setScope(Scope.ALL);
+            role.getGrants().add(grant);
+        }
+        return roleRepository.saveAndFlush(role).getId();
     }
 
     /**
@@ -175,7 +268,9 @@ public class TenantFixture {
                 new UsernamePasswordAuthenticationToken(
                         new AuthenticatedPrincipal(tenantId, userId), null, List.of()));
         try {
-            runAs(tenantId, action);
+            // runUnauthenticated, not runAs: runAs delegates here, so calling it would
+            // recurse forever.
+            runUnauthenticated(tenantId, action);
         } finally {
             SecurityContextHolder.getContext().setAuthentication(previousAuth);
             RequestContextHolder.setRequestAttributes(previousRequest);

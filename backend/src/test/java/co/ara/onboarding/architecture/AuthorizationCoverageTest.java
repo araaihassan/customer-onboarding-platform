@@ -8,7 +8,11 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
+import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameStartingWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
  * Every public method on a *Service that a controller can reach must carry an
@@ -65,4 +69,33 @@ class AuthorizationCoverageTest {
                      .and().areNotDeclaredIn(AuthorizationService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
+
+    /**
+     * Services must read tenant business data through AuthorizedQuery. Calling a
+     * repository finder directly skips the scope predicate entirely, which is a
+     * silent, total bypass of record-level authorization rather than a visible
+     * error.
+     *
+     * The findBy* clause matters as much as the rest: a derived query like
+     * contactRepository.findByCustomerId(id) carries no scope predicate either, so
+     * CustomerContactService must reach contacts through AuthorizedQuery with a
+     * customerId Specification rather than a derived finder.
+     *
+     * Scoped to co.ara.onboarding.customer.. for now; each later sub-project adds
+     * its own domain package. RoleService and TenantProvisioningService are outside
+     * it and unaffected — they operate on authorization metadata, not scoped
+     * business records. allowEmptyShould because no customer service exists until
+     * Task 20; ArchUnit fails a rule that matched nothing.
+     */
+    @ArchTest
+    static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
+            noClasses().that().resideInAPackage("co.ara.onboarding.customer..")
+                .and().haveSimpleNameEndingWith("Service")
+                .should().callMethodWhere(
+                        target(name("findAll"))
+                        .or(target(name("findOne")))
+                        .or(target(name("findById")))
+                        .or(target(nameStartingWith("findBy"))))
+                .because("reads must go through AuthorizedQuery so scope cannot be bypassed")
+                .allowEmptyShould(true);
 }
