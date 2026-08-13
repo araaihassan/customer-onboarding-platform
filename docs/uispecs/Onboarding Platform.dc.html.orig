@@ -1,0 +1,1428 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: #f7f6f3; }
+  body { -webkit-font-smoothing: antialiased; }
+  a { color: oklch(0.52 0.16 274); text-decoration: none; }
+  a:hover { color: oklch(0.42 0.16 274); text-decoration: underline; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #d9d5ce; border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes pulseDot { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+</style>
+</helmet>
+
+<div style="display: flex; min-height: 100vh; font-family: Archivo, Helvetica, sans-serif; color: #191a1e; background: #f7f6f3;">
+
+  <aside style="width: 244px; flex: 0 0 244px; background: {{ railBg }}; color: {{ railInk }}; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh;">
+    <div style="padding: 22px 20px 18px; display: flex; align-items: center; gap: 10px;">
+      <div style="width: 26px; height: 26px; border-radius: 7px; background: oklch(0.52 0.16 274); display: grid; place-items: center; font-size: 13px; font-weight: 700; color: #fff;">O</div>
+      <div style="display: flex; flex-direction: column; line-height: 1.15;">
+        <span style="font-size: 14px; font-weight: 600; letter-spacing: -0.01em;">Onboard OS</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; opacity: 0.5;">acme-industrial</span>
+      </div>
+    </div>
+
+    <nav style="display: flex; flex-direction: column; gap: 2px; padding: 6px 10px;">
+      <sc-for list="{{ nav }}" as="item" hint-placeholder-count="6">
+        <button onClick="{{ item.go }}" style="{{ item.style }}" style-hover="opacity: 1; background: rgba(255,255,255,0.07);">
+          <span style="width: 16px; text-align: center; font-size: 13px; opacity: 0.85;">{{ item.icon }}</span>
+          <span style="flex: 1; text-align: left;">{{ item.label }}</span>
+          <sc-if value="{{ item.badge }}" hint-placeholder-val="{{ false }}">
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 1px 6px; border-radius: 20px; background: rgba(255,255,255,0.12);">{{ item.badge }}</span>
+          </sc-if>
+        </button>
+      </sc-for>
+    </nav>
+
+    <div style="margin-top: auto; padding: 14px 16px 18px; border-top: 1px solid rgba(255,255,255,0.09);">
+      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.09em; text-transform: uppercase; opacity: 0.45; margin-bottom: 8px;">Viewing as</div>
+      <div style="display: flex; gap: 4px; padding: 3px; border-radius: 9px; background: rgba(255,255,255,0.07);">
+        <button onClick="{{ setInternal }}" style="{{ roleInternalStyle }}">Internal</button>
+        <button onClick="{{ setCustomer }}" style="{{ roleCustomerStyle }}">Customer</button>
+      </div>
+      <div style="display: flex; align-items: center; gap: 9px; margin-top: 14px;">
+        <div style="width: 28px; height: 28px; border-radius: 50%; background: oklch(0.72 0.14 70); color: #191a1e; display: grid; place-items: center; font-size: 11px; font-weight: 600;">MK</div>
+        <div style="line-height: 1.25;">
+          <div style="font-size: 12.5px; font-weight: 500;">Maria Kessler</div>
+          <div style="font-size: 10.5px; opacity: 0.5;">{{ roleLabel }}</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
+
+    <header style="position: sticky; top: 0; z-index: 30; background: rgba(247,246,243,0.88); backdrop-filter: blur(10px); border-bottom: 1px solid #e6e3dd; padding: 0 28px; height: 60px; display: flex; align-items: center; gap: 18px;">
+      <div style="display: flex; align-items: baseline; gap: 9px; min-width: 0;">
+        <span style="font-size: 17px; font-weight: 600; letter-spacing: -0.02em; white-space: nowrap;">{{ screenTitle }}</span>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #75726c; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ screenMeta }}</span>
+      </div>
+      <div style="flex: 1;"></div>
+      <div style="display: flex; align-items: center; gap: 8px; padding: 0 11px; height: 34px; border: 1px solid #e6e3dd; background: #fff; border-radius: 9px; width: 230px; color: #75726c;">
+        <span style="font-size: 12px;">⌕</span>
+        <span style="font-size: 12.5px;">Search customers, tasks…</span>
+        <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 1px 5px; border: 1px solid #e6e3dd; border-radius: 4px;">⌘K</span>
+      </div>
+      <button onClick="{{ toggleNotif }}" style="position: relative; width: 34px; height: 34px; border-radius: 9px; border: 1px solid #e6e3dd; background: #fff; cursor: pointer; font-size: 14px; color: #191a1e;" style-hover="background: #f2f0ec;">
+        ◔
+        <span style="position: absolute; top: -3px; right: -3px; min-width: 16px; height: 16px; border-radius: 20px; background: oklch(0.57 0.17 25); color: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; display: grid; place-items: center; padding: 0 3px;">{{ notifCount }}</span>
+      </button>
+      <button style="height: 34px; padding: 0 14px; border-radius: 9px; border: none; background: oklch(0.52 0.16 274); color: #fff; font-family: Archivo, sans-serif; font-size: 12.5px; font-weight: 500; cursor: pointer;" style-hover="background: oklch(0.45 0.16 274);">New onboarding</button>
+    </header>
+
+    <sc-if value="{{ notifOpen }}" hint-placeholder-val="{{ false }}">
+      <div style="position: fixed; top: 66px; right: 24px; z-index: 60; width: 348px; background: #fff; border: 1px solid #e6e3dd; border-radius: 14px; box-shadow: 0 18px 44px -18px rgba(25,26,30,0.32); overflow: hidden; animation: fadeUp 0.16s ease both;">
+        <div style="padding: 13px 16px; border-bottom: 1px solid #efece7; display: flex; align-items: center;">
+          <span style="font-size: 13px; font-weight: 600;">Notifications</span>
+          <span style="margin-left: auto; font-size: 11.5px; color: oklch(0.52 0.16 274); cursor: pointer;">Mark all read</span>
+        </div>
+        <sc-for list="{{ notifications }}" as="n" hint-placeholder-count="4">
+          <div style="padding: 12px 16px; border-bottom: 1px solid #f4f2ee; display: flex; gap: 11px; align-items: flex-start;">
+            <span style="{{ n.dot }}"></span>
+            <div style="min-width: 0;">
+              <div style="font-size: 12.5px; line-height: 1.4;">{{ n.text }}</div>
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9a968f; margin-top: 3px;">{{ n.meta }}</div>
+            </div>
+          </div>
+        </sc-for>
+        <div style="padding: 10px 16px; font-size: 11.5px; color: #75726c;">In-app · Email · SMS delivery configured per event</div>
+      </div>
+    </sc-if>
+
+    <div style="padding: 24px 28px 56px;">
+
+      <sc-if value="{{ isDash }}" hint-placeholder-val="{{ true }}">
+        <div data-screen-label="Dashboard" style="display: flex; flex-direction: column; gap: 16px;">
+
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 14px;">
+            <sc-for list="{{ kpis }}" as="k" hint-placeholder-count="4">
+              <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 16px 17px;">
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">{{ k.label }}</div>
+                <div style="display: flex; align-items: baseline; gap: 8px; margin-top: 9px;">
+                  <span style="font-size: 29px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;">{{ k.value }}</span>
+                  <span style="{{ k.deltaStyle }}">{{ k.delta }}</span>
+                </div>
+                <div style="font-size: 11.5px; color: #75726c; margin-top: 7px;">{{ k.sub }}</div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1.35fr 1fr; gap: 16px; align-items: start;">
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 18px 20px 20px;">
+              <div style="display: flex; align-items: center; margin-bottom: 16px;">
+                <span style="font-size: 13.5px; font-weight: 600;">Pipeline by stage</span>
+                <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f;">48 active projects</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 9px;">
+                <sc-for list="{{ funnel }}" as="f" hint-placeholder-count="9">
+                  <div style="display: grid; grid-template-columns: 132px 1fr 42px; align-items: center; gap: 12px;">
+                    <span style="font-size: 12px; color: #4d4a46;">{{ f.stage }}</span>
+                    <div style="height: 22px; background: #f4f2ee; border-radius: 5px; overflow: hidden;">
+                      <div style="{{ f.barStyle }}"></div>
+                    </div>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; text-align: right; color: #4d4a46;">{{ f.count }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; overflow: hidden;">
+              <div style="padding: 16px 18px 12px; display: flex; align-items: center;">
+                <span style="font-size: 13.5px; font-weight: 600;">Needs attention</span>
+                <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10px; padding: 2px 7px; border-radius: 20px; background: oklch(0.96 0.04 25); color: oklch(0.5 0.17 25);">5 blocked</span>
+              </div>
+              <sc-for list="{{ attention }}" as="a" hint-placeholder-count="5">
+                <div onClick="{{ a.open }}" style="padding: 11px 18px; border-top: 1px solid #f4f2ee; display: flex; gap: 11px; align-items: center; cursor: pointer;" style-hover="background: #faf9f7;">
+                  <span style="{{ a.dot }}"></span>
+                  <div style="min-width: 0; flex: 1;">
+                    <div style="font-size: 12.5px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ a.name }}</div>
+                    <div style="font-size: 11px; color: #75726c;">{{ a.reason }}</div>
+                  </div>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: {{ a.ageColor }};">{{ a.age }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; align-items: start;">
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 16px 18px 18px;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 13px;">
+                <span style="font-size: 13.5px; font-weight: 600;">Live activity</span>
+                <span style="{{ liveDotStyle }}"></span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 13px;">
+                <sc-for list="{{ feed }}" as="e" hint-placeholder-count="5">
+                  <div style="display: flex; gap: 10px;">
+                    <div style="width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; background: #f2f0ec; display: grid; place-items: center; font-size: 9.5px; font-weight: 600; color: #4d4a46;">{{ e.who }}</div>
+                    <div style="min-width: 0;">
+                      <div style="font-size: 12px; line-height: 1.45; color: #2b2c31;">{{ e.text }}</div>
+                      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9a968f; margin-top: 2px;">{{ e.time }}</div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 16px 18px 18px;">
+              <div style="font-size: 13.5px; font-weight: 600; margin-bottom: 14px;">Team workload</div>
+              <div style="display: flex; flex-direction: column; gap: 12px;">
+                <sc-for list="{{ workload }}" as="w" hint-placeholder-count="5">
+                  <div>
+                    <div style="display: flex; align-items: baseline; margin-bottom: 5px;">
+                      <span style="font-size: 12px;">{{ w.team }}</span>
+                      <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #75726c;">{{ w.open }}</span>
+                    </div>
+                    <div style="height: 6px; border-radius: 4px; background: #f4f2ee; overflow: hidden;">
+                      <div style="{{ w.barStyle }}"></div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 16px 18px 18px;">
+              <div style="display: flex; align-items: center; margin-bottom: 14px;">
+                <span style="font-size: 13.5px; font-weight: 600;">This week</span>
+                <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f;">Aug 17–21</span>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 10px;">
+                <sc-for list="{{ week }}" as="d" hint-placeholder-count="4">
+                  <div style="display: flex; gap: 12px; align-items: flex-start; padding-bottom: 10px; border-bottom: 1px solid #f4f2ee;">
+                    <div style="text-align: center; width: 30px; flex: 0 0 30px;">
+                      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: #9a968f; text-transform: uppercase;">{{ d.dow }}</div>
+                      <div style="font-size: 15px; font-weight: 600; line-height: 1.1;">{{ d.day }}</div>
+                    </div>
+                    <div style="min-width: 0;">
+                      <div style="font-size: 12px; font-weight: 500;">{{ d.title }}</div>
+                      <div style="font-size: 11px; color: #75726c; margin-top: 2px;">{{ d.sub }}</div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isCustomers }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Customers" style="display: flex; flex-direction: column; gap: 14px;">
+          <div style="display: flex; gap: 7px; align-items: center;">
+            <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+              <button onClick="{{ f.pick }}" style="{{ f.style }}">{{ f.label }}</button>
+            </sc-for>
+            <div style="flex: 1;"></div>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #9a968f;">{{ rowCount }} shown · sorted by risk</span>
+          </div>
+
+          <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; overflow: hidden;">
+            <div style="display: grid; grid-template-columns: 2.1fr 1.2fr 1.5fr 1fr 1fr 0.7fr; gap: 14px; padding: 11px 20px; background: #faf9f7; border-bottom: 1px solid #e6e3dd; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">
+              <span>Customer</span><span>Stage</span><span>Progress</span><span>Owner</span><span>Due</span><span>Health</span>
+            </div>
+            <sc-for list="{{ rows }}" as="c" hint-placeholder-count="6">
+              <div onClick="{{ c.open }}" style="display: grid; grid-template-columns: 2.1fr 1.2fr 1.5fr 1fr 1fr 0.7fr; gap: 14px; align-items: center; padding: {{ rowPad }} 20px; border-bottom: 1px solid #f4f2ee; cursor: pointer;" style-hover="background: #faf9f7;">
+                <div style="display: flex; align-items: center; gap: 11px; min-width: 0;">
+                  <div style="{{ c.avatar }}">{{ c.initials }}</div>
+                  <div style="min-width: 0;">
+                    <div style="font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ c.name }}</div>
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9a968f;">{{ c.id }} · {{ c.sector }} · {{ c.cases }}</div>
+                  </div>
+                </div>
+                <span style="{{ c.stagePill }}">{{ c.stage }}</span>
+                <div style="display: flex; align-items: center; gap: 9px;">
+                  <div style="flex: 1; height: 6px; border-radius: 4px; background: #f0eee9; overflow: hidden;">
+                    <div style="{{ c.barStyle }}"></div>
+                  </div>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #4d4a46; width: 30px;">{{ c.pct }}</span>
+                </div>
+                <span style="font-size: 12px; color: #4d4a46;">{{ c.owner }}</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #4d4a46;">{{ c.due }}</span>
+                <span style="{{ c.healthPill }}">{{ c.health }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isWorkspace }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Journey workspace" style="display: flex; flex-direction: column; gap: 16px;">
+
+          <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 20px 22px;">
+            <div style="display: flex; gap: 20px; align-items: flex-start;">
+              <div style="width: 46px; height: 46px; border-radius: 12px; background: oklch(0.94 0.03 274); color: oklch(0.42 0.16 274); display: grid; place-items: center; font-size: 15px; font-weight: 600;">{{ cust.initials }}</div>
+              <div style="min-width: 0; flex: 1;">
+                <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                  <span style="font-size: 19px; font-weight: 600; letter-spacing: -0.02em;">{{ cust.name }}</span>
+                  <span style="{{ cust.healthPill }}">{{ cust.health }}</span>
+                </div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #75726c; margin-top: 5px;">{{ cust.meta }}</div>
+                <div style="display: flex; align-items: center; gap: 7px; margin-top: 13px; flex-wrap: wrap;">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f; margin-right: 3px;">Cases</span>
+                  <sc-for list="{{ cases }}" as="c" hint-placeholder-count="3">
+                    <button onClick="{{ c.pick }}" style="{{ c.style }}">
+                      <span style="{{ c.dot }}"></span>
+                      <span>{{ c.name }}</span>
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; opacity: 0.6;">{{ c.id }}</span>
+                    </button>
+                  </sc-for>
+                  <button style="height: 27px; padding: 0 10px; border-radius: 8px; border: 1px dashed #ccc7bf; background: transparent; font-family: Archivo, sans-serif; font-size: 11.5px; color: #75726c; cursor: pointer;" style-hover="border-color: #9a968f;">＋ New case</button>
+                </div>
+                <div style="display: flex; gap: 26px; margin-top: 16px; flex-wrap: wrap;">
+                  <sc-for list="{{ cust.facts }}" as="f" hint-placeholder-count="5">
+                    <div>
+                      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">{{ f.label }}</div>
+                      <div style="font-size: 12.5px; margin-top: 4px; font-weight: 500;">{{ f.value }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="text-align: right;">
+                <div style="font-size: 34px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;">{{ cust.pct }}</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9a968f; margin-top: 4px;">COMPLETE</div>
+                <div style="width: 150px; height: 7px; border-radius: 4px; background: #f0eee9; overflow: hidden; margin-top: 10px;">
+                  <div style="{{ cust.barStyle }}"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 3px; border-bottom: 1px solid #e6e3dd;">
+            <sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5">
+              <button onClick="{{ t.pick }}" style="{{ t.style }}">
+                {{ t.label }}
+                <sc-if value="{{ t.count }}" hint-placeholder-val="{{ false }}">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; margin-left: 6px; color: #9a968f;">{{ t.count }}</span>
+                </sc-if>
+              </button>
+            </sc-for>
+          </div>
+
+          <sc-if value="{{ tabJourney }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 2px;">
+                <span style="font-size: 12px; color: #75726c;">Workflow</span>
+                <span style="font-size: 12px; font-weight: 500;">Standard Enterprise Onboarding v4</span>
+                <a href="#" onClick="{{ goWorkflow }}" style="font-size: 12px;">Configure</a>
+                <div style="flex: 1;"></div>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f;">Click a milestone to expand</span>
+              </div>
+              <sc-for list="{{ milestones }}" as="m" hint-placeholder-count="9">
+                <div style="{{ m.cardStyle }}">
+                  <div onClick="{{ m.toggle }}" style="display: grid; grid-template-columns: 26px 1fr auto; gap: 14px; align-items: center; padding: 14px 18px; cursor: pointer;">
+                    <div style="{{ m.dot }}">{{ m.dotGlyph }}</div>
+                    <div style="min-width: 0;">
+                      <div style="display: flex; align-items: center; gap: 10px;">
+                        <span style="font-size: 13.5px; font-weight: 600;">{{ m.title }}</span>
+                        <span style="{{ m.pill }}">{{ m.status }}</span>
+                        <sc-if value="{{ m.blockedBy }}" hint-placeholder-val="{{ false }}">
+                          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: oklch(0.5 0.17 25);">blocked by {{ m.blockedBy }}</span>
+                        </sc-if>
+                      </div>
+                      <div style="font-size: 11.5px; color: #75726c; margin-top: 4px;">{{ m.sub }}</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 18px;">
+                      <div style="text-align: right;">
+                        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #4d4a46;">{{ m.due }}</div>
+                        <div style="font-size: 10.5px; color: #9a968f;">{{ m.owner }}</div>
+                      </div>
+                      <div style="width: 74px; height: 6px; border-radius: 4px; background: #f0eee9; overflow: hidden;">
+                        <div style="{{ m.barStyle }}"></div>
+                      </div>
+                      <span style="{{ m.chevStyle }}">▾</span>
+                    </div>
+                  </div>
+                  <sc-if value="{{ m.open }}" hint-placeholder-val="{{ false }}">
+                    <div style="border-top: 1px solid #efece7; padding: 16px 18px 18px 58px; display: grid; grid-template-columns: 1.4fr 1fr; gap: 22px; animation: fadeUp 0.16s ease both;">
+                      <div>
+                        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f; margin-bottom: 9px;">Tasks</div>
+                        <div style="display: flex; flex-direction: column; gap: 7px;">
+                          <sc-for list="{{ m.tasks }}" as="t" hint-placeholder-count="3">
+                            <div style="display: flex; align-items: center; gap: 10px; padding: 8px 11px; border: 1px solid #efece7; border-radius: 9px; background: #fdfcfb;">
+                              <button onClick="{{ t.toggle }}" style="{{ t.box }}">{{ t.check }}</button>
+                              <span style="{{ t.titleStyle }}">{{ t.title }}</span>
+                              <span style="{{ t.prio }}">{{ t.priority }}</span>
+                              <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9a968f;">{{ t.assignee }} · {{ t.due }}</span>
+                            </div>
+                          </sc-for>
+                        </div>
+                        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f; margin: 16px 0 9px;">Documents</div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                          <sc-for list="{{ m.docs }}" as="d" hint-placeholder-count="2">
+                            <div style="display: flex; align-items: center; gap: 8px; padding: 7px 11px; border: 1px solid #efece7; border-radius: 9px; background: #fdfcfb;">
+                              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 2px 4px; border-radius: 3px; background: #f0eee9; color: #75726c;">{{ d.ext }}</span>
+                              <span style="font-size: 12px;">{{ d.name }}</span>
+                              <span style="{{ d.pill }}">{{ d.status }}</span>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </div>
+                      <div>
+                        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f; margin-bottom: 9px;">Dependencies</div>
+                        <div style="font-size: 12px; color: #4d4a46; line-height: 1.6;">{{ m.deps }}</div>
+                        <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f; margin: 16px 0 9px;">Comments</div>
+                        <sc-for list="{{ m.comments }}" as="c" hint-placeholder-count="2">
+                          <div style="display: flex; gap: 9px; margin-bottom: 11px;">
+                            <div style="width: 22px; height: 22px; flex: 0 0 22px; border-radius: 50%; background: #f2f0ec; display: grid; place-items: center; font-size: 9px; font-weight: 600; color: #4d4a46;">{{ c.who }}</div>
+                            <div>
+                              <div style="font-size: 12px; line-height: 1.45; color: #2b2c31;">{{ c.text }}</div>
+                              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: #9a968f; margin-top: 2px;">{{ c.time }}</div>
+                            </div>
+                          </div>
+                        </sc-for>
+                        <div style="display: flex; align-items: center; gap: 8px; padding: 8px 11px; border: 1px dashed #ddd9d2; border-radius: 9px; font-size: 11.5px; color: #9a968f;">Write a comment… <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px;">@ to mention</span></div>
+                      </div>
+                    </div>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabTasks }}" hint-placeholder-val="{{ false }}">
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; overflow: hidden;">
+              <div style="display: grid; grid-template-columns: 24px 2.4fr 1fr 1fr 1fr 1fr; gap: 14px; padding: 11px 20px; background: #faf9f7; border-bottom: 1px solid #e6e3dd; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">
+                <span></span><span>Task</span><span>Milestone</span><span>Assignee</span><span>Due</span><span>Status</span>
+              </div>
+              <sc-for list="{{ allTasks }}" as="t" hint-placeholder-count="8">
+                <div style="display: grid; grid-template-columns: 24px 2.4fr 1fr 1fr 1fr 1fr; gap: 14px; align-items: center; padding: {{ rowPad }} 20px; border-bottom: 1px solid #f4f2ee;">
+                  <button onClick="{{ t.toggle }}" style="{{ t.box }}">{{ t.check }}</button>
+                  <div style="min-width: 0;">
+                    <div style="{{ t.titleStyle }}">{{ t.title }}</div>
+                    <div style="font-size: 11px; color: #9a968f; margin-top: 2px;">{{ t.desc }}</div>
+                  </div>
+                  <span style="font-size: 11.5px; color: #4d4a46;">{{ t.milestone }}</span>
+                  <span style="font-size: 11.5px; color: #4d4a46;">{{ t.assignee }}</span>
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{ t.dueColor }};">{{ t.due }}</span>
+                  <span style="{{ t.statusPill }}">{{ t.status }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabDocs }}" hint-placeholder-val="{{ false }}">
+            <div style="display: grid; grid-template-columns: 1fr 300px; gap: 16px; align-items: start;">
+              <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; overflow: hidden;">
+                <div style="display: grid; grid-template-columns: 2.2fr 1.1fr 0.7fr 0.9fr 1.3fr 0.9fr; gap: 14px; padding: 11px 20px; background: #faf9f7; border-bottom: 1px solid #e6e3dd; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">
+                  <span>Document</span><span>Category</span><span>Version</span><span>Expires</span><span>Visible to</span><span>Status</span>
+                </div>
+                <sc-for list="{{ documents }}" as="d" hint-placeholder-count="8">
+                  <div style="display: grid; grid-template-columns: 2.2fr 1.1fr 0.7fr 0.9fr 1.3fr 0.9fr; gap: 14px; align-items: center; padding: {{ rowPad }} 20px; border-bottom: 1px solid #f4f2ee;">
+                    <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 3px 5px; border-radius: 4px; background: #f0eee9; color: #75726c;">{{ d.ext }}</span>
+                      <span style="font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ d.name }}</span>
+                    </div>
+                    <span style="font-size: 11.5px; color: #4d4a46;">{{ d.category }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #4d4a46;">{{ d.version }}</span>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{ d.expColor }};">{{ d.expires }}</span>
+                    <div style="display: flex; align-items: center; gap: 7px; min-width: 0;">
+                      <span style="{{ d.visDot }}"></span>
+                      <span style="font-size: 11.5px; color: #4d4a46; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ d.visible }}</span>
+                    </div>
+                    <span style="{{ d.pill }}">{{ d.status }}</span>
+                  </div>
+                </sc-for>
+              </div>
+              <div style="display: flex; flex-direction: column; gap: 14px;">
+                <div style="background: #fff; border: 1px dashed #ccc7bf; border-radius: 13px; padding: 26px 18px; text-align: center;">
+                  <div style="font-size: 20px; color: #b5b0a7;">↥</div>
+                  <div style="font-size: 12.5px; font-weight: 500; margin-top: 8px;">Drop files to upload</div>
+                  <div style="font-size: 11px; color: #75726c; margin-top: 4px;">PDF, DOCX, XLSX · max 50 MB · encrypted at rest</div>
+                </div>
+                <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 16px 18px;">
+                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">Requested from customer</div>
+                  <sc-for list="{{ requested }}" as="r" hint-placeholder-count="3">
+                    <div style="display: flex; align-items: center; gap: 9px; padding: 8px 0; border-top: 1px solid #f4f2ee;">
+                      <span style="{{ r.dot }}"></span>
+                      <span style="font-size: 12px;">{{ r.name }}</span>
+                      <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9a968f;">{{ r.state }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+                <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 16px 18px;">
+                  <div style="font-size: 13px; font-weight: 600;">Portal contacts</div>
+                  <div style="font-size: 11px; color: #75726c; margin-top: 4px; line-height: 1.5;">Each contact signs in individually; document visibility is set per contact.</div>
+                  <sc-for list="{{ contacts }}" as="p" hint-placeholder-count="3">
+                    <div style="display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #f4f2ee;">
+                      <div style="width: 26px; height: 26px; flex: 0 0 26px; border-radius: 50%; background: #f2f0ec; display: grid; place-items: center; font-size: 9.5px; font-weight: 600; color: #4d4a46;">{{ p.initials }}</div>
+                      <div style="min-width: 0;">
+                        <div style="font-size: 12px; font-weight: 500;">{{ p.name }}</div>
+                        <div style="font-size: 10.5px; color: #75726c;">{{ p.role }}</div>
+                      </div>
+                      <span style="margin-left: auto; {{ p.pill }}">{{ p.access }}</span>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabAgreements }}" hint-placeholder-val="{{ false }}">
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px;">
+              <sc-for list="{{ agreements }}" as="a" hint-placeholder-count="4">
+                <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 18px 20px;">
+                  <div style="display: flex; align-items: flex-start; gap: 12px;">
+                    <div style="min-width: 0; flex: 1;">
+                      <div style="font-size: 14px; font-weight: 600;">{{ a.title }}</div>
+                      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f; margin-top: 4px;">{{ a.meta }}</div>
+                    </div>
+                    <span style="{{ a.pill }}">{{ a.status }}</span>
+                  </div>
+                  <div style="display: flex; gap: 6px; margin-top: 16px; align-items: center;">
+                    <sc-for list="{{ a.steps }}" as="s" hint-placeholder-count="4">
+                      <div style="flex: 1; text-align: center;">
+                        <div style="{{ s.bar }}"></div>
+                        <div style="font-size: 10px; color: {{ s.ink }}; margin-top: 6px;">{{ s.label }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 14px; margin-top: 18px; padding-top: 14px; border-top: 1px solid #f4f2ee;">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #75726c;">{{ a.expiry }}</span>
+                    <div style="flex: 1;"></div>
+                    <span style="font-size: 12px; color: oklch(0.52 0.16 274); cursor: pointer;">Preview</span>
+                    <span style="font-size: 12px; color: oklch(0.52 0.16 274); cursor: pointer;">{{ a.action }}</span>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ tabTimeline }}" hint-placeholder-val="{{ false }}">
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 22px 24px;">
+              <div style="display: flex; align-items: center; margin-bottom: 18px;">
+                <span style="font-size: 13.5px; font-weight: 600;">Audit history</span>
+                <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f;">Immutable · 214 events · export CSV</span>
+              </div>
+              <sc-for list="{{ timeline }}" as="e" hint-placeholder-count="9">
+                <div style="display: grid; grid-template-columns: 92px 22px 1fr; gap: 14px; align-items: start;">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f; text-align: right; padding-top: 3px;">{{ e.time }}</span>
+                  <div style="display: flex; flex-direction: column; align-items: center; height: 100%;">
+                    <span style="{{ e.dot }}"></span>
+                    <span style="flex: 1; width: 1px; background: #eae7e1; min-height: 26px;"></span>
+                  </div>
+                  <div style="padding-bottom: 18px;">
+                    <div style="font-size: 12.5px; color: #191a1e;">{{ e.text }}</div>
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #9a968f; margin-top: 3px;">{{ e.meta }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isWorkflow }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Workflow builder" style="display: grid; grid-template-columns: 1fr 320px; gap: 16px; align-items: start;">
+          <div style="display: flex; flex-direction: column; gap: 12px;">
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 16px 20px; display: flex; align-items: center; gap: 14px;">
+              <div>
+                <div style="font-size: 14px; font-weight: 600;">Standard Enterprise Onboarding</div>
+                <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f; margin-top: 3px;">v4 · applied to 31 projects · edited 2d ago</div>
+              </div>
+              <div style="flex: 1;"></div>
+              <button style="height: 31px; padding: 0 13px; border-radius: 8px; border: 1px solid #e6e3dd; background: #fff; font-family: Archivo, sans-serif; font-size: 12px; cursor: pointer;" style-hover="background: #f7f6f3;">Save as template</button>
+              <button onClick="{{ addStage }}" style="height: 31px; padding: 0 13px; border-radius: 8px; border: none; background: oklch(0.52 0.16 274); color: #fff; font-family: Archivo, sans-serif; font-size: 12px; cursor: pointer;" style-hover="background: oklch(0.45 0.16 274);">Add stage</button>
+            </div>
+
+            <sc-for list="{{ stages }}" as="s" hint-placeholder-count="9">
+              <div onClick="{{ s.select }}" style="{{ s.rowStyle }}">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f; width: 20px;">{{ s.n }}</span>
+                <div style="min-width: 0; flex: 1;">
+                  <div style="display: flex; align-items: center; gap: 9px;">
+                    <span style="font-size: 13px; font-weight: 500;">{{ s.name }}</span>
+                    <sc-if value="{{ s.approval }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; padding: 2px 6px; border-radius: 20px; background: oklch(0.96 0.05 70); color: oklch(0.48 0.14 70);">APPROVAL</span>
+                    </sc-if>
+                    <sc-if value="{{ s.auto }}" hint-placeholder-val="{{ false }}">
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; padding: 2px 6px; border-radius: 20px; background: oklch(0.95 0.03 274); color: oklch(0.42 0.16 274);">AUTO</span>
+                    </sc-if>
+                  </div>
+                  <div style="font-size: 11px; color: #75726c; margin-top: 3px;">{{ s.dept }} · SLA {{ s.sla }} · {{ s.scope }}</div>
+                  <sc-if value="{{ s.branch }}" hint-placeholder-val="{{ false }}">
+                    <div style="display: flex; align-items: center; gap: 8px; margin-top: 9px; padding: 7px 10px; border-radius: 8px; background: oklch(0.97 0.02 274); border: 1px solid oklch(0.93 0.03 274);">
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.06em; color: oklch(0.42 0.16 274);">IF</span>
+                      <span style="font-size: 11.5px; color: #2b2c31;">{{ s.branch }}</span>
+                      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.06em; color: oklch(0.42 0.16 274);">→</span>
+                      <span style="font-size: 11.5px; font-weight: 500; color: #2b2c31;">{{ s.branchTo }}</span>
+                      <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: #9a968f;">else {{ s.branchElse }}</span>
+                    </div>
+                  </sc-if>
+                </div>
+                <div style="display: flex; gap: 4px;">
+                  <button onClick="{{ s.up }}" style="width: 26px; height: 26px; border-radius: 7px; border: 1px solid #e6e3dd; background: #fff; cursor: pointer; font-size: 10px; color: #75726c;" style-hover="background: #f2f0ec;">▲</button>
+                  <button onClick="{{ s.down }}" style="width: 26px; height: 26px; border-radius: 7px; border: 1px solid #e6e3dd; background: #fff; cursor: pointer; font-size: 10px; color: #75726c;" style-hover="background: #f2f0ec;">▼</button>
+                  <button onClick="{{ s.remove }}" style="width: 26px; height: 26px; border-radius: 7px; border: 1px solid #e6e3dd; background: #fff; cursor: pointer; font-size: 11px; color: #75726c;" style-hover="background: oklch(0.96 0.04 25); color: oklch(0.5 0.17 25);">✕</button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 18px 20px; position: sticky; top: 76px;">
+            <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">Stage configuration</div>
+            <div style="font-size: 15px; font-weight: 600; margin-top: 8px;">{{ sel.name }}</div>
+            <div style="display: flex; flex-direction: column; gap: 14px; margin-top: 18px;">
+              <sc-for list="{{ sel.fields }}" as="f" hint-placeholder-count="5">
+                <div>
+                  <div style="font-size: 11px; color: #75726c; margin-bottom: 5px;">{{ f.label }}</div>
+                  <div style="height: 32px; border: 1px solid #e6e3dd; border-radius: 8px; padding: 0 11px; display: flex; align-items: center; font-size: 12.5px; background: #fdfcfb;">{{ f.value }}</div>
+                </div>
+              </sc-for>
+              <sc-for list="{{ sel.toggles }}" as="t" hint-placeholder-count="3">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                  <div style="{{ t.track }}"><div style="{{ t.knob }}"></div></div>
+                  <span style="font-size: 12px;">{{ t.label }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #f4f2ee;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">Branch rules</div>
+              <sc-for list="{{ sel.branches }}" as="b" hint-placeholder-count="2">
+                <div style="border: 1px solid #efece7; border-radius: 9px; padding: 10px 11px; margin-top: 9px; background: #fdfcfb;">
+                  <div style="font-size: 11.5px; color: #2b2c31; line-height: 1.5;">{{ b.text }}</div>
+                  <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: #9a968f; margin-top: 5px;">{{ b.meta }}</div>
+                </div>
+              </sc-for>
+              <button style="width: 100%; height: 30px; margin-top: 9px; border-radius: 8px; border: 1px dashed #ccc7bf; background: transparent; font-family: Archivo, sans-serif; font-size: 11.5px; color: #75726c; cursor: pointer;" style-hover="border-color: #9a968f;">＋ Add condition</button>
+            </div>
+            <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid #f4f2ee;">
+              <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">Publishing</div>
+              <div style="font-size: 11.5px; color: #75726c; line-height: 1.55; margin-top: 8px;">Publishes as v5. Running cases stay frozen on their current version by default; migrating one is an explicit, reviewed action.</div>
+              <div style="display: flex; align-items: center; gap: 10px; margin-top: 12px; padding: 10px 12px; border-radius: 9px; background: oklch(0.98 0.02 70); border: 1px solid oklch(0.93 0.04 70);">
+                <div style="min-width: 0;">
+                  <div style="font-size: 12px; font-weight: 500;">31 cases on v4</div>
+                  <div style="font-size: 11px; color: #75726c; margin-top: 2px;">18 eligible to migrate</div>
+                </div>
+                <button style="margin-left: auto; height: 28px; padding: 0 11px; border-radius: 8px; border: none; background: #191a1e; color: #fff; font-family: Archivo, sans-serif; font-size: 11.5px; cursor: pointer;" style-hover="background: #34363c;">Review migration</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isReports }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Reports" style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <sc-for list="{{ ranges }}" as="r" hint-placeholder-count="3">
+              <button onClick="{{ r.pick }}" style="{{ r.style }}">{{ r.label }}</button>
+            </sc-for>
+            <div style="flex: 1;"></div>
+            <sc-for list="{{ exports }}" as="e" hint-placeholder-count="3">
+              <button style="height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid #e6e3dd; background: #fff; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; color: #4d4a46;" style-hover="background: #f2f0ec;">{{ e }}</button>
+            </sc-for>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; align-items: start;">
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 18px 20px 20px;">
+              <div style="display: flex; align-items: baseline; gap: 12px;">
+                <span style="font-size: 13.5px; font-weight: 600;">Average onboarding time</span>
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: oklch(0.5 0.12 155);">−6.4 days YoY</span>
+              </div>
+              <div style="display: flex; align-items: flex-end; gap: 10px; height: 168px; margin-top: 22px;">
+                <sc-for list="{{ trend }}" as="t" hint-placeholder-count="8">
+                  <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; height: 100%; justify-content: flex-end;">
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #75726c;">{{ t.value }}</span>
+                    <div style="{{ t.barStyle }}"></div>
+                    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: #9a968f;">{{ t.label }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 18px 20px 20px;">
+              <div style="font-size: 13.5px; font-weight: 600;">Stage bottlenecks</div>
+              <div style="font-size: 11.5px; color: #75726c; margin-top: 4px;">Median days in stage vs. SLA</div>
+              <div style="display: flex; flex-direction: column; gap: 11px; margin-top: 18px;">
+                <sc-for list="{{ bottlenecks }}" as="b" hint-placeholder-count="5">
+                  <div>
+                    <div style="display: flex; align-items: baseline; margin-bottom: 5px;">
+                      <span style="font-size: 12px;">{{ b.stage }}</span>
+                      <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: {{ b.ink }};">{{ b.label }}</span>
+                    </div>
+                    <div style="height: 8px; border-radius: 4px; background: #f4f2ee; overflow: hidden; position: relative;">
+                      <div style="{{ b.barStyle }}"></div>
+                      <div style="{{ b.slaStyle }}"></div>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px;">
+            <sc-for list="{{ reportCards }}" as="r" hint-placeholder-count="3">
+              <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 18px 20px;">
+                <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">{{ r.title }}</div>
+                <sc-for list="{{ r.rows }}" as="row" hint-placeholder-count="4">
+                  <div style="display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid #f4f2ee;">
+                    <span style="font-size: 12px; color: #4d4a46;">{{ row.k }}</span>
+                    <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; color: {{ row.ink }};">{{ row.v }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isPortal }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Customer portal" style="display: flex; flex-direction: column; gap: 16px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span style="font-size: 12px; color: #75726c;">External view — Northwind Logistics sees only this.</span>
+            <div style="flex: 1;"></div>
+            <div style="display: flex; gap: 3px; padding: 3px; border-radius: 9px; background: #ece9e3;">
+              <button onClick="{{ setWeb }}" style="{{ webBtn }}">Web</button>
+              <button onClick="{{ setMobile }}" style="{{ mobileBtn }}">Mobile</button>
+            </div>
+          </div>
+
+          <sc-if value="{{ portalWeb }}" hint-placeholder-val="{{ false }}">
+            <div style="border: 1px solid #e6e3dd; border-radius: 14px; overflow: hidden; background: #fff;">
+              <div style="height: 38px; background: #f2f0ec; border-bottom: 1px solid #e6e3dd; display: flex; align-items: center; gap: 7px; padding: 0 14px;">
+                <span style="width: 9px; height: 9px; border-radius: 50%; background: #d6d1c9;"></span>
+                <span style="width: 9px; height: 9px; border-radius: 50%; background: #d6d1c9;"></span>
+                <span style="width: 9px; height: 9px; border-radius: 50%; background: #d6d1c9;"></span>
+                <span style="margin: 0 auto; font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #8a867f;">portal.acme-industrial.com/northwind</span>
+              </div>
+              <div style="padding: 34px 44px 44px;">
+                <div style="display: flex; align-items: flex-start; gap: 24px; flex-wrap: wrap;">
+                  <div style="flex: 1; min-width: 260px;">
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; letter-spacing: 0.09em; text-transform: uppercase; color: #9a968f;">Your onboarding</div>
+                    <div style="font-size: 30px; font-weight: 600; letter-spacing: -0.03em; margin-top: 8px; line-height: 1.15;">You're in Verification</div>
+                    <div style="font-size: 13.5px; color: #4d4a46; margin-top: 10px; max-width: 46ch; text-wrap: pretty;">Two documents are still waiting on you. Once those are approved, technical setup starts automatically.</div>
+                  </div>
+                  <div style="width: 210px;">
+                    <div style="display: flex; align-items: baseline; gap: 8px;">
+                      <span style="font-size: 34px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;">62%</span>
+                      <span style="font-size: 12px; color: #75726c;">complete</span>
+                    </div>
+                    <div style="height: 8px; border-radius: 5px; background: #f0eee9; overflow: hidden; margin-top: 12px;">
+                      <div style="width: 62%; height: 100%; background: oklch(0.52 0.16 274);"></div>
+                    </div>
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #75726c; margin-top: 10px;">Est. go live · 12 Sep 2026</div>
+                  </div>
+                </div>
+
+                <div style="display: flex; gap: 4px; margin-top: 34px; align-items: flex-start;">
+                  <sc-for list="{{ portalSteps }}" as="p" hint-placeholder-count="9">
+                    <div style="flex: 1; min-width: 0;">
+                      <div style="{{ p.bar }}"></div>
+                      <div style="font-size: 11px; color: {{ p.ink }}; margin-top: 9px; line-height: 1.3;">{{ p.label }}</div>
+                      <div style="font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; color: #b0aba3; margin-top: 3px;">{{ p.date }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; margin-top: 38px; align-items: start;">
+                  <div style="border: 1px solid oklch(0.9 0.05 70); background: oklch(0.98 0.02 70); border-radius: 13px; padding: 18px 20px;">
+                    <div style="font-size: 13.5px; font-weight: 600;">Action needed from you</div>
+                    <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px;">
+                      <sc-for list="{{ portalAsks }}" as="a" hint-placeholder-count="2">
+                        <div style="display: flex; align-items: center; gap: 12px; background: #fff; border: 1px solid oklch(0.93 0.03 70); border-radius: 10px; padding: 12px 14px;">
+                          <div style="min-width: 0; flex: 1;">
+                            <div style="font-size: 12.5px; font-weight: 500;">{{ a.name }}</div>
+                            <div style="font-size: 11px; color: #75726c; margin-top: 2px;">{{ a.hint }}</div>
+                          </div>
+                          <button style="height: 30px; padding: 0 13px; border-radius: 8px; border: none; background: #191a1e; color: #fff; font-family: Archivo, sans-serif; font-size: 12px; cursor: pointer;" style-hover="background: #34363c;">Upload</button>
+                        </div>
+                      </sc-for>
+                    </div>
+                  </div>
+                  <div>
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">Upcoming</div>
+                    <div style="display: flex; flex-direction: column; gap: 0; margin-top: 10px;">
+                      <sc-for list="{{ portalUpcoming }}" as="u" hint-placeholder-count="3">
+                        <div style="display: flex; gap: 12px; padding: 11px 0; border-bottom: 1px solid #f0eee9;">
+                          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: #9a968f; width: 54px; flex: 0 0 54px;">{{ u.date }}</span>
+                          <div>
+                            <div style="font-size: 12.5px;">{{ u.title }}</div>
+                            <div style="font-size: 11px; color: #75726c; margin-top: 2px;">{{ u.sub }}</div>
+                          </div>
+                        </div>
+                      </sc-for>
+                    </div>
+                    <div style="font-size: 11.5px; color: #75726c; margin-top: 14px; line-height: 1.55;">Questions? Your account manager <strong style="font-weight: 600;">Maria Kessler</strong> replies within a business day.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ portalMobile }}" hint-placeholder-val="{{ false }}">
+            <div style="display: flex; gap: 26px; justify-content: center; padding: 10px 0 20px; flex-wrap: wrap;">
+              <div style="width: 372px; height: 764px; border-radius: 42px; background: #191a1e; padding: 11px; box-shadow: 0 30px 70px -30px rgba(25,26,30,0.45);">
+                <div style="width: 100%; height: 100%; border-radius: 32px; background: #fff; overflow: hidden; display: flex; flex-direction: column;">
+                  <div style="height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 22px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; flex: 0 0 44px;">
+                    <span>9:41</span><span>▮▮▮ ▮</span>
+                  </div>
+                  <div style="flex: 1; overflow: auto; padding: 6px 20px 24px;">
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.09em; text-transform: uppercase; color: #9a968f;">Northwind Logistics</div>
+                    <div style="font-size: 23px; font-weight: 600; letter-spacing: -0.02em; margin-top: 7px; line-height: 1.2;">Verification in progress</div>
+                    <div style="display: flex; align-items: baseline; gap: 7px; margin-top: 18px;">
+                      <span style="font-size: 27px; font-weight: 600; letter-spacing: -0.03em;">62%</span>
+                      <span style="font-size: 12px; color: #75726c;">· go live 12 Sep</span>
+                    </div>
+                    <div style="height: 7px; border-radius: 5px; background: #f0eee9; overflow: hidden; margin-top: 10px;">
+                      <div style="width: 62%; height: 100%; background: oklch(0.52 0.16 274);"></div>
+                    </div>
+
+                    <div style="border: 1px solid oklch(0.9 0.05 70); background: oklch(0.98 0.02 70); border-radius: 13px; padding: 15px 16px; margin-top: 20px;">
+                      <div style="font-size: 12.5px; font-weight: 600;">2 documents needed</div>
+                      <sc-for list="{{ portalAsks }}" as="a" hint-placeholder-count="2">
+                        <div style="margin-top: 11px;">
+                          <div style="font-size: 12px; font-weight: 500;">{{ a.name }}</div>
+                          <div style="font-size: 11px; color: #75726c; margin-top: 2px;">{{ a.hint }}</div>
+                          <button style="width: 100%; height: 46px; margin-top: 9px; border-radius: 10px; border: none; background: #191a1e; color: #fff; font-family: Archivo, sans-serif; font-size: 13px; font-weight: 500; cursor: pointer;">Upload {{ a.short }}</button>
+                        </div>
+                      </sc-for>
+                    </div>
+
+                    <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f; margin: 24px 0 10px;">Your journey</div>
+                    <sc-for list="{{ portalSteps }}" as="p" hint-placeholder-count="9">
+                      <div style="display: flex; gap: 12px; align-items: flex-start;">
+                        <div style="display: flex; flex-direction: column; align-items: center; flex: 0 0 18px;">
+                          <div style="{{ p.mdot }}"></div>
+                          <div style="width: 1px; flex: 1; min-height: 22px; background: #eae7e1;"></div>
+                        </div>
+                        <div style="padding-bottom: 14px;">
+                          <div style="font-size: 12.5px; color: {{ p.ink }}; font-weight: 500;">{{ p.label }}</div>
+                          <div style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: #b0aba3; margin-top: 2px;">{{ p.date }}</div>
+                        </div>
+                      </div>
+                    </sc-for>
+                  </div>
+                  <div style="flex: 0 0 62px; border-top: 1px solid #f0eee9; display: flex; align-items: center; justify-content: space-around; padding-bottom: 6px;">
+                    <sc-for list="{{ mobileTabs }}" as="t" hint-placeholder-count="4">
+                      <div style="display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 56px; min-height: 44px; justify-content: center;">
+                        <span style="font-size: 15px; color: {{ t.ink }};">{{ t.icon }}</span>
+                        <span style="font-size: 10px; color: {{ t.ink }};">{{ t.label }}</span>
+                      </div>
+                    </sc-for>
+                  </div>
+                </div>
+              </div>
+
+              <div style="width: 300px; padding-top: 12px;">
+                <div style="font-size: 13.5px; font-weight: 600;">Mobile principles</div>
+                <sc-for list="{{ mobileNotes }}" as="n" hint-placeholder-count="4">
+                  <div style="display: flex; gap: 10px; margin-top: 14px;">
+                    <span style="width: 5px; height: 5px; border-radius: 50%; background: oklch(0.52 0.16 274); margin-top: 6px; flex: 0 0 5px;"></span>
+                    <span style="font-size: 12px; color: #4d4a46; line-height: 1.55;">{{ n }}</span>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ isNotes }}" hint-placeholder-val="{{ false }}">
+        <div data-screen-label="Design notes" style="max-width: 1020px; display: flex; flex-direction: column; gap: 22px;">
+          <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 26px 28px;">
+            <div style="font-size: 18px; font-weight: 600; letter-spacing: -0.02em;">Design decisions</div>
+            <div style="font-size: 13px; color: #4d4a46; margin-top: 8px; max-width: 68ch; line-height: 1.6; text-wrap: pretty;">The PRD describes eleven feature areas. Rather than one screen per area, the design collapses them into a single object — the onboarding case — and lets each area appear as a facet of it. That keeps the surface small enough to learn in one sitting while still covering every requirement.</div>
+            <div style="display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 18px; margin-top: 24px;">
+              <sc-for list="{{ decisions }}" as="d" hint-placeholder-count="6">
+                <div style="border-top: 1px solid #efece7; padding-top: 14px;">
+                  <div style="font-size: 13px; font-weight: 600;">{{ d.title }}</div>
+                  <div style="font-size: 12px; color: #4d4a46; line-height: 1.6; margin-top: 6px;">{{ d.body }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; overflow: hidden;">
+            <div style="padding: 18px 24px 14px; font-size: 15px; font-weight: 600;">PRD coverage</div>
+            <div style="display: grid; grid-template-columns: 0.5fr 1.4fr 2fr 0.8fr; gap: 14px; padding: 10px 24px; background: #faf9f7; border-top: 1px solid #e6e3dd; border-bottom: 1px solid #e6e3dd; font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: #9a968f;">
+              <span>§</span><span>Requirement</span><span>Where it lives</span><span>State</span>
+            </div>
+            <sc-for list="{{ coverage }}" as="c" hint-placeholder-count="12">
+              <div style="display: grid; grid-template-columns: 0.5fr 1.4fr 2fr 0.8fr; gap: 14px; align-items: baseline; padding: 10px 24px; border-bottom: 1px solid #f4f2ee;">
+                <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #9a968f;">{{ c.sec }}</span>
+                <span style="font-size: 12.5px; font-weight: 500;">{{ c.req }}</span>
+                <span style="font-size: 12px; color: #4d4a46;">{{ c.where }}</span>
+                <span style="{{ c.pill }}">{{ c.state }}</span>
+              </div>
+            </sc-for>
+          </div>
+
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start;">
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 22px 24px;">
+              <div style="font-size: 15px; font-weight: 600;">Resolved · answers from product</div>
+              <sc-for list="{{ questions }}" as="q" hint-placeholder-count="5">
+                <div style="display: flex; gap: 11px; margin-top: 15px; padding-top: 13px; border-top: 1px solid #f4f2ee;">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; color: oklch(0.52 0.16 274); flex: 0 0 18px;">{{ q.n }}</span>
+                  <div style="min-width: 0;">
+                    <div style="font-size: 12px; font-weight: 600; color: #191a1e; line-height: 1.5;">{{ q.answer }}</div>
+                    <div style="font-size: 12px; color: #4d4a46; line-height: 1.55; margin-top: 4px;">{{ q.impact }}</div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+            <div style="background: #fff; border: 1px solid #e6e3dd; border-radius: 13px; padding: 22px 24px;">
+              <div style="font-size: 15px; font-weight: 600;">Design language</div>
+              <sc-for list="{{ language }}" as="l" hint-placeholder-count="5">
+                <div style="display: grid; grid-template-columns: 96px 1fr; gap: 14px; padding: 11px 0; border-bottom: 1px solid #f4f2ee;">
+                  <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #9a968f; padding-top: 2px;">{{ l.k }}</span>
+                  <span style="font-size: 12px; color: #2b2c31; line-height: 1.55;">{{ l.v }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;density&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;comfortable&quot;,&quot;compact&quot;],&quot;default&quot;:&quot;comfortable&quot;,&quot;tsType&quot;:&quot;'comfortable' | 'compact'&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;railTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;dark&quot;,&quot;light&quot;],&quot;default&quot;:&quot;dark&quot;,&quot;tsType&quot;:&quot;'dark' | 'light'&quot;,&quot;section&quot;:&quot;Layout&quot;},&quot;liveFeed&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Behavior&quot;}}">
+const ACC = 'oklch(0.52 0.16 274)';
+const GRN = 'oklch(0.6 0.12 155)';
+const AMB = 'oklch(0.72 0.14 70)';
+const RED = 'oklch(0.57 0.17 25)';
+const MUT = '#75726c';
+
+function pill(bg, ink) {
+  return 'font-family: \'IBM Plex Mono\', monospace; font-size: 9.5px; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 20px; white-space: nowrap; background: ' + bg + '; color: ' + ink + ';';
+}
+const PILLS = {
+  done: pill('oklch(0.95 0.04 155)', 'oklch(0.45 0.12 155)'),
+  active: pill('oklch(0.95 0.03 274)', 'oklch(0.42 0.16 274)'),
+  blocked: pill('oklch(0.96 0.04 25)', 'oklch(0.5 0.17 25)'),
+  wait: pill('oklch(0.96 0.05 70)', 'oklch(0.46 0.14 70)'),
+  idle: pill('#f2f0ec', '#75726c')
+};
+function dot(color, size) {
+  const s = size || 8;
+  return 'width: ' + s + 'px; height: ' + s + 'px; flex: 0 0 ' + s + 'px; border-radius: 50%; background: ' + color + ';';
+}
+function bar(pct, color, h) {
+  return 'width: ' + pct + '%; height: ' + (h || 100) + (h ? 'px' : '%') + '; background: ' + color + '; border-radius: 4px; transition: width 0.4s ease;';
+}
+
+const STAGE_NAMES = ['Registration', 'Sales Approval', 'Agreement', 'Document Collection', 'Verification', 'Technical Setup', 'Testing', 'Training', 'Go Live'];
+
+class Component extends DCLogic {
+  state = {
+    screen: 'dash',
+    role: 'internal',
+    tab: 'journey',
+    filter: 'All',
+    range: '90 days',
+    open: { verification: true },
+    doneTasks: {},
+    portalDevice: 'web',
+    selStage: 4,
+    notifOpen: false,
+    caseId: 'ONB-2026-0341',
+    stages: STAGE_NAMES.map((n, i) => ({
+      name: n,
+      dept: ['Sales', 'Sales', 'Legal', 'Operations', 'Compliance', 'Technical', 'Technical', 'Support', 'Account Mgmt'][i],
+      sla: ['1d', '2d', '5d', '7d', '4d', '10d', '5d', '3d', '1d'][i],
+      approval: [false, true, true, false, true, false, false, false, true][i],
+      auto: [true, false, false, false, false, true, false, false, false][i],
+      scope: ['Owner + Sales', 'Owner + Sales leads', 'Legal on this case', 'Owner + assigned ops', 'Compliance on this case', 'Assigned engineers', 'Assigned engineers', 'Support on this case', 'Owner only'][i],
+      branch: ['', 'Deal value > €500k', '', '', 'Enhanced due diligence flagged', 'Integration type = EDI', '', '', ''][i],
+      branchTo: ['', 'Executive Approval', '', '', 'Enhanced KYC Review', 'EDI Provisioning', '', '', ''][i],
+      branchElse: ['', 'continue', '', '', 'skip to Technical Setup', 'API Provisioning', '', '', ''][i]
+    })),
+    tick: 0
+  };
+
+  componentDidMount() {
+    if (this.props.liveFeed === false) return;
+    this._t = setInterval(() => this.setState(s => ({ tick: s.tick + 1 })), 3200);
+  }
+  componentWillUnmount() { clearInterval(this._t); }
+
+  go = (screen) => () => this.setState({ screen: screen, notifOpen: false });
+
+  navStyle(active) {
+    return 'display: flex; align-items: center; gap: 11px; width: 100%; padding: 8px 11px; border: none; border-radius: 9px; cursor: pointer; font-family: Archivo, sans-serif; font-size: 13px; text-align: left; color: inherit; background: ' + (active ? 'rgba(255,255,255,0.11)' : 'transparent') + '; opacity: ' + (active ? '1' : '0.72') + '; font-weight: ' + (active ? '500' : '400') + ';';
+  }
+  segStyle(active) {
+    return 'flex: 1; height: 27px; border: none; border-radius: 7px; cursor: pointer; font-family: Archivo, sans-serif; font-size: 11.5px; color: ' + (active ? '#191a1e' : 'inherit') + '; background: ' + (active ? '#fff' : 'transparent') + '; opacity: ' + (active ? '1' : '0.7') + ';';
+  }
+  chipStyle(active) {
+    return 'height: 30px; padding: 0 13px; border-radius: 8px; cursor: pointer; font-family: Archivo, sans-serif; font-size: 12px; border: 1px solid ' + (active ? '#191a1e' : '#e6e3dd') + '; background: ' + (active ? '#191a1e' : '#fff') + '; color: ' + (active ? '#fff' : '#4d4a46') + ';';
+  }
+  tabStyle(active) {
+    return 'padding: 9px 15px 11px; border: none; background: transparent; cursor: pointer; font-family: Archivo, sans-serif; font-size: 13px; color: ' + (active ? '#191a1e' : MUT) + '; font-weight: ' + (active ? '600' : '400') + '; box-shadow: ' + (active ? 'inset 0 -2px 0 ' + ACC : 'none') + ';';
+  }
+
+  toggleTask = (id) => () => this.setState(s => ({ doneTasks: Object.assign({}, s.doneTasks, { [id]: !s.doneTasks[id] }) }));
+  toggleM = (key) => () => this.setState(s => ({ open: Object.assign({}, s.open, { [key]: !s.open[key] }) }));
+
+  moveStage = (i, d) => () => this.setState(s => {
+    const arr = s.stages.slice();
+    const j = i + d;
+    if (j < 0 || j >= arr.length) return null;
+    const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    return { stages: arr, selStage: j };
+  });
+  removeStage = (i) => (e) => { e.stopPropagation(); this.setState(s => ({ stages: s.stages.filter((_, k) => k !== i), selStage: Math.min(s.selStage, s.stages.length - 2) })); };
+  addStage = () => this.setState(s => ({ stages: s.stages.concat([{ name: 'New stage', dept: 'Unassigned', sla: '3d', approval: false, auto: false }]), selStage: s.stages.length }));
+
+  taskRow(t) {
+    const done = this.state.doneTasks[t.id] !== undefined ? this.state.doneTasks[t.id] : t.done;
+    const status = done ? 'Completed' : t.status;
+    return Object.assign({}, t, {
+      toggle: this.toggleTask(t.id),
+      check: done ? '✓' : '',
+      box: 'width: 17px; height: 17px; flex: 0 0 17px; border-radius: 5px; cursor: pointer; display: grid; place-items: center; font-size: 10px; padding: 0; color: #fff; border: 1px solid ' + (done ? GRN : '#d6d1c9') + '; background: ' + (done ? GRN : '#fff') + ';',
+      titleStyle: 'font-size: 12.5px; color: ' + (done ? '#9a968f' : '#191a1e') + '; text-decoration: ' + (done ? 'line-through' : 'none') + ';',
+      status: status,
+      statusPill: done ? PILLS.done : (t.status === 'In Progress' ? PILLS.active : t.status === 'Waiting' ? PILLS.wait : PILLS.idle),
+      prio: t.priority === 'High' ? pill('oklch(0.96 0.04 25)', 'oklch(0.5 0.17 25)') : t.priority === 'Med' ? pill('oklch(0.96 0.05 70)', 'oklch(0.46 0.14 70)') : pill('#f2f0ec', '#75726c'),
+      dueColor: t.overdue && !done ? RED : '#4d4a46'
+    });
+  }
+
+  renderVals() {
+    const S = this.state;
+    const compact = (this.props.density || 'comfortable') === 'compact';
+    const dark = (this.props.railTheme || 'dark') === 'dark';
+
+    const navDefs = [
+      ['dash', 'Dashboard', '◫', null],
+      ['customers', 'Customers', '☰', '48'],
+      ['workspace', 'Journey workspace', '◈', null],
+      ['workflow', 'Workflow builder', '⚙', null],
+      ['reports', 'Reports', '◉', null],
+      ['portal', 'Customer portal', '◐', null],
+      ['notes', 'Design notes', '✎', null]
+    ];
+
+    const titles = {
+      dash: ['Dashboard', 'Onboarding health · updated live'],
+      customers: ['Customers', '48 active onboarding projects'],
+      workspace: ['Northwind Logistics GmbH', 'ONB-2026-0341 · Verification · owner Maria Kessler'],
+      workflow: ['Workflow builder', 'Standard Enterprise Onboarding · v4 draft'],
+      reports: ['Reports & analytics', 'Operational and executive views'],
+      portal: ['Customer portal', 'External view · read-only preview'],
+      notes: ['Design notes', 'IA, coverage, and open questions']
+    };
+
+    const feedAll = [
+      { who: 'JD', text: 'Jonas Devries approved KYC Pack v3 for Northwind Logistics', time: '2 min ago' },
+      { who: 'SY', text: 'Sara Yılmaz uploaded Tax Residency Certificate to Helios Retail', time: '14 min ago' },
+      { who: '⚙', text: 'Workflow advanced Baltica Freight to Technical Setup automatically', time: '38 min ago' },
+      { who: 'MK', text: 'Maria Kessler requested 2 documents from Northwind Logistics', time: '1 h ago' },
+      { who: 'LT', text: 'Legal team returned MSA v2 with 3 comments — Arcadia Foods', time: '2 h ago' },
+      { who: 'PN', text: 'Priya Nair completed Training handover for Vestra Media', time: '3 h ago' }
+    ];
+    const rot = S.tick % 3;
+
+    const custRows = [
+      { id: 'ONB-2026-0341', name: 'Northwind Logistics GmbH', initials: 'NL', sector: 'Logistics', cases: '3 cases', stage: 'Verification', pctN: 62, owner: 'M. Kessler', due: '12 Sep', health: 'At risk', h: 'warn' },
+      { id: 'ONB-2026-0355', name: 'Northwind Logistics GmbH', initials: 'NL', sector: 'Nordic expansion', cases: 'case 2 of 3', stage: 'Registration', pctN: 12, owner: 'M. Kessler', due: '04 Nov', health: 'On track', h: 'good' },
+      { id: 'ONB-2026-0338', name: 'Arcadia Foods S.A.', initials: 'AF', sector: 'FMCG', cases: '1 case', stage: 'Agreement', pctN: 34, owner: 'J. Devries', due: '28 Sep', health: 'Blocked', h: 'bad' },
+      { id: 'ONB-2026-0332', name: 'Baltica Freight OÜ', initials: 'BF', sector: 'Logistics', cases: '2 cases', stage: 'Technical Setup', pctN: 71, owner: 'M. Kessler', due: '02 Sep', health: 'On track', h: 'good' },
+      { id: 'ONB-2026-0327', name: 'Helios Retail Group', initials: 'HR', sector: 'Retail', cases: '1 case', stage: 'Doc Collection', pctN: 45, owner: 'S. Yılmaz', due: '19 Sep', health: 'At risk', h: 'warn' },
+      { id: 'ONB-2026-0319', name: 'Vestra Media Holding', initials: 'VM', sector: 'Media', cases: '1 case', stage: 'Training', pctN: 88, owner: 'P. Nair', due: '25 Aug', health: 'On track', h: 'good' },
+      { id: 'ONB-2026-0311', name: 'Kirona Energy AB', initials: 'KE', sector: 'Energy', cases: '2 cases', stage: 'Go Live', pctN: 96, owner: 'P. Nair', due: '20 Aug', health: 'On track', h: 'good' }
+    ];
+    const hp = { good: PILLS.done, warn: PILLS.wait, bad: PILLS.blocked };
+    const hc = { good: GRN, warn: AMB, bad: RED };
+    const rows = custRows.filter(c => S.filter === 'All' ? true : S.filter === 'At risk' ? c.h !== 'good' : S.filter === 'My projects' ? c.owner === 'M. Kessler' : c.pctN > 80).map(c => Object.assign({}, c, {
+      open: this.go('workspace'),
+      pct: c.pctN + '%',
+      barStyle: bar(c.pctN, c.h === 'bad' ? RED : c.h === 'warn' ? AMB : ACC),
+      stagePill: pill('#f2f0ec', '#4d4a46'),
+      healthPill: hp[c.h],
+      avatar: 'width: 30px; height: 30px; flex: 0 0 30px; border-radius: 8px; display: grid; place-items: center; font-size: 11px; font-weight: 600; background: #f2f0ec; color: #4d4a46;'
+    }));
+
+    const msDefs = [
+      { key: 'reg', title: 'Registration', status: 'Done', st: 'done', pct: 100, owner: 'Sales', due: '04 Jul', sub: 'Company record created from web form and enriched from registry.' },
+      { key: 'sales', title: 'Sales Approval', status: 'Done', st: 'done', pct: 100, owner: 'J. Devries', due: '08 Jul', sub: 'Commercial terms approved at €240k ACV.' },
+      { key: 'agree', title: 'Agreement', status: 'Done', st: 'done', pct: 100, owner: 'Legal', due: '21 Jul', sub: 'MSA v3 signed by both parties; DPA attached.' },
+      { key: 'docs', title: 'Document Collection', status: 'In progress', st: 'active', pct: 75, owner: 'S. Yılmaz', due: '18 Aug', sub: '6 of 8 required documents received.' },
+      { key: 'verification', title: 'Verification', status: 'In progress', st: 'active', pct: 40, owner: 'Compliance', due: '22 Aug', sub: 'KYC review underway; UBO declaration pending.' },
+      { key: 'tech', title: 'Technical Setup', status: 'Blocked', st: 'blocked', pct: 0, owner: 'Technical', due: '30 Aug', sub: 'Cannot start until verification clears.', blockedBy: 'Verification' },
+      { key: 'test', title: 'Testing', status: 'Pending', st: 'idle', pct: 0, owner: 'Technical', due: '05 Sep', sub: 'EDI round-trip and SSO smoke tests.' },
+      { key: 'train', title: 'Training', status: 'Pending', st: 'idle', pct: 0, owner: 'Support', due: '09 Sep', sub: 'Two sessions scheduled for ops and finance users.' },
+      { key: 'live', title: 'Go Live', status: 'Pending', st: 'idle', pct: 0, owner: 'M. Kessler', due: '12 Sep', sub: 'Production cutover and 30-day hypercare.' }
+    ];
+    const dotFor = { done: GRN, active: ACC, blocked: RED, idle: '#d6d1c9' };
+    const tasksByM = {
+      verification: [
+        { id: 'v1', title: 'Review KYC pack against sanctions list', priority: 'High', assignee: 'Compliance', due: '19 Aug', status: 'In Progress', done: false },
+        { id: 'v2', title: 'Collect UBO declaration from customer', priority: 'High', assignee: 'S. Yılmaz', due: '20 Aug', status: 'Waiting', done: false },
+        { id: 'v3', title: 'Verify VAT number with authority', priority: 'Med', assignee: 'Finance', due: '18 Aug', status: 'Pending', done: true }
+      ],
+      docs: [
+        { id: 'd1', title: 'Chase insurance certificate', priority: 'Med', assignee: 'S. Yılmaz', due: '18 Aug', status: 'In Progress', done: false },
+        { id: 'd2', title: 'File company registration extract', priority: 'Low', assignee: 'Ops', due: '15 Aug', status: 'Completed', done: true }
+      ]
+    };
+    const docsByM = {
+      verification: [{ ext: 'PDF', name: 'KYC Pack v3', status: 'Approved', st: 'done' }, { ext: 'PDF', name: 'UBO Declaration', status: 'Requested', st: 'wait' }],
+      docs: [{ ext: 'PDF', name: 'Registry Extract', status: 'Approved', st: 'done' }, { ext: 'XLS', name: 'Site List', status: 'In review', st: 'active' }]
+    };
+    const commentsByM = {
+      verification: [
+        { who: 'JD', text: 'Sanctions screening came back clean. Waiting only on the UBO form.', time: 'Yesterday 16:20' },
+        { who: 'MK', text: 'Flagged to the customer in the portal — they promised it Monday.', time: 'Today 09:04' }
+      ],
+      docs: [{ who: 'SY', text: 'Insurance certificate expires in 3 weeks, asked for the renewed one.', time: '2 days ago' }]
+    };
+
+    const milestones = msDefs.map(m => {
+      const isOpen = !!S.open[m.key];
+      return Object.assign({}, m, {
+        open: isOpen,
+        toggle: this.toggleM(m.key),
+        cardStyle: 'background: #fff; border: 1px solid ' + (isOpen ? '#dbd7cf' : '#e6e3dd') + '; border-radius: 13px; overflow: hidden; box-shadow: ' + (isOpen ? '0 8px 24px -16px rgba(25,26,30,0.22)' : 'none') + ';',
+        dot: 'width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; color: #fff; background: ' + dotFor[m.st] + ';',
+        dotGlyph: m.st === 'done' ? '✓' : m.st === 'blocked' ? '!' : '',
+        pill: PILLS[m.st === 'idle' ? 'idle' : m.st],
+        barStyle: bar(m.pct, m.st === 'blocked' ? RED : m.st === 'done' ? GRN : ACC, 6),
+        chevStyle: 'font-size: 11px; color: #9a968f; transition: transform 0.18s ease; transform: rotate(' + (isOpen ? '180deg' : '0deg') + ');',
+        deps: m.blockedBy ? 'Waits on ' + m.blockedBy + ' (all tasks + compliance sign-off). Auto-advances when cleared.' : 'No blocking dependencies. Owner may close early.',
+        tasks: (tasksByM[m.key] || []).map(t => this.taskRow(t)),
+        docs: (docsByM[m.key] || []).map(d => Object.assign({}, d, { pill: PILLS[d.st] })),
+        comments: commentsByM[m.key] || []
+      });
+    });
+
+    const allTasksRaw = [
+      { id: 'v1', title: 'Review KYC pack against sanctions list', desc: 'Compliance checklist 4 of 6 complete', milestone: 'Verification', priority: 'High', assignee: 'Compliance', due: '19 Aug', status: 'In Progress', done: false },
+      { id: 'v2', title: 'Collect UBO declaration', desc: 'Requested from customer via portal', milestone: 'Verification', priority: 'High', assignee: 'S. Yılmaz', due: '20 Aug', status: 'Waiting', done: false },
+      { id: 'd1', title: 'Chase insurance certificate', desc: 'Second reminder sent', milestone: 'Doc Collection', priority: 'Med', assignee: 'S. Yılmaz', due: '16 Aug', status: 'In Progress', done: false, overdue: true },
+      { id: 't1', title: 'Provision SFTP credentials', desc: 'Blocked by verification', milestone: 'Technical Setup', priority: 'Med', assignee: 'Technical', due: '30 Aug', status: 'Pending', done: false },
+      { id: 't2', title: 'Schedule EDI round-trip test', desc: 'Needs customer test window', milestone: 'Testing', priority: 'Low', assignee: 'Technical', due: '05 Sep', status: 'Pending', done: false },
+      { id: 'v3', title: 'Verify VAT number', desc: 'Confirmed with tax authority', milestone: 'Verification', priority: 'Med', assignee: 'Finance', due: '18 Aug', status: 'Completed', done: true },
+      { id: 'a1', title: 'Counter-sign MSA v3', desc: 'Signed 21 Jul', milestone: 'Agreement', priority: 'High', assignee: 'Legal', due: '21 Jul', status: 'Completed', done: true },
+      { id: 'r1', title: 'Enrich company record from registry', desc: 'Automated', milestone: 'Registration', priority: 'Low', assignee: 'System', due: '04 Jul', status: 'Completed', done: true }
+    ];
+
+    const docStates = { done: 'Approved', active: 'In review', wait: 'Requested', blocked: 'Rejected' };
+    const documents = [
+      { ext: 'PDF', name: 'Master Service Agreement v3 (signed)', category: 'Agreements', version: 'v3', expires: '21 Jul 2029', st: 'done' },
+      { ext: 'PDF', name: 'Data Processing Addendum', category: 'Agreements', version: 'v1', expires: '—', st: 'done' },
+      { ext: 'PDF', name: 'KYC Pack', category: 'KYC', version: 'v3', expires: '21 Jul 2027', st: 'done' },
+      { ext: 'PDF', name: 'Company Registration Extract', category: 'Registration', version: 'v1', expires: '04 Jan 2027', st: 'done' },
+      { ext: 'PDF', name: 'Insurance Certificate', category: 'Certificates', version: 'v2', expires: '05 Sep 2026', st: 'active', soon: true },
+      { ext: 'XLS', name: 'Site & Contact List', category: 'Technical', version: 'v4', expires: '—', st: 'active' },
+      { ext: 'PDF', name: 'UBO Declaration', category: 'KYC', version: '—', expires: '—', st: 'wait' },
+      { ext: 'PDF', name: 'Tax Residency Certificate', category: 'Tax', version: '—', expires: '—', st: 'wait' }
+    ];
+
+    const selIdx = Math.min(S.selStage, S.stages.length - 1);
+    const sel = S.stages[selIdx] || { name: '—', dept: '—', sla: '—' };
+
+    const trendVals = [46, 44, 45, 41, 38, 36, 33, 31];
+    const maxT = 48;
+
+    const bnk = [
+      { stage: 'Verification', days: 9.2, sla: 4 },
+      { stage: 'Document Collection', days: 7.8, sla: 7 },
+      { stage: 'Technical Setup', days: 9.1, sla: 10 },
+      { stage: 'Agreement', days: 6.4, sla: 5 },
+      { stage: 'Testing', days: 3.9, sla: 5 }
+    ];
+
+    const portalDone = 3, portalActive = 4;
+
+    return {
+      railBg: dark ? '#17181c' : '#efece6',
+      railInk: dark ? '#f2f0ec' : '#191a1e',
+      nav: navDefs.map(n => ({ label: n[1], icon: n[2], badge: n[3], go: this.go(n[0]), style: this.navStyle(S.screen === n[0]) })),
+      setInternal: () => this.setState({ role: 'internal', screen: 'dash' }),
+      setCustomer: () => this.setState({ role: 'customer', screen: 'portal' }),
+      roleInternalStyle: this.segStyle(S.role === 'internal'),
+      roleCustomerStyle: this.segStyle(S.role === 'customer'),
+      roleLabel: S.role === 'internal' ? 'Account Manager · full access' : 'Impersonating customer',
+      screenTitle: titles[S.screen][0],
+      screenMeta: titles[S.screen][1],
+      rowPad: compact ? '8px' : '13px',
+
+      notifOpen: S.notifOpen,
+      toggleNotif: () => this.setState(s => ({ notifOpen: !s.notifOpen })),
+      notifCount: '7',
+      notifications: [
+        { text: 'UBO Declaration still missing — Northwind Logistics', meta: 'Document request · overdue 2 days', dot: dot(RED) },
+        { text: 'Arcadia Foods MSA returned with legal comments', meta: 'Agreement · 2 h ago', dot: dot(AMB) },
+        { text: 'Baltica Freight advanced to Technical Setup', meta: 'Workflow automation · 38 min ago', dot: dot(GRN) },
+        { text: 'Kirona Energy go-live scheduled for 20 Aug', meta: 'Upcoming deadline · today', dot: dot(ACC) }
+      ],
+
+      isDash: S.screen === 'dash',
+      isCustomers: S.screen === 'customers',
+      isWorkspace: S.screen === 'workspace',
+      isWorkflow: S.screen === 'workflow',
+      isReports: S.screen === 'reports',
+      isPortal: S.screen === 'portal',
+      isNotes: S.screen === 'notes',
+
+      kpis: [
+        { label: 'Active projects', value: '48', delta: '+6', sub: '9 started this week', deltaStyle: 'font-family: \'IBM Plex Mono\', monospace; font-size: 11px; color: ' + GRN + ';' },
+        { label: 'Avg. time to live', value: '31d', delta: '−4d', sub: 'Target 28 days', deltaStyle: 'font-family: \'IBM Plex Mono\', monospace; font-size: 11px; color: ' + GRN + ';' },
+        { label: 'Overdue tasks', value: '17', delta: '+3', sub: 'Across 11 projects', deltaStyle: 'font-family: \'IBM Plex Mono\', monospace; font-size: 11px; color: ' + RED + ';' },
+        { label: 'SLA compliance', value: '92%', delta: '−1%', sub: 'Verification is the drag', deltaStyle: 'font-family: \'IBM Plex Mono\', monospace; font-size: 11px; color: ' + AMB + ';' }
+      ],
+      funnel: STAGE_NAMES.map((s, i) => {
+        const counts = [48, 41, 37, 33, 26, 19, 14, 11, 8];
+        return { stage: s, count: counts[i], barStyle: bar(Math.round(counts[i] / 48 * 100), i === 4 ? AMB : ACC) };
+      }),
+      attention: [
+        { name: 'Arcadia Foods S.A.', reason: 'Legal returned MSA — no owner action 4 days', age: '4d', ageColor: RED, dot: dot(RED), open: this.go('workspace') },
+        { name: 'Northwind Logistics GmbH', reason: 'UBO declaration overdue from customer', age: '2d', ageColor: RED, dot: dot(RED), open: this.go('workspace') },
+        { name: 'Helios Retail Group', reason: '3 documents rejected, re-upload pending', age: '2d', ageColor: AMB, dot: dot(AMB), open: this.go('workspace') },
+        { name: 'Orbis Pharma NV', reason: 'Compliance approval waiting on second reviewer', age: '1d', ageColor: AMB, dot: dot(AMB), open: this.go('workspace') },
+        { name: 'Talvi Systems Oy', reason: 'Technical setup blocked, no dependency owner', age: '1d', ageColor: AMB, dot: dot(AMB), open: this.go('workspace') }
+      ],
+      feed: feedAll.slice(rot, rot + 5),
+      liveDotStyle: dot(GRN, 7) + ' animation: pulseDot 1.8s ease-in-out infinite;',
+      workload: [
+        { team: 'Compliance', open: '24 open', barStyle: bar(96, RED, 6) },
+        { team: 'Legal', open: '18 open', barStyle: bar(72, AMB, 6) },
+        { team: 'Technical', open: '14 open', barStyle: bar(56, ACC, 6) },
+        { team: 'Operations', open: '9 open', barStyle: bar(36, ACC, 6) },
+        { team: 'Support', open: '5 open', barStyle: bar(20, ACC, 6) }
+      ],
+      week: [
+        { dow: 'Mon', day: '17', title: 'Northwind UBO deadline', sub: 'Compliance · hard gate' },
+        { dow: 'Tue', day: '18', title: 'Arcadia legal review call', sub: '10:00 · Legal + Sales' },
+        { dow: 'Thu', day: '20', title: 'Kirona Energy go live', sub: 'Cutover 06:00 CET' },
+        { dow: 'Fri', day: '21', title: 'Vestra training session 2', sub: 'Finance users · 14:00' }
+      ],
+
+      filters: ['All', 'At risk', 'My projects', 'Near go-live'].map(f => ({ label: f, pick: () => this.setState({ filter: f }), style: this.chipStyle(S.filter === f) })),
+      rows: rows,
+      rowCount: rows.length,
+
+      cust: {
+        initials: 'NL',
+        name: 'Northwind Logistics GmbH',
+        health: 'At risk',
+        healthPill: PILLS.wait,
+        meta: S.caseId + ' · Hamburg, DE · Logistics · 1,400 employees · workflow v4 (frozen)',
+        pct: '62%',
+        barStyle: bar(62, ACC, 7),
+        facts: [
+          { label: 'Stage', value: 'Verification' },
+          { label: 'Account manager', value: 'Maria Kessler' },
+          { label: 'Primary contact', value: 'Anke Brandt · COO' },
+          { label: 'Teams', value: 'Legal, Compliance, Technical' },
+          { label: 'Est. completion', value: '12 Sep 2026' }
+        ]
+      },
+      cases: [
+        { id: 'ONB-2026-0341', name: 'EU freight platform', st: 'active' },
+        { id: 'ONB-2026-0355', name: 'Nordic expansion', st: 'new' },
+        { id: 'ONB-2025-0212', name: 'Pilot — Hamburg hub', st: 'done' }
+      ].map(c => ({
+        id: c.id,
+        name: c.name,
+        pick: () => this.setState({ caseId: c.id, tab: 'journey' }),
+        dot: dot(c.st === 'done' ? GRN : c.st === 'active' ? ACC : '#d6d1c9', 7),
+        style: 'display: flex; align-items: center; gap: 8px; height: 27px; padding: 0 11px; border-radius: 8px; cursor: pointer; font-family: Archivo, sans-serif; font-size: 11.5px; border: 1px solid ' + (S.caseId === c.id ? '#191a1e' : '#e6e3dd') + '; background: ' + (S.caseId === c.id ? '#191a1e' : '#fff') + '; color: ' + (S.caseId === c.id ? '#fff' : '#4d4a46') + ';'
+      })),
+      contacts: [
+        { initials: 'AB', name: 'Anke Brandt', role: 'COO · primary contact', access: 'All documents', st: 'active' },
+        { initials: 'TS', name: 'Tomas Švec', role: 'Head of Compliance', access: 'KYC only', st: 'wait' },
+        { initials: 'RL', name: 'Rita Lindqvist', role: 'IT Manager', access: 'Technical only', st: 'idle' }
+      ].map(p => Object.assign({}, p, { pill: PILLS[p.st] })),
+      tabs: [
+        ['journey', 'Journey', null], ['tasks', 'Tasks', '8'], ['docs', 'Documents', '8'], ['agreements', 'Agreements', '4'], ['timeline', 'Timeline', null]
+      ].map(t => ({ label: t[1], count: t[2], pick: () => this.setState({ tab: t[0] }), style: this.tabStyle(S.tab === t[0]) })),
+      tabJourney: S.tab === 'journey',
+      tabTasks: S.tab === 'tasks',
+      tabDocs: S.tab === 'docs',
+      tabAgreements: S.tab === 'agreements',
+      tabTimeline: S.tab === 'timeline',
+      goWorkflow: (e) => { e.preventDefault(); this.setState({ screen: 'workflow' }); },
+      milestones: milestones,
+      allTasks: allTasksRaw.map(t => this.taskRow(t)),
+      documents: documents.map((d, i) => {
+        const vis = ['All 3 contacts', 'A. Brandt only', 'A. Brandt, T. Švec', 'All 3 contacts', 'A. Brandt only', 'R. Lindqvist', 'A. Brandt, T. Švec', 'A. Brandt only'][i];
+        return Object.assign({}, d, {
+          pill: PILLS[d.st],
+          status: docStates[d.st],
+          expColor: d.soon ? AMB : '#4d4a46',
+          visible: vis,
+          visDot: dot(vis.indexOf('All') === 0 ? GRN : '#c9c4bb', 6)
+        });
+      }),
+      requested: [
+        { name: 'UBO Declaration', state: 'overdue 2d', dot: dot(RED) },
+        { name: 'Tax Residency Certificate', state: 'due 20 Aug', dot: dot(AMB) },
+        { name: 'Insurance Certificate v3', state: 'uploaded', dot: dot(GRN) }
+      ],
+      agreements: [
+        { title: 'Master Service Agreement', meta: 'MSA-0341-v3 · €240k ACV · 36 months', status: 'Signed', st: 'done', expiry: 'Renews 21 Jul 2029', action: 'Download', stepsDone: 4 },
+        { title: 'Data Processing Addendum', meta: 'DPA-0341-v1 · GDPR Art. 28', status: 'Signed', st: 'done', expiry: 'Follows MSA term', action: 'Download', stepsDone: 4 },
+        { title: 'Service Level Agreement', meta: 'SLA-0341-v2 · 99.9% uptime', status: 'Awaiting signature', st: 'wait', expiry: 'Sent 11 Aug · reminder in 2d', action: 'Resend', stepsDone: 3 },
+        { title: 'Non-Disclosure Agreement', meta: 'NDA-0341-v1 · mutual', status: 'Under review', st: 'active', expiry: 'With customer legal since 09 Aug', action: 'Nudge', stepsDone: 2 }
+      ].map(a => Object.assign({}, a, {
+        pill: PILLS[a.st],
+        steps: ['Draft', 'Review', 'Sent', 'Signed'].map((l, i) => ({
+          label: l,
+          bar: 'height: 4px; border-radius: 3px; background: ' + (i < a.stepsDone ? (a.st === 'done' ? GRN : ACC) : '#eae7e1') + ';',
+          ink: i < a.stepsDone ? '#4d4a46' : '#b0aba3'
+        }))
+      })),
+      timeline: [
+        { time: 'Today 09:04', text: 'Maria Kessler commented on Verification', meta: 'Comment · visible to customer', dot: dot(ACC, 7) },
+        { time: 'Today 08:12', text: 'Notification sent: UBO Declaration overdue', meta: 'Email + in-app · to Anke Brandt', dot: dot(AMB, 7) },
+        { time: 'Yest. 16:20', text: 'KYC Pack v3 approved by Jonas Devries', meta: 'Document approval · Compliance', dot: dot(GRN, 7) },
+        { time: 'Yest. 11:47', text: 'Document Collection reached 75%', meta: 'Milestone progress · automatic', dot: dot(GRN, 7) },
+        { time: '11 Aug 14:02', text: 'SLA v2 sent for signature', meta: 'Agreement status → Awaiting signature', dot: dot(ACC, 7) },
+        { time: '08 Aug 10:30', text: 'Technical Setup marked blocked by Verification', meta: 'Dependency added by workflow', dot: dot(RED, 7) },
+        { time: '21 Jul 17:10', text: 'MSA v3 signed by both parties', meta: 'Agreement · countersigned by Legal', dot: dot(GRN, 7) },
+        { time: '08 Jul 09:00', text: 'Sales approval granted at €240k ACV', meta: 'Approval · J. Devries', dot: dot(GRN, 7) },
+        { time: '04 Jul 12:41', text: 'Customer created from web registration', meta: 'System · enriched from registry', dot: dot('#d6d1c9', 7) }
+      ],
+
+      stages: S.stages.map((s, i) => Object.assign({}, s, {
+        n: String(i + 1).padStart(2, '0'),
+        select: () => this.setState({ selStage: i }),
+        up: this.moveStage(i, -1),
+        down: this.moveStage(i, 1),
+        remove: this.removeStage(i),
+        rowStyle: 'display: flex; align-items: flex-start; gap: 14px; background: #fff; border: 1px solid ' + (i === selIdx ? ACC : '#e6e3dd') + '; border-radius: 11px; padding: 12px 16px; cursor: pointer; box-shadow: ' + (i === selIdx ? '0 0 0 3px oklch(0.95 0.03 274)' : 'none') + ';'
+      })),
+      addStage: this.addStage,
+      sel: {
+        name: sel.name,
+        fields: [
+          { label: 'Stage name', value: sel.name },
+          { label: 'Responsible department', value: sel.dept },
+          { label: 'SLA target', value: sel.sla },
+          { label: 'Entry condition', value: selIdx === 0 ? 'Registration submitted' : 'Previous stage complete' },
+          { label: 'Write scope (record-level)', value: sel.scope || 'Owner only' },
+          { label: 'Notification template', value: 'stage_entered_default' }
+        ],
+        branches: sel.branch
+          ? [{ text: 'If ' + sel.branch + ' → ' + sel.branchTo, meta: 'Else ' + sel.branchElse + ' · evaluated on stage exit' }]
+          : [{ text: 'No conditions — always continues to the next stage.', meta: 'Add one to route cases down a different path' }],
+        toggles: [
+          { label: 'Requires approval', on: !!sel.approval },
+          { label: 'Auto-advance when tasks done', on: !!sel.auto },
+          { label: 'Visible in customer portal', on: true }
+        ].map(t => ({
+          label: t.label,
+          track: 'width: 34px; height: 20px; border-radius: 20px; padding: 2px; flex: 0 0 34px; display: flex; justify-content: ' + (t.on ? 'flex-end' : 'flex-start') + '; background: ' + (t.on ? ACC : '#ddd9d2') + ';',
+          knob: 'width: 16px; height: 16px; border-radius: 50%; background: #fff;'
+        }))
+      },
+
+      ranges: ['30 days', '90 days', '12 months'].map(r => ({ label: r, pick: () => this.setState({ range: r }), style: this.chipStyle(S.range === r) })),
+      exports: ['PDF', 'Excel', 'CSV'],
+      trend: trendVals.map((v, i) => ({
+        value: v,
+        label: ['Q1 25', 'Q2 25', 'Q3 25', 'Q4 25', 'Q1 26', 'Q2 26', 'Jul', 'Aug'][i],
+        barStyle: 'width: 100%; height: ' + Math.round(v / maxT * 100) + '%; border-radius: 6px 6px 3px 3px; background: ' + (i > 5 ? ACC : 'oklch(0.86 0.04 274)') + ';'
+      })),
+      bottlenecks: bnk.map(b => ({
+        stage: b.stage,
+        label: b.days + 'd / SLA ' + b.sla + 'd',
+        ink: b.days > b.sla ? RED : GRN,
+        barStyle: bar(Math.min(100, Math.round(b.days / 12 * 100)), b.days > b.sla ? RED : GRN, 8),
+        slaStyle: 'position: absolute; top: 0; bottom: 0; left: ' + Math.round(b.sla / 12 * 100) + '%; width: 2px; background: #191a1e; opacity: 0.5;'
+      })),
+      reportCards: [
+        { title: 'Department performance', rows: [{ k: 'Legal', v: '96% on SLA', ink: GRN }, { k: 'Technical', v: '94% on SLA', ink: GRN }, { k: 'Compliance', v: '71% on SLA', ink: RED }, { k: 'Support', v: '98% on SLA', ink: GRN }] },
+        { title: 'Completion rates', rows: [{ k: 'Reached go live', v: '86%', ink: '#4d4a46' }, { k: 'Stalled > 30d', v: '9%', ink: AMB }, { k: 'Cancelled', v: '5%', ink: '#4d4a46' }, { k: 'First-time doc approval', v: '64%', ink: AMB }] },
+        { title: 'Pipeline value', rows: [{ k: 'In verification', v: '€1.9M', ink: '#4d4a46' }, { k: 'In technical setup', v: '€2.4M', ink: '#4d4a46' }, { k: 'Ready for go live', v: '€820k', ink: GRN }, { k: 'At risk', v: '€640k', ink: RED }] }
+      ],
+
+      setWeb: () => this.setState({ portalDevice: 'web' }),
+      setMobile: () => this.setState({ portalDevice: 'mobile' }),
+      webBtn: this.chipStyle(S.portalDevice === 'web'),
+      mobileBtn: this.chipStyle(S.portalDevice === 'mobile'),
+      portalWeb: S.portalDevice === 'web',
+      portalMobile: S.portalDevice === 'mobile',
+      portalSteps: STAGE_NAMES.map((s, i) => {
+        const done = i < portalDone, active = i === portalDone || i === portalActive;
+        const col = done ? GRN : active ? ACC : '#eae7e1';
+        return {
+          label: s,
+          date: done ? ['04 Jul', '08 Jul', '21 Jul'][i] : active ? 'in progress' : 'upcoming',
+          bar: 'height: 5px; border-radius: 3px; background: ' + col + ';',
+          mdot: 'width: 11px; height: 11px; border-radius: 50%; margin-top: 4px; background: ' + col + ';',
+          ink: done || active ? '#2b2c31' : '#b0aba3'
+        };
+      }),
+      portalAsks: [
+        { name: 'UBO Declaration', short: 'UBO form', hint: 'Signed by a company director · overdue 2 days' },
+        { name: 'Tax Residency Certificate', short: 'certificate', hint: 'Issued within the last 12 months · due 20 Aug' }
+      ],
+      portalUpcoming: [
+        { date: '20 Aug', title: 'Verification decision', sub: 'Our compliance team · no action needed' },
+        { date: '30 Aug', title: 'Technical setup kickoff', sub: 'We will send calendar invites' },
+        { date: '09 Sep', title: 'Training sessions', sub: 'Two 90-minute sessions, remote' }
+      ],
+      mobileTabs: [
+        { icon: '◫', label: 'Progress', ink: ACC },
+        { icon: '☰', label: 'Tasks', ink: MUT },
+        { icon: '⎙', label: 'Documents', ink: MUT },
+        { icon: '◔', label: 'Updates', ink: MUT }
+      ],
+      mobileNotes: [
+        'Customers touch this on a phone, usually to answer a request — so uploads are the primary action, not navigation.',
+        'Every tap target is at least 44px tall; the upload button is full-width and repeated per requested document.',
+        'The roadmap turns vertical on mobile; only stage, state and date survive the cut.',
+        'No internal notes, no owner names beyond the single named contact, no task IDs.'
+      ],
+
+      decisions: [
+        { title: 'One object, many facets', body: 'Tasks, documents, agreements and timeline are tabs on the customer case rather than top-level sections. Nobody works on “documents” in the abstract — they work on a customer.' },
+        { title: 'The roadmap is the spine', body: 'The nine-stage journey appears identically in the internal workspace and the portal, so both sides talk about the same picture. Milestones expand in place; nothing opens in a modal.' },
+        { title: 'Dashboard sorted by exception', body: 'KPIs sit above a “needs attention” list rather than a wall of charts. The operational question is always “who is stuck”, so that answer is one glance away.' },
+        { title: 'Branches as rules, not a canvas', body: 'Conditional routing is expressed as a readable IF/THEN/ELSE line on the stage it belongs to. A node graph would show the same logic and cost an admin who edits an SLA twice a year far more to read.' },
+        { title: 'Case, not customer, is the unit of work', body: 'A customer can run several onboardings at once, so every screen below the customer list is scoped to one case, with a switcher rather than a merged view.' },
+        { title: 'Portal shows debt, not detail', body: 'The customer view leads with what they owe us and when they go live. Each contact signs in individually and sees only the documents scoped to them.' },
+        { title: 'Restrained palette', body: 'One accent for progress, plus green/amber/red reserved strictly for state. Colour always means status, never decoration — dense tables stay readable.' }
+      ],
+      coverage: [
+        { sec: '§5', req: 'Dashboard', where: 'KPI cards, pipeline funnel, attention list, live feed, workload, week', state: 'Designed', st: 'done' },
+        { sec: '§6', req: 'Journey workspace', where: 'Customer header + expandable 9-stage roadmap', state: 'Designed', st: 'done' },
+        { sec: '§7', req: 'Workflow engine', where: 'Builder: reorder, add, remove, conditional branch rules, versioned migration', state: 'Designed', st: 'done' },
+        { sec: '§8', req: 'Task management', where: 'Tasks tab + inline tasks per milestone', state: 'Designed', st: 'done' },
+        { sec: '§9', req: 'Agreements', where: 'Agreements tab with lifecycle tracker', state: 'Designed', st: 'done' },
+        { sec: '§10', req: 'Documents', where: 'Repository table, upload zone, request tracker', state: 'Designed', st: 'done' },
+        { sec: '§11', req: 'Activity timeline', where: 'Timeline tab (immutable audit view)', state: 'Designed', st: 'done' },
+        { sec: '§12', req: 'Customer portal', where: 'Portal screen, web + mobile', state: 'Designed', st: 'done' },
+        { sec: '§13', req: 'Notifications', where: 'Header panel; channels shown as config note', state: 'Designed', st: 'done' },
+        { sec: '§14', req: 'Reporting', where: 'Reports screen with export actions', state: 'Designed', st: 'done' },
+        { sec: '§4/§15', req: 'Roles & RBAC', where: 'Record-level write scope per stage; internal/customer switch', state: 'Designed', st: 'done' },
+        { sec: '§12', req: 'Multi-case customers', where: 'Case switcher in workspace; case rows in customer list', state: 'Designed', st: 'done' },
+        { sec: '§16', req: 'Dark mode, i18n, WCAG', where: 'Rail theme tweak only; full themes pending', state: 'Partial', st: 'wait' }
+      ].map(c => Object.assign({}, c, { pill: PILLS[c.st] })),
+      questions: [
+        { n: '01', answer: 'Conditional branching is required from day one.', impact: 'Stages in the builder now carry IF/THEN/ELSE rules, shown inline on the stage and editable in the inspector. The journey stays a spine, but the path a case takes is computed, not fixed.' },
+        { n: '02', answer: 'A customer can hold multiple concurrent cases.', impact: 'The workspace is scoped to a case, with a case switcher under the customer name; the customer list shows case counts and lists each case as its own row.' },
+        { n: '03', answer: 'Permissions are record-level, scoped not just by role.', impact: 'Each stage declares a write scope (“Compliance on this case”, “Owner only”) rather than a global role. Twelve role definitions collapse into role × record scope.' },
+        { n: '04', answer: 'Auth is per contact; document visibility is granular.', impact: 'The documents table gained a “Visible to” column and a portal-contacts panel, so a KYC pack can reach the compliance contact without exposing commercials.' },
+        { n: '05', answer: 'Freeze by default, with explicit migration as the supported path.', impact: 'Publishing shows how many running cases sit on the old version and routes the admin into a reviewed migration instead of silently re-versioning live work.' }
+      ],
+      language: [
+        { k: 'Type', v: 'Archivo for interface and numerals; IBM Plex Mono for IDs, dates, metrics and labels.' },
+        { k: 'Colour', v: 'Warm neutral surfaces (#f7f6f3 / #fff), single indigo accent, status green/amber/red.' },
+        { k: 'Density', v: '13px body in tables, 12px secondary, 6px progress bars — built for long lists on 1440px screens.' },
+        { k: 'Motion', v: 'Only progress bars, expansion and the live-feed dot animate. Nothing moves that does not report state.' },
+        { k: 'Radius', v: '13px cards, 8–9px controls, 5px bars. Nothing fully rounded except avatars and pills.' }
+      ]
+    };
+  }
+}
+
+</script>
+</body>
+</html>

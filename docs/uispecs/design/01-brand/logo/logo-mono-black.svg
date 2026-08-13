@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="160" height="32" viewBox="0 0 160 32" role="img" aria-label="Onboard OS (mono, black)">
+  <title>Onboard OS (mono, black)</title>
+  <g><path d="M21 7.34A10 10 0 1 1 11 7.34" fill="none" stroke="#191a1e" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="16" cy="6" r="1.5" fill="#191a1e"/></g>
+  <text x="43" y="22" font-family="Archivo, 'Helvetica Neue', Helvetica, Arial, sans-serif" font-weight="600" letter-spacing="-0.02em" font-size="20" fill="#191a1e">Onboard OS</text>
+</svg>
