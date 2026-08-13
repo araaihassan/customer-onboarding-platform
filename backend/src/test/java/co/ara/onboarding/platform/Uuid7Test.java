@@ -34,7 +34,32 @@ class Uuid7Test {
         long after = System.currentTimeMillis();
 
         long timestamp = id.getMostSignificantBits() >>> 16;
+        // Both bounds matter: isBetween's upper bound (after) is what proves
+        // the encoded timestamp is never ahead of the wall clock at the
+        // moment of generation -- the property the unbounded borrow-forward
+        // in the old nextStamp() could violate.
         assertThat(timestamp).isBetween(before, after);
+    }
+
+    @Test
+    void neverEncodesATimestampAheadOfTheClockUnderABurst() {
+        // 5,000 > the 4,096-per-millisecond counter capacity, so this
+        // saturates the counter at least once and forces nextStamp() to
+        // either borrow forward (the old, buggy behaviour) or wait for the
+        // clock (the fix). Checking the max AFTER the whole burst, against a
+        // single System.currentTimeMillis() read taken once the burst is
+        // over, is what makes this a meaningful assertion: any timestamp
+        // encoded ahead of real time during the burst would still exceed
+        // "now" here.
+        long maxTimestamp = 0;
+        for (int i = 0; i < 5000; i++) {
+            UUID id = Uuid7.generate();
+            long timestamp = id.getMostSignificantBits() >>> 16;
+            maxTimestamp = Math.max(maxTimestamp, timestamp);
+        }
+        long now = System.currentTimeMillis();
+
+        assertThat(maxTimestamp).isLessThanOrEqualTo(now);
     }
 
     @Test
