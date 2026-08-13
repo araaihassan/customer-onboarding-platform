@@ -17,7 +17,8 @@
 Every task's requirements implicitly include this section.
 
 - **Java 21**, **Spring Boot 3.4.x**, **PostgreSQL 16**. No Redis. No Kubernetes.
-- **Base package:** `co.ara.onboarding`. Domain modules are subpackages: `co.ara.onboarding.tenancy`, `.identity`, `.authz`, `.audit`, `.customer`, `.platform`.
+- **Base package:** `co.ara.onboarding`. Domain modules are subpackages: `co.ara.onboarding.tenancy`, `.identity`, `.authz`, `.audit`, `.customer`, `.platform`, plus `.provisioning` and `.auth` as orchestration slices above them.
+- **No dependency cycles between modules** (`ModuleBoundaryTest`). Two consequences bite repeatedly: `platform` is the foundation everything depends on, so it must never name a domain type — a domain exception's `@RestControllerAdvice` belongs in that domain's own module, not in `platform.ApiExceptionHandler`. And any class that orchestrates two or more domain modules cannot live inside one of them; it needs a slice of its own, which is why `provisioning` exists.
 - **Two PostgreSQL roles.** Migrations run as the schema owner. The application connects as `onboarding_app`, a **non-superuser, non-BYPASSRLS** role. This is mandatory: RLS does not constrain superusers or (without `FORCE`) table owners, so connecting as the owner would make every isolation test pass vacuously.
 - **Every tenant-owned table** has a non-null `tenant_id`, an RLS policy, and `ALTER TABLE ... FORCE ROW LEVEL SECURITY`, all created in the same migration as the table.
 - **Migrations are forward-only.** Never edit a migration that has been committed.
@@ -65,7 +66,8 @@ Every task's requirements implicitly include this section.
 | `tenancy/TenantContextFilter.java` | Sets `TenantContext` + `app.tenant_id` per request |
 | `tenancy/TenantExceptionHandler.java` | Maps `UnknownTenantException` → 404 (must not live in `platform`) |
 | `tenancy/TenantScopedEntity.java` | MappedSuperclass carrying `tenant_id` + Hibernate filter |
-| `tenancy/TenantProvisioningService.java` | Creates tenants, seeds role templates |
+| `provisioning/TenantProvisioningService.java` | Creates tenants, seeds role templates (own module — see Task 10) |
+| `provisioning/PlatformTenantController.java` | `/api/platform/tenants` |
 | `identity/AppUser.java`, `Department.java`, `Team.java`, `PlatformAdmin.java` | Identity entities |
 | `identity/*Repository.java` | Identity persistence |
 | `authz/PermissionCatalog.java`, `PermissionKeys.java`, `Scope.java`, `RelationshipType.java` | Code-defined catalog |
@@ -3056,10 +3058,14 @@ The twelve PRD roles, seeded into every new tenant.
 
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/authz/RoleTemplates.java`
-- Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantProvisioningService.java`
-- Create: `backend/src/main/java/co/ara/onboarding/tenancy/PlatformTenantController.java`
-- Test: `backend/src/test/java/co/ara/onboarding/tenancy/TenantProvisioningTest.java`
+- Create: `backend/src/main/java/co/ara/onboarding/provisioning/TenantProvisioningService.java`
+- Create: `backend/src/main/java/co/ara/onboarding/provisioning/PlatformTenantController.java`
+- Test: `backend/src/test/java/co/ara/onboarding/provisioning/TenantProvisioningTest.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/RoleTemplateValidityTest.java`
+
+**`provisioning` is a new module, and it has to be.** Provisioning reaches into tenancy, authz and identity at once, and both authz and identity already depend on tenancy (`Role` and `AppUser` extend `TenantScopedEntity`). Putting `TenantProvisioningService` in `tenancy`, as earlier drafts of this plan did, closes `tenancy → authz → tenancy` and `tenancy → identity → tenancy`; with `audit` in the mix it also closes `audit → tenancy → authz → audit`. `ModuleBoundaryTest.noCyclesBetweenModules` rejects all of them — verified by adding a one-field probe class in `tenancy` referencing `authz.Role` and watching two cycles appear.
+
+`provisioning` is an orchestration slice above the domain modules: it depends on them, nothing depends on it. `PlatformTenantController` must move with the service — leaving it in `tenancy` recreates the cycle as `tenancy → provisioning → tenancy`.
 
 **Interfaces:**
 - Consumes: `RoleService`, `PermissionCatalog`, `TenantRepository`, `AuditRecorder`.
@@ -3203,13 +3209,18 @@ public final class RoleTemplates {
         new RoleTemplate("Support", "Assists customers post-activation", Map.of(
             CUSTOMER_VIEW, TEAM, CONTACT_VIEW, TEAM)),
 
-        new RoleTemplate("Administrator", "Full tenant administration", Map.of(
-            TENANT_SETTINGS_VIEW, ALL, TENANT_SETTINGS_EDIT, ALL,
-            USER_VIEW, ALL, USER_MANAGE, ALL, ROLE_VIEW, ALL, ROLE_MANAGE, ALL,
-            DEPARTMENT_MANAGE, ALL, TEAM_MANAGE, ALL,
-            CUSTOMER_VIEW, ALL, CUSTOMER_CREATE, ALL, CUSTOMER_EDIT, ALL,
-            CUSTOMER_DEACTIVATE, ALL, CONTACT_VIEW, ALL, CONTACT_MANAGE, ALL,
-            INVITATION_SEND, ALL, AUDIT_VIEW, ALL))
+        // Map.ofEntries, NOT Map.of: this covers all 16 catalog permissions and
+        // Map.of has no overload past 10 key-value pairs, so Map.of here does not
+        // compile. Needs `import static java.util.Map.entry;`.
+        new RoleTemplate("Administrator", "Full tenant administration", Map.ofEntries(
+            entry(TENANT_SETTINGS_VIEW, ALL), entry(TENANT_SETTINGS_EDIT, ALL),
+            entry(USER_VIEW, ALL), entry(USER_MANAGE, ALL),
+            entry(ROLE_VIEW, ALL), entry(ROLE_MANAGE, ALL),
+            entry(DEPARTMENT_MANAGE, ALL), entry(TEAM_MANAGE, ALL),
+            entry(CUSTOMER_VIEW, ALL), entry(CUSTOMER_CREATE, ALL),
+            entry(CUSTOMER_EDIT, ALL), entry(CUSTOMER_DEACTIVATE, ALL),
+            entry(CONTACT_VIEW, ALL), entry(CONTACT_MANAGE, ALL),
+            entry(INVITATION_SEND, ALL), entry(AUDIT_VIEW, ALL)))
     );
 
     private RoleTemplates() {}
@@ -3310,16 +3321,31 @@ public class TenantProvisioningService {
 }
 ```
 
-Add to `RoleRepository`:
+Add to `RoleRepository` — only the finder:
 
 ```java
     Optional<Role> findByTenantIdAndName(UUID tenantId, String name);
-
-    @Modifying
-    @Query(value = "INSERT INTO user_role (tenant_id, user_id, role_id) VALUES (?1, ?2, ?3)",
-           nativeQuery = true)
-    void assignRoleDirect(UUID tenantId, UUID userId, UUID roleId);
 ```
+
+**Do not add `assignRoleDirect` as a native `@Modifying` query.** Spring Data's `@Modifying` defaults to `flushAutomatically = false`, so the raw `INSERT INTO user_role` can execute before the pending `app_user` insert is flushed, violating `user_role.user_id`'s foreign key. It only appears to work because the preceding `findByTenantIdAndName` happens to trigger an autoflush — incidental behaviour, not a contract. Inject `UserRoleRepository` and write the row as an entity instead, with an explicit flush ordering the two inserts:
+
+```java
+    users.saveAndFlush(admin);                                          // app_user row exists
+    userRoles.save(new UserRole(tenantId, admin.getId(), roleId));      // then its FK reference
+```
+
+This still bypasses the gated `RoleService.assignRole`, which is the point — during provisioning there is no actor to hold `USER_MANAGE`.
+
+**`provision` must restore the caller's `TenantContext`.** Seeding writes to RLS-protected tables so a tenant has to be bound, but `TenantContext` is a `ThreadLocal` on a pooled request thread: leaving it set hands the next request served by that thread a tenant it never asked for, silently scoping its reads to a stranger's data. Capture the previous value and restore it in a `finally`:
+
+```java
+    UUID previous = TenantContext.getOrNull();
+    TenantContext.set(tenant.getId());
+    try { /* seed roles, create admin, audit */ }
+    finally { if (previous == null) TenantContext.clear(); else TenantContext.set(previous); }
+```
+
+Every `UUID.randomUUID()` in the sample above means `Uuid7.generate()`, per Global Constraints.
 
 - [ ] **Step 6: Add the platform controller**
 
@@ -3351,12 +3377,24 @@ public class PlatformTenantController {
 }
 ```
 
-- [ ] **Step 7: Run both tests to verify they pass**
+- [ ] **Step 7: Add the `AuthorizationCoverageTest` exclusion**
 
-Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.RoleTemplateValidityTest" --tests "co.ara.onboarding.tenancy.TenantProvisioningTest"`
+`TenantProvisioningService.provision` is public and carries no `@RequirePermission`, so the guard re-enabled in Task 9 now fails. Add the clause promised there:
+
+```java
+                     .and().areNotDeclaredIn(TenantProvisioningService.class)
+```
+
+Exclude by class, not by name pattern, so a future `*ProvisioningService` does not silently inherit the exemption.
+
+- [ ] **Step 8: Run both tests to verify they pass**
+
+Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.RoleTemplateValidityTest" --tests "co.ara.onboarding.provisioning.TenantProvisioningTest"`
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+Then run the whole suite and confirm `ModuleBoundaryTest` is still green — that is what proves the `provisioning` slice actually broke the cycles rather than moving them.
+
+- [ ] **Step 9: Commit**
 
 ```bash
 git add backend/

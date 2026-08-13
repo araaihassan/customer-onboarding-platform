@@ -15,4 +15,12 @@ import java.util.UUID;
 public interface RoleRepository extends JpaRepository<Role, UUID> {
 
     Optional<Role> findByName(String name);
+
+    /**
+     * tenant_id is redundant against RLS and the Hibernate filter, which both
+     * already constrain the result. It is named explicitly anyway so provisioning
+     * — which seeds roles for a tenant other than any request's — cannot depend on
+     * whichever tenant happens to be bound.
+     */
+    Optional<Role> findByTenantIdAndName(UUID tenantId, String name);
 }

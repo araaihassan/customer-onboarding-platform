@@ -1,6 +1,7 @@
 package co.ara.onboarding.architecture;
 
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.provisioning.TenantProvisioningService;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
@@ -32,13 +33,15 @@ class AuthorizationCoverageTest {
     /**
      * Services that legitimately need no gate are excluded by an explicit,
      * commented clause naming the class — never by deleting or weakening the rule.
-     * The known case is TenantProvisioningService (Task 10), which runs before any
-     * tenant user exists and so has no actor to authorize:
+     * The one case is TenantProvisioningService, which runs before any tenant user
+     * exists and so has no actor to authorize. Inventing a "may create tenants"
+     * permission would be worse than excluding it: the permission would sit in the
+     * catalog where any tenant role could be granted it. That endpoint is secured
+     * at the HTTP layer instead (Task 22 Step 9).
      *
-     *     .and().areNotDeclaredIn(TenantProvisioningService.class)
-     *
-     * That clause is omitted for now only because the class does not exist yet and
-     * the file would not compile with it. Add it in Task 10.
+     * Excluding by class rather than by name pattern is deliberate — a second
+     * service that happens to end in "ProvisioningService" would not inherit the
+     * exemption.
      *
      * There is deliberately no PermissionKeys.PLATFORM_ADMIN catch-all: a
      * permission meaning "skip the check" would be indistinguishable from a real
@@ -51,6 +54,7 @@ class AuthorizationCoverageTest {
             methods().that().arePublic()
                      .and().areDeclaredInClassesThat().haveSimpleNameEndingWith("Service")
                      .and().areDeclaredInClassesThat().resideInAPackage("co.ara.onboarding..")
+                     .and().areNotDeclaredIn(TenantProvisioningService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
 }
