@@ -7235,14 +7235,24 @@ Reads `?token=` from the query string, prompts for a password with a minimum of 
 
 Request form posting to `/auth/password-reset/request`. It always shows the same confirmation message regardless of whether the address exists — the UI must not undo the backend's deliberate non-enumeration. Confirm form reads `?token=` and posts to `/auth/password-reset/confirm`.
 
-- [ ] **Step 4: Verify manually**
+- [ ] **Step 4: Fix the platform-admin bootstrap deadlock**
 
-Start both applications, provision a tenant via `POST /api/platform/tenants` with the platform-admin credentials, and confirm you can log in as the seeded administrator after activating through the emailed link. In development the link is printed by `LoggingEmailSender` in the backend log.
+**This step cannot be performed as written, and finding out why is the point.** Task 22 secured `/api/platform/**` behind `hasRole("PLATFORM_ADMIN")`, but `platform_admin` ships empty and nothing in production code ever inserts a row — only the test fixture does. So provisioning the first tenant requires an administrator that no code path can create. It is invisible in tests, which seed their own, and fatal on a fresh deployment. Task 28's end-to-end setup depends on the same call.
 
-- [ ] **Step 5: Commit**
+Add an `identity/PlatformAdminBootstrap` `ApplicationRunner` reading `app.platform-admin.email` / `app.platform-admin.password`, both blank by default:
+
+- **Configuration, not a migration.** A seeded password in a committed migration is a credential in version control, and migrations are forward-only so it could never be rotated.
+- **Idempotent, and specifically it must not reset the password.** A restart silently reverting a rotated credential back to the environment value is worse than not running at all.
+- **A no-op when unconfigured**, so it never creates a blank account.
+
+- [ ] **Step 5: Verify manually**
+
+Start both applications with `APP_PLATFORM_ADMIN_EMAIL` and `APP_PLATFORM_ADMIN_PASSWORD` set, provision a tenant via `POST /api/platform/tenants` using those credentials over HTTP Basic, and confirm you can log in as the seeded administrator after activating through the emailed link. In development the link is printed by `LoggingEmailSender` in the backend log.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/
+git add frontend/ backend/
 git commit -m "feat: add login, activation and password reset pages"
 ```
 

@@ -32,5 +32,9 @@
   "common.search": "Search",
   "common.loading": "Loading",
   "common.notFound": "Not found",
-  "common.error": "Something went wrong"
+  "common.error": "Something went wrong",
+  "auth.activate.invalid": "That link is invalid or has expired. Ask for a new one.",
+  "auth.activate.tooShort": "Use at least 12 characters.",
+  "auth.activate.mismatch": "Those passwords do not match.",
+  "auth.reset.invalid": "That link is invalid or has expired. Ask for a new one."
 }
