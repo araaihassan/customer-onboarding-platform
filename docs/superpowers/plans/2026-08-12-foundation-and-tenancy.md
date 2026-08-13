@@ -7009,8 +7009,11 @@ The access token lives in memory only. This task is where that guarantee is eith
 - Create: `frontend/src/lib/auth/AuthProvider.tsx`
 - Create: `frontend/src/lib/auth/useAuth.ts`
 - Create: `frontend/src/lib/auth/useHasPermission.ts`
-- Create: `frontend/src/app/(app)/layout.tsx`
-- Test: `frontend/src/lib/api/client.test.ts`
+- Create: `frontend/src/lib/auth/types.ts`, `AuthGuard.tsx`
+- Create: `frontend/src/app/(app)/t/[slug]/layout.tsx`
+- Test: `frontend/src/lib/api/client.test.ts`, `frontend/src/lib/auth/useHasPermission.test.ts`
+
+**The guard belongs at `(app)/t/[slug]/layout.tsx`, not `(app)/layout.tsx`.** It needs the tenant slug — to set it on the API client and to build the login redirect — and only a layout inside the `[slug]` segment receives that param. Every authenticated route lives under it, so it is still one guard for the whole application. In Next 15 `params` arrives as a promise; unwrap it with `use()`.
 
 **Interfaces:**
 - Consumes: `/api/t/{slug}/auth/login`, `/auth/refresh`, `/me`.
@@ -7077,6 +7080,18 @@ describe("apiFetch", () => {
 ```
 
 The last test is the one that matters. It is easy to "fix" a refresh bug by persisting the token, which silently discards the whole reason for choosing this session model.
+
+**Strengthen it: the version above only spies on the setter**, which proves nothing about the refresh path where a well-meaning "keep the user signed in" change would actually land. Run a full 401-refresh-retry cycle and assert `setItem` was never called, `document.cookie` was never assigned, and both storages are still empty.
+
+Three more tests worth adding:
+
+- **`collapses concurrent refreshes into one`** — the highest-consequence case in this file. The backend reads a replayed refresh token as theft and revokes the whole family (§7.4), so two parallel 401s each rotating would sign the user out everywhere and write a `REFRESH_REUSE_DETECTED` audit event, from nothing worse than two requests racing. Fire three `apiFetch` calls concurrently and assert `/auth/refresh` was called exactly once.
+- **`clears the token when the refresh itself is rejected`** — otherwise every later request retries a credential already known to be dead.
+- **`prefixes the tenant path`** — cheap, and the prefix is easy to get wrong once.
+
+`AuthProvider`'s mount effect needs a ref guard. React StrictMode mounts effects twice in development, and a second silent refresh rotates the token again — which the backend reads as reuse. The symptom would be developers being mysteriously signed out only in dev.
+
+`useHasPermission` deserves its own unit test for the scope algebra: `ALL` satisfying any narrower scope, and a unioned set matching each of its members. That is the frontend mirror of `MultipleRolesTest`, and getting it wrong either hides affordances a user is entitled to or shows ones that then fail at the server.
 
 - [ ] **Step 2: Run it to verify it fails**
 
@@ -7146,6 +7161,13 @@ export class ApiError extends Error {
   }
 }
 ```
+
+Two corrections to that sketch:
+
+- **Normalise headers rather than spreading them.** `...(init.headers ?? {})` yields an empty object when a caller passes a `Headers` instance, silently dropping every header it carried — including `Content-Type` on a POST. Build a `Headers` and `set()` onto it.
+- **Return `undefined` for 204 without calling `.json()`.** Logout, activate, deactivate and invite all answer 204 with an empty body, and `.json()` throws on those.
+
+This is also where Task 15's entry-point fix pays off: the backend answers **401** rather than Spring Security's default 403 for a missing or expired token, so this refresh path triggers at all. With a 403 the request would fall straight to the error branch and the user would be silently signed out mid-session.
 
 - [ ] **Step 4: Implement `AuthProvider` and the hooks**
 
