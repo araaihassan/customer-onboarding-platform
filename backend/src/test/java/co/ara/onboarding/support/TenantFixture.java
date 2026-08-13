@@ -9,7 +9,11 @@ import co.ara.onboarding.authz.RoleRepository;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.authz.UserRole;
 import co.ara.onboarding.authz.UserRoleRepository;
+import co.ara.onboarding.auth.InvitationService;
+import co.ara.onboarding.customer.ContactStatus;
 import co.ara.onboarding.customer.Customer;
+import co.ara.onboarding.customer.CustomerContact;
+import co.ara.onboarding.customer.CustomerContactRepository;
 import co.ara.onboarding.customer.CustomerRepository;
 import co.ara.onboarding.customer.CustomerStatus;
 import co.ara.onboarding.identity.AppUser;
@@ -47,6 +51,9 @@ public class TenantFixture {
     private final DepartmentRepository departments;
     private final TeamRepository teams;
     private final CustomerRepository customers;
+    private final CustomerContactRepository contacts;
+    private final InvitationService invitations;
+    private final jakarta.persistence.EntityManager entityManager;
     private final RoleRepository roleRepository;
     private final PasswordEncoder passwords;
     private final UserRoleRepository userRoleRepository;
@@ -61,6 +68,9 @@ public class TenantFixture {
                          DepartmentRepository departments,
                          TeamRepository teams,
                          CustomerRepository customers,
+                         CustomerContactRepository contacts,
+                         InvitationService invitations,
+                         jakarta.persistence.EntityManager entityManager,
                          RoleRepository roleRepository,
                          PasswordEncoder passwords,
                          UserRoleRepository userRoleRepository,
@@ -71,6 +81,9 @@ public class TenantFixture {
         this.departments = departments;
         this.teams = teams;
         this.customers = customers;
+        this.contacts = contacts;
+        this.invitations = invitations;
+        this.entityManager = entityManager;
         this.roleRepository = roleRepository;
         this.passwords = passwords;
         this.userRoleRepository = userRoleRepository;
@@ -204,6 +217,35 @@ public class TenantFixture {
         c.setOwningDepartmentId(departmentId);
         c.setOwningTeamId(teamId);
         return customers.saveAndFlush(c).getId();
+    }
+
+    /** An ACTIVE contact with no linked portal user yet. Must be called inside {@link #runAs}. */
+    public UUID createContact(UUID tenantId, UUID customerId, String email) {
+        CustomerContact c = new CustomerContact();
+        c.setId(Uuid7.generate());
+        c.setTenantId(tenantId);
+        c.setCustomerId(customerId);
+        c.setFullName(email);
+        c.setEmail(email);
+        c.setStatus(ContactStatus.ACTIVE);
+        return contacts.saveAndFlush(c).getId();
+    }
+
+    /** Issues an activation invitation through the gated service. Inside {@link #runAs}. */
+    public String issueInvitation(UUID contactId) {
+        return invitations.issue(contactId);
+    }
+
+    /**
+     * Ages every invitation past its expiry, so expiry can be tested without waiting
+     * seven days. A bulk UPDATE rather than entity mutation, then a clear, so the
+     * service reads the aged rows rather than cached ones.
+     */
+    public void expireInvitations() {
+        entityManager.createNativeQuery(
+                "UPDATE invitation SET expires_at = now() - interval '1 day'").executeUpdate();
+        entityManager.flush();
+        entityManager.clear();
     }
 
     /**

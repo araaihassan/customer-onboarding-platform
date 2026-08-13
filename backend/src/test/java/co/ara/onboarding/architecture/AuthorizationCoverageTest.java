@@ -1,6 +1,8 @@
 package co.ara.onboarding.architecture;
 
+import co.ara.onboarding.auth.ActivationService;
 import co.ara.onboarding.auth.LoginService;
+import co.ara.onboarding.auth.PasswordResetService;
 import co.ara.onboarding.auth.LoginThrottleService;
 import co.ara.onboarding.auth.RefreshTokenService;
 import co.ara.onboarding.auth.TokenService;
@@ -55,6 +57,14 @@ class AuthorizationCoverageTest {
      *     verifies is a cookie, not an authority.
      *   - LoginThrottleService — runs during authentication, counting attempts before
      *     any identity is established.
+     *   - ActivationService, PasswordResetService — the caller holds a token and
+     *     nothing else; they have no session and no roles to check.
+     *
+     * Note what is NOT excluded: InvitationService. Issuing an invitation is an
+     * authenticated staff action and invitation.send is a real catalogued permission,
+     * so it is gated. That is exactly why issuing and accepting are separate classes
+     * — one service carrying both could not be gated without exempting the half that
+     * must be.
      *
      * Infrastructure that the gate itself depends on, so gating it is circular:
      *   - AuthorizationService — it *is* the mechanism. Resolving the gate would
@@ -88,6 +98,8 @@ class AuthorizationCoverageTest {
                      .and().areNotDeclaredIn(TokenService.class)
                      .and().areNotDeclaredIn(RefreshTokenService.class)
                      .and().areNotDeclaredIn(LoginThrottleService.class)
+                     .and().areNotDeclaredIn(ActivationService.class)
+                     .and().areNotDeclaredIn(PasswordResetService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
 

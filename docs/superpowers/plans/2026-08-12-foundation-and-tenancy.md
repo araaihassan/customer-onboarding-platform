@@ -5716,12 +5716,24 @@ Invitation-based provisioning per QA Q12. The narrow `EmailSender` interface exi
 - Create: `backend/src/main/java/co/ara/onboarding/auth/LoggingEmailSender.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/Invitation.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/InvitationRepository.java`
-- Create: `backend/src/main/java/co/ara/onboarding/auth/InvitationService.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/InvitationService.java` (issuing — gated)
+- Create: `backend/src/main/java/co/ara/onboarding/auth/ActivationService.java` (accepting — ungated)
 - Create: `backend/src/main/java/co/ara/onboarding/auth/PasswordResetService.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/InvalidTokenException.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/platform/ApiExceptionHandler.java`
-- Test: `backend/src/test/java/co/ara/onboarding/auth/InvitationFlowTest.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/AuthExceptionHandler.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/SecureTokens.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`, `RefreshTokenService.java`
+- Test: `backend/src/test/java/co/ara/onboarding/auth/InvitationFlowTest.java`, `PasswordResetTest.java`
+
+**Issuing and accepting must be separate services.** `invitation.send` is a real catalogued permission, so `issue` has to carry `@RequirePermission(INVITATION_SEND)`; `accept` is performed by an unauthenticated person holding only a token and cannot be gated at all. `AuthorizationCoverageTest` requires *every* public method on a `*Service` to be annotated, so one class carrying both could only pass by exempting the half that must be gated. Split along the actor boundary: `InvitationService.issue` (gated) and `ActivationService.accept` (excluded, pre-authentication category), with `PasswordResetService` excluded for the same reason.
+
+This is the case the exclusion list's comment warns about — `InvitationService` is the first `auth` service that must *not* be exempt.
+
+**`issue` reads the contact through `AuthorizedQuery`, not the repository**, so `invitation.send` applies at record level too: a contact outside the caller's scope is not found and answers 404 rather than being invitable.
+
+**No `ApiExceptionHandler` change.** Mapping `InvalidTokenException` in `platform` closes the `platform → auth` cycle for the fourth time this phase. Add `auth/AuthExceptionHandler`, matching `TenantExceptionHandler` and `AuthzExceptionHandler`.
+
+An exception *is* right here, unlike login and refresh: nothing is written before a rejection, so there is no durable state for the rollback to discard. That is the test for which shape to use — not consistency for its own sake.
 
 **Interfaces:**
 - Consumes: `CustomerContactRepository`, `AppUserRepository`, `PasswordEncoder`, `AuditRecorder`.
@@ -5864,13 +5876,23 @@ public interface EmailSender {
 
 `LoggingEmailSender` is `@Component` `@Profile({"dev","test"})` and logs subject, recipient, and body at INFO. `SmtpEmailSender` is `@Component` `@Profile("!dev & !test")` and uses `JavaMailSender`.
 
-Token lifetimes: activation invitations expire after **7 days**, password resets after **1 hour**.
+**`PostgresTestBase` needs `@ActiveProfiles("test")`.** Without it no profile is active, so `!dev & !test` matches and `SmtpEmailSender` is the bean under test — every test that sends mail would try to open an SMTP connection.
+
+Token lifetimes: activation invitations expire after **7 days**, password resets after **1 hour**. The asymmetry is deliberate: a reset link is a live credential to an existing account, so its window should be as short as usability allows, whereas an activation link has to survive someone being on holiday.
+
+Extract the token generation and hashing shared with `RefreshTokenService` into an `auth/SecureTokens` helper rather than copying it. Three independent copies of "generate randomness, hash it, store the hash" is three chances for one to use a weaker source or skip the hash.
 
 - [ ] **Step 5: Implement `InvitationService`**
 
 Reuse the SHA-256 hashing approach from `RefreshTokenService` — the raw token is returned once and emailed; only the hash is stored. `accept` validates that `acceptedAt` and `revokedAt` are null and `expiresAt` is in the future, creates the `PORTAL` `AppUser` with `UserStatus.ACTIVE`, links `customer_contact.user_id`, stamps `acceptedAt`, and records `AuditActions.INVITATION_ACCEPTED`.
 
-`InvalidTokenException extends RuntimeException`, mapped to 400.
+`InvalidTokenException extends RuntimeException`, mapped to 400 by `auth/AuthExceptionHandler` with a bare detail. Unknown, expired, already-redeemed, revoked and wrong-purpose must all answer identically — "expired" confirms the token was once real, and "already used" confirms someone redeemed it.
+
+**`accept` must handle an address that already has an account.** `app_user` is unique on `(tenant, lower(email))`, so a contact sharing an address with an existing user fails the constraint and surfaces as a 500. Reject it as an invalid token instead, which is also the honest answer: the invitation cannot create the account it promises.
+
+**`reset` must check `purpose`, not just validity.** Both flows share one table, so nothing else stops a seven-day activation token being redeemed as a one-hour password reset. Put the check in the entity (`isRedeemable(purpose, now)`) so it cannot be forgotten at one of the two call sites.
+
+**`reset` must also revoke the user's refresh tokens.** Whoever prompted the reset may be the attacker; leaving their family alive lets them keep the account the reset was meant to secure. Needs `revokeAllForUser(userId)` on `RefreshTokenService`.
 
 - [ ] **Step 6: Add the endpoints**
 
@@ -5880,8 +5902,17 @@ Password policy: minimum 12 characters, validated with `@Size(min = 12)`.
 
 - [ ] **Step 7: Run it to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.InvitationFlowTest"`
-Expected: PASS — all four tests.
+Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.InvitationFlowTest" --tests "co.ara.onboarding.auth.PasswordResetTest"`
+Expected: PASS.
+
+The plan's four invitation tests all assert exceptions **inside** a `runAs` lambda, which Global Constraints forbids — wrap the helper instead. It also has no password-reset coverage at all, despite the flow being half the task. Add `PasswordResetTest` with: the hash is actually replaced and the old password stops working; a reset token is single-use; **an activation token cannot be redeemed as a password reset**; the request endpoint answers identically for known and unknown addresses; and `request` returns empty for an unknown address rather than inventing a token.
+
+Two more on the invitation side:
+
+- `issuingAnInvitationRequiresThePermission` — the only thing proving the gate is on the right half of the split.
+- `invitationForAnAddressThatAlreadyHasAnAccountIsRejected` — the 500 described above.
+
+`createdPortalUserCannotHoldInternalRoles` should assert the type **as persisted**, not only on the returned object; the plan's version would pass on an entity that was never saved with it.
 
 - [ ] **Step 8: Commit**
 

@@ -16,4 +16,7 @@ public interface RefreshTokenRepository extends JpaRepository<RefreshToken, UUID
     Optional<RefreshToken> findByTokenHash(String tokenHash);
 
     List<RefreshToken> findByFamilyId(UUID familyId);
+
+    /** Every family for one user — used when a password change must end all sessions. */
+    List<RefreshToken> findByUserId(UUID userId);
 }

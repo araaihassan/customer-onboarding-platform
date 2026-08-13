@@ -9,14 +9,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
-import java.util.HexFormat;
 import java.util.Map;
 import java.util.UUID;
 
@@ -36,14 +30,6 @@ import java.util.UUID;
  */
 @Service
 public class RefreshTokenService {
-
-    /**
-     * SecureRandom, not Uuid7: a refresh token must be unpredictable, not merely
-     * unique. A UUIDv7 leaks its creation time and is guessable given a
-     * neighbouring value, which is exactly the property a bearer credential must
-     * not have. 32 bytes = 256 bits of entropy.
-     */
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     private final RefreshTokenRepository repository;
     private final AppUserRepository users;
@@ -119,6 +105,22 @@ public class RefreshTokenService {
     }
 
     /**
+     * Ends every session for a user, across all families. Called when a password
+     * changes: whoever prompted the reset may be the attacker, and leaving their
+     * family alive would let them keep the account the reset just secured.
+     */
+    @Transactional
+    public void revokeAllForUser(UUID userId) {
+        Instant now = Instant.now();
+        repository.findByUserId(userId).forEach(t -> {
+            if (t.getRevokedAt() == null) {
+                t.setRevokedAt(now);
+                repository.save(t);
+            }
+        });
+    }
+
+    /**
      * Logout. Revoking the whole family is intentional: signing out should end the
      * session everywhere it was rotated, not just sever the newest link and leave
      * an older one usable.
@@ -133,9 +135,7 @@ public class RefreshTokenService {
     }
 
     private String issueInFamily(AppUser user, UUID familyId, String ip, String userAgent) {
-        byte[] bytes = new byte[32];
-        RANDOM.nextBytes(bytes);
-        String raw = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        String raw = SecureTokens.generate();
 
         Instant now = Instant.now();
         RefreshToken token = new RefreshToken();
@@ -153,18 +153,8 @@ public class RefreshTokenService {
         return raw;   // returned once; only the hash is persisted
     }
 
-    /**
-     * Plain SHA-256, deliberately not a password hash. The input is 256 bits of
-     * cryptographic randomness, so there is no dictionary to attack and no need for
-     * a work factor — and Argon2 here would make every refresh cost 64 MiB.
-     */
+    /** Shared with invitations and password resets — see SecureTokens for why plain SHA-256. */
     private String hash(String raw) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest(raw.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is required by the JDK spec", e);
-        }
+        return SecureTokens.hash(raw);
     }
 }

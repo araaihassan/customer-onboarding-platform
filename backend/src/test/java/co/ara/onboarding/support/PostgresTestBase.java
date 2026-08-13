@@ -1,6 +1,7 @@
 package co.ara.onboarding.support;
 
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -12,7 +13,13 @@ import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.util.function.Consumer;
 
+/**
+ * ActiveProfiles("test") selects LoggingEmailSender. Without it no profile is
+ * active, SmtpEmailSender's "!dev & !test" matches, and every test that sends mail
+ * tries to open an SMTP connection.
+ */
 @SpringBootTest
+@ActiveProfiles("test")
 public abstract class PostgresTestBase {
 
     // Deliberately NOT @ServiceConnection: that annotation registers a

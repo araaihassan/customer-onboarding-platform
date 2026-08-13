@@ -3,6 +3,7 @@ package co.ara.onboarding.auth;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -37,14 +38,19 @@ public class AuthController {
     public record LoginResponse(String accessToken, long expiresInSeconds, Map<String, Object> user) {}
 
     private final LoginService logins;
+    private final ActivationService activations;
+    private final PasswordResetService passwordResets;
     private final RefreshTokenService refreshTokens;
     private final TokenService tokens;
     private final Duration refreshTtl;
 
-    public AuthController(LoginService logins, RefreshTokenService refreshTokens,
+    public AuthController(LoginService logins, ActivationService activations,
+                          PasswordResetService passwordResets, RefreshTokenService refreshTokens,
                           TokenService tokens,
                           @Value("${app.refresh-token.ttl}") Duration refreshTtl) {
         this.logins = logins;
+        this.activations = activations;
+        this.passwordResets = passwordResets;
         this.refreshTokens = refreshTokens;
         this.tokens = tokens;
         this.refreshTtl = refreshTtl;
@@ -126,6 +132,36 @@ public class AuthController {
             case RotationOutcome.Rejected ignored ->
                     throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid refresh token");
         };
+    }
+
+    public record ActivateRequest(@NotBlank String token,
+                                  @NotBlank @Size(min = 12) String password) {}
+    public record ResetRequestBody(@Email String email) {}
+    public record ResetConfirmBody(@NotBlank String token,
+                                   @NotBlank @Size(min = 12) String password) {}
+
+    /** 204 with no body — the client redirects to login rather than being signed in here. */
+    @PostMapping("/activate")
+    public ResponseEntity<Void> activate(@Valid @RequestBody ActivateRequest request) {
+        activations.accept(request.token(), request.password());
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Always 204, whether or not the address exists. Answering differently would
+     * make this an account-enumeration oracle, which is the same reason login
+     * returns one shared 401.
+     */
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody ResetRequestBody body) {
+        passwordResets.request(body.email());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Void> confirmPasswordReset(@Valid @RequestBody ResetConfirmBody body) {
+        passwordResets.reset(body.token(), body.password());
+        return ResponseEntity.noContent().build();
     }
 
     /** Idempotent: an absent or unknown cookie still clears and still answers 204. */
