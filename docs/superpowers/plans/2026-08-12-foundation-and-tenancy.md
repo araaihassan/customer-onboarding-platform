@@ -6493,7 +6493,19 @@ The screens in Task 28 need these: users, roles and grants, departments, teams.
 - Create: `backend/src/main/java/co/ara/onboarding/identity/OrgStructureController.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/RoleController.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/PermissionCatalogController.java`
+- Create: `backend/src/main/java/co/ara/onboarding/identity/UserActivationSender.java` (port)
+- Create: `backend/src/main/java/co/ara/onboarding/auth/UserInvitationService.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/ActivationService.java`
+- Modify: `identity/AppUserRepository.java`, `DepartmentRepository.java`, `TeamRepository.java`
 - Test: `backend/src/test/java/co/ara/onboarding/identity/UserAdminTest.java`
+
+**`identity` cannot call `auth.InvitationService` directly** — `auth` already depends on `identity`, so that closes `identity → auth → identity`. Same fix as Task 20: a `UserActivationSender` port in `identity`, implemented in `auth`, with the port method named exactly as the implementation's so no self-invocation can skip the gate.
+
+**Inviting a colleague is not the same operation as inviting a contact**, so it is a separate `UserInvitationService`: gated on `user.manage` rather than `invitation.send`, and setting `invitation.user_id` rather than `customer_contact_id`. What they share is the table, the token machinery and `ActivationService` — which is what "reuse the machinery rather than adding a parallel flow" means. `ActivationService.accept` branches on which column is set: a contact invitation creates a PORTAL user, a user invitation activates an account that already exists.
+
+That branch must refuse anything not in `INVITED` status, or activation becomes a password reset without the reset flow's one-hour window, and silently resurrects deactivated accounts.
+
+**The three identity repositories need `JpaSpecificationExecutor`.** `AuthorizedQuery` composes the scope predicate as a `Specification`, so a repository without it can only be queried in ways that bypass scope — the compile error is the design telling you.
 
 **Interfaces:**
 - Consumes: `AuthorizedQuery`, `RoleService`, `PermissionCatalog`, `InvitationService`.
@@ -6574,10 +6586,22 @@ Follow the exact pattern established in Task 20: `@RequirePermission` on every p
 
 `PermissionCatalogController` is read-only and returns `PermissionCatalog.all()` with `allowedScopes` — the role editor uses it to offer only valid scope options per permission, so invalid combinations are rejected in the UI as well as at the API.
 
+**Extend `servicesDoNotCallRepositoryFindersDirectly` to `co.ara.onboarding.identity..`.** Until now it covered only `customer`, but `UserAdminService` makes `user.view` scoping real, so identity is a scoped domain too. Use `resideInAnyPackage(...)` — and prove the new package actually matches with a throwaway service calling `users.findAll()`, because a mis-specified package makes the rule silently vacuous rather than failing.
+
+`OrgStructureService` reads through `AuthorizedQuery` as well, even though `department.manage` and `team.manage` are ALL-only and have no descriptors. It works because `AuthorizationPredicateBuilder` short-circuits `ALL` *before* the registry lookup, and it keeps the pattern from varying by whether a permission happens to be ALL-only today.
+
 - [ ] **Step 4: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.identity.UserAdminTest"`
 Expected: PASS
+
+Five tests beyond the plan's two:
+
+- `createdUserIsInvitedAndCannotLogInYet` — asserts INVITED, INTERNAL, and a **null** password hash. An administrator must be able to create colleagues but never mint a usable credential for one; that is an account-takeover path rather than an invitation.
+- `creatingAUserRequiresUserManageNotJustUserView` — `user.view` must not imply `user.manage`.
+- `deactivatingAUserSetsDeactivatedStatus` — deactivation is how a user is removed, since there is no delete.
+- `aCreatedUserCanActivateAndBecomesActive` — the flow Task 25's manual verification depends on, and the only cover for `ActivationService`'s second branch.
+- `activationIsRefusedForAnAccountThatIsNotInvited` — the status guard above.
 
 - [ ] **Step 5: Run the whole backend suite**
 

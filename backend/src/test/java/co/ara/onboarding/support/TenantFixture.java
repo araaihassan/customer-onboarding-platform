@@ -165,6 +165,20 @@ public class TenantFixture {
         return saved.get();
     }
 
+    /** An ACTIVE user in a department, for exercising DEPARTMENT scope. Inside {@link #runAs}. */
+    public UUID createUserInDepartment(UUID tenantId, String email, UUID departmentId) {
+        AppUser u = new AppUser();
+        u.setId(Uuid7.generate());
+        u.setTenantId(tenantId);
+        u.setEmail(email);
+        u.setFullName(email);
+        u.setPasswordHash("x");
+        u.setUserType(UserType.INTERNAL);
+        u.setStatus(UserStatus.ACTIVE);
+        u.setDepartmentId(departmentId);
+        return users.saveAndFlush(u).getId();
+    }
+
     /**
      * A department, flushed immediately. Callers generally need the id as a foreign
      * key on another row — customer.owning_department_id references department(id)

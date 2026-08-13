@@ -55,6 +55,44 @@ public class ActivationService {
                 .filter(i -> i.isRedeemable(InvitationPurpose.ACTIVATION, Instant.now()))
                 .orElseThrow(() -> new InvalidTokenException("Invitation is not redeemable"));
 
+        // One token flow, two targets. A contact invitation creates a PORTAL user;
+        // an internal-user invitation activates an account an administrator already
+        // created. Sharing the table and the redemption rules is the point —
+        // single-use, expiry and purpose checks are written once.
+        AppUser user = invitation.getCustomerContactId() != null
+                ? activateContact(invitation, rawPassword)
+                : activateInternalUser(invitation, rawPassword);
+
+        invitation.setAcceptedAt(Instant.now());
+        invitations.save(invitation);
+
+        audit.record(AuditActions.INVITATION_ACCEPTED, "app_user", user.getId(),
+                "Invitation accepted by " + user.getEmail(), Map.of());
+
+        return user;
+    }
+
+    /** An internal user already exists in INVITED status; activation gives them a password. */
+    private AppUser activateInternalUser(Invitation invitation, String rawPassword) {
+        if (invitation.getUserId() == null) {
+            throw new InvalidTokenException("Invitation targets neither a contact nor a user");
+        }
+        AppUser user = users.findById(invitation.getUserId())
+                .orElseThrow(() -> new InvalidTokenException("Invitation has no user"));
+
+        // Only an invited account can be activated. Re-activating an ACTIVE or
+        // DEACTIVATED user would be a password reset without the reset flow's
+        // one-hour window, and would silently resurrect a deactivated account.
+        if (user.getStatus() != UserStatus.INVITED) {
+            throw new InvalidTokenException("Account is not awaiting activation");
+        }
+
+        user.setPasswordHash(passwords.encode(rawPassword));
+        user.setStatus(UserStatus.ACTIVE);
+        return users.saveAndFlush(user);
+    }
+
+    private AppUser activateContact(Invitation invitation, String rawPassword) {
         CustomerContact contact = contacts.findById(invitation.getCustomerContactId())
                 .orElseThrow(() -> new InvalidTokenException("Invitation has no contact"));
 
@@ -80,12 +118,6 @@ public class ActivationService {
 
         contact.setUserId(user.getId());
         contacts.save(contact);
-
-        invitation.setAcceptedAt(Instant.now());
-        invitations.save(invitation);
-
-        audit.record(AuditActions.INVITATION_ACCEPTED, "app_user", user.getId(),
-                "Portal invitation accepted by " + contact.getEmail(), Map.of());
 
         return user;
     }

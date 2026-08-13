@@ -124,8 +124,9 @@ class AuthorizationCoverageTest {
      * CustomerContactService must reach contacts through AuthorizedQuery with a
      * customerId Specification rather than a derived finder.
      *
-     * Scoped to co.ara.onboarding.customer.. for now; each later sub-project adds
-     * its own domain package. RoleService and TenantProvisioningService are outside
+     * Covers customer and identity — the two domain packages whose reads are
+     * record-scoped. identity joined in Task 21, when UserAdminService made user.view
+     * scoping real. Each later sub-project adds its own domain package here. RoleService and TenantProvisioningService are outside
      * it and unaffected — they operate on authorization metadata, not scoped
      * business records.
      *
@@ -134,7 +135,8 @@ class AuthorizationCoverageTest {
      */
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
-            noClasses().that().resideInAPackage("co.ara.onboarding.customer..")
+            noClasses().that().resideInAnyPackage("co.ara.onboarding.customer..",
+                                                  "co.ara.onboarding.identity..")
                 .and().haveSimpleNameEndingWith("Service")
                 .should().callMethodWhere(
                         (target(name("findAll"))
