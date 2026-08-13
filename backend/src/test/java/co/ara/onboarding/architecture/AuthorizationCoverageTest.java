@@ -1,5 +1,6 @@
 package co.ara.onboarding.architecture;
 
+import co.ara.onboarding.authz.AuthorizationService;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.provisioning.TenantProvisioningService;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -39,6 +40,12 @@ class AuthorizationCoverageTest {
      * catalog where any tenant role could be granted it. That endpoint is secured
      * at the HTTP layer instead (Task 22 Step 9).
      *
+     * AuthorizationService is excluded for a different reason: it *is* the
+     * mechanism. Gating "what may this user do" on holding a permission is
+     * circular — resolving the gate would require resolving the gate. It is named
+     * *Service and so matches the rule, but it is authorization infrastructure
+     * rather than a domain service.
+     *
      * Excluding by class rather than by name pattern is deliberate — a second
      * service that happens to end in "ProvisioningService" would not inherit the
      * exemption.
@@ -55,6 +62,7 @@ class AuthorizationCoverageTest {
                      .and().areDeclaredInClassesThat().haveSimpleNameEndingWith("Service")
                      .and().areDeclaredInClassesThat().resideInAPackage("co.ara.onboarding..")
                      .and().areNotDeclaredIn(TenantProvisioningService.class)
+                     .and().areNotDeclaredIn(AuthorizationService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
 }

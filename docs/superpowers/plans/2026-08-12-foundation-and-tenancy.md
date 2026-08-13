@@ -3984,8 +3984,10 @@ Resolves a user's authority per request as the union across all enabled roles, a
 
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/authz/EffectivePermissions.java`
+- Create: `backend/src/main/java/co/ara/onboarding/authz/ActorDirectory.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/AuthContextProvider.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/AuthorizationService.java`
+- Create: `backend/src/main/java/co/ara/onboarding/identity/IdentityActorDirectory.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/AuthorizationPredicateBuilder.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/EffectivePermissionsTest.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/PredicateBuilderTest.java`
@@ -4181,13 +4183,37 @@ public record EffectivePermissions(Map<String, Set<Scope>> byPermission) {
 }
 ```
 
-- [ ] **Step 6: Implement `AuthContextProvider`**
+- [ ] **Step 6: Implement `AuthContextProvider` behind an `ActorDirectory` port**
+
+**`AuthContextProvider` must not import `identity`.** The sample below injects `AppUserRepository` directly, which closes `authz → identity → authz` — identity depends on authz for `@RequirePermission` (Task 21's `UserAdminService`), and this task itself adds that edge. Invert it: authz declares the port, identity implements it.
+
+```java
+// authz/ActorDirectory.java — the port
+public interface ActorDirectory {
+    Optional<AuthContext> findActor(UUID userId);
+}
+```
+
+```java
+// identity/IdentityActorDirectory.java — the implementation
+@Component
+public class IdentityActorDirectory implements ActorDirectory {
+    private final AppUserRepository users;
+    public IdentityActorDirectory(AppUserRepository users) { this.users = users; }
+
+    @Override public Optional<AuthContext> findActor(UUID userId) {
+        return users.findById(userId).map(u -> new AuthContext(
+                u.getTenantId(), u.getId(), u.getUserType(),
+                u.getDepartmentId(), Set.copyOf(u.getTeamIds())));
+    }
+}
+```
+
+`AuthContextProvider` then depends only on `ActorDirectory`. Querying `app_user` with raw SQL from authz would also break the cycle but duplicates schema knowledge identity owns.
 
 ```java
 package co.ara.onboarding.authz;
 
-import co.ara.onboarding.identity.AppUser;
-import co.ara.onboarding.identity.AppUserRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -4210,13 +4236,13 @@ public class AuthContextProvider {
 
     public AuthContext current() {
         AuthenticatedPrincipal p = principal();
-        AppUser user = users.findById(p.userId())
+        return actors.findActor(p.userId())
                 .orElseThrow(() -> new AccessDeniedException("Unknown user"));
-        return new AuthContext(user.getTenantId(), user.getId(), user.getUserType(),
-                user.getDepartmentId(), Set.copyOf(user.getTeamIds()));
     }
 }
 ```
+
+The lookup is tenant-scoped by RLS, so a principal naming a user in another tenant resolves to nothing and is rejected here rather than silently producing an `AuthContext` for a stranger.
 
 - [ ] **Step 7: Implement `AuthorizationService`**
 
@@ -4278,12 +4304,26 @@ public class AuthorizationService {
 }
 ```
 
-- [ ] **Step 8: Run the effective-permissions test to verify it passes**
+`Map.copyOf(byPermission)` is not enough — it leaves the inner `EnumSet`s mutable, so a caller could widen its own authority in place. Copy each value with `Set.copyOf` as well.
+
+- [ ] **Step 8: Exclude `AuthorizationService` from `AuthorizationCoverageTest`**
+
+This task trips the guard re-enabled in Task 9: `AuthorizationService` is named `*Service` and its public `effectivePermissions()` and `has()` carry no `@RequirePermission`. Gating them would be circular — resolving the gate would require resolving the gate — so add an exclusion beside `TenantProvisioningService`, with a comment saying it is authorization infrastructure rather than a domain service:
+
+```java
+                     .and().areNotDeclaredIn(AuthorizationService.class)
+```
+
+The two exclusions exist for different reasons and both belong in the comment: `TenantProvisioningService` has no actor to authorize; `AuthorizationService` *is* the mechanism.
+
+- [ ] **Step 9: Run the effective-permissions test to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.EffectivePermissionsTest"`
-Expected: PASS — all four tests.
+Expected: PASS.
 
-- [ ] **Step 9: Write the failing predicate-builder test**
+Add a fifth test the plan omits: `permissionsAreMemoizedWithinARequestButNotAcrossThem`. The memo is what makes the two "next request" assertions meaningful, and nothing verified it exists — a version that re-queried on every call would pass all four, and one that cached in a singleton would pass within a single request. Assert the same instance is returned twice inside one `runAsUser`, and a different instance in a second.
+
+- [ ] **Step 10: Write the failing predicate-builder test**
 
 `backend/src/test/java/co/ara/onboarding/authz/PredicateBuilderTest.java`:
 
@@ -4366,9 +4406,13 @@ class PredicateBuilderTest extends PostgresTestBase {
 }
 ```
 
-Add `createTeam(UUID tenantId, String name)` and `createCustomer(UUID tenantId, String displayName, UUID ownerUserId, UUID departmentId, UUID teamId)` to `TenantFixture`, following the shape of `createUser` from Task 9.
+Add `createTeam(UUID tenantId, String name)`, `createCustomer(UUID tenantId, String displayName, UUID ownerUserId, UUID departmentId, UUID teamId)` and `addToTeam(UUID tenantId, UUID userId, UUID teamId)` to `TenantFixture`, following the shape of `createUser`. All of them `saveAndFlush` — `user_role`, `team_member` and `customer` all carry foreign keys to `app_user`, so flushing removes a whole class of insert-ordering fragility rather than relying on Hibernate's ordering. `addToTeam` must mutate `AppUser.teamIds` rather than inserting into `team_member` directly, so the composite join mapping populates `tenant_id`.
 
-- [ ] **Step 10: Implement `AuthorizationPredicateBuilder`**
+**As elsewhere, call these inside `runAs`** — every table involved is RLS-protected.
+
+Add a fourth test the plan omits: `twoRecordScopesUnionRatherThanOverride`. All three tests above grant a single scope, so they cannot tell a correct union from an implementation that keeps only the last scope it iterated. Grant `ASSIGNED` and `TEAM` through two roles, with ownership and team membership on *different* records, and assert both come back. Verified by replacing `combined.or(part)` with `combined = part` and confirming only this test fails.
+
+- [ ] **Step 11: Implement `AuthorizationPredicateBuilder`**
 
 ```java
 package co.ara.onboarding.authz;
@@ -4421,12 +4465,12 @@ public class AuthorizationPredicateBuilder {
 }
 ```
 
-- [ ] **Step 11: Run it to verify it passes**
+- [ ] **Step 12: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.PredicateBuilderTest"`
 Expected: PASS. The first test is the important one — it proves scopes union rather than nest.
 
-- [ ] **Step 12: Commit**
+- [ ] **Step 13: Commit**
 
 ```bash
 git add backend/
