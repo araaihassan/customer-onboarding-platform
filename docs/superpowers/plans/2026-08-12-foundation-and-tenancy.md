@@ -3429,6 +3429,8 @@ Data only — no service, no endpoints. This lands before the descriptor registr
 
 - [ ] **Step 1: Write the failing test**
 
+**Call `fixture.createUser` INSIDE `runAs`, not before it.** The sample below hoists it above the `runAs` block, which cannot work: `app_user` is RLS-protected, and Spring Data repository proxies manage their own transactions without triggering `TenantTransactionBinder`, so the save runs with no tenant bound and fails the policy's `WITH CHECK`. Move it inside the lambda — the owner id is only used there anyway. As always, every `UUID.randomUUID()` below means `Uuid7.generate()`.
+
 `backend/src/test/java/co/ara/onboarding/customer/CustomerPersistenceTest.java`:
 
 ```java
@@ -3560,7 +3562,23 @@ GRANT SELECT, INSERT, UPDATE ON customer, customer_contact TO onboarding_app;
 -- V2_1. Business records are deactivated, never deleted (spec 9.4).
 ```
 
-The `REVOKE DELETE` turns "no hard deletes" from a code convention into a database guarantee. Sub-projects 2–9 should follow this pattern for their own business tables.
+There is no `REVOKE DELETE` statement here and none is needed — V5_1 already revoked the schema-wide default, so a table created after it starts with no privileges at all and the `GRANT` above is the complete grant. That is what turns "no hard deletes" from a code convention into a database guarantee. Sub-projects 2–9 should follow this pattern for their own business tables.
+
+**Add a test for it.** The guarantee is the loudest claim this task makes and the plan asserted it nowhere:
+
+```java
+    @Test
+    void applicationRoleCannotDeleteBusinessRecords() {
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM customer"))
+                .hasStackTraceContaining("permission denied");
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM customer_contact"))
+                .hasStackTraceContaining("permission denied");
+    }
+```
+
+`hasStackTraceContaining`, not `hasMessageContaining` — matching `AppRoleTest`. PostgreSQL reports insufficient privilege as SQLState 42501, and Spring's `SQLStateSQLExceptionTranslator` maps the whole 42xxx class to `BadSqlGrammarException`, whose message says only "bad SQL grammar"; "permission denied" is in the wrapped cause. Asserting on the top-level message fails while the privilege check is working perfectly — which is exactly what happened on the first run.
+
+No tenant needs to be bound: PostgreSQL checks table privileges before row security. That also bounds what the test proves — the grant, not the policy.
 
 - [ ] **Step 4: Implement the enums and entities**
 
