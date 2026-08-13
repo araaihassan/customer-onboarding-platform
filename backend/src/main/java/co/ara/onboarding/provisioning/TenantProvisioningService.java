@@ -13,7 +13,7 @@ import co.ara.onboarding.authz.UserRoleRepository;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.identity.UserStatus;
-import co.ara.onboarding.identity.UserType;
+import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.Tenant;
 import co.ara.onboarding.tenancy.TenantConnectionCustomizer;

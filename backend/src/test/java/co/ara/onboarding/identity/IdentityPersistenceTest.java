@@ -1,5 +1,6 @@
 package co.ara.onboarding.identity;
 
+import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;

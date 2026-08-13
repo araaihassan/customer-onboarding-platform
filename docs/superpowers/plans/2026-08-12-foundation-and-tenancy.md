@@ -17,7 +17,7 @@
 Every task's requirements implicitly include this section.
 
 - **Java 21**, **Spring Boot 3.4.x**, **PostgreSQL 16**. No Redis. No Kubernetes.
-- **Base package:** `co.ara.onboarding`. Domain modules are subpackages: `co.ara.onboarding.tenancy`, `.identity`, `.authz`, `.audit`, `.customer`, `.platform`, plus `.provisioning` and `.auth` as orchestration slices above them.
+- **Base package:** `co.ara.onboarding`. Domain modules are subpackages: `co.ara.onboarding.tenancy`, `.identity`, `.authz`, `.audit`, `.customer`, `.platform`, plus `.provisioning`, `.scoping` and `.auth` as orchestration slices above them.
 - **No dependency cycles between modules** (`ModuleBoundaryTest`). Two consequences bite repeatedly: `platform` is the foundation everything depends on, so it must never name a domain type — a domain exception's `@RestControllerAdvice` belongs in that domain's own module, not in `platform.ApiExceptionHandler`. And any class that orchestrates two or more domain modules cannot live inside one of them; it needs a slice of its own, which is why `provisioning` exists.
 - **Two PostgreSQL roles.** Migrations run as the schema owner. The application connects as `onboarding_app`, a **non-superuser, non-BYPASSRLS** role. This is mandatory: RLS does not constrain superusers or (without `FORCE`) table owners, so connecting as the owner would make every isolation test pass vacuously.
 - **Every tenant-owned table** has a non-null `tenant_id`, an RLS policy, and `ALTER TABLE ... FORCE ROW LEVEL SECURITY`, all created in the same migration as the table.
@@ -76,7 +76,8 @@ Every task's requirements implicitly include this section.
 | `authz/RoleTemplates.java` | The 12 seeded role templates |
 | `authz/AuthContext.java`, `AuthContextProvider.java` | Current user's tenant/department/teams |
 | `authz/EffectivePermissions.java`, `AuthorizationService.java` | Per-request permission resolution |
-| `authz/ResourceAuthorizationDescriptor.java`, `DescriptorRegistry.java` | Per-resource scope predicates |
+| `authz/ResourceAuthorizationDescriptor.java`, `DescriptorRegistry.java` | Per-resource scope predicate contract + startup validation |
+| `scoping/*Descriptor.java` | The descriptor implementations (own module — see Task 12) |
 | `authz/AuthorizationPredicateBuilder.java` | Scope → JPA `Specification` |
 | `authz/RequirePermission.java`, `PermissionGateAspect.java` | Service-method gate |
 | `authz/AuthorizedRepository.java` | Repository base that requires a permission key |
@@ -3649,11 +3650,24 @@ Declares, per resource type, how `DEPARTMENT`, `TEAM`, and `ASSIGNED` resolve �
 - Create: `backend/src/main/java/co/ara/onboarding/authz/AuthContext.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/ResourceAuthorizationDescriptor.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/DescriptorRegistry.java`
-- Create: `backend/src/main/java/co/ara/onboarding/identity/AppUserDescriptor.java`
-- Create: `backend/src/main/java/co/ara/onboarding/audit/AuditEventDescriptor.java`
-- Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerDescriptor.java`
-- Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerContactDescriptor.java`
+- Create: `backend/src/main/java/co/ara/onboarding/scoping/AppUserDescriptor.java`
+- Create: `backend/src/main/java/co/ara/onboarding/scoping/AuditEventDescriptor.java`
+- Create: `backend/src/main/java/co/ara/onboarding/scoping/CustomerDescriptor.java`
+- Create: `backend/src/main/java/co/ara/onboarding/scoping/CustomerContactDescriptor.java`
+- Move: `identity/UserType.java` → `platform/UserType.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/DescriptorRegistryTest.java`
+
+**The descriptors go in a new `scoping` module, not in the module owning each entity.** Placing them per-entity closes cycles, because the dependency arrows already run the other way:
+
+| Descriptor in owning module | Edge added | Existing opposite edge | Result |
+|---|---|---|---|
+| `audit/AuditEventDescriptor` | `audit → authz` | `authz → audit` (`RoleService` uses `AuditRecorder`) | cycle |
+| `identity/AppUserDescriptor` | `identity → authz` | `authz → identity` (via `AuthContext`) | cycle |
+| `customer/CustomerDescriptor` | `customer → authz` | none — and `authz` must never depend on `customer`, since Task 20's gated `CustomerService` needs this direction | safe, but inconsistent |
+
+`scoping` depends on authz, customer, identity and audit, and nothing depends on it — Spring collects the implementations by the `ResourceAuthorizationDescriptor` interface, so no class ever imports one.
+
+**`UserType` moves from `identity` to `platform`.** `AuthContext` carries it, so leaving it in identity forces `authz → identity`, which cycles against `identity → authz` the moment identity gains a permission-gated service (Task 21's `UserAdminService`). It is a cross-cutting classification used by identity for storage and authz for policy, and platform is the only module both may depend on — the same reasoning that puts `RequestAuditContext.ActorType` there. Six files reference it; the database column is unaffected.
 
 **Interfaces:**
 - Consumes: `PermissionCatalog`, `Customer`, `CustomerContact`, `AppUser`, `AuditEvent`.
@@ -3869,7 +3883,11 @@ public class CustomerDescriptor implements ResourceAuthorizationDescriptor<Custo
 }
 ```
 
-A user with no department returns `cb.disjunction()` — matches nothing. Fail closed, never open.
+A user with no department returns `cb.disjunction()` — an empty OR, i.e. FALSE — so it matches nothing. Fail closed, never open.
+
+**Test that, because nothing else does.** The plan's three tests never execute a Specification, so a `departmentScope` returning `cb.conjunction()` (match *everything*) would pass all of them. Add a test that runs both halves against real rows — an actor in the department sees only that department's records, and an actor with no department sees none. The positive half is not optional: a predicate that unconditionally matches nothing would satisfy the fail-closed assertion by itself.
+
+Note that `customer.owning_department_id` is a foreign key to `department(id)`, so the test needs a real department row — add a `createDepartment` helper to `TenantFixture` that flushes, rather than passing a synthetic UUID.
 
 `customer/CustomerContactDescriptor.java` scopes through the parent customer with a subquery:
 
@@ -3932,9 +3950,13 @@ public class CustomerContactDescriptor implements ResourceAuthorizationDescripto
 }
 ```
 
-`identity/AppUserDescriptor.java` — `resourceType()` returns `"app_user"`, `assignedRelationships()` returns `Set.of(RelationshipType.OWNER)` meaning the user themselves, `departmentScope` compares `departmentId`, `teamScope` uses an `@ElementCollection` join on `teamIds`, `assignedScope` compares `id` to `ctx.userId()`.
+`scoping/AppUserDescriptor.java` — `resourceType()` returns `"app_user"`, `assignedRelationships()` returns `Set.of(RelationshipType.OWNER)` meaning the user themselves, `departmentScope` compares `departmentId`, `teamScope` joins the `@ElementCollection` on `teamIds`, `assignedScope` compares `id` to `ctx.userId()`.
 
-`audit/AuditEventDescriptor.java` — `resourceType()` returns `"audit_event"`. Audit events have no owner, so `assignedRelationships()` returns `Set.of()` and `assignedScope` returns `cb.disjunction()`. `departmentScope` and `teamScope` resolve through `actorUserId` joined to `app_user`. `AUDIT_VIEW` is only granted at `ALL`, `DEPARTMENT`, or `TEAM`, so the empty `ASSIGNED` implementation is unreachable in practice but must still fail closed.
+`teamScope` must call `query.distinct(true)`: joining a collection multiplies the row for a user who shares several teams with the actor, so a list query returns duplicates without it. Guard the call with a null check — `Specification` is also invoked with a null `CriteriaQuery` in some count paths.
+
+`scoping/AuditEventDescriptor.java` — `resourceType()` returns `"audit_event"`. Audit events have no owner, so `assignedRelationships()` returns `Set.of()` and `assignedScope` returns `cb.disjunction()`. `departmentScope` and `teamScope` resolve through `actorUserId` via a subquery over `AppUser`. `AUDIT_VIEW` is only granted at `ALL`, `DEPARTMENT`, or `TEAM`, so the empty `ASSIGNED` implementation is unreachable in practice but must still fail closed — a future catalog edit widening `AUDIT_VIEW` to `ASSIGNED` would otherwise turn "unreachable" into "unrestricted".
+
+An event with a null `actorUserId` (`actorType` SYSTEM) matches no actor-scoped predicate. That is the intended reading: system activity is visible at `ALL` scope only.
 
 - [ ] **Step 7: Run it to verify it passes**
 
@@ -3944,6 +3966,8 @@ Expected: PASS — all three tests.
 - [ ] **Step 8: Prove the startup check catches a missing descriptor**
 
 Temporarily comment out the `@Component` on `CustomerDescriptor`, run any `@SpringBootTest`, and confirm the context fails with "no ResourceAuthorizationDescriptor". Restore it. This is the guard that protects sub-projects 2–9; verify it works now.
+
+This is a different guarantee from `missingDescriptorIsAStartupFailure`, which only proves `validate()`'s logic against a hand-built registry. This proves the `@PostConstruct` is actually wired into the real context — that the check runs at all. Expect the failure to name every affected permission at once (`customer.view`, `customer.edit`, `customer.deactivate`), since `validate()` collects all problems before throwing.
 
 - [ ] **Step 9: Commit**
 

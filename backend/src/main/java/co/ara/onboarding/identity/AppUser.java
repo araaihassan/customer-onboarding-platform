@@ -1,5 +1,6 @@
 package co.ara.onboarding.identity;
 
+import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.tenancy.TenantScopedEntity;
 import jakarta.persistence.*;
 import java.time.Instant;
