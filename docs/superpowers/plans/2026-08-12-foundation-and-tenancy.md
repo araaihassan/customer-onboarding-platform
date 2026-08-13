@@ -2870,7 +2870,11 @@ GRANT DELETE ON role, role_grant, user_role TO onboarding_app;
 
 `RoleGrant` extends `TenantScopedEntity` with `@ManyToOne @JoinColumn(name="role_id") Role role`, `@Column(name="permission_key") String permissionKey`, and `@Enumerated(EnumType.STRING) Scope scope`.
 
-`UserRole` maps the `user_role` join table with an `@IdClass` or `@EmbeddedId` of `(userId, roleId)` plus `tenantId`.
+`UserRole` maps the `user_role` join table with an `@IdClass` of `(userId, roleId)` plus a `tenantId` column.
+
+**`UserRole` must NOT extend `TenantScopedEntity`.** That superclass chain supplies `id`, `created_at` and `updated_at`, and `user_role` has none of those columns. The consequence is deliberate and worth stating in the class: `UserRole` carries no Hibernate `tenantFilter`, so its tenant isolation rests on RLS alone rather than the usual two layers. Require `tenantId` in the constructor so no caller can forget it; RLS's `WITH CHECK` rejects the insert if it disagrees with the bound tenant.
+
+Keep `tenantId` out of the composite key — `user_id` is already tenant-unique, so including it would let the same assignment be written twice under different tenants.
 
 - [ ] **Step 6: Implement `InvalidGrantException` and `RoleService`**
 
@@ -2988,28 +2992,56 @@ public class RoleService {
 
 Validation runs over the whole map before any grant is added, so a partially-valid update never leaves a partially-applied role.
 
-- [ ] **Step 7: Map `InvalidGrantException` to 400**
+**`updateGrants` needs a flush between `clear()` and `applyGrants()`:**
 
-Add to `ApiExceptionHandler`:
+```java
+    role.getGrants().clear();
+    roles.saveAndFlush(role);   // execute the orphan deletes BEFORE inserting replacements
+    applyGrants(role, grants);
+```
+
+`role_grant` carries `UNIQUE (role_id, permission_key)`, and Hibernate's action queue executes entity inserts *before* entity deletes within one flush. Re-granting a permission the role already holds at a different scope — the ordinary way a role is edited — therefore inserts the replacement while the old row still exists and fails with `duplicate key value violates unique constraint "role_grant_role_id_permission_key_key"`. Confirmed by writing the test first and watching it fail exactly that way.
+
+The plan's four tests do not cover `updateGrants` at all, which is how this survived to here. Add `updateGrantsCanRescopeAnExistingPermission`: create a role granting `customer.view` at `TEAM`, call `updateGrants` with `customer.view` at `ALL`, reload and assert one grant at `ALL`.
+
+- [ ] **Step 7: Map `InvalidGrantException` to 400 and `IllegalStateException` to 409**
+
+**These two handlers go in different modules.** Putting the `InvalidGrantException` handler in `platform.ApiExceptionHandler` closes a `platform → authz → tenancy → platform` cycle (`Role` extends `TenantScopedEntity` extends `BaseEntity`), which is the same defect Task 4 Step 5 had. `ModuleBoundaryTest.noCyclesBetweenModules` catches it.
+
+Create `authz/AuthzExceptionHandler.java`:
 
 ```java
     @ExceptionHandler(InvalidGrantException.class)
     ProblemDetail invalidGrant(InvalidGrantException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
     }
+```
 
+400, not 403: a grant naming an unknown permission or a disallowed scope is a malformed request, and the caller may be perfectly authorized to manage roles. Conflating the two tells a legitimate admin they lack permission.
+
+Add only the `IllegalStateException` handler to `platform/ApiExceptionHandler.java` — `java.lang` types name no domain, so this introduces no dependency:
+
+```java
     @ExceptionHandler(IllegalStateException.class)
     ProblemDetail conflict(IllegalStateException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
 ```
 
-- [ ] **Step 8: Run it to verify it passes**
+Echoing the message is safe only because these are operator-facing state conflicts ("disable it instead"). Any domain exception whose message could leak record existence needs its own handler in its own module, returning a bare detail.
+
+- [ ] **Step 8: Re-enable `AuthorizationCoverageTest`**
+
+`RoleService` is the first `*Service` class in the codebase, so this is where the Task 7 guard starts binding. Remove its `@ArchIgnore` and confirm every public `RoleService` method carries `@RequirePermission`. Prove it polices real code, not just the throwaway probe from Task 7: drop the annotation from one method, confirm the failure names that method and line, restore it.
+
+- [ ] **Step 9: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.RoleServiceTest"`
-Expected: PASS — all four tests. The `@RequirePermission` annotation has no behaviour yet (Task 13), so it does not block these tests.
+Expected: PASS — five tests. The `@RequirePermission` annotation has no behaviour yet (Task 13), so it does not block these tests.
 
-- [ ] **Step 9: Commit**
+Then run the whole suite. `RlsCoverageTest` must accept `role`, `role_grant` and `user_role` — all three get `enable_tenant_rls` and carry `tenant_id`, so it should stay green without touching the allowlist. Total skipped should now be 0.
+
+- [ ] **Step 10: Commit**
 
 ```bash
 git add backend/

@@ -28,4 +28,19 @@ public class ApiExceptionHandler {
     ProblemDetail denied(AccessDeniedException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, "Forbidden");
     }
+
+    /**
+     * 409 for a state conflict — a role that still has users assigned, for
+     * instance. IllegalStateException is a java.lang type, so mapping it here
+     * names no domain module and introduces no dependency.
+     *
+     * The message is echoed deliberately: these are operator-facing conflicts
+     * ("disable it instead") rather than anything derived from tenant data. Any
+     * domain exception whose message could leak record existence must get its own
+     * handler in its own module instead, returning a bare detail.
+     */
+    @ExceptionHandler(IllegalStateException.class)
+    ProblemDetail conflict(IllegalStateException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    }
 }
