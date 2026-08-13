@@ -6638,6 +6638,13 @@ The completion gate for this sub-project (spec §11.3, §12). If these are not g
 
 Every test in this task goes through **MockMvc against real HTTP endpoints**, not through services directly. Testing at the service layer would miss exactly the bypasses these tests exist to catch.
 
+**Two production gaps surface here rather than in the tasks that should have closed them**, which is the point of writing the attacks last:
+
+- `RoleService.assignRole` did not check `userType`, so a PORTAL contact could be given an internal role. The check goes through the `ActorDirectory` port, since authz must not depend on identity.
+- There was no way to *unassign* a role, so a role could never become deletable. Added `RoleService.unassignRole` and `DELETE /admin/users/{id}/roles/{roleId}`.
+
+**Slugs must be unique across the whole suite.** Every test shares one container, so `createTenant("role-delete")` in two classes collides on `tenant_slug_key` — and only when the classes run together, which is why it survives a per-class run. Prefix the security tests' slugs.
+
 - [ ] **Step 1: Test 1 — cross-tenant access**
 
 ```java
@@ -6744,6 +6751,12 @@ Add `createAdminUser(UUID tenantId, String email)` to `TenantFixture`, returning
 - `POST /api/platform/tenants` without platform-admin credentials returns **401**.
 - Every mutating endpoint refuses an unauthenticated request with **401**, iterating the endpoint list explicitly rather than sampling.
 
+**That sweep needs a second pass, or it proves nothing.** With `.anyRequest().authenticated()`, a request to a path that does not exist *also* answers 401 — so a typo in the list passes silently. Repeat the sweep with an administrator's token and assert the response is **not 404**.
+
+Note the asymmetry, because getting it wrong is easy: anonymous requests answer 401 for real and imaginary paths alike, so only the *authenticated* pass can tell them apart, and there the signal is 404. A first attempt asserting "not 401" on the authenticated pass was verified useless by adding a deliberately misspelled path — the test still passed. Add that misspelled path, watch it fail, then remove it.
+
+Empty request bodies mean a handler that does run may answer 400 or throw, with MockMvc rethrowing rather than converting. Both mean the request reached a controller, so treat them as success.
+
 - [ ] **Step 9: Secure the platform endpoints**
 
 Replace the `permitAll` on `/api/platform/**` from Task 15 with authentication against `platform_admin` — HTTP Basic is sufficient for sub-project 1, since these endpoints are operated by hand:
@@ -6753,6 +6766,12 @@ Replace the `permitAll` on `/api/platform/**` from Task 15 with authentication a
 ```
 
 Back it with a `UserDetailsService` reading `platform_admin`, and add `.httpBasic(Customizer.withDefaults())`.
+
+**Put it in a separate `SecurityFilterChain` at `@Order(1)`, matched to `/api/platform/**`.** Adding `httpBasic()` to the main chain makes `BasicAuthenticationEntryPoint` the default for the whole application, which puts a `WWW-Authenticate` header on every API 401 and makes browsers show a native credential prompt over the SPA. A separate chain keeps the main one's `HttpStatusEntryPoint(401)` intact.
+
+The `UserDetailsService` implementation lives in `identity`, since it reads `platform_admin` and `platform` must not depend on a domain module; inject it into `SecurityConfig` by interface. It also needs excluding from **both** `AuthorizationCoverageTest` rules — it is Spring Security SPI rather than a domain service, invoked by the filter chain during authentication and never reachable from a controller, and `platform_admin` is not tenant-scoped so there is no scope for `AuthorizedQuery` to apply even in principle. Exclude with `areNotAssignableTo(UserDetailsService.class)` rather than by name, so any future SPI adapter is covered.
+
+Assert both directions here too: unauthenticated → 401, a *tenant* access token → 401 (it is not platform authority), and valid Basic credentials → 200. Without the last, "requires credentials" could be satisfied by a chain that rejects everything.
 
 - [ ] **Step 10: Run the full security suite**
 

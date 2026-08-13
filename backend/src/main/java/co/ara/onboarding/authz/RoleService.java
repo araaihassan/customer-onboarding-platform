@@ -2,12 +2,14 @@ package co.ara.onboarding.authz;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
+import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 /**
@@ -21,11 +23,14 @@ public class RoleService {
 
     private final RoleRepository roles;
     private final UserRoleRepository userRoles;
+    private final ActorDirectory actors;
     private final AuditRecorder audit;
 
-    public RoleService(RoleRepository roles, UserRoleRepository userRoles, AuditRecorder audit) {
+    public RoleService(RoleRepository roles, UserRoleRepository userRoles,
+                       ActorDirectory actors, AuditRecorder audit) {
         this.roles = roles;
         this.userRoles = userRoles;
+        this.actors = actors;
         this.audit = audit;
     }
 
@@ -92,12 +97,38 @@ public class RoleService {
         roles.deleteById(roleId);
     }
 
+    /**
+     * Refuses PORTAL users outright. Internal roles carry internal permissions, and a
+     * customer contact holding one would see staff surfaces — the userType boundary
+     * is the whole separation between the application and the portal (spec 5.2), and
+     * nothing else enforces it at assignment time.
+     *
+     * The check goes through ActorDirectory rather than AppUserRepository because
+     * authz must not depend on identity; identity depends on authz.
+     */
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
     public void assignRole(UUID userId, UUID roleId) {
+        var actor = actors.findActor(userId)
+                .orElseThrow(() -> new NoSuchElementException("No such user"));
+        if (actor.userType() == UserType.PORTAL) {
+            throw new InvalidGrantException(
+                    "Portal users cannot hold internal roles");
+        }
         userRoles.save(new UserRole(TenantContext.getRequired(), userId, roleId));
         audit.record(AuditActions.USER_ROLE_ASSIGNED, "app_user", userId,
                 "Assigned role", Map.of("roleId", roleId.toString()));
+    }
+
+    /**
+     * Removing an assignment is what makes a role deletable — deleteRole refuses
+     * while anyone still holds it. Idempotent: unassigning a role nobody holds is
+     * not an error.
+     */
+    @RequirePermission(PermissionKeys.USER_MANAGE)
+    @Transactional
+    public void unassignRole(UUID userId, UUID roleId) {
+        userRoles.findById(new UserRoleId(userId, roleId)).ifPresent(userRoles::delete);
     }
 
     /**

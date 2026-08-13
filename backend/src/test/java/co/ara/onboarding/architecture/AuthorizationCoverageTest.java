@@ -14,6 +14,7 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
+import org.springframework.security.core.userdetails.UserDetailsService;
 
 import static com.tngtech.archunit.base.DescribedPredicate.not;
 import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
@@ -110,6 +111,9 @@ class AuthorizationCoverageTest {
                      .and().areNotDeclaredIn(ActivationService.class)
                      .and().areNotDeclaredIn(PasswordResetService.class)
                      .and().areNotDeclaredIn(MeService.class)
+                     // Spring Security SPI, not a domain service: invoked by the filter
+                     // chain during authentication, never reachable from a controller.
+                     .and().areDeclaredInClassesThat().areNotAssignableTo(UserDetailsService.class)
                      .should().beAnnotatedWith(RequirePermission.class)
                      .because("authorization must be central, not per-endpoint");
 
@@ -138,6 +142,10 @@ class AuthorizationCoverageTest {
             noClasses().that().resideInAnyPackage("co.ara.onboarding.customer..",
                                                   "co.ara.onboarding.identity..")
                 .and().haveSimpleNameEndingWith("Service")
+                // Same exclusion: authentication runs with no actor and platform_admin
+                // is not tenant-scoped, so there is no scope for AuthorizedQuery to
+                // apply -- it could not be used here even in principle.
+                .and().areNotAssignableTo(UserDetailsService.class)
                 .should().callMethodWhere(
                         (target(name("findAll"))
                          .or(target(name("findOne")))

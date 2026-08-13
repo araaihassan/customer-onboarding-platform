@@ -19,6 +19,8 @@ import co.ara.onboarding.customer.CustomerStatus;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.identity.Department;
+import co.ara.onboarding.identity.PlatformAdmin;
+import co.ara.onboarding.identity.PlatformAdminRepository;
 import co.ara.onboarding.identity.DepartmentRepository;
 import co.ara.onboarding.identity.Team;
 import co.ara.onboarding.identity.TeamRepository;
@@ -49,6 +51,7 @@ public class TenantFixture {
     private final TenantRepository tenants;
     private final AppUserRepository users;
     private final DepartmentRepository departments;
+    private final PlatformAdminRepository platformAdmins;
     private final TeamRepository teams;
     private final CustomerRepository customers;
     private final CustomerContactRepository contacts;
@@ -60,12 +63,15 @@ public class TenantFixture {
     private final TenantConnectionCustomizer binder;
     private final TransactionTemplate tx;
 
+    private static final String SUPERUSER_ROLE_NAME = "Fixture Superuser";
+
     /** One fixture administrator per tenant, created on first privileged use. */
     private final Map<UUID, UUID> administrators = new ConcurrentHashMap<>();
 
     public TenantFixture(TenantRepository tenants,
                          AppUserRepository users,
                          DepartmentRepository departments,
+                         PlatformAdminRepository platformAdmins,
                          TeamRepository teams,
                          CustomerRepository customers,
                          CustomerContactRepository contacts,
@@ -79,6 +85,7 @@ public class TenantFixture {
         this.tenants = tenants;
         this.users = users;
         this.departments = departments;
+        this.platformAdmins = platformAdmins;
         this.teams = teams;
         this.customers = customers;
         this.contacts = contacts;
@@ -307,13 +314,77 @@ public class TenantFixture {
             var userId = new AtomicReference<UUID>();
             runUnauthenticated(t, () -> {
                 userId.set(createUser(t, "fixture-admin+" + t + "@fixture.test"));
-                UUID roleId = roleRepository.findByTenantIdAndName(t, "Administrator")
-                        .map(Role::getId)
-                        .orElseGet(() -> createSuperuserRole(t));
-                userRoleRepository.saveAndFlush(new UserRole(t, userId.get(), roleId));
+                userRoleRepository.saveAndFlush(
+                        new UserRole(t, userId.get(), fullAuthorityRoleFor(t)));
             });
             return userId.get();
         });
+    }
+
+    /**
+     * A named administrator holding full authority, returned as an entity so tests
+     * can issue a real access token for it. Distinct from the fixture's own
+     * administrator, which is anonymous plumbing.
+     */
+    public AppUser createAdminUser(UUID tenantId, String email) {
+        var created = new AtomicReference<AppUser>();
+        runUnauthenticated(tenantId, () -> {
+            AppUser u = new AppUser();
+            u.setId(Uuid7.generate());
+            u.setTenantId(tenantId);
+            u.setEmail(email);
+            u.setFullName(email);
+            u.setPasswordHash(passwords.encode("fixture-admin-password"));
+            u.setUserType(UserType.INTERNAL);
+            u.setStatus(UserStatus.ACTIVE);
+            AppUser saved = users.saveAndFlush(u);
+            userRoleRepository.saveAndFlush(
+                    new UserRole(tenantId, saved.getId(), fullAuthorityRoleFor(tenantId)));
+            created.set(saved);
+        });
+        return created.get();
+    }
+
+    /** A PORTAL user, for proving the portal cannot reach internal surfaces. */
+    public AppUser createPortalUser(UUID tenantId, String email) {
+        var created = new AtomicReference<AppUser>();
+        runUnauthenticated(tenantId, () -> {
+            AppUser u = new AppUser();
+            u.setId(Uuid7.generate());
+            u.setTenantId(tenantId);
+            u.setEmail(email);
+            u.setFullName(email);
+            u.setPasswordHash(passwords.encode("portal-password"));
+            u.setUserType(UserType.PORTAL);
+            u.setStatus(UserStatus.ACTIVE);
+            created.set(users.saveAndFlush(u));
+        });
+        return created.get();
+    }
+
+    /** A vendor-side platform administrator; platform_admin is not tenant-scoped. */
+    public void createPlatformAdmin(String email, String rawPassword) {
+        PlatformAdmin admin = new PlatformAdmin();
+        admin.setId(Uuid7.generate());
+        admin.setEmail(email);
+        admin.setPasswordHash(passwords.encode(rawPassword));
+        admin.setFullName(email);
+        admin.setEnabled(true);
+        platformAdmins.saveAndFlush(admin);
+    }
+
+    /**
+     * Find-or-create, and it must look for BOTH names. role carries
+     * UNIQUE (tenant_id, name), so checking only for "Administrator" means a second
+     * call in a tenant that was never provisioned tries to create a second
+     * "Fixture Superuser" and violates the constraint — which happens as soon as a
+     * test uses runAs and createAdminUser in the same tenant.
+     */
+    private UUID fullAuthorityRoleFor(UUID tenantId) {
+        return roleRepository.findByTenantIdAndName(tenantId, "Administrator")
+                .or(() -> roleRepository.findByTenantIdAndName(tenantId, SUPERUSER_ROLE_NAME))
+                .map(Role::getId)
+                .orElseGet(() -> createSuperuserRole(tenantId));
     }
 
     /**
@@ -326,7 +397,7 @@ public class TenantFixture {
         Role role = new Role();
         role.setId(Uuid7.generate());
         role.setTenantId(tenantId);
-        role.setName("Fixture Superuser");
+        role.setName(SUPERUSER_ROLE_NAME);
         role.setDescription("Test fixture only");
         role.setSystemTemplate(false);
         role.setEnabled(true);

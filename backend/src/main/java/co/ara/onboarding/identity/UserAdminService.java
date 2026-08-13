@@ -128,6 +128,12 @@ public class UserAdminService {
         roles.assignRole(userId, roleId);
     }
 
+    @RequirePermission(PermissionKeys.USER_MANAGE)
+    @Transactional
+    public void unassignRole(UUID userId, UUID roleId) {
+        roles.unassignRole(userId, roleId);
+    }
+
     private UserView toView(AppUser u) {
         return new UserView(u.getId(), u.getEmail(), u.getFullName(), u.getUserType(),
                 u.getStatus(), u.getDepartmentId(), Set.copyOf(u.getTeamIds()));

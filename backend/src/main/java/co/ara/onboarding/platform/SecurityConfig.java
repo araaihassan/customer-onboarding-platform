@@ -4,6 +4,9 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.security.config.Customizer;
+import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -16,12 +19,39 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public class SecurityConfig {
 
     /**
+     * A SEPARATE chain for /api/platform/**, ordered ahead of the main one.
+     *
+     * These endpoints are vendor-side and operated by hand, so HTTP Basic against
+     * platform_admin is sufficient. Keeping them in their own chain is what stops
+     * httpBasic() installing a BasicAuthenticationEntryPoint as the default for the
+     * whole application — which would put a WWW-Authenticate header on every API
+     * 401 and make browsers show a native credential prompt over the SPA.
+     *
+     * The UserDetailsService is injected by interface, so platform does not import
+     * identity, where the implementation lives.
+     */
+    @Bean
+    @Order(1)
+    SecurityFilterChain platformFilterChain(HttpSecurity http,
+                                            UserDetailsService platformAdmins) throws Exception {
+        return http
+            .securityMatcher("/api/platform/**")
+            .csrf(csrf -> csrf.disable())
+            .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .userDetailsService(platformAdmins)
+            .httpBasic(Customizer.withDefaults())
+            .authorizeHttpRequests(a -> a.anyRequest().hasRole("PLATFORM_ADMIN"))
+            .build();
+    }
+
+    /**
      * jwtFilter is injected by qualifier as OncePerRequestFilter rather than by its
      * concrete type so platform does not import auth — auth depends on platform
      * (RequestAuditContext), so naming the concrete type here would close a cycle
      * that ModuleBoundaryTest rejects.
      */
     @Bean
+    @Order(2)
     SecurityFilterChain filterChain(HttpSecurity http,
                                     @Qualifier("jwtAuthenticationFilter") OncePerRequestFilter jwtFilter)
             throws Exception {
@@ -44,7 +74,6 @@ public class SecurityConfig {
                                  "/api/t/*/auth/refresh",
                                  "/api/t/*/auth/activate",
                                  "/api/t/*/auth/password-reset/**").permitAll()
-                .requestMatchers("/api/platform/**").permitAll()   // secured in Task 22
                 // The frontend generates its types from this document, and Task 19's
                 // OpenApiDocumentTest reads it. It describes endpoint shapes, not data.
                 // TODO(task-22): decide whether to expose it outside dev — springdoc

@@ -3,6 +3,7 @@ package co.ara.onboarding.identity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -51,7 +52,18 @@ public class UserAdminController {
         users.assignRole(id, body.get("roleId"));
     }
 
-    /** No DELETE mapping anywhere: users are deactivated, never removed (spec 9.4). */
+    /**
+     * DELETE on an assignment, not on a user. Removing a role from someone is the
+     * only deletion this controller offers — it is authorization bookkeeping, and it
+     * is what makes a role deletable at all.
+     */
+    @DeleteMapping("/{id}/roles/{roleId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void unassignRole(@PathVariable UUID id, @PathVariable UUID roleId) {
+        users.unassignRole(id, roleId);
+    }
+
+    /** No DELETE mapping for a user: users are deactivated, never removed (spec 9.4). */
     @PostMapping("/{id}/deactivate")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deactivate(@PathVariable UUID id) { users.deactivate(id); }
