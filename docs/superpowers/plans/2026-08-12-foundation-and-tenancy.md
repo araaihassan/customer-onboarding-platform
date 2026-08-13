@@ -2192,7 +2192,7 @@ These two tests are the reason the isolation and authorization design survives s
 
 **Interfaces:**
 - Consumes: everything built so far.
-- Produces: three always-on structural tests. `AuthorizationCoverageTest` is written now but asserts against `@RequirePermission`; it is ignored until **Task 8**, which introduces the first `*Service` classes.
+- Produces: three always-on structural tests. `AuthorizationCoverageTest` is written now but asserts against `@RequirePermission`; it is ignored until **Task 9**, whose `RoleService` is the first `*Service` class in the codebase.
 
 **ArchUnit fails a rule whose `should()` matched nothing** — "failed to check any classes" — rather than passing it vacuously. Every rule in this task that has no matching classes yet therefore needs a deliberate decision, and there are only two correct answers:
 
@@ -2339,7 +2339,7 @@ class ModuleBoundaryTest {
 }
 ```
 
-Both `servicesDoNotDependOnControllers` and `controllersDoNotUseRepositoriesDirectly` need `.allowEmptyShould(true)` at this point in the plan: no `*Service` class exists until Task 8, and excluding `TenantDebugController` leaves the second rule with no controllers to check. Without it both go red for having nothing to check.
+Both `servicesDoNotDependOnControllers` and `controllersDoNotUseRepositoriesDirectly` need `.allowEmptyShould(true)` at this point in the plan: no `*Service` class exists until Task 9, and excluding `TenantDebugController` leaves the second rule with no controllers to check. Without it both go red for having nothing to check.
 
 `noCyclesBetweenModules` **will fail on the first run** against a faithful Task 4 implementation: `platform.ApiExceptionHandler` imports `tenancy.UnknownTenantException` while `tenancy.Tenant` extends `platform.BaseEntity`, closing a `platform → tenancy → platform` cycle. That is a real defect, not a rule to soften — fix it by moving the handler into `tenancy` (Task 4 Step 5, now amended). Confirm `TenantResolutionTest`'s `unknownTenantSlugReturns404` and `suspendedTenantReturns404` still pass afterwards; they are what prove the relocated `@RestControllerAdvice` is still registered.
 
@@ -2383,9 +2383,9 @@ class AuthorizationCoverageTest {
 }
 ```
 
-Annotate the class `@ArchIgnore(reason = "No *Service classes exist until Task 8; ArchUnit fails an empty should(). Re-enable at Task 8.")`.
+Annotate the class `@ArchIgnore(reason = "No *Service classes exist until Task 9's RoleService; ArchUnit fails an empty should(). Re-enable at Task 9.")`.
 
-**Re-enable at Task 8, not Task 13.** Task 8 introduces the first `*Service` classes and `RequirePermission` exists as of this task, so each service can declare its key as it is written; Task 13's `PermissionGateAspect` then makes those declarations enforceable. Waiting for Task 13 would leave the services from Tasks 8–12 unpoliced and force a retrofit across all of them at once.
+**Re-enable at Task 9, not Task 13.** Task 9's `RoleService` is the first `*Service` class in the codebase — Task 8 adds the permission catalog but no service — and `RequirePermission` exists as of this task, so each service can declare its key as it is written; Task 13's `PermissionGateAspect` then makes those declarations enforceable. Waiting for Task 13 would leave the services from Tasks 9–12 unpoliced and force a retrofit across all of them at once.
 
 Before ignoring it, prove the rule binds: add a throwaway `*Service` class with one public method, confirm RED naming that method, add `@RequirePermission` to it, confirm GREEN, then delete the class. Do not annotate it `@Service` — ArchUnit reads bytecode, and a real bean would change the Spring context.
 

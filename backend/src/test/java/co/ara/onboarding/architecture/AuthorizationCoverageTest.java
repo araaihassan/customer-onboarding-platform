@@ -32,14 +32,15 @@ import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
  * was observed, not assumed: with @Disabled in place this class still failed
  * with "failed to check any classes".
  *
- * RE-ENABLE AT TASK 8, not Task 13. Task 8 introduces the first *Service
- * classes, and RequirePermission already exists as of this task, so each
- * service can declare its key as it is written. Task 13 adds
- * PermissionGateAspect, which makes those declarations enforceable — deferring
- * the rule until then would leave the services from Tasks 8–12 unpoliced and
- * force a retrofit across all of them at once.
+ * RE-ENABLE AT TASK 9, not Task 13. Task 9's RoleService is the first *Service
+ * class in the codebase (Task 8 adds the permission catalog but no service), and
+ * RequirePermission already exists as of Task 7, so each service can declare its
+ * key as it is written. Task 13 adds PermissionGateAspect, which makes those
+ * declarations enforceable — deferring the rule until then would leave the
+ * services from Tasks 9–12 unpoliced and force a retrofit across all of them at
+ * once.
  */
-@ArchIgnore(reason = "No *Service classes exist until Task 8; ArchUnit fails an empty should(). Re-enable at Task 8.")
+@ArchIgnore(reason = "No *Service classes exist until Task 9's RoleService; ArchUnit fails an empty should(). Re-enable at Task 9.")
 @AnalyzeClasses(
         packages = "co.ara.onboarding",
         importOptions = ImportOption.DoNotIncludeTests.class)
