@@ -46,6 +46,25 @@ Every task's requirements implicitly include this section.
 - **UUIDv7 primary keys** via `UUID` columns, generated in application code by `co.ara.onboarding.platform.Uuid7.generate()` (implemented in Task 2). Time-ordered keys keep B-tree inserts local, which matters most for `audit_event`, the highest-volume append-only table.
   **Every `UUID.randomUUID()` appearing in this plan's code samples means `Uuid7.generate()`** — the samples were written before the utility was named. The sole exceptions are values that must be unpredictable rather than merely unique; those use `SecureRandom` directly and never a UUID (refresh tokens, invitation tokens).
 - **All timestamps** are `timestamptz`, stored in UTC.
+- **The frontend implements an existing design system, it does not invent one.** `docs/uispecs/` is the authority for every visual and interaction decision in Tasks 23–28:
+
+  | Read | For |
+  |---|---|
+  | `docs/uispecs/design/README.md` | Build order, and what to preserve |
+  | `docs/uispecs/design/02-tokens/tokens.md` + `tokens.css` + `tailwind.css` | The three-layer token system — **import before writing any component** |
+  | `docs/uispecs/design/04-components/component-specs.md` | All 17 component families, with states and ARIA requirements |
+  | `docs/uispecs/design/05-review/ux-design-review.md` | 12 accessibility findings; 4 are still open and are cheaper to build in than retrofit |
+  | `docs/uispecs/design/03-icons/icons.json` + `icons-sprite.svg` | 56 icons. Generate components from the registry; never hand-copy path data |
+  | `docs/uispecs/README.md` | Screen-by-screen layout, and "Product decisions worth preserving" |
+  | `docs/uispecs/Onboarding Platform.html` | The working prototype — open it in a browser before building a screen |
+
+  Sub-project 1 builds only login/activation/reset, the shell, customers and administration, so most of the nine prototype screens are out of scope. The **token layer, icon set, component library and accessibility baseline are all in scope**, because every later sub-project depends on them and retrofitting a token system across nine modules is exactly the refactor this plan avoids elsewhere.
+
+  Four rules from the design that erode quietly and must be held:
+  - **Colour always means status, never decoration.** If you want a colour and cannot name the state it represents, use a neutral.
+  - **IBM Plex Mono for machine-generated values, Archivo for human text.** IDs, dates, counts and metrics are mono; anything a person wrote is not.
+  - **Cards are flat.** Elevation is reserved for things that genuinely float — popovers, open milestones, device frames.
+  - **Colour is never the only signal.** Every status colour is paired with a word or an icon.
 
 ---
 
@@ -6588,10 +6607,14 @@ git commit -m "test: add the eight required negative security tests"
 **Files:**
 - Create: `frontend/package.json`, `tsconfig.json`, `next.config.ts`, `tailwind.config.ts`
 - Create: `frontend/src/app/globals.css`
+- Copy: `frontend/src/app/tokens.css`, `frontend/src/app/tailwind-theme.css` (from `docs/uispecs/design/02-tokens/`)
+- Create: `frontend/src/components/icons/` (generated from `docs/uispecs/design/03-icons/icons.json`)
 - Create: `frontend/src/lib/i18n/messages/en.json`
 - Create: `frontend/src/lib/i18n/index.ts`
 - Create: `frontend/src/components/ThemeProvider.tsx`
 - Test: `frontend/src/lib/i18n/i18n.test.ts`
+
+**Read `docs/uispecs/design/README.md` first.** Its build order — tokens, then icons, then components, and the review before any screen — is the order of this task and the next five, and it is that order because each step is far cheaper before the one after it than retrofitted afterwards.
 
 **Interfaces:**
 - Consumes: the backend OpenAPI document from Task 19.
@@ -6695,9 +6718,45 @@ export function t(key: string, params?: Record<string, string>): string {
 }
 ```
 
-- [ ] **Step 6: Implement theming**
+- [ ] **Step 6: Port the design tokens — before any component**
 
-Use `next-themes` with `attribute="class"` and `defaultTheme="system"`. Define light and dark CSS custom properties in `globals.css` following the shadcn convention. Verify contrast meets WCAG AA for body text and interactive elements.
+**Do not hand-author a light/dark palette.** `docs/uispecs/design/02-tokens/` already contains one, derived under accessibility constraints that are not obvious and not re-derivable by eye. Copy `tokens.css` and `tailwind.css` into `frontend/src/app/` and import them from `globals.css`, in this order:
+
+```css
+@import "./tokens.css";    /* defines the --ob-* variables */
+@import "./tailwind.css";  /* Tailwind v4 @theme mapping that points at them */
+```
+
+Order matters — `tailwind.css` references variables `tokens.css` defines.
+
+Three details the plan previously got wrong or omitted:
+
+- **`attribute="data-theme"`, not `attribute="class"`.** `tokens.css` keys its dark theme on `[data-theme="dark"]`. With `next-themes` set to `class` the dark tokens never apply and the app renders light-on-light in dark mode. Keep `defaultTheme="system"`; `tokens.css` already has a `prefers-color-scheme: dark` block for that case.
+- **Map shadcn's variables onto the semantic layer** rather than keeping its default palette. shadcn expects `--background`, `--foreground`, `--primary` and so on; point each at the corresponding `--ob-*` role (`--background: var(--ob-bg-page)`, `--primary: var(--ob-accent)`, …). Two palettes coexisting is how a design system dies in month two.
+- **Never reference a primitive token from a component.** `--ob-paper-400` is deliberately not exposed as a Tailwind utility so nobody can bypass the semantic layer. Use `border-default`, not `paper-400`.
+
+Contrast is already solved and must not be "improved": `text-faint` and `text-disabled` intentionally resolve to the same value because this palette has no room for a third quiet grey that clears AA, and `paper-600` is a **graphics-only** tier that is not valid for text. The derivation is in `05-review/ux-design-review.md` §1. If you add any text colour, run `design/scripts/contrast.py`.
+
+- [ ] **Step 6b: Generate the icon components**
+
+Generate a typed icon component set from `docs/uispecs/design/03-icons/icons.json`, or inline the sprite. Do not hand-copy path data — every icon is a single path precisely so it can live in a data layer, and hand-copying is how the set drifts. Sub-project 1 needs roughly 20 of the 56; generate all of them, since later sub-projects need the rest and the registry is the source of truth.
+
+Every icon is decorative unless it is the only content of a control: `aria-hidden="true"` when a text label sits beside it, and an `aria-label` on the control when it does not.
+
+- [ ] **Step 6c: Build the four load-bearing components first**
+
+`docs/uispecs/design/04-components/component-specs.md` specifies 17 families. Card, progress bar, status pill and table cover most of the surface area — build those four and the screens largely assemble themselves. Each has ARIA requirements the prototype left unmet; build them in now rather than retrofitting:
+
+| Component | Requirement the prototype misses |
+|---|---|
+| Progress bar | `role="progressbar"` with `aria-valuenow/min/max` and a label, with the visible percentage and `aria-valuenow` derived from **one** value so they cannot disagree |
+| Table | a real `<table>` with `<th scope="col">`; a clickable row is a `<tr>` with a link in its primary cell, never a `<div>` with `onClick` |
+| Status pill | always contains the **word**, never a bare coloured dot |
+| Checkbox | a real `<input type="checkbox">`, or `role="checkbox"` + `aria-checked` — the prototype uses a `<button>` with no checked state |
+
+Also add the two states the design does not cover at all, since every list in Tasks 27–28 needs them: **empty** (24px icon in the graphics-only grey, a `type-13-5`/600 line, a `type-12` `text-muted` explanation, and the action that fills it) and **loading** (skeletons at the real row height so the layout does not jump).
+
+Focus is global and non-negotiable: a 2px `accent` outline at 2px offset on `:focus-visible` for every interactive element. The prototype had none anywhere — a straight WCAG 2.4.7 failure — and it is fixed with a single zero-specificity `:where(...)` rule.
 
 - [ ] **Step 7: Add the type generation script**
 
@@ -6918,11 +6977,17 @@ git commit -m "feat: add API client with in-memory token and silent refresh"
 - Consumes: `useAuth`, `apiFetch`, `t`.
 - Produces: three routed pages. All use `AuthCard` for consistent layout.
 
+The prototype has **no authentication screens** — it opens already signed in — so these three pages are the one part of the frontend with no visual reference. Build them from the token and component layers rather than inventing a second visual language: `AuthCard` is the §3 Card (flat, `bg-surface`, 1px `border-default`, 13px radius), fields are `control-height` at `radius-control`, and the submit is the same primary button as the header's.
+
+`docs/uispecs/design/01-brand/brand-guidelines.md` governs the logo lockup and its minimum sizes on these pages.
+
 - [ ] **Step 1: Build the login page**
 
 Email and password fields, submit, error handling for 401 (`auth.login.error`) and 429 (`auth.login.lockedOut`). On success, redirect to `/t/{slug}/dashboard`.
 
 Every string goes through `t()`. No hardcoded copy.
+
+The error message must be identical for a wrong password, an unknown address, and an inactive account — the backend deliberately returns one 401 for all three, and a differentiated message in the UI reintroduces the account-existence oracle that the single response exists to prevent.
 
 - [ ] **Step 2: Build the activation page**
 
@@ -6958,21 +7023,37 @@ git commit -m "feat: add login, activation and password reset pages"
 - Consumes: `useAuth`, `useHasPermission`, `t`.
 - Produces: the authenticated shell wrapping every application page.
 
-- [ ] **Step 1: Build the sidebar**
+The shell is fully specified — `docs/uispecs/design/04-components/component-specs.md` §Shell, §1 Rail, §2 Header. Build to those numbers rather than inventing a layout; every later sub-project renders inside this frame.
 
-Navigation entries filtered by permission: Customers requires `customer.view`; Administration requires `role.view` or `user.view`. Collapses to a sheet on mobile.
+- [ ] **Step 1: Build the rail**
 
-- [ ] **Step 2: Build the top bar**
+`rail-width` (244px), `flex: 0 0 244px`, sticky, `100vh`, flex column, on the `slate` ramp. The rail is the one surface identical in both themes — it is already dark in light mode — which is what keeps navigation stable when the theme flips.
 
-Tenant name, user menu with the user's name and a sign-out action, and the theme toggle.
+Logo block: 26px mark from `docs/uispecs/design/01-brand/logo/logo-tile.svg`, product name `type-14`/600, tenant slug `type-10` mono at 50% opacity. Nav item: padding `8px 11px`, radius 9px, `type-13`, 16px icon at stroke 1.5 in a fixed 16px column; inactive 0.72 opacity, hover `rgba(255,255,255,0.07)`, active `bg-rail-raised` at weight 500.
+
+Navigation entries filtered by permission: Customers requires `customer.view`; Administration requires `role.view` or `user.view`.
+
+**Accessibility:** a `<nav>` containing a list, the active item carrying `aria-current="page"`, and icons `aria-hidden` since the label is already there.
+
+Note the prototype's "VIEWING AS" role switcher is **out of scope** for sub-project 1, and when it does arrive it must be a real permission boundary rather than a view flag (component-specs §1).
+
+- [ ] **Step 2: Build the header**
+
+`header-height` (60px), sticky, `z-index: 30`, `rgba(247,246,243,0.88)` with `backdrop-filter: blur(10px)`, 1px `border-default` bottom, `space-28` horizontal padding. Left: screen title `type-17`/600 with a `type-11` mono `text-muted` meta line that ellipsises. Right: user menu with a sign-out action, and the theme toggle.
+
+Main column needs `flex: 1; min-width: 0` — without the `min-width`, long mono strings blow out the grid. Content padding is 24 / 28 / 56; the 56px bottom is deliberate, so the last table row clears the fold rather than looking truncated.
+
+Search and notifications are specified but **visual-only in the prototype and out of scope here** — omit them rather than shipping dead controls.
 
 - [ ] **Step 3: Build the dashboard placeholder**
 
-An empty state naming what arrives in sub-project 8, so it reads as deliberate rather than unfinished.
+An empty state naming what arrives in sub-project 8, so it reads as deliberate rather than unfinished. Use the empty-state pattern from Task 23 Step 6c, not ad-hoc markup — this is the first of many.
 
-- [ ] **Step 4: Verify responsiveness and contrast**
+- [ ] **Step 4: Verify responsiveness, theming and contrast**
 
-Check at 375px, 768px, and 1440px in both themes. Verify AA contrast for body text and interactive elements.
+The design targets ≥1440px and has **no layout below it** — `ux-design-review.md` §11 is an open finding, not a solved problem, so the breakpoints are a decision this task has to make. Its recommendation, which is the cheapest path: at ≤1280px collapse the rail to a 56px icon-only rail (every nav icon is a distinct, legible 16px glyph precisely so this works); at ≤1024px collapse tables to a two-line card list keeping name, stage, progress and health.
+
+Check 375px, 768px, 1280px and 1440px in both themes. Verify AA contrast for body text and interactive elements — and note that **the dark theme has never been reviewed at screen level**, so treat its values as a starting point and expect to report back what breaks.
 
 - [ ] **Step 5: Commit**
 
@@ -7000,6 +7081,12 @@ git commit -m "feat: add authenticated application shell"
 - [ ] **Step 1: Build the list page**
 
 Search, status filter, pagination. "New customer" is rendered only when `useHasPermission("customer.create")`. Empty state uses `customer.list.empty`.
+
+Follow `component-specs.md` §7 Table and §8 Chips. The customer table's column grid is `2.1fr 1.2fr 1.5fr 1fr 1fr 0.7fr`. Cells are specified: **entity** is a 30px rounded-square initials avatar plus name `type-13`/500 over a `type-10` mono sub-line; **progress** is a 6px bar plus percentage; **date** is `type-11` mono, turning `status-blocked-fg` when overdue and `status-at-risk-fg` when expiring within 30 days.
+
+Two details that carry meaning and are easy to flatten: **rounded-square avatars mean a company, circular means a person** — the customer table relies on that distinction — and status is a **pill containing the word**, never a bare coloured dot.
+
+Filter chips are a `role="group"` with `aria-pressed` on each. The table is a real `<table>` with `<th scope="col">`, and a clickable row is a `<tr>` with a link in its primary cell — the prototype's `<div>`-with-`onClick` pattern is not keyboard reachable, and it appears in both the dashboard and the customer list, so it is the specific thing not to copy.
 
 - [ ] **Step 2: Build the detail page**
 
@@ -7043,6 +7130,8 @@ git commit -m "feat: add customer list and detail pages"
 
 This is the most intricate screen in the sub-project. It lists the permission catalog grouped by category, and for each permission offers **only the scopes that permission allows** — read from `/admin/permissions`, never hardcoded. A permission that is `ALL`-only shows a single option, not a disabled dropdown of four.
 
+The prototype's closest analogue is the workflow-builder stage inspector (`component-specs.md` §12): a sticky inspector at `top: 76px`, 32px fields at `radius-chip` on `bg-surface-sunken`, and toggles as a 34×20px track. If you use toggles for scope selection they are `role="switch"` with `aria-checked` — and any field that *looks* like an input but is not must be `readonly`, or it lies about being editable.
+
 - [ ] **Step 2: Build the user and org screens**
 
 User list with role assignment, invite action, and deactivate. Departments and teams as simple CRUD.
@@ -7075,6 +7164,12 @@ That last assertion is the one worth writing carefully. Rejecting the stolen tok
 - Create a customer and see it in the list.
 - Add a contact and send an invitation.
 - A user without `customer.create` does not see the "New customer" button **and** receives an error if the endpoint is called directly from the page context.
+
+`e2e/accessibility.spec.ts` — the design's accessibility work is only worth having if something holds it:
+- Run `@axe-core/playwright` against login, the customer list, and the role editor, in **both themes**, and fail on any serious or critical violation. The dark theme has never been reviewed at screen level, so this is where its problems surface.
+- Tab through the customer list and assert a visible focus indicator on every stop — the prototype had none anywhere, and it is the single easiest regression to reintroduce.
+- Assert every progress bar exposes `aria-valuenow`, and that its value equals the visible percentage. They are separate DOM text in the prototype and can disagree.
+- Assert no interactive element is an unlabelled icon-only control.
 
 - [ ] **Step 4: Run the end-to-end suite**
 
