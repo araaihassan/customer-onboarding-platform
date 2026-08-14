@@ -132,7 +132,7 @@ export default function CustomerDetailPage() {
               >
                 {customer.displayName}
               </h2>
-              <StatusPill status={customer.status ?? "PROSPECT"} />
+              <StatusPill status={customer.status} />
             </div>
 
             <div
@@ -147,14 +147,32 @@ export default function CustomerDetailPage() {
 
           <div className="flex shrink-0" style={{ gap: "var(--ob-space-8)" }}>
             {canEdit && (
-              <Button type="button" variant="secondary" onClick={() => setEditing(true)}>
+              <Button
+                type="button"
+                variant="secondary"
+                // Reset on open, not on close: a dialog reopened after a failed
+                // save would otherwise greet the user with the last attempt's
+                // error before they have done anything, and an error that
+                // outlives its cause trains people to ignore errors.
+                onClick={() => {
+                  update.reset();
+                  setEditing(true);
+                }}
+              >
                 {t("customer.edit")}
               </Button>
             )}
             {/* Deactivation, never deletion — there is no delete action anywhere
                 in this product, and already-inactive has nothing to deactivate. */}
             {canDeactivate && customer.status !== "INACTIVE" && (
-              <Button type="button" variant="secondary" onClick={() => setConfirming(true)}>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  deactivate.reset();
+                  setConfirming(true);
+                }}
+              >
                 {t("customer.deactivate")}
               </Button>
             )}
@@ -191,6 +209,24 @@ export default function CustomerDetailPage() {
           >
             {t("customer.deactivate.confirm", { name: customer.displayName ?? "" })}
           </p>
+
+          {/* Rendered empty rather than conditionally, so the live region exists
+              before there is anything to announce — several screen readers only
+              watch regions that were already present when the change happened.
+              An empty <p> has no line box, so it costs no height until it fills.
+              Same failure the invitation button had: a destructive action that
+              fails silently leaves the user believing it worked. */}
+          <p
+            role="alert"
+            style={{
+              color: "var(--ob-status-blocked-fg)",
+              marginTop: deactivate.isError ? "var(--ob-space-11)" : 0,
+              font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            }}
+          >
+            {deactivate.isError ? t("common.error") : ""}
+          </p>
+
           <DialogActions>
             <Button type="button" variant="secondary" onClick={() => setConfirming(false)}>
               {t("common.cancel")}

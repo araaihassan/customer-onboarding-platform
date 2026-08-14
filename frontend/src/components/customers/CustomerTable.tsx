@@ -63,7 +63,7 @@ export function CustomerTable({ customers, slug }: { customers: Customer[]; slug
                   <EntityCell customer={customer} slug={slug} />
                 </Cell>
                 <Cell>
-                  <StatusPill status={customer.status ?? "PROSPECT"} />
+                  <StatusPill status={customer.status} />
                 </Cell>
                 <Cell>
                   <span className="block truncate text-text-secondary" style={BODY_TEXT}>
@@ -106,7 +106,7 @@ export function CustomerTable({ customers, slug }: { customers: Customer[]; slug
                     .join(" · ")}
                 </p>
               </div>
-              <StatusPill status={customer.status ?? "PROSPECT"} />
+              <StatusPill status={customer.status} />
             </div>
           </li>
         ))}

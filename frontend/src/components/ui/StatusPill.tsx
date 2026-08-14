@@ -32,7 +32,20 @@ function humanise(status: string): string {
   return status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, " ");
 }
 
-export function StatusPill({ status, role }: { status: string; role?: StatusRole }) {
+/**
+ * An absent status is rendered as a neutral em dash, never defaulted to a real
+ * one.
+ *
+ * Every other absent field on a record falls back to an em dash and claims
+ * nothing. A defaulted status would be different in kind: a coloured, worded
+ * assertion about the record that no data supports — which is the "colour always
+ * means status" rule rather than a style preference. Callers used to write
+ * `status ?? "PROSPECT"`, and the point of accepting undefined here is that they
+ * no longer have to reach for a default that is a guess.
+ */
+export function StatusPill({ status, role }: { status?: string; role?: StatusRole }) {
+  if (!status) return <StatusPill status="—" role="neutral" />;
+
   const resolved = role ?? roleForStatus(status);
 
   return (

@@ -57,6 +57,8 @@ const contacts: Contact[] = [
 ];
 
 let customerStatus = 200;
+/** What a write answers, so the failure paths are reachable. */
+let mutationStatus = 200;
 
 function jsonReply(body: unknown, status = 200) {
   return {
@@ -84,10 +86,16 @@ function bodyOf(call: unknown[]): Record<string, unknown> {
 beforeEach(() => {
   permissions = { "customer.view": ["ALL"], "contact.view": ["ALL"] };
   customerStatus = 200;
+  mutationStatus = 200;
   fetchMock.mockReset();
-  fetchMock.mockImplementation(async (url: string) => {
+  fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url.endsWith("/contacts")) return jsonReply(contacts);
-    if (url.includes("/deactivate")) return jsonReply(undefined, 204);
+    if (url.includes("/deactivate")) {
+      return mutationStatus === 200 ? jsonReply(undefined, 204) : jsonReply({}, mutationStatus);
+    }
+    if (init?.method === "PUT") {
+      return mutationStatus === 200 ? jsonReply(customer) : jsonReply({}, mutationStatus);
+    }
     if (customerStatus !== 200) return jsonReply({ message: "not found" }, customerStatus);
     return jsonReply(customer);
   });
@@ -195,6 +203,48 @@ describe("CustomerDetailPage", () => {
     await waitFor(() =>
       expect(fetchMock.mock.calls.some((c) => (c[0] as string).includes("/deactivate"))).toBe(true),
     );
+  });
+
+  /**
+   * The one destructive-intent action on the screen, and the one that must not
+   * fail quietly. Without this the spinner stops, Confirm re-enables, the dialog
+   * sits open and nothing says the customer is still active — so the user either
+   * walks away believing it worked or presses Confirm again.
+   */
+  it("reports a failed deactivation instead of falling silent", async () => {
+    permissions = { "customer.view": ["ALL"], "customer.deactivate": ["ALL"] };
+    mutationStatus = 500;
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Deactivate" }));
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Confirm" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Deactivate customer" });
+    await waitFor(() =>
+      expect(within(dialog).getByRole("alert").textContent).toBe("Something went wrong"),
+    );
+    // Still open, and still offering the action, because it did not happen.
+    expect(within(dialog).getByRole("button", { name: "Confirm" })).not.toBeNull();
+  });
+
+  /**
+   * A dialog reopened after a failed save must not greet the user with the last
+   * attempt's error before they have done anything — an error that outlives its
+   * cause trains people to ignore errors.
+   */
+  it("does not show a stale save error when the edit dialog is reopened", async () => {
+    permissions = { "customer.view": ["ALL"], "customer.edit": ["ALL"] };
+    mutationStatus = 500;
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("Something went wrong"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("abandons deactivation when the dialog is cancelled", async () => {

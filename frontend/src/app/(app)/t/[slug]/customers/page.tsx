@@ -108,7 +108,18 @@ export default function CustomersPage() {
         )}
 
         {canCreate && (
-          <Button type="button" onClick={() => setCreating(true)} style={{ gap: "var(--ob-space-6)" }}>
+          <Button
+            type="button"
+            // Reset on open: a dialog reopened after a failed save would
+            // otherwise show the last attempt's error before the user has done
+            // anything, and an error that outlives its cause trains people to
+            // ignore errors.
+            onClick={() => {
+              create.reset();
+              setCreating(true);
+            }}
+            style={{ gap: "var(--ob-space-6)" }}
+          >
             <PlusIcon size={14} />
             {t("customer.create.title")}
           </Button>

@@ -32,10 +32,8 @@ export function Dialog({
   const openerRef = useRef<HTMLElement | null>(null);
 
   const focusables = useCallback(() => {
-    const nodes = panelRef.current?.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    return nodes ? Array.from(nodes) : [];
+    const nodes = panelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE);
+    return nodes ? Array.from(nodes).filter(isVisible) : [];
   }, []);
 
   useEffect(() => {
@@ -115,6 +113,44 @@ export function Dialog({
       </div>
     </div>
   );
+}
+
+/**
+ * Everything the platform makes focusable by default, plus anything given an
+ * explicit tab stop. `summary`, `[contenteditable]` and the media controls are
+ * here because they are focusable and a trap that omits them lets Tab escape.
+ */
+const FOCUSABLE = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "summary",
+  '[contenteditable]:not([contenteditable="false"])',
+  "audio[controls]",
+  "video[controls]",
+  '[tabindex]:not([tabindex="-1"])',
+].join(", ");
+
+/**
+ * A hidden control is not focusable in a browser, but `querySelectorAll` still
+ * matches it — so counting it makes it the trap's last stop, and Tab from the
+ * last *visible* control appears to do nothing while focus sits somewhere the
+ * user can neither see nor leave.
+ *
+ * `offsetParent` would be the cheap check, but it is always null in jsdom, which
+ * would make every stop invisible under test. Walking the computed styles works
+ * in both, and a dialog's subtree is small enough that the cost does not matter.
+ */
+function isVisible(element: HTMLElement): boolean {
+  if (element.hidden) return false;
+
+  for (let node: HTMLElement | null = element; node; node = node.parentElement) {
+    const style = window.getComputedStyle(node);
+    if (style.display === "none" || style.visibility === "hidden") return false;
+  }
+  return true;
 }
 
 /** The right-aligned action row every dialog ends with. */

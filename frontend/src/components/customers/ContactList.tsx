@@ -106,7 +106,7 @@ export function ContactList({
                       neutral, because "primary" is a role, not a state, and a
                       colour that names no state is decoration. */}
                   {contact.primaryContact && <StatusPill status={t("contact.primary")} role="neutral" />}
-                  <StatusPill status={contact.status ?? "ACTIVE"} />
+                  <StatusPill status={contact.status} />
 
                   {canInvite &&
                     (sent ? (

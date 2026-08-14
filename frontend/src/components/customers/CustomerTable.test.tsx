@@ -83,6 +83,28 @@ describe("CustomerTable", () => {
   });
 
   /**
+   * A missing status must not become a made-up one. Industry and country fall
+   * back to an em dash and nothing is claimed; a defaulted status is a coloured,
+   * worded assertion about the record that no data supports — which is the
+   * "colour always means status" rule, not a style preference.
+   */
+  it("says nothing rather than inventing a status that is absent", () => {
+    render(
+      <CustomerTable
+        customers={[{ id: "0199a0c1-0000-7000-8000-000000000001", displayName: "Unknown Co" }]}
+        slug="acme"
+      />,
+    );
+
+    expect(screen.queryByText("Prospect")).toBeNull();
+
+    // The status cell specifically — industry and country are em dashes here
+    // too, and for the same reason.
+    const statusCell = within(table()).getAllByRole("cell")[1]!;
+    expect(statusCell.textContent).toBe("—");
+  });
+
+  /**
    * Rounded-square means a company. The distinction between company and person is
    * doing quiet work across the product, and a customer is always a company.
    */
