@@ -7339,10 +7339,18 @@ git commit -m "feat: add authenticated application shell"
 - Create: `frontend/src/components/customers/CustomerForm.tsx`
 - Create: `frontend/src/components/customers/ContactList.tsx`
 - Create: `frontend/src/lib/api/customers.ts`
+- **Amended (Task 27):** also `frontend/src/lib/api/QueryProvider.tsx`,
+  `frontend/src/components/ui/Dialog.tsx`, `frontend/src/components/ui/Avatar.tsx`. TanStack Query
+  was installed in Task 23 but no `QueryClientProvider` was ever mounted, so the first `useQuery`
+  would have thrown; it belongs inside `AuthGuard` so the cache dies with the session. `Dialog` and
+  `Avatar` exist because the create form, the deactivation confirmation and four avatar sites would
+  otherwise each reimplement focus trapping and the company/person shape rule.
 
 **Interfaces:**
 - Consumes: `apiFetch`, `useHasPermission`, TanStack Query.
 - Produces: `useCustomers(params)`, `useCustomer(id)`, `useCreateCustomer()`, `useUpdateCustomer()`, `useDeactivateCustomer()`, `useSendInvitation()`.
+- **Amended (Task 27):** also `useContacts(customerId, enabled)` — the detail screen's contact list
+  needs it, and it is disabled rather than merely hidden for a user without `contact.view`.
 
 - [ ] **Step 1: Build the list page**
 
@@ -7353,6 +7361,29 @@ Follow `component-specs.md` §7 Table and §8 Chips. The customer table's column
 Two details that carry meaning and are easy to flatten: **rounded-square avatars mean a company, circular means a person** — the customer table relies on that distinction — and status is a **pill containing the word**, never a bare coloured dot.
 
 Filter chips are a `role="group"` with `aria-pressed` on each. The table is a real `<table>` with `<th scope="col">`, and a clickable row is a `<tr>` with a link in its primary cell — the prototype's `<div>`-with-`onClick` pattern is not keyboard reachable, and it appears in both the dashboard and the customer list, so it is the specific thing not to copy.
+
+> **Amended (Task 27): the six-column grid describes a screen sub-project 1 has no data for.**
+> The design's Customers screen lists **cases**, not companies — handoff README §4 says so
+> explicitly — and its six columns are name, stage, progress, owner, due date and health. The
+> §7 "Cells" block the step quotes is a catalogue of cell types across *every* table in the
+> product, not a description of this one; it also defines a "Visible to" cell, which belongs to
+> the documents table. `CustomerView` carries `displayName`, `legalName`, `status`, `industry`,
+> `country` and three ownership ids — no stage, no progress, no health and **no timestamps at
+> all**. Rendering a progress bar or an overdue date here would mean inventing the number behind
+> it. The table therefore ships **five** columns — Customer, Status, Legal name, Industry,
+> Country — keeping the design's fr shares for the columns that remain (`2.1 1.2 1.5 1 1`,
+> converted to percentages because `fr` is not a table width), and keeping the entity cell
+> verbatim. The progress and overdue-date cells become live in sub-project 2, when cases exist.
+> Consequence for Task 28: **these screens contain no progress bar**, so there is no
+> `aria-valuenow` on them to assert against.
+>
+> Two API asymmetries found while building against it, both backend fixes and neither done here:
+> `externalRef` is writable on `CreateCustomerRequest`/`UpdateCustomerRequest` but absent from
+> `CustomerView`, so no client can round-trip it and `PUT` silently erases it — the form
+> deliberately submits no `externalRef` rather than sending a blank one. And `PUT` replaces every
+> field, so the edit form must round-trip `ownerUserId`, `owningDepartmentId` and `owningTeamId`
+> or an edit to a display name would drop the record out of every DEPARTMENT, TEAM and ASSIGNED
+> scope. Covered by a test.
 
 - [ ] **Step 2: Build the detail page**
 

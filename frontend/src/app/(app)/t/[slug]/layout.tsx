@@ -4,6 +4,7 @@ import { use } from "react";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 import { AuthGuard } from "@/lib/auth/AuthGuard";
 import { PageHeaderProvider } from "@/components/shell/PageHeader";
+import { QueryProvider } from "@/lib/api/QueryProvider";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
 
@@ -30,34 +31,39 @@ export default function TenantLayout({
   return (
     <AuthProvider slug={slug}>
       <AuthGuard slug={slug}>
-        <PageHeaderProvider>
-          <div className="flex min-h-screen">
-            <Sidebar slug={slug} />
-            {/* The column is a plain div, not <main>. TopBar renders a <header>,
-                which is only the `banner` landmark while it is not inside <main>
-                — nesting it would leave the authenticated application with no
-                banner at all and put the global controls inside the main content
-                region on every screen.
+        {/* Inside the guard, so the cache is created when a user signs in and
+            discarded when they sign out. Above it, a cache holding one user's
+            records would survive into the next user's session. */}
+        <QueryProvider>
+          <PageHeaderProvider>
+            <div className="flex min-h-screen">
+              <Sidebar slug={slug} />
+              {/* The column is a plain div, not <main>. TopBar renders a <header>,
+                  which is only the `banner` landmark while it is not inside <main>
+                  — nesting it would leave the authenticated application with no
+                  banner at all and put the global controls inside the main content
+                  region on every screen.
 
-                min-w-0 is load-bearing: without it a long mono string in a table
-                cell sets the column's minimum content width and blows out the
-                grid instead of ellipsising. */}
-            <div className="flex flex-1 min-w-0 flex-col">
-              <TopBar />
-              <main
-                className="flex-1 px-[var(--ob-space-16)] md:px-[var(--ob-content-padding-x)]"
-                style={{
-                  paddingTop: "var(--ob-content-padding-top)",
-                  // 56px, so the last table row clears the fold rather than
-                  // looking truncated.
-                  paddingBottom: "var(--ob-content-padding-bottom)",
-                }}
-              >
-                {children}
-              </main>
+                  min-w-0 is load-bearing: without it a long mono string in a table
+                  cell sets the column's minimum content width and blows out the
+                  grid instead of ellipsising. */}
+              <div className="flex flex-1 min-w-0 flex-col">
+                <TopBar />
+                <main
+                  className="flex-1 px-[var(--ob-space-16)] md:px-[var(--ob-content-padding-x)]"
+                  style={{
+                    paddingTop: "var(--ob-content-padding-top)",
+                    // 56px, so the last table row clears the fold rather than
+                    // looking truncated.
+                    paddingBottom: "var(--ob-content-padding-bottom)",
+                  }}
+                >
+                  {children}
+                </main>
+              </div>
             </div>
-          </div>
-        </PageHeaderProvider>
+          </PageHeaderProvider>
+        </QueryProvider>
       </AuthGuard>
     </AuthProvider>
   );
