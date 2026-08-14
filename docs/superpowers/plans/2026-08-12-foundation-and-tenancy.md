@@ -7032,6 +7032,18 @@ The access token lives in memory only. This task is where that guarantee is eith
   - `useAuth()` → `{ user, permissions, login, logout, isLoading }`.
   - `useHasPermission(key: string, scope?: Scope)` → `boolean`.
 
+**Amended in Task R1 (remediation). The same-origin prefix needs a rewrite, and the plan never asks for one.** `apiFetch` issues `/api/t/{slug}/…` same-origin deliberately — that is what keeps the HttpOnly, `SameSite=Strict`, path-scoped `refresh_token` cookie attached, which a cross-origin `fetch` to :8080 would drop, silently breaking silent refresh. But nothing routes :3000's `/api` to :8080, so **no page that calls the API works at all** and no end-to-end test can pass. Invisible to the unit suite, which stubs `fetch`.
+
+Add to `frontend/next.config.ts`:
+
+```typescript
+async rewrites() { return apiRewrites(); }
+```
+
+backed by `src/lib/api/rewrites.ts` — one rule, `/api/:path*` → `${BACKEND_ORIGIN}/api/:path*`, defaulting to `http://localhost:8080`. It lives in `src/` rather than inline because the vitest `include` glob is `src/**`, so a config-only version could not be tested. `BACKEND_ORIGIN` is deliberately not `NEXT_PUBLIC_`: rewrites resolve on the Next.js server, and the prefix would inline the address into the client bundle.
+
+Chosen over a catch-all route handler under `app/api/…`, which would have to forward cookies, headers, status codes and bodies correctly; one existed briefly as a mock in Task 24 and was correctly deleted — do not resurrect it. Accepted cost: `rewrites` is a dev/runtime-server mechanism, so a production deployment behind a real reverse proxy configures the same mapping at the edge instead (sub-project 10).
+
 - [ ] **Step 1: Write the failing test**
 
 `frontend/src/lib/api/client.test.ts`:

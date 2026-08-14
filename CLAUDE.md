@@ -78,9 +78,13 @@ them — but `/api/platform/**` is HTTP Basic behind `hasRole("PLATFORM_ADMIN")`
 tenant can ever be created. It is idempotent: an existing address is left untouched, never re-hashed.
 Other variables worth knowing: `JWT_SECRET` (dev default is a placeholder, min 32 bytes).
 
-**Frontend** on :3000 — `cd frontend && npm install && npm run dev`. Note: `src/lib/api/client.ts`
-issues same-origin `/api/t/{slug}/…` requests and `next.config.ts` declares no rewrite, so a browser
-at :3000 cannot yet reach :8080. Wiring that proxy is outstanding.
+**Frontend** on :3000 — `cd frontend && npm install && npm run dev`. `src/lib/api/client.ts` issues
+same-origin `/api/t/{slug}/…` requests, which is what keeps the HttpOnly `SameSite=Strict` refresh
+cookie attached; `next.config.ts` rewrites `/api/:path*` to `BACKEND_ORIGIN` (default
+`http://localhost:8080`) to make that reach the backend. `rewrites` is a dev/runtime-server
+mechanism — a production deployment configures the same mapping at its edge proxy instead
+(sub-project 10). Never replace it with a route handler under `app/api/…`; one existed as a mock and
+was deleted.
 
 **Provision a tenant** (seeds the twelve role templates and one `INTERNAL` administrator):
 

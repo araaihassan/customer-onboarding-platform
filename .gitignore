@@ -33,3 +33,7 @@ coverage/
 *.iml
 .DS_Store
 Thumbs.db
+
+# Python bytecode from the design token/icon scripts
+__pycache__/
+*.py[cod]
