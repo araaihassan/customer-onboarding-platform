@@ -45,6 +45,29 @@
 :root { --ob-graphic-muted: var(--ob-paper-600); }
 [data-theme="dark"] { --ob-graphic-muted: var(--ob-slate-600, var(--ob-paper-600)); }
 
+/* Three shell roles the generated set does not carry, for the same reason: the
+ * design has no layout below 1440px and no theme toggle, so it never needed them.
+ * Same rule as above — every value is a pointer or a derivation, never a new
+ * colour, and if any of them ever needs a per-theme value it belongs in
+ * build_tokens.py rather than here.
+ *
+ * rail-width-collapsed  the icon-only rail from review finding 11, still open.
+ * rail-item-hover       the rail's white overlay, given as a literal in
+ *                       component-specs §1 because it is a translucent wash over
+ *                       the slate ramp rather than a palette colour.
+ * bg-header             component-specs §2 gives the header as
+ *                       rgba(247,246,243,0.88) — which IS bg-page at 88%, but only
+ *                       in the light theme. Left as a literal the header would
+ *                       stay paper-white in dark mode, the one place the whole
+ *                       shell breaks when the theme flips. Derived from the token,
+ *                       it resolves to exactly the specified value in light.
+ */
+:root {
+  --ob-rail-width-collapsed: var(--ob-space-56);
+  --ob-rail-item-hover: rgba(255, 255, 255, 0.07);
+  --ob-bg-header: color-mix(in srgb, var(--ob-bg-page) 88%, transparent);
+}
+
 /* Point the token families at the next/font variables, so the tokens stay the
  * single source of truth and next/font handles loading and fallback metrics. */
 :root {

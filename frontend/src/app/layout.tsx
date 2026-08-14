@@ -38,8 +38,15 @@ export default function RootLayout({
     // suppressHydrationWarning is required by next-themes: it writes data-theme on
     // the client before React hydrates, so the server and client markup differ by
     // that one attribute by design.
-    <html lang="en" suppressHydrationWarning>
-      <body className={`${archivo.variable} ${plexMono.variable} antialiased`}>
+    // The next/font variables go on <html>, not <body>. globals.css declares
+    // --ob-font-family-ui on :root as var(--font-archivo), …; with the font
+    // variables one level lower that reference is undefined AT :root, which makes
+    // the whole declaration invalid at computed-value time. The failure is silent
+    // and total: every `font:` shorthand built on the family token — the entire
+    // type ramp — is dropped, and the app renders in the browser's default sans
+    // at default sizes while every variable still "exists".
+    <html lang="en" className={`${archivo.variable} ${plexMono.variable}`} suppressHydrationWarning>
+      <body className="antialiased">
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>

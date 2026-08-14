@@ -6831,9 +6831,13 @@ Pin `create-next-app@15`, not `@latest` — latest is Next 16, and the stated st
 
 The scaffold ships **Geist**; replace it with **Archivo** and **IBM Plex Mono** in `layout.tsx` and point `--ob-font-family-ui` / `--ob-font-family-data` at the `next/font` variables, so the tokens stay the source of truth. Mono for machine-generated values, Archivo for human text, is one of the four decisions that erode quietly.
 
+**Amended in Task 26.** Put the `next/font` variable classes on `<html>`, **not** `<body>` — the scaffold's default. `globals.css` declares `--ob-font-family-ui` on `:root`, so if `--font-archivo` is only defined one level lower the reference is undefined *at :root* and the declaration is invalid at computed-value time. The failure is silent and total: the family token resolves to nothing, so every `font:` shorthand built on it — the whole type ramp, in every component — is dropped, and the application renders in the browser's default sans at default sizes while every variable still appears to exist. It survived Tasks 23–25 undetected because the pages still looked plausible.
+
 `layout.tsx` needs `suppressHydrationWarning` on `<html>` — `next-themes` writes `data-theme` before hydration, so server and client markup differ by that attribute by design.
 
 **shadcn/ui is deferred to Task 26**, where the first components that need it are built. `shadcn init` is interactive and rewrites `globals.css`, which would overwrite the token imports set up in Step 6; running it after the token layer exists means reconciling the two by hand.
+
+**Amended in Task 26.** Not initialised there after all: nothing in the shell needs Radix. The rail is links, the header is a button plus one popover, and the popover's whole behaviour — open, focus in, `Escape` closes and returns focus, click-outside — is about thirty lines against a `useEffect`. Running `shadcn init` to get that would have meant reconciling its `globals.css` rewrite by hand for no gain. Defer it again to the first component that genuinely needs a headless primitive — a combobox, a date picker or a modal dialog with a real focus trap.
 
 - [ ] **Step 2: Enable TypeScript strict mode**
 
@@ -7264,12 +7268,15 @@ git commit -m "feat: add login, activation and password reset pages"
 - Create: `frontend/src/components/shell/Sidebar.tsx`
 - Create: `frontend/src/components/shell/TopBar.tsx`
 - Create: `frontend/src/components/shell/ThemeToggle.tsx`
-- Modify: `frontend/src/app/(app)/layout.tsx`
+- Create: `frontend/src/components/shell/PageHeader.tsx`
+- Modify: `frontend/src/app/(app)/t/[slug]/layout.tsx`
 - Create: `frontend/src/app/(app)/t/[slug]/dashboard/page.tsx`
 
 **Interfaces:**
 - Consumes: `useAuth`, `useHasPermission`, `t`.
-- Produces: the authenticated shell wrapping every application page.
+- Produces: the authenticated shell wrapping every application page, and `useSetPageHeader`.
+
+**Amended in Task 26.** Two corrections to the file list above. `(app)/layout.tsx` does not exist — Task 24 placed the authenticated layout at `(app)/t/[slug]/layout.tsx`, because the tenant slug only exists inside the `[slug]` segment and both the guard and the rail need it. And `PageHeader.tsx` is new: the header's left side is a screen title plus a meta line, but the header lives in the layout while the title belongs to the page, and App Router gives the layout no way to read it. A page calls `useSetPageHeader(title, meta?)`; without it the title would have to be derived from the route, which cannot express a record name or a live count, and every later sub-project would work around it.
 
 The shell is fully specified — `docs/uispecs/design/04-components/component-specs.md` §Shell, §1 Rail, §2 Header. Build to those numbers rather than inventing a layout; every later sub-project renders inside this frame.
 
@@ -7302,6 +7309,17 @@ An empty state naming what arrives in sub-project 8, so it reads as deliberate r
 The design targets ≥1440px and has **no layout below it** — `ux-design-review.md` §11 is an open finding, not a solved problem, so the breakpoints are a decision this task has to make. Its recommendation, which is the cheapest path: at ≤1280px collapse the rail to a 56px icon-only rail (every nav icon is a distinct, legible 16px glyph precisely so this works); at ≤1024px collapse tables to a two-line card list keeping name, stage, progress and health.
 
 Check 375px, 768px, 1280px and 1440px in both themes. Verify AA contrast for body text and interactive elements — and note that **the dark theme has never been reviewed at screen level**, so treat its values as a starting point and expect to report back what breaks.
+
+**Decided in Task 26 — later tasks must honour these two breakpoints.**
+
+| Boundary | Written as | Behaviour |
+|---|---|---|
+| 1280px | `min-[1281px]:` | Rail is 244px at ≥1281px, 56px icon-only at ≤1280px. Nav labels stay in the DOM as `sr-only`, so accessible names never change. |
+| 1024px | `lg:` | **Task 27's to implement.** The customer table keeps its column grid at ≥1024px and becomes a two-line card list below it, keeping name, stage, progress and health. |
+
+The rail boundary is 1281 rather than Tailwind's `xl` (1280) on purpose. The design's content column is 1440 − 244 = 1196px; a 56px rail on a 1280px viewport leaves 1224px, so a screen built to the design's own width still fits without reflowing. Expanding *at* 1280 instead would leave 1036px and force the table to reflow on exactly the laptop width the finding was written about.
+
+Below `md` (768px) the header and content drop from `content-padding-x` (28px) to `space-16`, which is what makes 375px usable at all.
 
 - [ ] **Step 5: Commit**
 
