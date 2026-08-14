@@ -104,12 +104,13 @@ Use this token to reset your password: <base64url token>
 The body carries a bare token, not a URL; the activation page reads it from
 `/t/{slug}/activate?token=…`.
 
-**Known gap — a freshly provisioned tenant cannot yet be logged into.** Its administrator is created
-`INVITED` with a null password hash, `LoginService` admits only `ACTIVE`, and only `POST
-/auth/activate` promotes a user — but nothing issues that administrator an `ACTIVATION` invitation
-(`UserInvitationService.issueForUser` is gated on `user.manage`, which needs an actor who does not
-exist yet). Verified: a password reset succeeds and the subsequent login still returns 401. Closing
-it needs a provisioning-time invitation or a platform-side endpoint.
+Provisioning also issues the administrator an `ACTIVATION` invitation and emails it, in the same
+transaction — that is the only way in, since the account is created `INVITED` and `LoginService`
+admits only `ACTIVE`. So the full bootstrap is: provision → read the token from the log → `POST
+/auth/activate` → `POST /auth/login`. A password reset is **not** a substitute: it sets the hash and
+deliberately leaves `status` alone, so the login still returns 401. There is no re-issue path once
+the seven-day TTL expires; a tenant provisioned and forgotten for a week needs manual intervention
+(sub-project 2).
 
 Also operational: `audit_event` is partitioned by month and `V5` creates only `2026_08`, `2026_09`
 and a DEFAULT partition. The job that rolls partitions forward arrives in sub-project 6.
@@ -121,8 +122,8 @@ cd backend && ./gradlew cleanTest test     # needs Docker running
 cd frontend && npx vitest run
 ```
 
-At the close of sub-project 1 these were 152 backend tests over 41 classes and 48 frontend tests over
-8 files, all green.
+After Task R1 these were 154 backend tests over 42 classes and 122 frontend tests over 16 files, all
+green.
 
 **Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
 prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a green run.

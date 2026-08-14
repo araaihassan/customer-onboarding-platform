@@ -2,6 +2,13 @@ package co.ara.onboarding.provisioning;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
+import co.ara.onboarding.auth.EmailMessage;
+import co.ara.onboarding.auth.EmailSender;
+import co.ara.onboarding.auth.Invitation;
+import co.ara.onboarding.auth.InvitationPurpose;
+import co.ara.onboarding.auth.InvitationRepository;
+import co.ara.onboarding.auth.InvitationService;
+import co.ara.onboarding.auth.SecureTokens;
 import co.ara.onboarding.authz.PermissionCatalog;
 import co.ara.onboarding.authz.InvalidGrantException;
 import co.ara.onboarding.authz.Role;
@@ -23,6 +30,7 @@ import co.ara.onboarding.tenancy.TenantStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
 
@@ -45,16 +53,21 @@ public class TenantProvisioningService {
     private final RoleRepository roles;
     private final UserRoleRepository userRoles;
     private final AppUserRepository users;
+    private final InvitationRepository invitations;
+    private final EmailSender email;
     private final TenantConnectionCustomizer binder;
     private final AuditRecorder audit;
 
     public TenantProvisioningService(TenantRepository tenants, RoleRepository roles,
                                      UserRoleRepository userRoles, AppUserRepository users,
+                                     InvitationRepository invitations, EmailSender email,
                                      TenantConnectionCustomizer binder, AuditRecorder audit) {
         this.tenants = tenants;
         this.roles = roles;
         this.userRoles = userRoles;
         this.users = users;
+        this.invitations = invitations;
+        this.email = email;
         this.binder = binder;
         this.audit = audit;
     }
@@ -109,12 +122,58 @@ public class TenantProvisioningService {
             // explicit flush the insert order is left to Hibernate.
             userRoles.save(new UserRole(tenant.getId(), admin.getId(), adminRole.getId()));
 
+            inviteAdministrator(tenant.getId(), admin.getId(), adminEmail);
+
             audit.record(AuditActions.TENANT_CREATED, "tenant", tenant.getId(),
                     "Provisioned tenant " + slug, Map.of("slug", slug));
             return tenant.getId();
         } finally {
             if (previous == null) TenantContext.clear(); else TenantContext.set(previous);
         }
+    }
+
+    /**
+     * The bootstrap ACTIVATION invitation, without which a freshly provisioned
+     * tenant cannot be logged into at all.
+     *
+     * The administrator is created INVITED with no password hash, LoginService
+     * admits only ACTIVE, and only ActivationService.accept promotes INVITED ->
+     * ACTIVE — against an ACTIVATION invitation. UserInvitationService.issueForUser
+     * creates exactly that row but is gated on user.manage, and the only account
+     * that would hold it is the one being invited. So provisioning issues it here,
+     * beside the app_user and user_role rows it already writes outside the gate for
+     * the same bootstrap reason, and in the same transaction: an invitation that
+     * outlived a rolled-back tenant would be a live credential for nothing.
+     *
+     * SecureRandom via SecureTokens, never Uuid7 — this is a bearer credential, and
+     * a UUIDv7 leaks its creation time and is guessable from a neighbour. Only the
+     * hash is stored.
+     *
+     * The raw token is deliberately NOT returned to the caller: it travels by email
+     * like every other invitation in this system, and under the dev and test
+     * profiles LoggingEmailSender puts it in the application log where operators and
+     * the end-to-end suite read it (see CLAUDE.md).
+     *
+     * Known and accepted: there is no re-issue path once ACTIVATION_TTL elapses, so
+     * a tenant provisioned and then forgotten for seven days needs manual
+     * intervention. Tenant administration is a sub-project 2 concern.
+     */
+    private void inviteAdministrator(UUID tenantId, UUID adminId, String adminEmail) {
+        String raw = SecureTokens.generate();
+
+        Invitation invitation = new Invitation();
+        invitation.setId(Uuid7.generate());
+        invitation.setTenantId(tenantId);
+        invitation.setPurpose(InvitationPurpose.ACTIVATION);
+        invitation.setUserId(adminId);
+        invitation.setTokenHash(SecureTokens.hash(raw));
+        invitation.setExpiresAt(Instant.now().plus(InvitationService.ACTIVATION_TTL));
+        // created_by stays null: provisioning has no actor, which is the whole
+        // reason this row cannot be issued through the gated service.
+        invitations.save(invitation);
+
+        email.send(new EmailMessage(adminEmail, "Activate your account",
+                "Use this token to activate your account: " + raw));
     }
 
     private void seedRoles(UUID tenantId) {

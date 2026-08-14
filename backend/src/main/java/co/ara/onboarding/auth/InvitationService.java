@@ -34,8 +34,14 @@ import java.util.UUID;
 @Service
 public class InvitationService implements ContactInvitationSender {
 
-    /** Seven days: long enough to survive a holiday, short enough to expire. */
-    static final Duration ACTIVATION_TTL = Duration.ofDays(7);
+    /**
+     * Seven days: long enough to survive a holiday, short enough to expire.
+     *
+     * Public since Task R1 so provisioning issues the bootstrap administrator's
+     * invitation on the same clock. One constant, so a change to the window cannot
+     * apply to some activation invitations and not others.
+     */
+    public static final Duration ACTIVATION_TTL = Duration.ofDays(7);
 
     private final InvitationRepository invitations;
     private final CustomerContactRepository contacts;

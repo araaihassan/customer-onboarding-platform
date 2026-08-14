@@ -14,8 +14,14 @@ import java.util.HexFormat;
  * Extracted rather than duplicated: three copies of "generate randomness, hash it,
  * store the hash" is three chances for one of them to quietly use a weaker source
  * or forget to hash at all.
+ *
+ * Public rather than package-private since Task R1, because provisioning issues the
+ * first tenant administrator's ACTIVATION invitation itself — it runs before any
+ * actor exists, so it cannot go through the gated UserInvitationService. Widening
+ * the visibility is the lesser evil: the alternative was a second SecureRandom in
+ * provisioning, which is precisely the duplication this class exists to prevent.
  */
-final class SecureTokens {
+public final class SecureTokens {
 
     /**
      * SecureRandom, never Uuid7. These values must be unpredictable, not merely
@@ -27,7 +33,7 @@ final class SecureTokens {
     private SecureTokens() {}
 
     /** URL-safe and unpadded, so it survives being placed in an email link verbatim. */
-    static String generate() {
+    public static String generate() {
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
@@ -39,7 +45,7 @@ final class SecureTokens {
      * factor is needed — Argon2 here would make every refresh cost 64 MiB. 64 hex
      * characters, which is what the token_hash columns are sized for.
      */
-    static String hash(String raw) {
+    public static String hash(String raw) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
                     .digest(raw.getBytes(StandardCharsets.UTF_8));

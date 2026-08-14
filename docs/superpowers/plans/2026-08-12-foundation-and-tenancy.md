@@ -3093,6 +3093,12 @@ The twelve PRD roles, seeded into every new tenant.
   - `RoleTemplates.all()` → `List<RoleTemplate>` where `record RoleTemplate(String name, String description, Map<String,Scope> grants)`.
   - `TenantProvisioningService.provision(String slug, String name, String adminEmail, String adminFullName)` → `UUID tenantId`. Creates the tenant, seeds roles, creates the first `INTERNAL` administrator user in `INVITED` status.
 
+**Amended in Task R1 (remediation).** As written above, provisioning produces a tenant nobody can ever sign into, and no test in the suite catches it because every other test constructs its users directly instead of going through provisioning → login. The administrator is `INVITED` with a null password hash; `LoginService` admits only `ACTIVE`; only `ActivationService.accept` promotes `INVITED → ACTIVE` and it requires an `InvitationPurpose.ACTIVATION` row. Nothing creates that row: `UserInvitationService.issueForUser` would, but it is gated on `user.manage`, and the only account that would hold it is the one locked out. A password reset is not a substitute — `PasswordResetService.reset` sets the hash and deliberately never touches `status`, so the subsequent login still answers 401. Found by driving the real HTTP surface with curl during Task 26, invisible to the suite until Task R1 added `ProvisionedTenantLoginTest`.
+
+`provision` must therefore also create the `ACTIVATION` invitation and dispatch it through `EmailSender`, in the same transaction as the `app_user` and `user_role` rows it already writes outside the permission gate for the same bootstrap reason. The raw token is **not** returned in the provisioning response — it is a `SecureRandom` bearer credential and travels by email like every other one, which under `dev`/`test` means the `LoggingEmailSender` log. This needed `auth.SecureTokens` and `InvitationService.ACTIVATION_TTL` widened to public; `provisioning → auth` is a new module edge and closes no cycle, since `auth` does not depend on `provisioning`. No new `AuthorizationCoverageTest` exclusion was needed — `TenantProvisioningService` is already excluded by class (Step 7).
+
+Accepted cost: there is no re-issue path once the seven-day `ACTIVATION_TTL` expires, so a tenant provisioned and forgotten for a week needs manual intervention. Tenant administration is a sub-project 2 concern.
+
 - [ ] **Step 1: Write the failing template validity test**
 
 This guards the startup check required by spec §6.2.
