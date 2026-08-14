@@ -25,6 +25,122 @@ Read the relevant one before starting work. Where they disagree, the more specif
 
 ---
 
+## Project shape
+
+Single monorepo: `backend/` (Spring Boot, Gradle) and `frontend/` (Next.js), with `docs/` holding
+the PRD, QA, specs, plans and the design system. `docker/` arrives in sub-project 10.
+
+The backend is a modular monolith organised by domain, one package per module under
+`co.ara.onboarding`: `platform/` (cross-cutting infrastructure), `tenancy/` (tenant records and
+context), `identity/` (users, departments, teams, platform admins), `authz/` (permission catalog,
+roles, grants, enforcement), `audit/`, `customer/` (customers, contacts). `provisioning/` and
+`scoping/` exist only because they orchestrate two or more of the others.
+
+**Sub-project 1 delivered:** tenancy with RLS, identity, RBAC with record-level scope and twelve
+seeded role templates, JWT auth with refresh rotation and reuse detection, invitation / activation /
+password reset, login throttling, the audit substrate, customer and contact management, and on the
+frontend the token layer, i18n, API client and public auth pages.
+
+**Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
+`docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
+Collaboration → 4 Documents → 5 Agreements (needs 4) → 6 Notifications, SLA & Escalation (2, 3) →
+7 Customer Portal (2, 4, 5) → 8 Dashboards & Real-time (2–6) → 9 Reporting & Analytics (2–6) →
+10 Packaging & Deploy. Sub-projects 2–9 each add one module in the shape of sub-project 1's Tasks
+20–21: entity with `tenant_id`, migration calling `enable_tenant_rls`, a
+`ResourceAuthorizationDescriptor`, a service where every public method is gated and every read goes
+through `AuthorizedQuery`, and a thin controller.
+
+---
+
+## Running it locally
+
+PostgreSQL 16, database `onboarding`:
+
+```bash
+docker run -d --name onboarding-db -p 5432:5432 \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=onboarding postgres:16-alpine
+```
+
+Flyway connects as the owner (`postgres`/`postgres`) and `V2` creates the `onboarding_app` login
+role the application then connects as. Override with `DB_URL`, `DB_OWNER_USER` / `DB_OWNER_PASSWORD`,
+`DB_APP_USER` / `DB_APP_PASSWORD` (defaults in `backend/src/main/resources/application.yml`). If 5432
+is already taken, map another port and set `DB_URL` to match.
+
+**Backend** on :8080 —
+
+```bash
+cd backend && SPRING_PROFILES_ACTIVE=dev \
+  APP_PLATFORM_ADMIN_EMAIL=ops@example.com APP_PLATFORM_ADMIN_PASSWORD=<pick-one> ./gradlew bootRun
+```
+
+Both platform-admin variables are blank by default and `PlatformAdminBootstrap` does nothing without
+them — but `/api/platform/**` is HTTP Basic behind `hasRole("PLATFORM_ADMIN")`, so without one no
+tenant can ever be created. It is idempotent: an existing address is left untouched, never re-hashed.
+Other variables worth knowing: `JWT_SECRET` (dev default is a placeholder, min 32 bytes).
+
+**Frontend** on :3000 — `cd frontend && npm install && npm run dev`. Note: `src/lib/api/client.ts`
+issues same-origin `/api/t/{slug}/…` requests and `next.config.ts` declares no rewrite, so a browser
+at :3000 cannot yet reach :8080. Wiring that proxy is outstanding.
+
+**Provision a tenant** (seeds the twelve role templates and one `INTERNAL` administrator):
+
+```bash
+curl -u ops@example.com:<password> -X POST http://localhost:8080/api/platform/tenants \
+  -H 'Content-Type: application/json' \
+  -d '{"slug":"acme","name":"Acme Corp","adminEmail":"admin@acme.test","adminFullName":"Acme Admin"}'
+# → {"tenantId":"01a0001e-…"}
+```
+
+**Activation and reset tokens** are obtainable only from the log. Under the `dev` and `test` profiles
+`LoggingEmailSender` logs each message body in full; `SmtpEmailSender` takes over elsewhere. Trigger
+one (e.g. `POST /api/t/acme/auth/password-reset/request` with `{"email":"…"}`, which answers 204 for
+known and unknown addresses alike) and grep the application's stdout for `[email]`:
+
+```
+… c.a.onboarding.auth.LoggingEmailSender : [email] to=admin@acme.test subject=Reset your password
+Use this token to reset your password: <base64url token>
+```
+
+The body carries a bare token, not a URL; the activation page reads it from
+`/t/{slug}/activate?token=…`.
+
+**Known gap — a freshly provisioned tenant cannot yet be logged into.** Its administrator is created
+`INVITED` with a null password hash, `LoginService` admits only `ACTIVE`, and only `POST
+/auth/activate` promotes a user — but nothing issues that administrator an `ACTIVATION` invitation
+(`UserInvitationService.issueForUser` is gated on `user.manage`, which needs an actor who does not
+exist yet). Verified: a password reset succeeds and the subsequent login still returns 401. Closing
+it needs a provisioning-time invitation or a platform-side endpoint.
+
+Also operational: `audit_event` is partitioned by month and `V5` creates only `2026_08`, `2026_09`
+and a DEFAULT partition. The job that rolls partitions forward arrives in sub-project 6.
+
+### Tests
+
+```bash
+cd backend && ./gradlew cleanTest test     # needs Docker running
+cd frontend && npx vitest run
+```
+
+At the close of sub-project 1 these were 152 backend tests over 41 classes and 48 frontend tests over
+8 files, all green.
+
+**Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
+prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a green run.
+`org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
+cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
+
+`cd frontend && npx playwright test` is the end-to-end command — **Playwright is not installed and
+no specs exist yet; they arrive with Task 28. Never cite it as passing.**
+
+API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
+during `cleanTest test`; `npm run generate:api` then regenerates `frontend/src/lib/api/generated.ts`
+from it, and `npm run generate:api:live` reads a running backend instead. **The `openApiSpec` wrapper
+task is broken and always fails** — it declares `build/openapi.json` as its own output while `test` is
+what actually writes it, so Gradle deletes the file as a stale output immediately before running the
+task. Use `cleanTest test` until the task is fixed.
+
+---
+
 ## UI/UX: the design system is an input, not a deliverable
 
 `docs/uispecs/` is a complete design system for the whole platform. **Frontend work implements it;
@@ -93,10 +209,21 @@ correct response to one failing is to fix the code, never to weaken the guard.
   an actor to authorize, or is infrastructure the gate itself depends on.
 - **Reads of tenant business data go through `AuthorizedQuery`.** A repository finder called
   directly skips the scope predicate — a silent, total bypass rather than a visible error.
-- **Permissions are never embedded in tokens.** Authority is resolved server-side per request.
+- **Permissions are never embedded in tokens and never cached across requests.** Authority is
+  resolved server-side per request, so a revoked grant takes effect on the next call rather than
+  when a token happens to expire.
+- **Every resource type registers a `ResourceAuthorizationDescriptor`.** `DescriptorRegistry.validate()`
+  refuses to start the application otherwise — an unregistered type would reach scope resolution with
+  no predicate to apply. Descriptors must fail closed: no department, no teams ⇒ `cb.disjunction()`.
+- **`ASSIGNED` means a personal relationship** (`RelationshipType`); access mediated by a team the
+  user belongs to is `TEAM`. Conflating them silently widens `ASSIGNED` to everything the user's
+  teams can reach.
 - **Out-of-scope records return 404, never 403.** The UI must not reintroduce the distinction the
   404 exists to hide.
 - **Absence of a grant is the denial.** There are no deny grants anywhere in authorization.
+- **`audit_event` is append-only at the database layer** — `GRANT SELECT, INSERT` with `UPDATE` and
+  `DELETE` revoked. A permission, not a convention, because an audit trail the application can
+  rewrite is not evidence.
 - **UUIDv7 primary keys** via `co.ara.onboarding.platform.Uuid7.generate()`. Values that must be
   unpredictable rather than merely unique (refresh tokens, invitation tokens) use `SecureRandom`
   directly and never a UUID.
@@ -104,8 +231,28 @@ correct response to one failing is to fix the code, never to weaken the guard.
 
 ---
 
+## Where the guards live
+
+- `backend/src/test/java/co/ara/onboarding/architecture/` — `RlsCoverageTest`,
+  `AuthorizationCoverageTest`, `ModuleBoundaryTest`, `OpenApiDocumentTest`.
+- `.../authz/DescriptorRegistryTest`, covering `DescriptorRegistry.validate()`.
+- `.../security/` — the eight negative tests: `ChangedPermissionsTest`, `ConflictingGrantsTest`,
+  `CrossTenantAccessTest`, `DirectApiAccessTest`, `InsufficientPermissionTest`,
+  `InsufficientScopeTest`, `MultipleRolesTest`, `RoleLifecycleTest`.
+
+**These are not to be weakened to make a change pass.** They exist precisely to fail when something
+is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
+and its failure mode — silent cross-tenant exposure — is the one this product cannot survive.
+
+---
+
 ## Working conventions
 
+- **One module per domain**, owning its own entities, repositories, services and controllers and
+  exposing a narrow interface. Sub-projects 2–9 each add one; nothing reaches into another module's
+  internals.
+- **Every user-facing string goes through `t()`** (`frontend/src/lib/i18n`). A missing key renders
+  as the key itself, so gaps are visible rather than silent.
 - **TDD.** Write the failing test first; security tests before the mechanism they verify. A
   structural guard you have never seen fail is a guard you cannot trust — prove new ones red.
 - **Conventional Commits** (`feat:`, `fix:`, `test:`, `docs:`, `chore:`). Explain *why* in the
@@ -116,7 +263,21 @@ correct response to one failing is to fix the code, never to weaken the guard.
 - **Fixture create-helpers must run inside `runAs`** — the tables they write are RLS-protected, and
   Spring Data repository proxies do not trigger the tenant binder.
 - **Backend tests need Docker running** (Testcontainers, `postgres:16-alpine`).
-- Run `cd backend && ./gradlew test` before committing. On PowerShell use `.\gradlew.bat`.
+- Run `cd backend && ./gradlew cleanTest test` before committing. On PowerShell use `.\gradlew.bat`.
+
+---
+
+## What sub-project 2 inherits
+
+- **The descriptor seam.** A new resource type implements `ResourceAuthorizationDescriptor` in
+  `scoping/` — never in the module owning the entity, which would close a module cycle — and returns
+  the DEPARTMENT, TEAM and ASSIGNED predicates. Nothing imports the implementations; Spring collects
+  them by interface and the registry validates coverage against the permission catalog at startup.
+- **`RelationshipType`** (`OWNER, ASSIGNEE, PARTICIPANT, APPROVER, CREATOR`) is the vocabulary cases
+  and milestones extend. Extend the enum; do not invent a parallel one.
+- **`audit_event.timeline_visible`** is on every event and is what the Activity Timeline reads: the
+  audit trail and the customer-visible timeline are one table, separated only by this flag. Set it
+  deliberately for each new action rather than copying a neighbour.
 
 ## Plan deviations
 
@@ -127,5 +288,5 @@ carry such amendments.
 
 ---
 
-*Sub-project 1 Task 29 extends this file with the operational detail (local setup, running both
-applications, environment variables). Keep it dense — this file is loaded into every session.*
+*Keep it dense — this file is loaded into every session. Add a line only when its absence would cost
+a future session real time, and delete one when it stops being true.*
