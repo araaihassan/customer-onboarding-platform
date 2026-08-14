@@ -138,11 +138,13 @@ cannot negotiate with current Docker Desktop API versions; do not revert it blin
 no specs exist yet; they arrive with Task 28. Never cite it as passing.**
 
 API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
-during `cleanTest test`; `npm run generate:api` then regenerates `frontend/src/lib/api/generated.ts`
-from it, and `npm run generate:api:live` reads a running backend instead. **The `openApiSpec` wrapper
-task is broken and always fails** — it declares `build/openapi.json` as its own output while `test` is
-what actually writes it, so Gradle deletes the file as a stale output immediately before running the
-task. Use `cleanTest test` until the task is fixed.
+during `:test`; `./gradlew openApiSpec` is the wrapper that produces it and says where it is. `npm run
+generate:api` then regenerates `frontend/src/lib/api/generated.ts` from it, and
+`npm run generate:api:live` reads a running backend instead. The document's output is declared on
+`test`, which writes it — declaring it on `openApiSpec`, which only checks for it, made Gradle delete
+it as a stale output moments before the check and the task failed every run. Deleting only
+`openapi.json` re-runs `:test`. Note springdoc orders schema properties nondeterministically, so
+back-to-back regenerations produce reordering-only diffs; that is noise, not a contract change.
 
 ---
 

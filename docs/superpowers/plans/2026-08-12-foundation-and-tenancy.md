@@ -6095,6 +6095,27 @@ tasks.register("openApiSpec") {
 }
 ```
 
+**Amended in Task R1 (remediation). `outputs.file(output)` on `openApiSpec` makes the task fail every single run** — verified at both the first run from a wiped `build/` and the run immediately after. `build/openapi.json` is written by `OpenApiDocumentTest` during `:test`, not by `openApiSpec`, and Gradle's stale-output cleanup deletes a file registered as a task's output but produced elsewhere, immediately before that task executes. So the file the test had just written was removed moments before `doLast` looked for it, and the task threw its own "did OpenApiDocumentTest run?" every time. `npm run generate:api` was therefore unusable and the frontend types could not be refreshed.
+
+Declare the output on the task that actually writes it, and let `openApiSpec` merely consume it:
+
+```kotlin
+val openApiDocument = layout.buildDirectory.file("openapi.json")
+
+tasks.named<Test>("test") { outputs.file(openApiDocument) }
+
+tasks.register("openApiSpec") {
+    dependsOn("test")
+    inputs.file(openApiDocument)
+    outputs.upToDateWhen { false }   // its only job is to assert the file exists
+    doLast { /* … */ }
+}
+```
+
+Declaring it on `test` has a second benefit: deleting only `build/openapi.json` now makes `:test` re-run rather than reporting UP-TO-DATE, which is exactly what a regeneration wants. Also fixed there: the `doLast` `println` used `${'$'}{file.absolutePath}`, which escapes the dollar and prints the expression literally — invisible until the task first succeeded.
+
+Two findings for whoever consumes this document: springdoc emits schema properties in a **nondeterministic order**, so back-to-back regenerations of `frontend/src/lib/api/generated.ts` produce pure reordering diffs with no semantic change. Treat those as noise, and do not diff the document in CI without normalising it first.
+
 **`/v3/api-docs` must be added to `permitAll` in `SecurityConfig`**, or `.anyRequest().authenticated()` answers 401 and both the test and `openapi-typescript` fail. It describes endpoint shapes rather than data; Task 22 should decide whether to expose it outside development, which is better done by disabling springdoc per profile than by securing the path.
 
 Task 23 documents the exact frontend command that consumes it.

@@ -53,17 +53,39 @@ tasks.withType<Test> { useJUnitPlatform() }
  * artifact -- regenerable from a checkout, diffable in CI -- rather than something
  * only obtainable by starting the application and running curl by hand.
  */
+val openApiDocument = layout.buildDirectory.file("openapi.json")
+
+/**
+ * The output is declared on `test`, which is what actually writes it, and NOT on
+ * openApiSpec, which only checks for it.
+ *
+ * Declaring it on openApiSpec is what made the task fail every run: Gradle's stale
+ * output cleanup deletes a file that is registered as one task's output but was
+ * produced by another, and it does so immediately before the owning task executes
+ * -- so the file the test had just written was removed moments before the task
+ * looked for it. Registering it here also makes `test` re-run when the document is
+ * missing, which is the behaviour `npm run generate:api` wants.
+ */
+tasks.named<Test>("test") {
+    outputs.file(openApiDocument)
+}
+
 tasks.register("openApiSpec") {
     description = "Produces build/openapi.json for frontend type generation"
     group = "documentation"
     dependsOn("test")
-    val output = layout.buildDirectory.file("openapi.json")
-    outputs.file(output)
+    inputs.file(openApiDocument)
+    // Never up-to-date: this task's only job is to assert the file exists and say
+    // where it is, and skipping that would report success without checking.
+    outputs.upToDateWhen { false }
     doLast {
-        val file = output.get().asFile
+        val file = openApiDocument.get().asFile
         if (!file.exists()) {
             throw GradleException("openapi.json was not produced; did OpenApiDocumentTest run?")
         }
-        println("OpenAPI document written to ${'$'}{file.absolutePath}")
+        // Concatenated, not interpolated: the previous ${'$'}{...} escaped the dollar
+        // and printed the expression literally, which nobody noticed because the
+        // task never got this far.
+        println("OpenAPI document written to " + file.absolutePath)
     }
 }
