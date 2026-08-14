@@ -49,6 +49,13 @@ export function usePageHeader(): PageHeaderState {
  * Outside a provider this is a no-op rather than a throw: a page rendered on its
  * own — in a test, or in a future embedded view — should still render, and a
  * missing title is visible in the interface rather than fatal to it.
+ *
+ * The cleanup is not optional. This state lives in the provider ABOVE the router
+ * outlet, so it survives navigation: without a reset on unmount, moving from a
+ * page that sets a title to one that does not — a page that forgot the hook, or
+ * an error or loading branch that never reaches it — would leave the header
+ * announcing the previous screen's title over the new one. A stale-but-plausible
+ * title is worse than an absent one, because nothing about it looks wrong.
  */
 export function useSetPageHeader(title: string, meta?: string): void {
   const context = useContext(PageHeaderContext);
@@ -56,5 +63,6 @@ export function useSetPageHeader(title: string, meta?: string): void {
 
   useEffect(() => {
     setPageHeader?.({ title, meta });
+    return () => setPageHeader?.({ title: "" });
   }, [setPageHeader, title, meta]);
 }

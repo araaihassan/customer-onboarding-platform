@@ -33,12 +33,18 @@ export default function TenantLayout({
         <PageHeaderProvider>
           <div className="flex min-h-screen">
             <Sidebar slug={slug} />
-            {/* min-w-0 is load-bearing: without it a long mono string in a table
+            {/* The column is a plain div, not <main>. TopBar renders a <header>,
+                which is only the `banner` landmark while it is not inside <main>
+                — nesting it would leave the authenticated application with no
+                banner at all and put the global controls inside the main content
+                region on every screen.
+
+                min-w-0 is load-bearing: without it a long mono string in a table
                 cell sets the column's minimum content width and blows out the
                 grid instead of ellipsising. */}
-            <main className="flex flex-1 min-w-0 flex-col">
+            <div className="flex flex-1 min-w-0 flex-col">
               <TopBar />
-              <div
+              <main
                 className="flex-1 px-[var(--ob-space-16)] md:px-[var(--ob-content-padding-x)]"
                 style={{
                   paddingTop: "var(--ob-content-padding-top)",
@@ -48,8 +54,8 @@ export default function TenantLayout({
                 }}
               >
                 {children}
-              </div>
-            </main>
+              </main>
+            </div>
           </div>
         </PageHeaderProvider>
       </AuthGuard>

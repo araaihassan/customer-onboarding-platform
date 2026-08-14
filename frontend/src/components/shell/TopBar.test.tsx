@@ -17,6 +17,11 @@ function Page({ title, meta }: { title: string; meta?: string }) {
   return null;
 }
 
+/** A page that forgets the hook — an error branch, a loading branch, an oversight. */
+function PageWithoutHeader() {
+  return null;
+}
+
 function renderTopBar(title = "Customers", meta?: string) {
   return render(
     <PageHeaderProvider>
@@ -24,6 +29,14 @@ function renderTopBar(title = "Customers", meta?: string) {
       <Page title={title} meta={meta} />
     </PageHeaderProvider>,
   );
+}
+
+function accountTrigger() {
+  return screen.getByRole("button", { name: /account menu for maria kessler/i });
+}
+
+function signOut() {
+  return screen.queryByRole("button", { name: /sign out/i });
 }
 
 beforeEach(() => {
@@ -48,34 +61,107 @@ describe("TopBar", () => {
     expect(screen.queryByText("48 active")).toBeNull();
   });
 
-  it("keeps the account menu closed until it is opened", () => {
-    renderTopBar();
-    const trigger = screen.getByRole("button", { name: /maria kessler/i });
-    expect(trigger.getAttribute("aria-expanded")).toBe("false");
-    expect(screen.queryByRole("menu")).toBeNull();
-
-    fireEvent.click(trigger);
-    expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("menu")).not.toBeNull();
+  /**
+   * An <h1> with no text is an axe `empty-heading` violation, and there is always
+   * at least one frame with no title — the page sets it from an effect, which runs
+   * after this header has rendered.
+   */
+  it("renders no heading at all until a title exists", () => {
+    render(
+      <PageHeaderProvider>
+        <TopBar />
+        <PageWithoutHeader />
+      </PageHeaderProvider>,
+    );
+    expect(screen.queryByRole("heading")).toBeNull();
   });
 
-  it("signs out from the account menu", async () => {
+  /**
+   * The regression this guards: header state lives in the provider ABOVE the
+   * router outlet, so it survives navigation. Moving to a page that sets no
+   * header must not leave the previous screen's title announcing the new one.
+   */
+  it("drops the title when navigating to a page that sets no header", () => {
+    function Harness({ withHeader }: { withHeader: boolean }) {
+      return (
+        <PageHeaderProvider>
+          <TopBar />
+          {withHeader ? <Page title="Customers" meta="48 active" /> : <PageWithoutHeader />}
+        </PageHeaderProvider>
+      );
+    }
+
+    const { rerender } = render(<Harness withHeader />);
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("Customers");
+    expect(screen.getByText("48 active")).not.toBeNull();
+
+    rerender(<Harness withHeader={false} />);
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(screen.queryByText("48 active")).toBeNull();
+  });
+
+  it("keeps the account popover closed until it is opened", () => {
     renderTopBar();
-    fireEvent.click(screen.getByRole("button", { name: /maria kessler/i }));
+    expect(accountTrigger().getAttribute("aria-expanded")).toBe("false");
+    expect(signOut()).toBeNull();
+
+    fireEvent.click(accountTrigger());
+    expect(accountTrigger().getAttribute("aria-expanded")).toBe("true");
+    expect(signOut()).not.toBeNull();
+  });
+
+  /**
+   * Deliberately NOT the ARIA menu pattern: role="menu" only admits
+   * menuitem/group/separator, so the identity block inside would be an
+   * aria-required-children violation, and it would promise arrow-key navigation
+   * a single action does not implement.
+   */
+  it("is a labelled popover, not an ARIA menu", () => {
+    renderTopBar();
+    fireEvent.click(accountTrigger());
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(screen.queryByRole("menuitem")).toBeNull();
+    expect(screen.getByRole("group", { name: /account menu for maria kessler/i })).not.toBeNull();
+  });
+
+  it("signs out from the account popover", async () => {
+    renderTopBar();
+    fireEvent.click(accountTrigger());
     await act(async () => {
-      fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
+      fireEvent.click(signOut()!);
     });
     expect(logout).toHaveBeenCalledTimes(1);
   });
 
-  /** Escape closes and returns focus to the trigger — component-specs §2. */
-  it("closes the account menu on Escape and returns focus to the trigger", () => {
+  it("moves focus into the popover on open", () => {
     renderTopBar();
-    const trigger = screen.getByRole("button", { name: /maria kessler/i });
+    fireEvent.click(accountTrigger());
+    expect(document.activeElement).toBe(signOut());
+  });
+
+  it("closes the account popover on Escape and returns focus to the trigger", () => {
+    renderTopBar();
+    const trigger = accountTrigger();
     fireEvent.click(trigger);
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("menu")).toBeNull();
+    expect(signOut()).toBeNull();
     expect(document.activeElement).toBe(trigger);
+  });
+
+  /**
+   * Tab out must close it. Otherwise the popover floats over content the user has
+   * moved on to, with their focus already somewhere behind it.
+   */
+  it("closes the account popover when focus leaves it", () => {
+    renderTopBar();
+    fireEvent.click(accountTrigger());
+    const outside = document.createElement("button");
+    document.body.appendChild(outside);
+
+    fireEvent.blur(signOut()!, { relatedTarget: outside });
+
+    expect(signOut()).toBeNull();
+    outside.remove();
   });
 
   it("renders the theme toggle", () => {
