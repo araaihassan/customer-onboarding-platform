@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { apiContext, provisionTenant, signIn } from "./support/tenant";
+import { Api, apiContext, provisionTenant, signIn } from "./support/tenant";
 import type { Tenant } from "./support/tenant";
 
 /**
@@ -46,10 +46,17 @@ test("users screen: invite, assign a role, deactivate", async ({ page }) => {
 
   await row.getByRole("button", { name: "Manage roles for Sam Colleague" }).click();
   const roles = page.getByRole("dialog", { name: "Manage roles for Sam Colleague" });
-  await roles.getByRole("button", { name: "Assign Support" }).click();
-  await expect(roles.getByRole("button", { name: "Remove Support" })).toBeVisible();
+  // A MULTI-WORD seeded role, deliberately. The first version of this test
+  // assigned "Support", and a single word survives StatusPill's humanise()
+  // unchanged — which is exactly why the role chip rendering "Sales
+  // representative" for "Sales Representative" went unnoticed.
+  await roles.getByRole("button", { name: "Assign Account Manager" }).click();
+  await expect(roles.getByRole("button", { name: "Remove Account Manager" })).toBeVisible();
   await roles.getByRole("button", { name: "Close" }).click();
-  await expect(row.getByText("Support")).toBeVisible();
+
+  // Exact text: the name is tenant-authored human text and must reach the
+  // accessibility tree as its author wrote it, not lower-cased or uppercased.
+  await expect(row.getByText("Account Manager", { exact: true })).toBeVisible();
 
   // Deactivation, never deletion — there is no delete on a user, and no control
   // for one anywhere on this screen.
@@ -102,4 +109,82 @@ test("role editor: rescope a grant and save it", async ({ page }) => {
   await expect(
     page.getByRole("listitem").filter({ hasText: "View customers" }).getByRole("combobox"),
   ).toHaveValue("DEPARTMENT");
+});
+
+/**
+ * A failed catalog fetch must not be rendered as "this user holds no roles".
+ *
+ * Route interception rather than a contrived tenant: the failure under test is a
+ * 500 from `/admin/roles`, and there is no way to provoke one from real data.
+ * Everything else on the screen is genuine.
+ */
+test("a failed roles fetch is reported, never rendered as 'No roles'", async ({ page }) => {
+  await signIn(page, tenant.slug, tenant.adminEmail);
+
+  await page.route("**/api/t/*/admin/roles", (route) =>
+    route.fulfill({ status: 500, contentType: "application/json", body: "{}" }),
+  );
+
+  await page.goto(`/t/${tenant.slug}/admin/users`);
+  await expect(page.getByRole("heading", { level: 1, name: "Users" })).toBeVisible();
+
+  const row = page.getByRole("listitem").filter({ hasText: tenant.adminEmail });
+
+  // The screen says what went wrong and offers a way out...
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Roles could not be loaded" }),
+  ).toBeVisible();
+  // ...the row admits it does not know...
+  await expect(row.getByText("Roles unknown")).toBeVisible();
+  // ...and never claims the opposite. The administrator demonstrably holds a
+  // role, so "No roles" here would be a false statement about authorization.
+  await expect(row.getByText("No roles")).toHaveCount(0);
+  // The trigger is gone too: the dialog it opens lists roles, and would open
+  // onto an empty list reading as "this tenant has none".
+  await expect(row.getByRole("button", { name: /^Manage roles for/ })).toHaveCount(0);
+});
+
+/**
+ * The list requests 25 and reports the total. Without a pager, a tenant with more
+ * than 25 users shows a count it cannot reach — search being the only route to
+ * anybody past the first page.
+ */
+test("the user list pages through more users than fit on one page", async ({
+  page,
+  playwright,
+}) => {
+  const request = await apiContext(playwright);
+  const paged = await provisionTenant(request, "paged");
+  const admin = await Api.as(request, paged.slug, paged.adminEmail);
+
+  // 25 is the page size, so 26 plus the administrator is two pages with a
+  // deliberately short second one.
+  for (let i = 0; i < 26; i += 1) {
+    const padded = String(i).padStart(2, "0");
+    await admin.createUser(`member${padded}@${paged.slug}.test`, `Member ${padded}`);
+  }
+  await request.dispose();
+
+  await signIn(page, paged.slug, paged.adminEmail);
+  await page.goto(`/t/${paged.slug}/admin/users`);
+  await expect(page.getByRole("heading", { level: 1, name: "Users" })).toBeVisible();
+
+  await expect(page.getByText("27 shown")).toBeVisible();
+  // Scoped to <main>: the rail's nav links are list items too, and an unscoped
+  // count silently includes them.
+  const rows = page.locator("main").getByRole("listitem");
+  await expect(rows).toHaveCount(25);
+
+  const pager = page.getByRole("navigation", { name: "User list pages" });
+  await expect(pager.getByText("Page 1 of 2")).toBeVisible();
+  await expect(pager.getByRole("button", { name: "Previous page" })).toBeDisabled();
+
+  await pager.getByRole("button", { name: "Next page" }).click();
+  await expect(pager.getByText("Page 2 of 2")).toBeVisible();
+  await expect(rows).toHaveCount(2);
+  await expect(pager.getByRole("button", { name: "Next page" })).toBeDisabled();
+
+  await pager.getByRole("button", { name: "Previous page" }).click();
+  await expect(pager.getByText("Page 1 of 2")).toBeVisible();
+  await expect(rows).toHaveCount(25);
 });

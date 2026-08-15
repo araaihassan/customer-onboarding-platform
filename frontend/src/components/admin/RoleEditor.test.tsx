@@ -177,6 +177,29 @@ describe("RoleEditor", () => {
     }
   });
 
+  /**
+   * The panel carries two mutations and used to report only one. A rejected
+   * disable left the switch snapping back to its old position with no
+   * explanation — an interface that appears to have ignored the user, which is
+   * worse than an error.
+   */
+  it("reports a failed enable/disable, not only a failed save", async () => {
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/disable")
+        ? ({ ok: false, status: 500, text: async () => "boom" } as unknown as Response)
+        : ({ ok: true, status: 204, text: async () => "", json: async () => undefined } as unknown as Response),
+    );
+
+    renderEditor();
+    fireEvent.click(screen.getByRole("switch", { name: "Role enabled" }));
+
+    await vi.waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toBe(
+        "That change could not be saved. The role is unchanged.",
+      ),
+    );
+  });
+
   it("offers no save affordance to a user who cannot manage roles", () => {
     renderEditor(ROLE, false);
 
