@@ -52,15 +52,17 @@ async function assertTheme(page: Page, theme: (typeof THEMES)[number]) {
 }
 
 /**
- * Serious and critical only, which is the spec's own bar (§12 item 7). Nothing is
- * excluded and no rule is disabled: an axe rule turned off to get green is the
- * one change that turns this file into decoration.
+ * axe's full default rule set — no `withTags` filter, no `disableRules`, no
+ * excluded selectors. A rule turned off to get green is the one change that turns
+ * this file into decoration.
+ *
+ * The gate is serious and critical, which is the spec's own bar (§12 item 7). At
+ * the time of writing all three screens report **zero violations at every
+ * impact** in both themes, so anything that appears below the gate is new too,
+ * and worth looking at rather than raising the bar to hide.
  */
 async function scan(page: Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
-    .analyze();
-
+  const results = await new AxeBuilder({ page }).analyze();
   return results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
 }
 

@@ -357,7 +357,6 @@ function PermissionRow({
                 {t("role.scope")}
               </span>
               <span
-                data-testid="fixed-scope"
                 className="text-text-secondary"
                 style={{
                   height: "var(--ob-control-height-sm)",
