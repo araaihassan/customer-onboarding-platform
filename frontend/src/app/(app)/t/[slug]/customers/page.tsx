@@ -9,6 +9,7 @@ import { PlusIcon, SearchIcon, UsersIcon } from "@/components/icons";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Dialog } from "@/components/ui/Dialog";
+import { Pagination } from "@/components/ui/Pagination";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { CUSTOMER_STATUSES, useCreateCustomer, useCustomers } from "@/lib/api/customers";
 import type { CustomerStatus } from "@/lib/api/customers";
@@ -152,6 +153,7 @@ export default function CustomersPage() {
           <CustomerTable customers={customers} slug={slug} />
           {totalPages > 1 && (
             <Pagination
+              label={t("customer.page.nav")}
               page={page}
               totalPages={totalPages}
               onChange={setPage}
@@ -242,50 +244,5 @@ function FilterChip({
     >
       {label}
     </button>
-  );
-}
-
-function Pagination({
-  page,
-  totalPages,
-  onChange,
-  disabled,
-}: {
-  page: number;
-  totalPages: number;
-  onChange: (next: number) => void;
-  disabled: boolean;
-}) {
-  return (
-    <nav
-      aria-label={t("customer.page.nav")}
-      className="flex items-center justify-end"
-      style={{ gap: "var(--ob-space-11)", marginTop: "var(--ob-space-16)" }}
-    >
-      <span
-        className="text-text-muted"
-        style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)" }}
-      >
-        {t("customer.page.position", { page: String(page + 1), pages: String(totalPages) })}
-      </span>
-      {/* Text labels, not bare chevrons: an icon-only control with no accessible
-          name is unusable to anyone not looking at it. */}
-      <Button
-        type="button"
-        variant="secondary"
-        disabled={disabled || page === 0}
-        onClick={() => onChange(page - 1)}
-      >
-        {t("customer.page.previous")}
-      </Button>
-      <Button
-        type="button"
-        variant="secondary"
-        disabled={disabled || page >= totalPages - 1}
-        onClick={() => onChange(page + 1)}
-      >
-        {t("customer.page.next")}
-      </Button>
-    </nav>
   );
 }

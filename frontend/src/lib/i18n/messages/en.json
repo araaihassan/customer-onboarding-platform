@@ -45,9 +45,6 @@
   "customer.table.industry": "Industry",
   "customer.table.country": "Country",
   "customer.page.nav": "Customer list pages",
-  "customer.page.position": "Page {page} of {pages}",
-  "customer.page.previous": "Previous page",
-  "customer.page.next": "Next page",
   "customer.create.title": "New customer",
   "customer.create.submit": "Create customer",
   "customer.detail.back": "Back to customers",
@@ -149,5 +146,12 @@
   "auth.activate.invalid": "That link is invalid or has expired. Ask for a new one.",
   "auth.activate.tooShort": "Use at least 12 characters.",
   "auth.activate.mismatch": "Those passwords do not match.",
-  "auth.reset.invalid": "That link is invalid or has expired. Ask for a new one."
+  "auth.reset.invalid": "That link is invalid or has expired. Ask for a new one.",
+  "page.position": "Page {page} of {pages}",
+  "page.previous": "Previous page",
+  "page.next": "Next page",
+  "admin.users.page.nav": "User list pages",
+  "role.enableFailed": "That change could not be saved. The role is unchanged.",
+  "admin.users.roles.unknown": "Roles unknown",
+  "admin.users.roles.unavailable": "Roles could not be loaded, so role membership is not shown."
 }

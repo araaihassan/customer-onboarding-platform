@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { PlusIcon, SearchIcon, UsersIcon } from "@/components/icons";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { Field } from "@/components/ui/Field";
+import { Pagination } from "@/components/ui/Pagination";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { StatusPill } from "@/components/ui/StatusPill";
 import {
@@ -40,11 +42,12 @@ export default function UsersPage() {
 
   const [searchInput, setSearchInput] = useState("");
   const search = useDebounced(searchInput, 250);
+  const [page, setPage] = useState(0);
   const [inviting, setInviting] = useState(false);
   const [managingRolesFor, setManagingRolesFor] = useState<User | null>(null);
   const [deactivating, setDeactivating] = useState<User | null>(null);
 
-  const users = useUsers(search, canView);
+  const users = useUsers(search, page, canView);
   // Only fetched when the screen can actually do something with them: role
   // membership is rendered by name, and that needs the catalog.
   const roles = useRoles(canViewRoles);
@@ -55,7 +58,11 @@ export default function UsersPage() {
 
   const list = users.data?.content ?? [];
   const total = users.data?.totalElements ?? 0;
+  const totalPages = users.data?.totalPages ?? 0;
   const searching = Boolean(search.trim());
+  // A failed catalog fetch is not "this user holds no roles". Rendering it as
+  // one would make an authorization screen assert something it does not know.
+  const rolesUnavailable = canViewRoles && roles.isError;
 
   // Re-read from the freshly invalidated list, so the dialog reflects the
   // assignment that just landed rather than the snapshot it opened with.
@@ -88,7 +95,12 @@ export default function UsersPage() {
             id="user-search"
             type="search"
             value={searchInput}
-            onChange={(event) => setSearchInput(event.target.value)}
+            onChange={(event) => {
+              setSearchInput(event.target.value);
+              // Page 3 of a search that no longer applies is a blank screen with
+              // no explanation.
+              setPage(0);
+            }}
             placeholder={t("admin.users.search")}
             className="bg-bg-surface border border-border-default text-text-primary"
             style={{
@@ -147,22 +159,72 @@ export default function UsersPage() {
           description={searching ? t("admin.users.noMatchHint") : t("admin.users.emptyHint")}
         />
       ) : (
-        <ul className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
-          {list.map((user) => (
-            <UserRow
-              key={user.id}
-              user={user}
-              roles={roles.data ?? []}
-              canManage={canManage}
-              canViewRoles={canViewRoles}
-              onManageRoles={() => setManagingRolesFor(user)}
-              onDeactivate={() => {
-                deactivate.reset();
-                setDeactivating(user);
+        <>
+          {/* The catalog failed, but the users did not. Saying so is the only
+              honest option: the list below is correct except that it cannot name
+              anybody's roles, and silently rendering "No roles" would be this
+              screen asserting the opposite of what it knows. */}
+          {rolesUnavailable && (
+            <div
+              role="alert"
+              className="flex items-center flex-wrap bg-bg-surface border border-border-default rounded-card"
+              style={{
+                gap: "var(--ob-space-11)",
+                padding: "var(--ob-space-11) var(--ob-space-16)",
+                marginBottom: "var(--ob-space-8)",
               }}
+            >
+              <span
+                className="flex-1 min-w-0"
+                style={{
+                  color: "var(--ob-status-blocked-fg)",
+                  font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+                }}
+              >
+                {t("admin.users.roles.unavailable")}
+              </span>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => void roles.refetch()}
+                style={{ height: "var(--ob-control-height-sm)" }}
+              >
+                {t("common.retry")}
+              </Button>
+            </div>
+          )}
+
+          <ul className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
+            {list.map((user) => (
+              <UserRow
+                key={user.id}
+                user={user}
+                roles={roles.data ?? []}
+                canManage={canManage}
+                canViewRoles={canViewRoles}
+                rolesUnavailable={rolesUnavailable}
+                onManageRoles={() => setManagingRolesFor(user)}
+                onDeactivate={() => {
+                  deactivate.reset();
+                  setDeactivating(user);
+                }}
+              />
+            ))}
+          </ul>
+
+          {totalPages > 1 && (
+            <Pagination
+              label={t("admin.users.page.nav")}
+              page={page}
+              totalPages={totalPages}
+              onChange={setPage}
+              // isFetching, not isLoading: the previous page stays on screen
+              // while the next one loads, so without this a second click would
+              // queue a page the user never sees the first of.
+              disabled={users.isFetching}
             />
-          ))}
-        </ul>
+          )}
+        </>
       )}
 
       {inviting && (
@@ -178,12 +240,16 @@ export default function UsersPage() {
         </Dialog>
       )}
 
-      {managing && (
+      {/* `roles.data` is the guard as well as the source: RoleAssignment's empty
+          state means "this tenant has no roles", and it must never be reachable
+          by a fetch that failed. The trigger is already hidden in that case; this
+          is the same statement where the dialog can see it. */}
+      {managing && roles.data && (
         <Dialog
           title={t("admin.users.roles.for", { name: managing.fullName ?? "" })}
           onClose={() => setManagingRolesFor(null)}
         >
-          <RoleAssignment user={managing} roles={roles.data ?? []} />
+          <RoleAssignment user={managing} roles={roles.data} />
           <DialogActions>
             <Button type="button" variant="secondary" onClick={() => setManagingRolesFor(null)}>
               {t("common.close")}
@@ -247,6 +313,7 @@ function UserRow({
   roles,
   canManage,
   canViewRoles,
+  rolesUnavailable,
   onManageRoles,
   onDeactivate,
 }: {
@@ -254,6 +321,8 @@ function UserRow({
   roles: Role[];
   canManage: boolean;
   canViewRoles: boolean;
+  /** The catalog failed to load, so nothing here can name a role. */
+  rolesUnavailable: boolean;
   onManageRoles: () => void;
   onDeactivate: () => void;
 }) {
@@ -290,24 +359,21 @@ function UserRow({
 
         <div className="flex flex-wrap items-center" style={{ gap: "var(--ob-space-8)" }}>
           {canViewRoles &&
-            (heldNames.length > 0 ? (
-              heldNames.map((roleName) => (
-                // Neutral: a role is not a state, and a colour that names no
-                // state is decoration.
-                <StatusPill key={roleName} status={roleName} role="neutral" />
-              ))
+            (rolesUnavailable ? (
+              // Not "No roles": that is a claim about this user, and the request
+              // that would have supported it failed.
+              <Quiet>{t("admin.users.roles.unknown")}</Quiet>
+            ) : heldNames.length > 0 ? (
+              heldNames.map((roleName) => <RoleChip key={roleName} name={roleName} />)
             ) : (
-              <span
-                className="text-text-muted"
-                style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
-              >
-                {t("admin.users.noRoles")}
-              </span>
+              <Quiet>{t("admin.users.noRoles")}</Quiet>
             ))}
 
           <StatusPill status={user.status} />
 
-          {canManage && canViewRoles && (
+          {/* Hidden while the catalog is unreachable: the dialog it opens lists
+              roles, and it would open onto nothing. */}
+          {canManage && canViewRoles && !rolesUnavailable && (
             <Button
               type="button"
               variant="secondary"
@@ -336,6 +402,49 @@ function UserRow({
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * A role's name, as its author wrote it.
+ *
+ * Deliberately NOT StatusPill, which was the first attempt and was wrong twice
+ * over. StatusPill humanises what it is given — first character kept, the rest
+ * lower-cased — so "Sales Representative" and "Account Manager" reached the DOM,
+ * and the accessibility tree, as "Sales representative" and "Account manager".
+ * It also renders in `font-family-data` and uppercases, and a tenant-authored
+ * role name is human text: Archivo, as written, per the mono-is-for-machines
+ * rule.
+ *
+ * Neutral, because a role is not a state, and a colour naming no state is
+ * decoration. The e2e suite missed this because the only roles it asserted --
+ * "Administrator" and "Support" -- are single words that survive humanise()
+ * unchanged.
+ */
+function RoleChip({ name }: { name: string }) {
+  return (
+    <span
+      className="bg-bg-inset text-text-secondary whitespace-nowrap"
+      style={{
+        borderRadius: "var(--ob-radius-pill)",
+        padding: "3px 9px",
+        font: "500 var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+      }}
+    >
+      {name}
+    </span>
+  );
+}
+
+/** A muted statement where a chip would otherwise be. */
+function Quiet({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className="text-text-muted"
+      style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+    >
+      {children}
+    </span>
   );
 }
 

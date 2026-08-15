@@ -32,7 +32,8 @@ export const adminKeys = {
   all: ["admin"] as const,
   permissions: () => [...adminKeys.all, "permissions"] as const,
   roles: () => [...adminKeys.all, "roles"] as const,
-  users: (search: string) => [...adminKeys.all, "users", search.trim()] as const,
+  users: (search: string, page: number) =>
+    [...adminKeys.all, "users", search.trim(), page] as const,
   departments: () => [...adminKeys.all, "departments"] as const,
   teams: () => [...adminKeys.all, "teams"] as const,
 };
@@ -66,16 +67,19 @@ export function useRoles(enabled = true) {
   });
 }
 
-export function useUsers(search: string, enabled = true) {
+export function useUsers(search: string, page = 0, enabled = true) {
   return useQuery({
-    queryKey: adminKeys.users(search),
+    queryKey: adminKeys.users(search, page),
     queryFn: () => {
       const query = new URLSearchParams();
       const trimmed = search.trim();
       if (trimmed) query.set("search", trimmed);
+      query.set("page", String(page));
       query.set("size", String(USER_PAGE_SIZE));
       return apiFetch<UserPage>(`/admin/users?${query.toString()}`);
     },
+    // The previous page stays on screen while the next one loads, so paging and
+    // searching do not flash a skeleton over a list the user is reading.
     placeholderData: (previous) => previous,
     enabled,
   });

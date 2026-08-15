@@ -72,6 +72,10 @@ export function RoleEditor({
   }
 
   function save() {
+    // The panel shows one alert for two mutations, so each clears the other's
+    // stale message. An error that outlives its cause trains people to ignore
+    // errors.
+    setEnabled.reset();
     updateGrants.mutate(
       { roleId, grants: draft },
       { onSuccess: () => setAnnouncement(t("role.saved")) },
@@ -219,13 +223,19 @@ export function RoleEditor({
                   checked={role.enabled ?? false}
                   labelledBy={`${roleId}-enabled-label`}
                   disabled={setEnabled.isPending}
-                  onChange={(next) =>
-                    setEnabled.mutate({ roleId, enabled: next })
-                  }
+                  onChange={(next) => {
+                    updateGrants.reset();
+                    setEnabled.mutate({ roleId, enabled: next });
+                  }}
                 />
               </div>
 
-              {updateGrants.isError && (
+              {/* Both mutations on this panel report failure, not just the one
+                  with a Save button. A rejected disable otherwise leaves the
+                  switch snapping back to its old position with no explanation —
+                  the user sees an interface that ignored them, which is worse
+                  than an error. */}
+              {(updateGrants.isError || setEnabled.isError) && (
                 <p
                   role="alert"
                   style={{
@@ -234,7 +244,7 @@ export function RoleEditor({
                     font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
                   }}
                 >
-                  {t("role.saveFailed")}
+                  {updateGrants.isError ? t("role.saveFailed") : t("role.enableFailed")}
                 </p>
               )}
 
