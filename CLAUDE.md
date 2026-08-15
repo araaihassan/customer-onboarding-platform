@@ -126,17 +126,17 @@ cd backend && ./gradlew cleanTest test     # needs Docker running
 cd frontend && npx vitest run
 ```
 
-After Task 28 these were 158 backend tests over 42 classes, 130 frontend tests over 17 files, and 20
-Playwright tests over 5 specs, all green.
+After Task 28 these were 158 backend tests over 42 classes, 138 frontend tests over 18 files, and 23
+Playwright tests over 6 specs, all green.
 
 **Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
 prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a green run.
 `org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
 cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
 
-`cd frontend && npx playwright test` is the end-to-end command: 20 tests over five specs — login,
-activation, refresh rotation and reuse, customers with permission gating, and accessibility in both
-themes. It starts **both** applications itself, so nothing needs to be running first; if 8080 or
+`cd frontend && npx playwright test` is the end-to-end command: 23 tests over six specs — login,
+activation, refresh rotation and reuse, customers with permission gating, the administration
+screens, and accessibility in both themes. It starts **both** applications itself, so nothing needs to be running first; if 8080 or
 3000 is already bound it reuses what is there, which is wrong often enough that killing strays
 first is worth it. The backend goes through `e2e/support/backend.mjs`, which tees its output to
 `frontend/e2e/.artifacts/backend.log` — **that log is the only place an activation token exists**,

@@ -36,6 +36,24 @@ test.beforeAll(async ({ playwright }) => {
 const THEMES = ["light", "dark"] as const;
 
 /**
+ * Every authenticated screen the sweeps below walk, with the <h1> each one puts
+ * in the shell header via `useSetPageHeader`.
+ *
+ * The heading is the precondition, not decoration. Waiting on the rail would only
+ * prove the layout rendered — it lives above the router outlet, so it survives a
+ * page throwing into Next's error boundary, and a sweep that found no unlabelled
+ * controls on a screen that never rendered would be a green test for a blank
+ * page.
+ */
+const SCREENS: { path: string; heading: string }[] = [
+  { path: "dashboard", heading: "Dashboard" },
+  { path: "customers", heading: "Customers" },
+  { path: "admin/roles", heading: "Roles" },
+  { path: "admin/users", heading: "Users" },
+  { path: "admin/org", heading: "Organisation" },
+];
+
+/**
  * next-themes writes `data-theme` on <html>, not a class, and the dark tokens are
  * keyed on the attribute. Setting localStorage before the page loads is what makes
  * the first paint the theme under test — flipping it afterwards would leave axe
@@ -169,9 +187,12 @@ test("any progress bar exposes an aria-valuenow matching its visible percentage"
 }) => {
   await signIn(page, tenant.slug, tenant.adminEmail);
 
-  for (const path of ["dashboard", "customers", `customers/${customerId}`, "admin/roles", "admin/users", "admin/org"]) {
+  for (const { path, heading } of [
+    ...SCREENS,
+    { path: `customers/${customerId}`, heading: "Tailspin Toys" },
+  ]) {
     await page.goto(`/t/${tenant.slug}/${path}`);
-    await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
 
     const mismatches = await page.evaluate(() =>
       Array.from(document.querySelectorAll('[role="progressbar"]'))
@@ -197,9 +218,12 @@ test("any progress bar exposes an aria-valuenow matching its visible percentage"
 test("no interactive element is an unlabelled icon-only control", async ({ page }) => {
   await signIn(page, tenant.slug, tenant.adminEmail);
 
-  for (const path of ["dashboard", "customers", `customers/${customerId}`, "admin/roles", "admin/users", "admin/org"]) {
+  for (const { path, heading } of [
+    ...SCREENS,
+    { path: `customers/${customerId}`, heading: "Tailspin Toys" },
+  ]) {
     await page.goto(`/t/${tenant.slug}/${path}`);
-    await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: heading })).toBeVisible();
 
     const unnamed = await page.evaluate(() =>
       Array.from(
