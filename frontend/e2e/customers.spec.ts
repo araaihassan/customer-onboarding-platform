@@ -64,6 +64,37 @@ test("creates a customer and sees it in the list", async ({ page }) => {
   await expect(page.getByRole("link", { name: "Fabrikam Freight" })).toBeVisible();
 });
 
+/**
+ * Below 1024px the table stops being a table and becomes a two-line card list. A
+ * table cannot be made to fit a phone by shrinking it.
+ *
+ * In Playwright rather than a unit test because jsdom does no layout: there, a
+ * `lg:hidden` class is a string, and both views are "present" whatever the
+ * viewport says.
+ */
+test("the customer table becomes a card list below 1024px", async ({ page }) => {
+  await signIn(page, tenant.slug, tenant.adminEmail);
+
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`/t/${tenant.slug}/customers`);
+  await expect(page.locator('[data-view="table"]')).toBeVisible();
+  await expect(page.locator('[data-view="cards"]')).toBeHidden();
+  // The same record is reachable either way, under the same accessible name.
+  await expect(page.getByRole("link", { name: "Contoso Logistics" })).toBeVisible();
+
+  await page.setViewportSize({ width: 1023, height: 900 });
+  await expect(page.locator('[data-view="table"]')).toBeHidden();
+  await expect(page.locator('[data-view="cards"]')).toBeVisible();
+  await expect(page.getByRole("link", { name: "Contoso Logistics" })).toBeVisible();
+
+  // And the page itself never scrolls sideways, which is the failure a table
+  // squeezed below its breakpoint actually produces.
+  const overflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+  );
+  expect(overflow, "the page scrolls horizontally at 1023px").toBe(false);
+});
+
 test("sends an invitation to a contact", async ({ page }) => {
   await signIn(page, tenant.slug, tenant.adminEmail);
   await page.goto(`/t/${tenant.slug}/customers/${customerId}`);

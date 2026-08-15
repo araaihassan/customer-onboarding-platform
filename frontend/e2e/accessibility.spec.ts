@@ -210,6 +210,47 @@ test("any progress bar exposes an aria-valuenow matching its visible percentage"
 });
 
 /**
+ * The rail collapses to 56px icons at or below 1280px, and its labels stay in the
+ * DOM as `sr-only` precisely so the accessible name of each link does not change
+ * with the viewport.
+ *
+ * jsdom does no layout, so a unit test can only check that a class is present.
+ * This is the assertion that checks the effect — and if it passes at 1440 and
+ * fails at 1280, that is a regression in the rail, not a test needing a
+ * breakpoint guard.
+ */
+test("navigation keeps its accessible names at every breakpoint", async ({ page }) => {
+  await signIn(page, tenant.slug, tenant.adminEmail);
+
+  const names: Record<number, string[]> = {};
+
+  for (const width of [1440, 1281, 1280, 1024]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(`/t/${tenant.slug}/customers`);
+
+    const nav = page.getByRole("navigation", { name: "Main navigation" });
+    await expect(nav).toBeVisible();
+    // textContent, not innerText: the labels are `sr-only` below 1281px, and
+    // innerText reports "" for clipped text — which would make this pass by
+    // comparing two empty lists.
+    names[width] = await nav.getByRole("link").evaluateAll((links) =>
+      links.map((link) => (link.textContent ?? "").trim()),
+    );
+
+    // Collapsed or not, the rail is still a 56px column of reachable links.
+    const railWidth = await page
+      .locator("aside")
+      .first()
+      .evaluate((el) => el.getBoundingClientRect().width);
+    expect(railWidth, `rail width at ${width}px`).toBe(width >= 1281 ? 244 : 56);
+  }
+
+  expect(names[1280], "names changed when the rail collapsed").toEqual(names[1281]);
+  expect(names[1024]).toEqual(names[1440]);
+  expect(names[1440]).toContain("Customers");
+});
+
+/**
  * An icon-only control with no accessible name is unusable to anyone not looking
  * at it, and it is the failure mode a design system full of 13px icons invites.
  * Swept across every authenticated screen rather than asserted per component,
