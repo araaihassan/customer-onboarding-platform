@@ -11,6 +11,7 @@ import {
   useCreateCustomer,
   useDeactivateCustomer,
   useSendInvitation,
+  useUpdateContact,
   useUpdateCustomer,
 } from "./customers";
 
@@ -180,6 +181,42 @@ describe("mutations", () => {
       fullName: "Ada Okonjo",
       email: "ada@northwind.test",
       primaryContact: true,
+    });
+  });
+
+  /**
+   * PUT is a full replace, and this project has been bitten by that twice — Task
+   * 27 on the three ownership ids, Task R1 on `externalRef`. So this asserts the
+   * body is EXACTLY every field `UpdateContactRequest` accepts, not merely that
+   * the ones the form shows are present: a field missing here is a field the
+   * write blanks.
+   */
+  it("updates a contact with PUT carrying every field the full replace accepts", async () => {
+    fetchMock.mockResolvedValue(reply({ id: "p-1" }));
+
+    const { result } = renderHook(() => useUpdateContact(), { wrapper: makeWrapper() });
+    await result.current.mutateAsync({
+      customerId: "c-1",
+      contactId: "p-1",
+      body: {
+        fullName: "Ada Okonjo",
+        email: "ada@northwind.test",
+        title: "Head of Operations",
+        phone: "+44 20 7946 0000",
+        primaryContact: true,
+        status: "INACTIVE",
+      },
+    });
+
+    expect(lastUrl()).toBe("/api/t/acme/customers/c-1/contacts/p-1");
+    expect(lastInit().method).toBe("PUT");
+    expect(JSON.parse(lastInit().body as string)).toEqual({
+      fullName: "Ada Okonjo",
+      email: "ada@northwind.test",
+      title: "Head of Operations",
+      phone: "+44 20 7946 0000",
+      primaryContact: true,
+      status: "INACTIVE",
     });
   });
 

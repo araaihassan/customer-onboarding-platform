@@ -10,10 +10,28 @@ import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { PlusIcon, UsersIcon } from "@/components/icons";
-import { useCreateContact, useSendInvitation } from "@/lib/api/customers";
+import { ApiError } from "@/lib/api/client";
+import { useCreateContact, useSendInvitation, useUpdateContact } from "@/lib/api/customers";
 import type { Contact } from "@/lib/api/customers";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
+
+/**
+ * What a failed write says.
+ *
+ * 409 is the duplicate address — a foreseeable user error with one field to fix,
+ * so "Something went wrong" would send the reader looking for a server fault
+ * instead. 404 renders "Not found" and says nothing about access: the backend
+ * answers 404 for a record that does not exist and for one outside the caller's
+ * scope, deliberately and identically, and naming access here would hand back
+ * exactly the fact the 404 exists to withhold.
+ */
+function writeError(error: unknown): string | undefined {
+  if (!error) return undefined;
+  if (error instanceof ApiError && error.status === 409) return t("contact.form.duplicateEmail");
+  if (error instanceof ApiError && error.status === 404) return t("common.notFound");
+  return t("common.error");
+}
 
 /**
  * The people at a customer: adding them, and inviting them to the portal.
@@ -41,22 +59,62 @@ export function ContactList({
   const canManage = useHasPermission("contact.manage");
   const invite = useSendInvitation();
   const create = useCreateContact();
+  const update = useUpdateContact();
   const [invited, setInvited] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
   const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<Contact | null>(null);
 
   function submitNew(values: ContactFormValues) {
+    // Built field by field rather than passed whole: `status` is part of the
+    // form (the edit dialog needs it) but not of CreateContactRequest, and the
+    // service sets ACTIVE regardless. Sending it anyway would look like the
+    // client choosing a starting status when it cannot.
     create.mutate(
-      { customerId, body: values },
+      {
+        customerId,
+        body: {
+          fullName: values.fullName,
+          email: values.email,
+          title: values.title,
+          phone: values.phone,
+          primaryContact: values.primaryContact,
+        },
+      },
       {
         onSuccess: () => {
           setAdding(false);
           setAnnouncement(t("contact.create.added"));
         },
-        // No onError: the dialog stays open and ContactForm renders
-        // `create.isError` in its own role="alert", where the person who pressed
-        // the button is already looking.
+        // No onError: the dialog stays open and ContactForm renders the failure
+        // in its own role="alert", where the person who pressed the button is
+        // already looking.
+      },
+    );
+  }
+
+  function submitEdit(contact: Contact, values: ContactFormValues) {
+    // Every field UpdateContactRequest accepts, listed explicitly. A PUT is a
+    // full replace, so one omitted here is one blanked on the record.
+    update.mutate(
+      {
+        customerId,
+        contactId: contact.id ?? "",
+        body: {
+          fullName: values.fullName,
+          email: values.email,
+          title: values.title,
+          phone: values.phone,
+          primaryContact: values.primaryContact,
+          status: values.status,
+        },
+      },
+      {
+        onSuccess: () => {
+          setEditing(null);
+          setAnnouncement(t("contact.edit.saved"));
+        },
       },
     );
   }
@@ -154,6 +212,24 @@ export function ContactList({
                   {contact.primaryContact && <StatusPill status={t("contact.primary")} role="neutral" />}
                   <StatusPill status={contact.status} />
 
+                  {canManage && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      // Named for the person, like the invitation button beside
+                      // it: two rows both reading "Edit" are indistinguishable to
+                      // anyone navigating by control rather than by eye.
+                      aria-label={t("contact.edit.for", { name })}
+                      onClick={() => {
+                        update.reset();
+                        setEditing(contact);
+                      }}
+                      style={{ height: "var(--ob-control-height-sm)" }}
+                    >
+                      {t("contact.edit")}
+                    </Button>
+                  )}
+
                   {canInvite &&
                     (sent ? (
                       // The button is spent: an invitation already on its way is
@@ -219,10 +295,28 @@ export function ContactList({
       {adding && (
         <Dialog title={t("contact.create.title")} onClose={() => setAdding(false)}>
           <ContactForm
+            submitLabel={t("contact.create.submit")}
             pending={create.isPending}
-            error={create.isError ? t("common.error") : undefined}
+            error={writeError(create.error)}
             onSubmit={submitNew}
             onCancel={() => setAdding(false)}
+          />
+        </Dialog>
+      )}
+
+      {editing && (
+        <Dialog title={t("contact.edit.title")} onClose={() => setEditing(null)}>
+          {/* Keyed on the contact so switching rows remounts the form. Without
+              it React reuses the instance and its useState initialisers do not
+              re-run, so the second row opens showing the first row's values. */}
+          <ContactForm
+            key={editing.id}
+            initial={editing}
+            submitLabel={t("common.save")}
+            pending={update.isPending}
+            error={writeError(update.error)}
+            onSubmit={(values) => submitEdit(editing, values)}
+            onCancel={() => setEditing(null)}
           />
         </Dialog>
       )}

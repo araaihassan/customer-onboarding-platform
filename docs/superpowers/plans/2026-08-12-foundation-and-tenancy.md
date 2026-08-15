@@ -7485,11 +7485,44 @@ Customer summary, editable when `customer.edit` is held, contact list, and a "Se
 > `CustomerContactService.create` — *not* `invitation.send`, which gates only the button beside it,
 > and not a `contact.create` that does not exist. `CardHeader` gained an optional `action` slot.
 >
-> **Still unexposed, and the same class of gap:** `PUT /contacts/{contactId}` exists, is gated on
-> `contact.manage` and has no interface at all. Nothing in the product can correct a contact's
-> name, address or title, or set `status` to INACTIVE — which is the only deactivation a contact
-> has, since business records are never deleted. Out of scope for Task R2, which was scoped to
-> creation, and left for sub-project 2 or a further remediation pass.
+> **Editing was the same gap one endpoint over, and was closed in the Task R2 extension.**
+> `PUT /contacts/{contactId}` had existed since Task 21 with nothing calling it. That mattered more
+> than "a missing edit form" sounds: DELETE is deny-by-default at the database layer and business
+> records are deactivated rather than deleted, so `status = INACTIVE` is the **only** retirement a
+> contact has. With no edit path a contact once created was permanent *and* immutable — a typo in
+> the address an invitation is sent to could never be corrected, and a departed contact could never
+> be retired. The gate is `contact.manage`, the same as create, read off
+> `CustomerContactService.update` rather than assumed from it.
+>
+> **The full-replace check came back clean, for once.** `UpdateContactRequest` accepts six fields
+> and `ContactView` returns all six, so unlike the customer (Task 27's three ownership ids, R1's
+> `externalRef`) there is no field here that is writable but unreadable and nothing has to be
+> round-tripped blind. The form carries all six and the test asserts the PUT body equals them
+> exactly. **Run this check on every `Update*Request` you add** — it is two minutes and it has
+> already caught two silent data-erasure bugs in this sub-project.
+>
+> **A duplicate contact email answered 500.** `UNIQUE (customer_id, email)` is a foreseeable user
+> error, and an unhandled `DataIntegrityViolationException` told the caller only that something
+> broke. Now `DuplicateContactEmailException` → 409 via `customer/CustomerExceptionHandler` — in
+> the customer module, never in `platform`, which must not name a domain type. Two details worth
+> carrying forward: the translation needs `saveAndFlush`, because with an assigned id Hibernate
+> defers the INSERT to commit, which is outside any `try` in the service and outside the proxy that
+> could translate it; and it matches the Hibernate **constraint name**, with a test proving an
+> unrelated violation is *not* reported as a duplicate.
+
+- [ ] **Step 2b (Task R2 extension): a finding NOT fixed — contact creation does not scope-check its parent**
+
+`CustomerContactService.create` takes a `customerId` and writes the row without ever resolving that
+customer through `AuthorizedQuery`. `@RequirePermission` is coarse by design — `PermissionGateAspect`
+answers only "does this user hold the permission at ANY scope" — so a user holding `contact.manage`
+at DEPARTMENT, TEAM or ASSIGNED scope can attach a contact to **any** customer in the tenant,
+including ones they cannot see. Reads are unaffected (`list`, `update` and `sendInvitation` all go
+through `AuthorizedQuery` and resolve a contact's scope through its parent customer), so the
+exposure is write-side pollution rather than disclosure — they cannot read back or invite what they
+inserted. Found by reading the code during Task R2 and deliberately left alone: closing it needs a
+decision about *which* permission the parent check should use, which is a design call rather than a
+remediation. Nested creates in sub-projects 2–9 have the same shape and will inherit the same hole
+unless this is settled first.
 
 - [ ] **Step 3: Handle 404 correctly**
 

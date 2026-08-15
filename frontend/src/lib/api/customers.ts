@@ -15,7 +15,9 @@ export type CustomerPage = components["schemas"]["PageCustomerView"];
 export type CreateCustomerRequest = components["schemas"]["CreateCustomerRequest"];
 export type UpdateCustomerRequest = components["schemas"]["UpdateCustomerRequest"];
 export type CreateContactRequest = components["schemas"]["CreateContactRequest"];
+export type UpdateContactRequest = components["schemas"]["UpdateContactRequest"];
 export type CustomerStatus = NonNullable<Customer["status"]>;
+export type ContactStatus = NonNullable<Contact["status"]>;
 
 /** The four statuses, in lifecycle order — this drives the filter chips. */
 export const CUSTOMER_STATUSES: readonly CustomerStatus[] = [
@@ -160,6 +162,39 @@ export function useCreateContact() {
     mutationFn: ({ customerId, body }: { customerId: string; body: CreateContactRequest }) =>
       apiFetch<Contact>(`/customers/${customerId}/contacts`, {
         method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_contact, { customerId }) => {
+      void queryClient.invalidateQueries({ queryKey: customerKeys.contacts(customerId) });
+    },
+  });
+}
+
+/**
+ * Also `contact.manage` — the same gate as create, confirmed on
+ * CustomerContactService.update rather than assumed from it.
+ *
+ * A full replace. `UpdateContactRequest` accepts six fields and `ContactView`
+ * returns all six, so a caller can round-trip everything it does not edit; there
+ * is no field here that is writable but unreadable, which is the trap Task 27
+ * hit on the ownership ids and Task R1 hit on `externalRef`. The form supplies
+ * all six for that reason, and this hook deliberately takes the whole body
+ * rather than a patch.
+ */
+export function useUpdateContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      customerId,
+      contactId,
+      body,
+    }: {
+      customerId: string;
+      contactId: string;
+      body: UpdateContactRequest;
+    }) =>
+      apiFetch<Contact>(`/customers/${customerId}/contacts/${contactId}`, {
+        method: "PUT",
         body: JSON.stringify(body),
       }),
     onSuccess: (_contact, { customerId }) => {

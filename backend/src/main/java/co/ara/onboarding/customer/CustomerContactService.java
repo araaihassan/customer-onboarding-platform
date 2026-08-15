@@ -5,6 +5,8 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -76,7 +78,7 @@ public class CustomerContactService {
         // A contact starts ACTIVE with no linked user; userId is set only when the
         // portal invitation is accepted (spec 9.1, QA Q12).
         c.setStatus(ContactStatus.ACTIVE);
-        return toView(repository.save(c));
+        return toView(save(c));
     }
 
     @RequirePermission(PermissionKeys.CONTACT_MANAGE)
@@ -90,7 +92,48 @@ public class CustomerContactService {
         c.setPhone(request.phone());
         c.setPrimaryContact(request.primaryContact());
         c.setStatus(request.status());
-        return toView(repository.save(c));
+        return toView(save(c));
+    }
+
+    /**
+     * saveAndFlush, NOT save, and the difference is the whole point.
+     *
+     * With an assigned identifier Hibernate defers the INSERT to flush, and flush
+     * happens at commit -- outside this method, outside any try block here, and
+     * outside the transaction proxy that could translate the failure. The
+     * constraint violation would then escape as a raw 500 no matter what was
+     * caught here. Forcing the write makes the database's answer available at the
+     * point where it can still be turned into something the caller can act on.
+     */
+    private CustomerContact save(CustomerContact c) {
+        try {
+            return repository.saveAndFlush(c);
+        } catch (DataIntegrityViolationException e) {
+            if (violates(e, CONTACT_EMAIL_UNIQUE)) throw new DuplicateContactEmailException(e);
+            // Every other constraint is rethrown untouched. Reporting a foreign
+            // key violation as "that address is taken" would send the caller
+            // hunting for a duplicate that does not exist.
+            throw e;
+        }
+    }
+
+    /** Postgres's generated name for {@code UNIQUE (customer_id, email)} in V8. */
+    private static final String CONTACT_EMAIL_UNIQUE = "customer_contact_customer_id_email_key";
+
+    /**
+     * Matched on the constraint name Hibernate reports rather than on the message
+     * text, which is Postgres's to reword. CustomerContactServiceTest pins both
+     * halves against a real database: the duplicate is translated, and an
+     * unrelated violation is not.
+     */
+    private static boolean violates(Throwable failure, String constraintName) {
+        for (Throwable t = failure; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof ConstraintViolationException cve
+                    && constraintName.equals(cve.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

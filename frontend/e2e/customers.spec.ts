@@ -18,6 +18,8 @@ import type { Tenant } from "./support/tenant";
  */
 let tenant: Tenant;
 let customerId: string;
+/** A second customer, so the edit test owns its own contacts and depends on no other test. */
+let editCustomerId: string;
 let contactEmail: string;
 /** Holds customer.view and contact.view, but NOT customer.create. */
 let viewerEmail: string;
@@ -37,6 +39,9 @@ test.beforeAll(async ({ playwright }) => {
   const seeded = await admin.createCustomer("Contoso Logistics");
   customerId = seeded.id;
   contactEmail = `ops@${tenant.slug}.test`;
+
+  const forEditing = await admin.createCustomer("Litware Analytics");
+  editCustomerId = forEditing.id;
 
   viewerEmail = await seedUser(request, admin, tenant, "viewer", {
     "customer.view": "ALL",
@@ -146,6 +151,76 @@ test("adds a contact through the interface and sends it an invitation", async ({
   // the client makes about itself; a token in the log is the invitation existing.
   const token = await readEmailToken(contactEmail, "Activate your portal account");
   expect(token).toMatch(/^[A-Za-z0-9_-]{20,}$/);
+});
+
+/**
+ * Correcting a contact and retiring it — the other half of the gap Task R2 found.
+ *
+ * `PUT /contacts/{contactId}` had existed since Task 21 with nothing calling it,
+ * which mattered more than it sounds: DELETE is deny-by-default at the database
+ * layer and business records are deactivated rather than deleted, so
+ * status = INACTIVE is the ONLY retirement a contact has. With no edit path a
+ * contact once created was permanent and immutable, and a typo in the address an
+ * invitation is sent to could never be fixed.
+ *
+ * Three steps in one test on purpose, in the order that makes them possible: the
+ * record has to exist to be duplicated, and has to be corrected before retiring
+ * it means anything. Split apart, each becomes a candidate for deletion as
+ * "covered elsewhere".
+ *
+ * Its contact is created through the UI as well, and on its own customer, so this
+ * test seeds nothing behind the interface and depends on no other test.
+ */
+test("corrects a contact, refuses a duplicate address, and retires it", async ({ page }) => {
+  await signIn(page, tenant.slug, tenant.adminEmail);
+  await page.goto(`/t/${tenant.slug}/customers/${editCustomerId}`);
+
+  await page.getByRole("button", { name: "Add contact" }).click();
+  const create = page.getByRole("dialog", { name: "Add contact" });
+  await create.getByLabel("Full name").fill("Robin Ashe");
+  await create.getByLabel("Email").fill(`typo@${tenant.slug}.test`);
+  await create.getByRole("button", { name: "Create contact" }).click();
+  await expect(create).toBeHidden();
+
+  const row = page.getByRole("listitem").filter({ hasText: "Robin Ashe" });
+  await expect(row.getByText("Active", { exact: true })).toBeVisible();
+
+  // A second contact on the same address violates UNIQUE (customer_id, email).
+  // That is a foreseeable user error, so it must come back as a 409 the dialog
+  // can explain — not the 500 it used to be, which named no field to fix.
+  await page.getByRole("button", { name: "Add contact" }).click();
+  const duplicate = page.getByRole("dialog", { name: "Add contact" });
+  await duplicate.getByLabel("Full name").fill("Robin Ashe Again");
+  await duplicate.getByLabel("Email").fill(`typo@${tenant.slug}.test`);
+  await duplicate.getByRole("button", { name: "Create contact" }).click();
+  await expect(duplicate.getByRole("alert")).toHaveText(
+    "A contact with this email address already exists for this customer",
+  );
+  // Still open, because it did not happen.
+  await expect(duplicate.getByRole("button", { name: "Create contact" })).toBeVisible();
+  await duplicate.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Edit Robin Ashe" }).click();
+  const edit = page.getByRole("dialog", { name: "Edit contact" });
+  // Prefilled from the record rather than blank — an edit form that starts empty
+  // is a full-replace PUT waiting to erase everything it did not show.
+  await expect(edit.getByLabel("Full name")).toHaveValue("Robin Ashe");
+  await edit.getByLabel("Email").fill(`robin@${tenant.slug}.test`);
+  await edit.getByLabel("Job title").fill("Operations Lead");
+  await edit.getByLabel("Status").selectOption("INACTIVE");
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect(edit).toBeHidden();
+
+  await expect(row.getByText(`robin@${tenant.slug}.test`)).toBeVisible();
+  await expect(row.getByText("Operations Lead")).toBeVisible();
+  await expect(row.getByText("Inactive", { exact: true })).toBeVisible();
+
+  // Reloaded, because everything above is so far only a claim the client makes
+  // about itself. After a round trip it is the record.
+  await page.reload();
+  const reloaded = page.getByRole("listitem").filter({ hasText: "Robin Ashe" });
+  await expect(reloaded.getByText(`robin@${tenant.slug}.test`)).toBeVisible();
+  await expect(reloaded.getByText("Inactive", { exact: true })).toBeVisible();
 });
 
 /**

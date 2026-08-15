@@ -128,6 +128,123 @@ class CustomerContactServiceTest extends PostgresTestBase {
                     .isNotBlank());
     }
 
+    /**
+     * The retirement path, and the only one a contact has.
+     *
+     * DELETE is deny-by-default at the database layer and business records are
+     * deactivated rather than deleted, which makes status = INACTIVE the whole of
+     * a contact's retirement. That the update endpoint accepts it is therefore
+     * load-bearing, not incidental -- without it a contact once created could
+     * never be retired by any means the product offers. Pinned because the edit
+     * UI added in Task R2 depends on it.
+     */
+    @Test
+    void updateCanCorrectAContactAndRetireIt() {
+        UUID tenant = fixture.createTenant("contact-retire");
+        var user = new AtomicReference<UUID>();
+        var contactId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "editor@example.com"));
+            UUID customerId = fixture.createCustomer(tenant, "Retire Ltd", user.get(), null, null);
+            contactId.set(fixture.createContact(tenant, customerId, "typo@example.com"));
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () -> {
+            var updated = contacts.update(contactId.get(), new CustomerContactService.UpdateContactRequest(
+                    "Corrected Name", "correct@example.com", "Head of Ops", "+44 20 7946 0000",
+                    true, ContactStatus.INACTIVE));
+
+            assertThat(updated.email()).isEqualTo("correct@example.com");
+            assertThat(updated.fullName()).isEqualTo("Corrected Name");
+            assertThat(updated.status())
+                    .as("INACTIVE is the only retirement a contact has")
+                    .isEqualTo(ContactStatus.INACTIVE);
+        });
+    }
+
+    /**
+     * UNIQUE (customer_id, email) on customer_contact (V8) is a foreseeable user
+     * error -- two people entering the same address -- and it surfaced as a bare
+     * 500 that told the caller nothing about what was wrong. A constraint the
+     * product can predict deserves a client error, so it is translated to a
+     * domain exception the customer module maps to 409.
+     *
+     * This test is also the guard on the constraint NAME the translation matches:
+     * rename it in a later migration without updating the service and this goes
+     * red rather than quietly returning 500 again.
+     */
+    @Test
+    void asecondContactWithTheSameEmailOnOneCustomerIsAConflict() {
+        UUID tenant = fixture.createTenant("contact-duplicate");
+        var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "dupe@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Duplicate Ltd", user.get(), null, null));
+            fixture.createContact(tenant, customerId.get(), "taken@example.com");
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.create(customerId.get(), new CustomerContactService.CreateContactRequest(
+                        "Second Person", "taken@example.com", null, null, false))))
+                .isInstanceOf(DuplicateContactEmailException.class);
+    }
+
+    /** The same constraint, reached by editing rather than by creating. */
+    @Test
+    void updatingAContactOntoAnAddressAlreadyUsedOnThatCustomerIsAConflict() {
+        UUID tenant = fixture.createTenant("contact-dupe-edit");
+        var user = new AtomicReference<UUID>();
+        var second = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "dupe-edit@example.com"));
+            UUID customerId = fixture.createCustomer(tenant, "Dupe Edit Ltd", user.get(), null, null);
+            fixture.createContact(tenant, customerId, "first@example.com");
+            second.set(fixture.createContact(tenant, customerId, "second@example.com"));
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.update(second.get(), new CustomerContactService.UpdateContactRequest(
+                        "Second Person", "first@example.com", null, null, false, ContactStatus.ACTIVE))))
+                .isInstanceOf(DuplicateContactEmailException.class);
+    }
+
+    /**
+     * A different constraint must NOT be reported as a duplicate address. A
+     * contact hung off a customer id that does not exist violates the foreign
+     * key, and translating every DataIntegrityViolationException into "that email
+     * is taken" would send the caller looking for a duplicate that is not there.
+     */
+    @Test
+    void anUnrelatedConstraintViolationIsNotReportedAsADuplicateEmail() {
+        UUID tenant = fixture.createTenant("contact-fk");
+        var user = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "fk@example.com"));
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.create(UUID.randomUUID(), new CustomerContactService.CreateContactRequest(
+                        "Orphan", "orphan@example.com", null, null, false))))
+                .isNotInstanceOf(DuplicateContactEmailException.class);
+    }
+
     @Test
     void sendInvitationRequiresTheInvitationPermission() {
         UUID tenant = fixture.createTenant("contact-invite-denied");
