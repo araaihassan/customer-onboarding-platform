@@ -15,6 +15,7 @@ The original files are preserved as `Onboarding Platform.dc.html.orig` and
 | # | Finding | Severity | Status |
 |---|---------|----------|--------|
 | 1 | 7 of 24 colour pairs fail WCAG AA; the worst is the most-used colour in the UI | High | **Fixed** |
+| 1b | Dark theme never measured: 13 of 17 pairs fail, incl. the rail invisible against the page | High | **Fixed** (Task R1) |
 | 2 | No focus indicator anywhere — the whole UI is keyboard-invisible | High | **Fixed** |
 | 3 | Icon-only controls have no accessible name | High | **Fixed** |
 | 4 | 50 colour literals with unintended near-duplicates, no token layer | Medium | **Fixed** |
@@ -90,6 +91,43 @@ Three consequences worth accepting knowingly:
 
 The rail label is fixed by opacity, not colour — darkening a value on a dark ground moves the
 wrong way. Raising it from `0.45` to `0.55` gives 5.48:1.
+
+### 1b. The dark theme, measured for the first time (Task R1)
+
+Everything above is the *light* theme. The dark theme was derived structurally and never
+measured, and **13 of its 17 pairs failed** — `text-muted` at 2.35–3.45:1, `text-faint` at
+1.90–2.79:1, `text-disabled` at 1.78:1, `border-default` at 1.00–1.47:1, and `bg-page` against
+`bg-rail` at **1.00:1**, both resolving to `slate-950`, so the rail had no edge at all.
+
+`contrast.py` now carries a `DARK_PAIRS` table beside `PAIRS`, and all 17 hold:
+
+| Role | Was | Now | on `slate-900` | `slate-800` | `slate-700` (binding) |
+|------|-----|-----|----------------|-------------|-----------------------|
+| `text-muted` | `paper-700` | `paper-560` `#b4afa7` | 3.05 → **7.19** | 2.71 → **6.39** | 2.35 → **5.54** |
+| `text-faint` | `paper-800` | `paper-580` `#a49f97` | 2.47 → **5.96** | 2.19 → **5.30** | 1.90 → **4.59** |
+| `text-disabled` | `paper-900` | `paper-580` `#a49f97` | 1.78 → **5.96** | — | — |
+| `border-default` | `slate-700` | `paper-600` `#8f8a82` | 1.30 → **4.57** | 1.15 → **4.06** | 1.00 → **3.52** |
+| `bg-page` | `slate-950` | `slate-975` `#0b0c10` | — | — | vs rail 1.00 → **1.10** |
+
+The same structural finding as §1 reappears, mirrored: light quiet text is bound by its
+*darkest* ground (`#f2f0ec`), dark quiet text by its *lightest* (`slate-700`, the neutral pill),
+and in both cases the palette yields exactly **two** quiet tiers, so `text-disabled` collapses
+onto `text-faint` in the dark theme too.
+
+Three things are knowingly imperfect:
+
+- **The rail/page edge cannot be strong.** `bg-rail` is pinned to `slate-950` in both themes by
+  design, and even a pure black page is 1.17:1 against it. 1.10:1 is a visible seam, not a rule.
+  A hard edge needs a border on the rail component, which is not a token decision.
+- **`border-default` is now much louder in dark (4.57:1) than in light (1.28:1).** The light
+  value has the same 1.4.11 exposure and was never flagged; parity and 3:1 cannot both hold. The
+  complete fix is a separate `border-control` token in both themes — not done here.
+- **`text-secondary` (`paper-400`) sits at 12.24:1 on `bg-surface`**, much closer to
+  `text-primary` (14.51) than the light theme's equivalent (8.81 vs 17.39). It passes, so it was
+  left alone, but the dark ramp is compressed at the top and a visual review should revisit it.
+
+Still open: the dark theme has never been reviewed *visually* at screen level. Contrast is now
+proven; composition, weight and hierarchy are not.
 
 ## 2. No focus indicator
 

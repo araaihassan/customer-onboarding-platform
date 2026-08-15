@@ -159,7 +159,7 @@ first builds the shell.
 | `docs/uispecs/design/README.md` | Build order, and what to preserve |
 | `docs/uispecs/design/02-tokens/` | Three-layer tokens (`tokens.md`, `tokens.css`, `tailwind.css`) |
 | `docs/uispecs/design/04-components/component-specs.md` | All 17 component families, with states and ARIA |
-| `docs/uispecs/design/05-review/ux-design-review.md` | 12 accessibility findings; 4 still open |
+| `docs/uispecs/design/05-review/ux-design-review.md` | 13 accessibility findings; 4 still open |
 | `docs/uispecs/design/03-icons/` | 56 icons + JSON registry |
 | `docs/uispecs/README.md` | Screen-by-screen layout, and product decisions worth preserving |
 | `docs/uispecs/Onboarding Platform.html` | The working prototype — open it before building a screen |
@@ -177,18 +177,22 @@ Four decisions erode quietly and must be held:
 4. **Colour is never the only signal.** Every status colour is paired with a word or an icon.
 
 Two token constraints are **not re-derivable by eye — do not "fix" them**: `text-faint` and
-`text-disabled` resolve to the same value because the palette has no room for a third quiet grey
-clearing WCAG AA on the darkest ground it lands on; and `paper-600` is a graphics-only tier valid
-at 3:1 for 20px+ marks, never for text. Derivation in `05-review/ux-design-review.md` §1. Run
-`docs/uispecs/design/scripts/contrast.py` if you add any text colour.
+`text-disabled` resolve to the same value *in both themes* because neither palette has room for a
+third quiet grey clearing WCAG AA on the ground that binds it — the *darkest* in light (`#f2f0ec`),
+the *lightest* in dark (`slate-700`); and `paper-600` is a graphics-only tier valid at 3:1 for 20px+
+marks and 1px borders, never for text. Derivation in `05-review/ux-design-review.md` §1 and §1b. Run
+`docs/uispecs/design/scripts/contrast.py` if you add any colour — it audits both themes, and the
+dark table measures the shipped token values, so a FAIL there is live.
 
 Dark theme is keyed on `[data-theme="dark"]`, **not a class** — configure `next-themes` with
 `attribute="data-theme"` or the dark tokens never apply. Generated assets come from the scripts in
-`design/scripts/`; never hand-edit them.
+`design/scripts/`; never hand-edit them. `frontend/src/app/tokens.css` and `tailwind-theme.css` are
+verbatim copies of `02-tokens/tokens.css` and `tailwind.css` — regenerate, then copy both across.
 
 **Gaps the design does not cover, which implementations must supply:** empty states, loading
-skeletons, error states, and any layout below 1440px. The dark theme exists structurally but has
-never been reviewed at screen level.
+skeletons, error states, and any layout below 1440px. The dark theme's **contrast** was measured and
+fixed in Task R1 (§1b: 13 of 17 pairs failed, including the rail invisible against the page); it has
+still never been reviewed *visually* at screen level, so composition and weight are unproven.
 
 ---
 

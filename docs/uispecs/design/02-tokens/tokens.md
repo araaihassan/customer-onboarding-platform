@@ -67,14 +67,24 @@ Neutrals stay hex: they are near-achromatic, so `oklch()` would buy nothing and 
 Two primitives carry accessibility constraints in their definition, and both are commented as
 such in `tokens.css`:
 
-- **`paper-700` (`#716d67`)** is the accessible floor for quiet text: ≥4.5:1 on all four
-  surfaces text can land on (`#fff`, `#faf9f7`, `#f7f6f3`, `#f2f0ec`). Nothing lighter passes.
-- **`paper-600` (`#8f8a82`)** is a **graphics-only** tier — clears 3:1, valid for a 20px+ glyph
-  or a decorative mark, **not valid for text.**
+- **`paper-700` (`#716d67`)** is the accessible floor for quiet text **on the light surfaces**:
+  ≥4.5:1 on all four it can land on (`#fff`, `#faf9f7`, `#f7f6f3`, `#f2f0ec`). Nothing lighter
+  passes. It is *not* an accessible value on a dark ground — 2.35:1 on `slate-700`.
+- **`paper-600` (`#8f8a82`)** is a **graphics-only** tier — clears 3:1 on every surface in
+  *both* themes, valid for a 20px+ glyph, a decorative mark or a 1px border, **not valid for
+  text.**
+- **`paper-560` (`#b4afa7`) and `paper-580` (`#a49f97`)** are the dark theme's two quiet-text
+  tiers, added in Task R1. Dark quiet text is bound by its *lightest* ground, `slate-700`, and
+  nothing already on the ramp sat between `paper-550` (7.18:1 there, indistinguishable from
+  secondary) and `paper-600` (3.52:1, and graphics-only anyway). `paper-580` is the floor at
+  4.59:1.
 
-`text-faint` and `text-disabled` both resolve to `paper-700`. That is not an oversight: this
-palette has no room for a third distinct quiet-grey that passes AA. See
-[`../05-review/ux-design-review.md`](../05-review/ux-design-review.md) §1 for the derivation.
+`text-faint` and `text-disabled` resolve to the same value in **both** themes — `paper-700` in
+light, `paper-580` in dark. That is not an oversight: neither palette has room for a third
+distinct quiet grey that passes AA on the ground that binds it, so the completed-task state is
+carried by the strike-through rather than by lightness. See
+[`../05-review/ux-design-review.md`](../05-review/ux-design-review.md) §1 for the light
+derivation; the dark one is measured by `scripts/contrast.py`, which now audits both themes.
 
 ### Status
 
@@ -105,11 +115,26 @@ knowing:
   solid pastel tint on a dark surface reads as a bright blob. Inks move to the bright end of the
   ramp so they still clear 4.5:1 on the wash.
 - The rail does not move. It is already dark in the light theme, so it is the one surface that is
-  identical in both, which keeps navigation stable when the theme flips.
+  identical in both, which keeps navigation stable when the theme flips. That pin is what forced
+  `bg-page` down onto the new `slate-975` rather than lightening the rail: both resolved to
+  `slate-950`, so the rail dissolved into the canvas at 1.00:1. Honest ceiling — even a pure
+  black page is only 1.17:1 against `slate-950`, so this edge is 1.10:1 and can never be strong.
+  A rail that needs a hard edge needs a border on the component, which is not a token decision.
+- `border-default`, `border-strong` and `border-dashed` resolve to `paper-600` in dark, not
+  `slate-700`. `slate-700` gave 1.30:1 against `bg-surface`, below 1.4.11's 3:1 for anything
+  required to identify a control, and all three already shared one value there — so lifting only
+  `border-default` would have made "strong" weaker than "default". The row dividers
+  (`border-subtle`, `border-panel`) stay on `slate-800`: a row rule identifies nothing.
+  **Known asymmetry:** the *light* `border-default` (`paper-400` on `paper-0`) is 1.28:1, the
+  same design decision, and was never flagged. The complete fix is a separate `border-control`
+  token applied in both themes; that is a design change beyond this pass and is not done.
 
 `PRD.md` §16 asks for light/dark theming; the prototype only ever showed light plus a rail
-variant. The dark theme here is new and has not been visually reviewed at screen level — treat
-its individual values as a starting point, and the layer structure as the deliverable.
+variant. **Task R1 was the dark theme's first review, and it was measured rather than eyeballed**
+— `scripts/contrast.py` now carries a `DARK_PAIRS` table beside the light one. Thirteen of its
+seventeen pairs failed as shipped; all seventeen hold now. It has still never been reviewed
+*visually* at screen level, so treat composition and weight as unproven even though the contrast
+is not.
 
 ---
 

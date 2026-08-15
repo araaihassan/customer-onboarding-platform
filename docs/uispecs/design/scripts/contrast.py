@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""WCAG 2.1 contrast audit of the prototype's actual colour pairs."""
+"""WCAG 2.1 contrast audit of the design's actual colour pairs.
+
+Two tables. PAIRS is the light theme, measured from the prototype's own values and
+the source of ux-design-review.md finding 1. DARK_PAIRS is the dark theme, added in
+Task R1 -- the dark values had never been measured at all, which is how four of them
+shipped below AA.
+"""
 from oklch import oklch_to_hex
 
 
@@ -60,25 +66,93 @@ PAIRS = [
 ]
 
 
+# ============================================================== dark theme
+# The four grounds quiet text and borders land on under [data-theme="dark"].
+# The BINDING one is the lightest, slate-700 -- the same discipline the light
+# audit applies at its darkest ground, #f2f0ec.
+D_PAGE = "#0b0c10"    # slate-975  bg-page
+D_RAIL = "#17181c"    # slate-950  bg-rail (identical in both themes, by design)
+D_SURF = "#222328"    # slate-900  bg-surface
+D_SUB = "#2b2c31"     # slate-800  bg-surface-subtle / sunken / overlay / rail-raised
+D_INSET = "#34363c"   # slate-700  bg-inset / status-neutral-bg
+
+# Non-text pairs carry size 0 and weight 0; see `large` and `threshold` below.
+# 1.4.11 asks 3:1 of anything required to identify a control -- an input's border
+# is, a card's is arguably decoration, but the token is shared so it is held to
+# the stricter reading.
+DARK_PAIRS = [
+    ("text-primary on surface",    "#f7f6f3", D_SURF,  13, 400, "table cells, titles"),
+    ("text-primary on page",       "#f7f6f3", D_PAGE,  13, 400, "page-level headings"),
+    ("text-secondary on surface",  "#e6e3dd", D_SURF,  12, 400, "stage labels"),
+    ("text-muted on surface",      "#b4afa7", D_SURF,  11.5, 400, "card sub-lines"),
+    ("text-muted on page",         "#b4afa7", D_PAGE,  11, 400, "header meta line"),
+    ("text-muted on subtle",       "#b4afa7", D_SUB,   11, 400, "table header row"),
+    ("text-muted on inset",        "#b4afa7", D_INSET, 10, 500, "neutral pill ink"),
+    ("text-faint on surface",      "#a49f97", D_SURF,  10, 500, "MONO UPPERCASE LABELS"),
+    ("text-faint on subtle",       "#a49f97", D_SUB,   9.5, 500, "table header labels"),
+    ("text-faint on inset",        "#a49f97", D_INSET, 10, 500, "worst case for quiet text"),
+    ("text-disabled on surface",   "#a49f97", D_SURF,  12.5, 400, "struck-through titles"),
+    ("text-on-rail on rail",       "#f2f0ec", D_RAIL,  13, 400, "active nav item"),
+
+    ("border-default on surface",  "#8f8a82", D_SURF,   0, 0, "card and control borders"),
+    ("border-default on page",     "#8f8a82", D_PAGE,   0, 0, "card edge against the canvas"),
+    ("border-default on subtle",   "#8f8a82", D_SUB,    0, 0, "control on a hovered row"),
+    ("border-default on inset",    "#8f8a82", D_INSET,  0, 0, "control inside an inset"),
+    # Informational (-1), not a 1.4.11 requirement: two adjacent background
+    # surfaces identify no component, and the rail is identified by its links.
+    # It is measured because it was 1.00:1 -- the rail literally dissolved into
+    # the page. The ceiling is 1.17:1 (a pure black page), because bg-rail is
+    # pinned to slate-950 in both themes; a harder edge needs a border on the
+    # component, which is not a token decision.
+    ("rail against page",          D_RAIL,    D_PAGE,  -1, 0, "surface separation, ceiling 1.17"),
+]
+
+
 def large(size, weight):
     """WCAG large text: >=18.66px bold, or >=24px."""
     return size >= 24 or (size >= 18.66 and weight >= 700)
 
 
-print(f"{'pair':32s} {'fg':9s} {'bg':9s} {'px':>5s} {'ratio':>6s}  AA   AAA  where")
-print("-" * 118)
-fails = []
-for label, fg, bg, size, weight, where in PAIRS:
-    r = ratio(fg, bg)
-    need_aa = 3.0 if large(size, weight) else 4.5
-    need_aaa = 4.5 if large(size, weight) else 7.0
-    aa = "pass" if r >= need_aa else "FAIL"
-    aaa = "pass" if r >= need_aaa else "fail"
-    if aa == "FAIL":
-        fails.append((label, r, need_aa, where))
-    print(f"{label:32s} {fg:9s} {bg:9s} {size:5.1f} {r:6.2f}  {aa:4s} {aaa:4s} {where}")
+def threshold(size, weight):
+    """(AA, AAA) for a pair.
 
-print()
-print(f"{len(fails)} of {len(PAIRS)} pairs fail WCAG AA for their size:")
-for label, r, need, where in fails:
-    print(f"  - {label:30s} {r:.2f}:1  (needs {need}:1)  — {where}")
+    size  0 marks a non-text pair: 1.4.11, 3:1, no AAA.
+    size -1 marks an informational pair: measured, held to nothing.
+    """
+    if size < 0:
+        return None, None
+    if size == 0:
+        return 3.0, None
+    return (3.0, 4.5) if large(size, weight) else (4.5, 7.0)
+
+
+def report(title, pairs):
+    print(title)
+    print(f"{'pair':32s} {'fg':9s} {'bg':9s} {'px':>5s} {'ratio':>6s}  AA   AAA  where")
+    print("-" * 118)
+    fails = []
+    for label, fg, bg, size, weight, where in pairs:
+        r = ratio(fg, bg)
+        need_aa, need_aaa = threshold(size, weight)
+        aa = "note" if need_aa is None else ("pass" if r >= need_aa else "FAIL")
+        aaa = "n/a" if need_aaa is None else ("pass" if r >= need_aaa else "fail")
+        if aa == "FAIL":
+            fails.append((label, r, need_aa, where))
+        px = "  n/t" if size == 0 else ("  inf" if size < 0 else f"{size:5.1f}")
+        print(f"{label:32s} {fg:9s} {bg:9s} {px} {r:6.2f}  {aa:4s} {aaa:4s} {where}")
+
+    print()
+    print(f"{len(fails)} of {len(pairs)} pairs fail WCAG AA for their size:")
+    for label, r, need, where in fails:
+        print(f"  - {label:30s} {r:.2f}:1  (needs {need}:1)  — {where}")
+    print()
+    return fails
+
+
+report("LIGHT THEME — the PROTOTYPE AS HANDED OFF, not the shipped tokens.\n"
+       "This table is the evidence behind ux-design-review.md finding 1, so its\n"
+       "failures are the historical record of the problem. The fixed values are in\n"
+       "the 'Now' column of that finding's table and in tokens.css.", PAIRS)
+report("DARK THEME  [data-theme=\"dark\"] — the SHIPPED token values.\n"
+       "Unlike the light table this measures what tokens.css actually emits, so a\n"
+       "failure here is a live defect. Keep it that way.", DARK_PAIRS)

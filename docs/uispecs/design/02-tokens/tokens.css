@@ -19,6 +19,8 @@
   --ob-paper-450: #dbd7cf;
   --ob-paper-500: #d6d1c9;
   --ob-paper-550: #ccc7bf;
+  --ob-paper-560: #b4afa7;
+  --ob-paper-580: #a49f97;
   --ob-paper-600: #8f8a82;
   --ob-paper-700: #716d67;
   --ob-paper-800: #625f5a;
@@ -29,6 +31,7 @@
   --ob-slate-800: #2b2c31;
   --ob-slate-900: #222328;
   --ob-slate-950: #17181c;
+  --ob-slate-975: #0b0c10;
 
   --ob-indigo-50: oklch(0.97 0.02 274);  /* #f1f5ff */
   --ob-indigo-100: oklch(0.95 0.03 274);  /* #e8eeff */
@@ -202,7 +205,7 @@
   --ob-text-secondary: var(--ob-paper-900);  /* body, stage labels */
   --ob-text-muted: var(--ob-paper-800);  /* supporting copy, meta */
   --ob-text-faint: var(--ob-paper-700);  /* mono labels, timestamps */
-  --ob-text-disabled: var(--ob-paper-700);  /* struck-through completed titles — same value as faint; the state is carried by strike-through, not lightness, because no lighter grey clears AA on this palette */
+  --ob-text-disabled: var(--ob-paper-700);  /* struck-through completed titles — same value as faint in BOTH themes; the state is carried by strike-through, not lightness, because neither palette has room for a third quiet grey clearing AA on the ground that binds it */
   --ob-text-on-accent: var(--ob-paper-0);  /* text on indigo */
   --ob-text-on-rail: var(--ob-paper-200);  /* rail navigation text */
   --ob-accent: var(--ob-indigo-600);  /* primary action, active state */
@@ -261,7 +264,7 @@
  * The rail is already dark in both themes, so it does not move.
  */
 [data-theme="dark"] {
-  --ob-bg-page: var(--ob-slate-950);
+  --ob-bg-page: var(--ob-slate-975);
   --ob-bg-surface: var(--ob-slate-900);
   --ob-bg-surface-subtle: var(--ob-slate-800);
   --ob-bg-surface-sunken: var(--ob-slate-800);
@@ -270,16 +273,16 @@
   --ob-bg-rail: var(--ob-slate-950);
   --ob-bg-rail-raised: var(--ob-slate-800);
   --ob-bg-overlay: var(--ob-slate-800);
-  --ob-border-default: var(--ob-slate-700);
+  --ob-border-default: var(--ob-paper-600);
   --ob-border-subtle: var(--ob-slate-800);
   --ob-border-panel: var(--ob-slate-800);
-  --ob-border-strong: var(--ob-slate-700);
-  --ob-border-dashed: var(--ob-slate-700);
+  --ob-border-strong: var(--ob-paper-600);
+  --ob-border-dashed: var(--ob-paper-600);
   --ob-text-primary: var(--ob-paper-100);
   --ob-text-secondary: var(--ob-paper-400);
-  --ob-text-muted: var(--ob-paper-700);
-  --ob-text-faint: var(--ob-paper-800);
-  --ob-text-disabled: var(--ob-paper-900);
+  --ob-text-muted: var(--ob-paper-560);
+  --ob-text-faint: var(--ob-paper-580);
+  --ob-text-disabled: var(--ob-paper-580);
   --ob-text-on-accent: var(--ob-paper-0);
   --ob-text-on-rail: var(--ob-paper-200);
   --ob-accent: var(--ob-indigo-300);
@@ -300,7 +303,7 @@
   --ob-status-blocked-bg: color-mix(in oklab, var(--ob-red-500) 22%, transparent);
   --ob-status-blocked-fg: var(--ob-red-500);
   --ob-status-neutral-bg: var(--ob-slate-700);
-  --ob-status-neutral-fg: var(--ob-paper-700);
+  --ob-status-neutral-fg: var(--ob-paper-560);
 
   --ob-elevation-raised: 0 8px 24px -16px rgba(0,0,0,0.6);
   --ob-elevation-popover: 0 18px 44px -18px rgba(0,0,0,0.7);
