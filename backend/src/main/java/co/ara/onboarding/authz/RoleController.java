@@ -2,6 +2,7 @@ package co.ara.onboarding.authz;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -28,6 +30,14 @@ public class RoleController {
     private final RoleService roles;
 
     public RoleController(RoleService roles) { this.roles = roles; }
+
+    /**
+     * Added in Task 28. The plan promised GET here from Task 21 and only POST and
+     * PUT were built, which left the role editor with nothing to edit and the user
+     * screen with no role id to assign.
+     */
+    @GetMapping
+    public List<RoleService.RoleView> list() { return roles.listRoles(); }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

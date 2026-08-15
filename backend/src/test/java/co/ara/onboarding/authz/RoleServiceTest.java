@@ -101,4 +101,53 @@ class RoleServiceTest extends PostgresTestBase {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("assigned");
     }
+
+    /**
+     * Task 28 defect. The plan's Task 21 promises
+     * "GET/POST/PUT /api/t/{slug}/admin/roles", but only POST and PUT were built:
+     * there was no way to read a role at all. The role editor cannot edit grants it
+     * cannot load, and the user screen cannot assign a role whose id it cannot
+     * learn — spec 12's Definition of Done item 2 ("assigns roles, and edits role
+     * grants") was unreachable through the API as shipped.
+     *
+     * The view carries the grants, because a role without them is a name: every
+     * caller that reads a role reads it to see or change what it grants.
+     */
+    @Test
+    void listRolesReturnsEachRoleWithItsGrants() {
+        UUID tenant = fixture.createTenant("role-list");
+
+        fixture.runAs(tenant, () -> {
+            roles.createRole("Reader", "Reads customers", Map.of(
+                    PermissionKeys.CUSTOMER_VIEW, Scope.TEAM,
+                    PermissionKeys.CONTACT_VIEW, Scope.TEAM));
+
+            var listed = roles.listRoles();
+
+            assertThat(listed).extracting(RoleService.RoleView::name).contains("Reader");
+            RoleService.RoleView reader = listed.stream()
+                    .filter(r -> "Reader".equals(r.name())).findFirst().orElseThrow();
+            assertThat(reader.description()).isEqualTo("Reads customers");
+            assertThat(reader.enabled()).isTrue();
+            assertThat(reader.grants()).containsOnly(
+                    Map.entry(PermissionKeys.CUSTOMER_VIEW, Scope.TEAM),
+                    Map.entry(PermissionKeys.CONTACT_VIEW, Scope.TEAM));
+        });
+    }
+
+    /**
+     * role.view is ALL-only and is a real gate, not decoration: the catalog of
+     * grants describes exactly how far every other permission reaches, so a user
+     * who cannot manage roles must not be able to enumerate them either.
+     */
+    @Test
+    void listingRolesRequiresRoleViewPermission() {
+        UUID tenant = fixture.createTenant("role-list-denied");
+        var user = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> user.set(fixture.createUser(tenant, "plain@example.com")));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(), roles::listRoles))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+    }
 }

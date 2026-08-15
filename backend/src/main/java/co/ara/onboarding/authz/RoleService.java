@@ -8,9 +8,12 @@ import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Tenant-owned roles. Every public method carries @RequirePermission, which
@@ -20,6 +23,16 @@ import java.util.UUID;
  */
 @Service
 public class RoleService {
+
+    /**
+     * A role and everything it grants, in one read.
+     *
+     * The grants are on the view rather than behind a second call because a role
+     * without them is just a name: every caller that loads a role does so to see or
+     * change what it grants, which is exactly why Role maps them EAGER.
+     */
+    public record RoleView(UUID id, String name, String description, boolean enabled,
+                           boolean systemTemplate, Map<String, Scope> grants) {}
 
     private final RoleRepository roles;
     private final UserRoleRepository userRoles;
@@ -32,6 +45,28 @@ public class RoleService {
         this.userRoles = userRoles;
         this.actors = actors;
         this.audit = audit;
+    }
+
+    /**
+     * Every role in the tenant, with its grants.
+     *
+     * Not through AuthorizedQuery: role.view is ALL-only in the catalog, so there is
+     * no narrower scope for a predicate to express, and Role has no
+     * ResourceAuthorizationDescriptor for one to resolve against. Isolation here is
+     * the tenant filter and RLS, the same two constraints every other role read
+     * relies on.
+     *
+     * Sorted by name so the administration screen has a stable order; findAll over
+     * a UUIDv7 id would order by creation time, which puts the twelve seeded
+     * templates in RoleTemplates' declaration order and any later role at the end.
+     */
+    @RequirePermission(PermissionKeys.ROLE_VIEW)
+    @Transactional(readOnly = true)
+    public List<RoleView> listRoles() {
+        return roles.findAll().stream()
+                .map(RoleService::toView)
+                .sorted(Comparator.comparing(RoleView::name, String.CASE_INSENSITIVE_ORDER))
+                .toList();
     }
 
     @RequirePermission(PermissionKeys.ROLE_MANAGE)
@@ -129,6 +164,13 @@ public class RoleService {
     @Transactional
     public void unassignRole(UUID userId, UUID roleId) {
         userRoles.findById(new UserRoleId(userId, roleId)).ifPresent(userRoles::delete);
+    }
+
+    private static RoleView toView(Role role) {
+        return new RoleView(role.getId(), role.getName(), role.getDescription(),
+                role.isEnabled(), role.isSystemTemplate(),
+                role.getGrants().stream().collect(Collectors.toMap(
+                        RoleGrant::getPermissionKey, RoleGrant::getScope)));
     }
 
     /**

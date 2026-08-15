@@ -208,4 +208,33 @@ class UserAdminTest extends PostgresTestBase {
             assertThat(users.findById(target.get()).orElseThrow().getStatus())
                     .isEqualTo(UserStatus.DEACTIVATED));
     }
+
+    /**
+     * Task 28 defect. UserView carried no roles, so the administration screen could
+     * assign one and then show nothing different — and DELETE /users/{id}/roles/{roleId}
+     * was unreachable from any interface, because nothing could name a role the user
+     * already held. Which roles someone holds is part of viewing that user, so it is
+     * on the view rather than behind a second request.
+     *
+     * roleIds is read-only: UpdateUserRequest does not accept it, so the
+     * view-carries-every-request-field invariant is untouched — the view is a
+     * superset, which is the safe direction.
+     */
+    @Test
+    void userViewCarriesTheRolesTheUserHolds() {
+        UUID tenant = fixture.createTenant("admin-user-roles");
+        var admin = new AtomicReference<UUID>();
+        var role = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            admin.set(fixture.createUser(tenant, "rolereader@example.com"));
+            role.set(roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL)));
+            roles.assignRole(admin.get(), role.get());
+        });
+
+        fixture.runAsUser(tenant, admin.get(), () ->
+            assertThat(userAdmin.get(admin.get()).roleIds()).containsExactly(role.get()));
+    }
 }

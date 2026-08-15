@@ -6542,6 +6542,22 @@ That branch must refuse anything not in `INVITED` status, or activation becomes 
   - `GET/POST /api/t/{slug}/admin/departments`, `GET/POST /api/t/{slug}/admin/teams`.
   - `GET /api/t/{slug}/admin/permissions` — the catalog with each permission's `allowedScopes`, so the role editor can only offer valid combinations.
 
+**Amended in Task 28 — the `GET` on `/admin/roles` above was not built.** Only `POST` and
+`PUT /{id}/grants` shipped, so a role could be written but never read: the role editor had nothing
+to load and the user screen had no role id to assign, which made §12's Definition of Done item 2
+("assigns roles, and edits role grants") unreachable through the API. Task 28 adds
+`RoleService.listRoles()` (gated `role.view`, `RoleView(id, name, description, enabled,
+systemTemplate, grants)`) and the `@GetMapping` that exposes it.
+
+**Also amended: `UserAdminService.UserView` gained `roleIds`.** Without it the user screen could
+assign a role and show nothing different, and `DELETE /users/{id}/roles/{roleId}` was unreachable
+from any interface because nothing could name a role the user already held. It is read-only and
+deliberately absent from `UpdateUserRequest` — role assignment goes through the gated, audited
+POST/DELETE pair rather than riding on a full-replace PUT where an omitted field would strip every
+role. The lookup is `authz.UserRoleDirectory`, a bulk directory in the shape of `ActorDirectory`
+rather than a `*Service`: one query per page instead of one per row, and no cross-gate coupling
+between the `user.view` read path and the `user.manage` write path.
+
 - [ ] **Step 1: Write the failing test**
 
 ```java

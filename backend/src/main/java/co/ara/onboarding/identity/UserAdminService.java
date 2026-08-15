@@ -6,6 +6,7 @@ import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.authz.RoleService;
+import co.ara.onboarding.authz.UserRoleDirectory;
 import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
@@ -15,6 +16,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -24,22 +26,31 @@ public class UserAdminService {
 
     public record CreateUserRequest(String email, String fullName, UUID departmentId) {}
     public record UpdateUserRequest(String fullName, UUID departmentId) {}
+    /**
+     * roleIds is read-only and deliberately absent from UpdateUserRequest: role
+     * assignment goes through the dedicated POST/DELETE endpoints, which are gated
+     * and audited, rather than riding along on a full-replace PUT where an omitted
+     * field would silently strip every role the user holds.
+     */
     public record UserView(UUID id, String email, String fullName, UserType userType,
-                           UserStatus status, UUID departmentId, Set<UUID> teamIds) {}
+                           UserStatus status, UUID departmentId, Set<UUID> teamIds,
+                           Set<UUID> roleIds) {}
 
     private final AppUserRepository repository;
     private final AuthorizedQuery authorizedQuery;
     private final UserActivationSender activations;
     private final RoleService roles;
+    private final UserRoleDirectory assignments;
     private final AuditRecorder audit;
 
     public UserAdminService(AppUserRepository repository, AuthorizedQuery authorizedQuery,
                             UserActivationSender activations, RoleService roles,
-                            AuditRecorder audit) {
+                            UserRoleDirectory assignments, AuditRecorder audit) {
         this.repository = repository;
         this.authorizedQuery = authorizedQuery;
         this.activations = activations;
         this.roles = roles;
+        this.assignments = assignments;
         this.audit = audit;
     }
 
@@ -57,8 +68,12 @@ public class UserAdminService {
             return cb.or(cb.like(cb.lower(root.get("email")), pattern),
                          cb.like(cb.lower(root.get("fullName")), pattern));
         };
-        return authorizedQuery.findAll(repository, AppUser.class,
-                PermissionKeys.USER_VIEW, filters, pageable).map(this::toView);
+        Page<AppUser> page = authorizedQuery.findAll(repository, AppUser.class,
+                PermissionKeys.USER_VIEW, filters, pageable);
+        // One assignment lookup for the whole page, not one per row.
+        Map<UUID, Set<UUID>> byUser = assignments.roleIdsByUser(
+                page.getContent().stream().map(AppUser::getId).toList());
+        return page.map(user -> toView(user, byUser.getOrDefault(user.getId(), Set.of())));
     }
 
     @RequirePermission(PermissionKeys.USER_VIEW)
@@ -134,8 +149,14 @@ public class UserAdminService {
         roles.unassignRole(userId, roleId);
     }
 
+    /** Looks the assignments up for one user; the list path passes them in instead. */
     private UserView toView(AppUser u) {
+        return toView(u, assignments.roleIdsByUser(List.of(u.getId()))
+                .getOrDefault(u.getId(), Set.of()));
+    }
+
+    private UserView toView(AppUser u, Set<UUID> roleIds) {
         return new UserView(u.getId(), u.getEmail(), u.getFullName(), u.getUserType(),
-                u.getStatus(), u.getDepartmentId(), Set.copyOf(u.getTeamIds()));
+                u.getStatus(), u.getDepartmentId(), Set.copyOf(u.getTeamIds()), roleIds);
     }
 }
