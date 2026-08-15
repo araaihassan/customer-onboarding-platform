@@ -126,7 +126,7 @@ cd backend && ./gradlew cleanTest test     # needs Docker running
 cd frontend && npx vitest run
 ```
 
-After Task R1 these were 154 backend tests over 42 classes and 122 frontend tests over 16 files, all
+After Task R1 these were 155 backend tests over 42 classes and 129 frontend tests over 17 files, all
 green.
 
 **Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
@@ -231,6 +231,11 @@ correct response to one failing is to fix the code, never to weaken the guard.
   teams can reach.
 - **Out-of-scope records return 404, never 403.** The UI must not reintroduce the distinction the
   404 exists to hide.
+- **A `PUT` is a full replace, so its view type must carry every field its request type accepts.**
+  A field absent from the JSON body deserialises to null and is written as null — omitting it is
+  identical to blanking it, so "the form just doesn't send it" is not a mitigation. Adding a field
+  to an `Update*Request` without adding it to the matching `*View` makes every client silently
+  erase it.
 - **Absence of a grant is the denial.** There are no deny grants anywhere in authorization.
 - **`audit_event` is append-only at the database layer** — `GRANT SELECT, INSERT` with `UPDATE` and
   `DELETE` revoked. A permission, not a convention, because an audit trail the application can

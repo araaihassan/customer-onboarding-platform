@@ -28,9 +28,17 @@ public class CustomerService {
                                         String country, String externalRef, UUID ownerUserId,
                                         UUID owningDepartmentId, UUID owningTeamId) {}
 
+    /**
+     * Carries externalRef, and must keep carrying it. update() below is a full
+     * replace, and a full replace is only honest if the read returns everything the
+     * write accepts — otherwise any client that loads a record, edits one field and
+     * saves erases whatever it was never given. Adding a field to
+     * UpdateCustomerRequest without adding it here reintroduces exactly that.
+     */
     public record CustomerView(UUID id, String legalName, String displayName,
                                CustomerStatus status, String industry, String country,
-                               UUID ownerUserId, UUID owningDepartmentId, UUID owningTeamId) {}
+                               String externalRef, UUID ownerUserId,
+                               UUID owningDepartmentId, UUID owningTeamId) {}
 
     private final CustomerRepository repository;
     private final AuthorizedQuery authorizedQuery;
@@ -146,7 +154,7 @@ public class CustomerService {
 
     private CustomerView toView(Customer c) {
         return new CustomerView(c.getId(), c.getLegalName(), c.getDisplayName(), c.getStatus(),
-                c.getIndustry(), c.getCountry(), c.getOwnerUserId(),
+                c.getIndustry(), c.getCountry(), c.getExternalRef(), c.getOwnerUserId(),
                 c.getOwningDepartmentId(), c.getOwningTeamId());
     }
 }

@@ -99,16 +99,21 @@ export default function CustomerDetailPage() {
   }
 
   /**
-   * Round-tripped, not omitted. PUT replaces every field, and these three back
-   * the ASSIGNED, DEPARTMENT and TEAM scope predicates — any one of them dropped
-   * would make the record invisible to everyone holding only that scope, from an
-   * edit that changed nothing but a display name.
+   * Round-tripped, not omitted. PUT replaces every field, so omitting one is
+   * identical to blanking it. The three ownership ids back the ASSIGNED,
+   * DEPARTMENT and TEAM scope predicates — any one dropped makes the record
+   * invisible to everyone holding only that scope, from an edit that changed
+   * nothing but a display name. `externalRef` is the customer's identifier in
+   * whatever system it came from and there is no field for it in sub-project 1's
+   * form; it is carried through here for the same reason. It became possible to
+   * carry in Task R1, which added it to `CustomerView` — before that the API
+   * accepted it on write but never returned it, so no client could preserve it.
    */
-  const { ownerUserId, owningDepartmentId, owningTeamId } = customer;
+  const { ownerUserId, owningDepartmentId, owningTeamId, externalRef } = customer;
 
   const submitEdit = (values: CustomerFormValues) =>
     update.mutate(
-      { id, body: { ...values, ownerUserId, owningDepartmentId, owningTeamId } },
+      { id, body: { ...values, ownerUserId, owningDepartmentId, owningTeamId, externalRef } },
       { onSuccess: () => setEditing(false) },
     );
 

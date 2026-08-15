@@ -29,6 +29,10 @@ const fetchMock = vi.fn();
  * owningDepartmentId backs DEPARTMENT and owningTeamId backs TEAM. PUT replaces
  * every field, so any of them dropped from the request makes the record
  * invisible to everyone holding only that scope.
+ *
+ * externalRef is here for the same reason and was added in Task R1. The form has
+ * no control for it, and omitting a field from a full-replace PUT blanks it just
+ * as sending it empty would -- so the page must carry it through.
  */
 const customer: Customer = {
   id: "c-1",
@@ -40,6 +44,7 @@ const customer: Customer = {
   ownerUserId: "u-7",
   owningDepartmentId: "d-3",
   owningTeamId: "t-2",
+  externalRef: "ERP-4471",
 };
 
 const contacts: Contact[] = [
@@ -163,7 +168,7 @@ describe("CustomerDetailPage", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Edit" })).not.toBeNull());
   });
 
-  it("preserves the ownership fields the scope predicates read when saving an edit", async () => {
+  it("preserves the ownership fields and the external reference when saving an edit", async () => {
     permissions = { "customer.view": ["ALL"], "customer.edit": ["ALL"] };
     renderPage();
 
@@ -180,6 +185,7 @@ describe("CustomerDetailPage", () => {
       ownerUserId: "u-7",
       owningDepartmentId: "d-3",
       owningTeamId: "t-2",
+      externalRef: "ERP-4471",
     });
   });
 

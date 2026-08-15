@@ -7430,6 +7430,10 @@ Filter chips are a `role="group"` with `aria-pressed` on each. The table is a re
 > or an edit to a display name would drop the record out of every DEPARTMENT, TEAM and ASSIGNED
 > scope. Covered by a test.
 
+**Amended in Task R1 (remediation).** `externalRef` is now on `CustomerView`, chosen over making the update partial: a full replace is only honest if the read returns everything the write accepts, and the spec (§9.1) lists `external_ref` as an ordinary column with no write-only qualification, so there was no security reason to withhold it. Partial-update semantics would have changed behaviour every existing caller depends on for a defect one field wide.
+
+**And the mitigation quoted above did not work.** "Submits no `externalRef` rather than a blank one" is a distinction the backend cannot see: `PUT` is a full replace, so a field absent from the JSON body deserialises to `null` and is written as `null`, exactly as a blank would be. The detail page therefore erased `external_ref` on every save, and the comment saying otherwise made it look handled. The page now round-trips it alongside the three ownership ids, and the detail-page test asserts all four. When adding a field to `UpdateCustomerRequest`, add it to `CustomerView` in the same change — the coupling is the invariant, and it is stated on the record itself.
+
 - [ ] **Step 2: Build the detail page**
 
 Customer summary, editable when `customer.edit` is held, contact list, and a "Send invitation" action per contact gated on `invitation.send`.

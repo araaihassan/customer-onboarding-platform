@@ -11,12 +11,13 @@ import { t } from "@/lib/i18n";
  * The four fields a customer can be created or edited with.
  *
  * Deliberately not the whole of `UpdateCustomerRequest`. The three ownership ids
- * back the DEPARTMENT, TEAM and ASSIGNED scope predicates and there is no picker
- * for them in sub-project 1, so the caller round-trips them from the record it
- * is editing — see the detail page. `externalRef` is writable on the request but
- * absent from `CustomerView`, so this form cannot show it, and a form that
- * cannot show a field must not submit one: PUT replaces every field, so an
- * unshown `externalRef` would be silently erased on every save.
+ * back the DEPARTMENT, TEAM and ASSIGNED scope predicates, and `externalRef` is
+ * the customer's identifier in whatever system it came from; none has a control
+ * in sub-project 1, so the caller round-trips all four from the record it is
+ * editing — see the detail page.
+ *
+ * Omitting them is not a safe alternative. PUT replaces every field, so a field
+ * left out of the body is blanked exactly as a field sent empty would be.
  */
 export type CustomerFormValues = {
   displayName: string;

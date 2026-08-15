@@ -143,6 +143,56 @@ class CustomerServiceTest extends PostgresTestBase {
     }
 
     /**
+     * Not in the plan. update() is a full replace, and a full replace is only
+     * honest if the read returns everything the write accepts. externalRef was
+     * writable on both request records but absent from CustomerView, so any client
+     * that loaded a customer, changed one field and saved erased it — it cannot
+     * round-trip a value it was never given.
+     *
+     * This is written as a client would behave: read, copy the view into an update
+     * request, change one unrelated field, save. Nothing in the test knows the
+     * external reference exists, which is the whole point — that is exactly the
+     * position every real caller is in.
+     */
+    @Test
+    void editingOneFieldPreservesTheExternalReference() {
+        UUID tenant = fixture.createTenant("cust-external-ref");
+        var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "roundtrip@example.com"));
+            UUID role = roles.createRole("Editor", "", Map.of(
+                    PermissionKeys.CUSTOMER_CREATE, Scope.ALL,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL,
+                    PermissionKeys.CUSTOMER_EDIT, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () ->
+                customerId.set(customers.create(new CustomerService.CreateCustomerRequest(
+                        "Ledger Ltd", "Ledger", "Finance", "GB",
+                        "ERP-4471", null, null)).id()));
+
+        fixture.runAsUser(tenant, user.get(), () -> {
+            var loaded = customers.get(customerId.get());
+
+            customers.update(customerId.get(), new CustomerService.UpdateCustomerRequest(
+                    loaded.legalName(), "Ledger (renamed)", loaded.industry(),
+                    loaded.country(), loaded.externalRef(), loaded.ownerUserId(),
+                    loaded.owningDepartmentId(), loaded.owningTeamId()));
+        });
+
+        fixture.runAsUser(tenant, user.get(), () -> {
+            var after = customers.get(customerId.get());
+            assertThat(after.displayName()).isEqualTo("Ledger (renamed)");
+            assertThat(after.externalRef())
+                    .as("a full-replace update must not erase a field the read never returned")
+                    .isEqualTo("ERP-4471");
+        });
+    }
+
+    /**
      * Not in the plan. The creator becoming the owner is what makes ASSIGNED scope
      * usable straight after creation — without it a user with CUSTOMER_CREATE and
      * CUSTOMER_VIEW at ASSIGNED would create records they immediately cannot see.
