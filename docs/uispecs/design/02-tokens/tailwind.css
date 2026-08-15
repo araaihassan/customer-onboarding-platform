@@ -26,6 +26,7 @@
   --color-text-faint: var(--ob-text-faint);
   --color-text-disabled: var(--ob-text-disabled);
   --color-text-on-accent: var(--ob-text-on-accent);
+  --color-text-on-solid: var(--ob-text-on-solid);
   --color-text-on-rail: var(--ob-text-on-rail);
   --color-accent: var(--ob-accent);
   --color-accent-hover: var(--ob-accent-hover);

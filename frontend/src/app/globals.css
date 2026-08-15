@@ -26,7 +26,11 @@
   --accent: var(--ob-accent-tint);
   --accent-foreground: var(--ob-accent);
   --destructive: var(--ob-solid-blocked);
-  --destructive-foreground: var(--ob-text-on-accent);
+  /* text-on-solid, NOT text-on-accent. Both are white in light, so one token
+   * served both until the dark accent became a pale indigo and its ink had to
+   * invert to near-black. The solid status fills do not invert, so riding on
+   * text-on-accent would put near-black on solid-blocked in dark: 3.43:1. */
+  --destructive-foreground: var(--ob-text-on-solid);
   --border: var(--ob-border-default);
   --input: var(--ob-border-default);
   --ring: var(--ob-accent);

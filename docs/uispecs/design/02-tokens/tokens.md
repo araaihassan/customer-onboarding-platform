@@ -78,6 +78,14 @@ such in `tokens.css`:
   nothing already on the ramp sat between `paper-550` (7.18:1 there, indistinguishable from
   secondary) and `paper-600` (3.52:1, and graphics-only anyway). `paper-580` is the floor at
   4.59:1.
+- **The `300` tier is the dark theme's ink tier.** `indigo-300` always existed and was the only
+  status ink that passed in dark; `green-300`, `amber-300` and `red-300` joined it in Task R1 fix
+  round 1 at the same `L=0.86`, with the most chroma the sRGB gamut allows per hue. A `500` is a
+  mid-tone, and over a low-alpha wash of its own hue on a dark surface it measured 3.33 / 4.38 /
+  2.65:1 — so the dark status pills used to fail on three of five roles.
+- **`indigo-400` (`#6777d3`)** is the dark theme's `accent-weak`. A chart series is a graphic
+  required to understand the content, so it owes 3:1 against `bg-surface`; `indigo-800` gave
+  1.77:1.
 
 `text-faint` and `text-disabled` resolve to the same value in **both** themes — `paper-700` in
 light, `paper-580` in dark. That is not an oversight: neither palette has room for a third
@@ -129,12 +137,41 @@ knowing:
   same design decision, and was never flagged. The complete fix is a separate `border-control`
   token applied in both themes; that is a design change beyond this pass and is not done.
 
+- `text-on-accent` **inverts**: `paper-0` in light, `paper-950` in dark. The dark accent is a pale
+  `indigo-300` fill, so white on it measured 1.53:1 — the standard dark-theme pattern is a bright
+  fill with a dark label. `text-on-solid` was split out from it at the same time: both are white
+  in light, so one token served both, but the *solid* status fills do not invert, and riding on
+  `text-on-accent` would have put near-black on `solid-blocked` at 3.43:1.
+- `accent-tint-border` is `paper-600` in dark, not `slate-700`, which was 1.15:1 on the tint.
+
+### Measuring it
+
+`scripts/contrast.py` carries two tables and they mean different things.
+
+| Table | What it measures | How to read a failure |
+|-------|------------------|-----------------------|
+| `PAIRS` | 24 literals from the **prototype as handed off** | Historical. Evidence for finding 1; meant to stay red. |
+| `SHIPPED_PAIRS` | Token **names**, resolved through `build_tokens.py` | Live. Fix it. |
+
+`SHIPPED_PAIRS` resolves names rather than repeating hex values, so the audit cannot drift from the
+generator it audits. Run for **dark** by default: 49 pairs covering body text on all four grounds,
+the rail (including its `.72` and `.5` opacities), the accent roles, all five status pills on both
+the card and the hovered row, the solids, and the borders. Translucent dark status fills are
+composited onto the surface beneath them first, the way a browser — and axe — does.
+
+**The shipped *light* tokens are measured by nothing.** `report_shipped("light")` exists and is one
+line from being enabled; it is off because turning it on surfaces the known, deferred
+`border-default` at 1.28:1 (and `accent-weak`, which fails in light for the same reason it did in
+dark). Enable it with that work, not before.
+
 `PRD.md` §16 asks for light/dark theming; the prototype only ever showed light plus a rail
-variant. **Task R1 was the dark theme's first review, and it was measured rather than eyeballed**
-— `scripts/contrast.py` now carries a `DARK_PAIRS` table beside the light one. Thirteen of its
-seventeen pairs failed as shipped; all seventeen hold now. It has still never been reviewed
-*visually* at screen level, so treat composition and weight as unproven even though the contrast
-is not.
+variant. **Task R1 was the dark theme's first review, and it was measured rather than eyeballed.**
+The first pass fixed 13 neutral failures but its table was *all* neutral, so it reported "0 of 17
+fail" while the dark primary button sat at 1.53:1; fix round 1 widened the table to the accent and
+status roles, found 10 more failures, and fixed them. All 49 hold now — which is a claim about
+those 49 pairs and nothing else. **Add a pair whenever you add a role.** The dark theme has still
+never been reviewed *visually* at screen level, so treat composition and weight as unproven even
+though the contrast is not.
 
 ---
 

@@ -16,6 +16,7 @@ The original files are preserved as `Onboarding Platform.dc.html.orig` and
 |---|---------|----------|--------|
 | 1 | 7 of 24 colour pairs fail WCAG AA; the worst is the most-used colour in the UI | High | **Fixed** |
 | 1b | Dark theme never measured: 13 of 17 pairs fail, incl. the rail invisible against the page | High | **Fixed** (Task R1) |
+| 1c | That audit was all-neutral: 10 more fail, incl. the dark primary button at 1.53:1 | High | **Fixed** (R1 fix round 1) |
 | 2 | No focus indicator anywhere — the whole UI is keyboard-invisible | High | **Fixed** |
 | 3 | Icon-only controls have no accessible name | High | **Fixed** |
 | 4 | 50 colour literals with unintended near-duplicates, no token layer | Medium | **Fixed** |
@@ -114,14 +115,60 @@ The same structural finding as §1 reappears, mirrored: light quiet text is boun
 and in both cases the palette yields exactly **two** quiet tiers, so `text-disabled` collapses
 onto `text-faint` in the dark theme too.
 
-Three things are knowingly imperfect:
+### 1c. The first dark audit was all-neutral, and missed ten more (fix round 1)
 
-- **The rail/page edge cannot be strong.** `bg-rail` is pinned to `slate-950` in both themes by
-  design, and even a pure black page is 1.17:1 against it. 1.10:1 is a visible seam, not a rule.
-  A hard edge needs a border on the rail component, which is not a token decision.
+The table above covered 17 pairs and reported all of them passing. **Every pair in it was
+neutral** — text, borders, surfaces. No accent pair, no `text-on-accent`, no status ink on its
+wash. "0 of 17 pass" was true and was never the same statement as "the dark theme passes".
+
+The dark primary button was at **1.53:1**. `Button.tsx` paints `text-on-accent` (`paper-0`, white)
+over `accent`, which in dark is the pale `indigo-300`. The login page's submit button is a default
+`Button`, and login is one of the three screens Task 28 runs `@axe-core/playwright` against in both
+themes — so the defect that motivated this whole finding was still shipping.
+
+`contrast.py` was rebuilt to resolve **token names** through `build_tokens.py` instead of holding
+its own copy of the palette, and widened to 49 pairs — every pair a component actually paints.
+That found ten failures, not one:
+
+| Pair | Was | Now | Before | After |
+|------|-----|-----|--------|-------|
+| `text-on-accent` on `accent` | `paper-0` | `paper-950` | **1.53** | **11.33** |
+| `text-on-accent` on `accent-hover` | `paper-0` | `paper-950` | **1.23** | **14.12** |
+| `accent-tint-border` on `accent-tint` | `slate-700` | `paper-600` | **1.15** | **4.06** |
+| `accent-weak` on `bg-surface` | `indigo-800` | `indigo-400` | **1.77** | **3.85** |
+| on-track pill on card / row | `green-500` | `green-300` | 3.33 / 3.00 | **8.37 / 7.54** |
+| at-risk pill on card / row | `amber-500` | `amber-300` | 4.38 / 3.89 | **7.18 / 6.37** |
+| blocked pill on card / row | `red-500` | `red-300` | 2.65 / 2.39 | **8.16 / 7.37** |
+
+Three of the five status pills failed, on the customer list and detail screens that ship today.
+`progress` was the one that passed — because it was already using `indigo-300` rather than a `500`.
+That is what established the `300` ink tier the other three now join.
+
+`text-on-solid` was split out of `text-on-accent` in the same change. Both are white in light, so
+one token served both; but the solid status fills do **not** invert with the theme, so leaving
+`--destructive-foreground` riding on `text-on-accent` would have put near-black on `solid-blocked`
+at 3.43:1 — a defect introduced by the fix rather than found by it.
+
+**The lesson is about the instrument, not the values.** An audit that copies the hex values it
+checks drifts from the thing it checks; one that covers a convenient subset reports a number that
+sounds like a guarantee. Both failed here. `SHIPPED_PAIRS` now resolves names, and covering a new
+role means adding a line to it.
+
+### 1d. What remains knowingly imperfect
+
+- **The rail/page edge cannot be fixed with tokens, so it is a border on the component.**
+  `bg-rail` is pinned to `slate-950` in both themes by design, and even a pure black page is
+  1.17:1 against it — the 1.00 → 1.10 token move was measurable and still invisible. `Sidebar.tsx`
+  now draws `border-right: 1px solid var(--ob-graphic-muted)`, which is one value in both themes
+  as the rail is, and clears 3:1 against everything it touches: 5.17:1 on the rail, 5.70:1 on the
+  dark page, 3.17:1 on the light page.
 - **`border-default` is now much louder in dark (4.57:1) than in light (1.28:1).** The light
   value has the same 1.4.11 exposure and was never flagged; parity and 3:1 cannot both hold. The
-  complete fix is a separate `border-control` token in both themes — not done here.
+  complete fix is a separate `border-control` token in both themes, and it is **feasible with the
+  palette as it stands** — `paper-600` measures 3.43:1 on white and 3.52:1 on the worst dark
+  ground, so one value clears 3:1 in both. Deferred, not blocked. `accent-weak` fails in light for
+  the same reason (`indigo-300` on white, 1.35:1) and belongs with it, as does enabling
+  `report_shipped("light")` in `contrast.py`.
 - **`text-secondary` (`paper-400`) sits at 12.24:1 on `bg-surface`**, much closer to
   `text-primary` (14.51) than the light theme's equivalent (8.81 vs 17.39). It passes, so it was
   left alone, but the dark ramp is compressed at the top and a visual review should revisit it.

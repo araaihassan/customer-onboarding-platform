@@ -126,7 +126,7 @@ cd backend && ./gradlew cleanTest test     # needs Docker running
 cd frontend && npx vitest run
 ```
 
-After Task R1 these were 155 backend tests over 42 classes and 129 frontend tests over 17 files, all
+After Task R1 these were 155 backend tests over 42 classes and 130 frontend tests over 17 files, all
 green.
 
 **Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
@@ -159,7 +159,7 @@ first builds the shell.
 | `docs/uispecs/design/README.md` | Build order, and what to preserve |
 | `docs/uispecs/design/02-tokens/` | Three-layer tokens (`tokens.md`, `tokens.css`, `tailwind.css`) |
 | `docs/uispecs/design/04-components/component-specs.md` | All 17 component families, with states and ARIA |
-| `docs/uispecs/design/05-review/ux-design-review.md` | 13 accessibility findings; 4 still open |
+| `docs/uispecs/design/05-review/ux-design-review.md` | 14 accessibility findings; 4 still open |
 | `docs/uispecs/design/03-icons/` | 56 icons + JSON registry |
 | `docs/uispecs/README.md` | Screen-by-screen layout, and product decisions worth preserving |
 | `docs/uispecs/Onboarding Platform.html` | The working prototype — open it before building a screen |
@@ -180,9 +180,16 @@ Two token constraints are **not re-derivable by eye — do not "fix" them**: `te
 `text-disabled` resolve to the same value *in both themes* because neither palette has room for a
 third quiet grey clearing WCAG AA on the ground that binds it — the *darkest* in light (`#f2f0ec`),
 the *lightest* in dark (`slate-700`); and `paper-600` is a graphics-only tier valid at 3:1 for 20px+
-marks and 1px borders, never for text. Derivation in `05-review/ux-design-review.md` §1 and §1b. Run
-`docs/uispecs/design/scripts/contrast.py` if you add any colour — it audits both themes, and the
-dark table measures the shipped token values, so a FAIL there is live.
+marks and 1px borders, never for text. Derivation in `05-review/ux-design-review.md` §1 and §1b.
+
+Run `docs/uispecs/design/scripts/contrast.py` if you add any colour, and read its two tables
+differently. `SHIPPED_PAIRS` resolves **token names** through `build_tokens.py` — 49 pairs in the
+**dark** theme covering text, rail, accent, status pills, solids and borders, i.e. every pair a
+component paints — so a FAIL there is live. `PAIRS` is 24 **literals copied from the prototype as
+handed off**: it is the evidence behind review finding 1, its 7 failures are the historical record
+and are meant to stay red, and it says nothing about the light tokens shipping today. **The shipped
+light tokens are measured by nothing** — `report_shipped("light")` exists and is one line away, but
+turning it on surfaces the known, deferred `border-default` at 1.28:1.
 
 Dark theme is keyed on `[data-theme="dark"]`, **not a class** — configure `next-themes` with
 `attribute="data-theme"` or the dark tokens never apply. Generated assets come from the scripts in
@@ -190,9 +197,12 @@ Dark theme is keyed on `[data-theme="dark"]`, **not a class** — configure `nex
 verbatim copies of `02-tokens/tokens.css` and `tailwind.css` — regenerate, then copy both across.
 
 **Gaps the design does not cover, which implementations must supply:** empty states, loading
-skeletons, error states, and any layout below 1440px. The dark theme's **contrast** was measured and
-fixed in Task R1 (§1b: 13 of 17 pairs failed, including the rail invisible against the page); it has
-still never been reviewed *visually* at screen level, so composition and weight are unproven.
+skeletons, error states, and any layout below 1440px. Task R1 measured the dark theme's **contrast**
+for the 49 pairs listed above and fixed every failure (§1b). That is a claim about those pairs and
+nothing else: it is **not** a visual review, which has still never happened, so composition, weight
+and hierarchy are unproven. Add a pair to `SHIPPED_PAIRS` whenever you add a role — the first
+version of that table was all-neutral and reported "0 of 17 fail" while the dark primary button sat
+at 1.53:1.
 
 ---
 

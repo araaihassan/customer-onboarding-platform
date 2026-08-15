@@ -44,6 +44,24 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Sidebar", () => {
+  /**
+   * The rail's edge is a border on this component, not a difference between two
+   * background tokens.
+   *
+   * bg-rail is pinned to slate-950 in BOTH themes — that is what keeps
+   * navigation stable when the theme flips — and in dark the page ground sits
+   * just below it, so the palette caps the rail/page contrast at 1.17:1 even
+   * with a pure black page. Task R1 moved the page from 1.00:1 to 1.10:1, which
+   * is measurable and still invisible. Only a border fixes it, and it has to be
+   * one value in both themes for the same reason the rail is.
+   */
+  it("draws its own right edge, because no pair of surfaces can", () => {
+    render(<Sidebar slug="acme" />);
+    const rail = screen.getByRole("navigation").closest("aside");
+
+    expect(rail?.style.borderRight).toBe("1px solid var(--ob-graphic-muted)");
+  });
+
   it("renders a navigation landmark containing a list", () => {
     render(<Sidebar slug="acme" />);
     const nav = screen.getByRole("navigation");

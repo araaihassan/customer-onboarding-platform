@@ -6977,6 +6977,17 @@ Use the generated names rather than inventing a short alias layer — a second s
 
 Fixed in `build_tokens.py` and regenerated; derivation and before/after ratios in `05-review/ux-design-review.md` §1b. Summary: `bg-page` moves to a new `slate-975` because it and `bg-rail` both resolved to `slate-950` (1.00:1 — the rail had no edge), and the rail is pinned in both themes by design so the page is what may move; `text-muted`/`text-faint` move to two new tiers `paper-560`/`paper-580`, with `text-disabled` collapsing onto faint in dark exactly as it does in light; the three control-carrying borders move to `paper-600`. The same structural finding as §1 reappears mirrored — light quiet text is bound by its darkest ground, dark quiet text by its lightest.
 
+**Amended again in Task R1 fix round 1 — the audit, not the values, was the defect.** The first widened table above covered 17 pairs and reported all passing, but **every pair in it was neutral**: text, borders, surfaces. No accent pair, no `text-on-accent`, no status ink on its wash. Meanwhile `Button.tsx` painted the dark primary button as white on the pale `indigo-300` accent — **1.53:1**, on the login screen Task 28 runs axe against in both themes. Widening to the 49 pairs a component actually paints found **ten** failures: both `text-on-accent` pairs, `accent-tint-border`, `accent-weak`, and three of the five status pills on both the card and the hovered-row grounds.
+
+Two structural fixes came out of it and both matter more than the values:
+
+- **`contrast.py` resolves token NAMES through `build_tokens.py`** rather than holding its own hex copies. An instrument that duplicates the thing it measures drifts from it, which is the same failure mode that let the dark theme ship unmeasured in the first place. `DARK_STATUS` moved to module scope so the audit reads the generator's own map, and translucent dark status fills are composited onto the surface beneath them exactly as a browser — and axe — does.
+- **`SHIPPED_PAIRS` is now the thing you extend when you add a role.** "0 of N fail" is only as good as N.
+
+Also: `text-on-solid` was split out of `text-on-accent`. Both are white in light so one token served both, but the dark accent's ink has to invert to near-black while the *solid* status fills do not — leaving `--destructive-foreground` on `text-on-accent` would have put near-black on `solid-blocked` at 3.43:1.
+
+**The rail/page edge is a border on `Sidebar.tsx`, not a token.** `bg-rail` is pinned to `slate-950` in both themes, so the palette caps rail-against-page at 1.17:1 even with a pure black page; the earlier 1.00 → 1.10 token move was measurable and invisible. `border-right: 1px solid var(--ob-graphic-muted)` clears 3:1 against everything it touches in both themes.
+
 **Whoever changes a token must copy BOTH generated files into `frontend/src/app/`.** They are verbatim copies (`tokens.css` → `tokens.css`, `tailwind.css` → `tailwind-theme.css`) with no build step keeping them in sync, so a regeneration that is not copied across is silently a no-op for the application.
 
 Contrast is already solved and must not be "improved": `text-faint` and `text-disabled` intentionally resolve to the same value because this palette has no room for a third quiet grey that clears AA, and `paper-600` is a **graphics-only** tier that is not valid for text. The derivation is in `05-review/ux-design-review.md` §1. If you add any text colour, run `design/scripts/contrast.py`.

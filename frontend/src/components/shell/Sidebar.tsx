@@ -74,6 +74,20 @@ export function Sidebar({ slug }: { slug: string }) {
   return (
     <aside
       className="sticky top-0 h-screen shrink-0 flex flex-col bg-bg-rail text-text-on-rail w-[var(--ob-rail-width-collapsed)] min-[1281px]:w-[var(--ob-rail-width)]"
+      // The rail's edge has to be drawn, because no pair of surface tokens can
+      // draw it. bg-rail is pinned to slate-950 in BOTH themes -- that is what
+      // keeps navigation stable across a theme flip -- and the dark page sits
+      // just below it, so the palette caps rail-against-page at 1.17:1 even with
+      // a pure black page. Task R1 moved it from 1.00:1 to 1.10:1, which is
+      // measurable and still invisible.
+      //
+      // graphic-muted (paper-600) rather than border-default: it is the same
+      // value in both themes, as the rail is, and it clears 3:1 against
+      // everything it touches -- 5.17:1 on the rail, 5.70:1 on the dark page,
+      // 3.17:1 on the light page. border-default would put a near-white line on
+      // the dark rail in the light theme, which reads as a highlight, not an
+      // edge.
+      style={{ borderRight: "1px solid var(--ob-graphic-muted)" }}
     >
       <div
         className="flex items-center justify-center min-[1281px]:justify-start px-0 min-[1281px]:px-[var(--ob-space-20)]"

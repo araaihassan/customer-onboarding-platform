@@ -1,10 +1,22 @@
 # -*- coding: utf-8 -*-
-"""WCAG 2.1 contrast audit of the design's actual colour pairs.
+"""WCAG 2.1 contrast audit.
 
-Two tables. PAIRS is the light theme, measured from the prototype's own values and
-the source of ux-design-review.md finding 1. DARK_PAIRS is the dark theme, added in
-Task R1 -- the dark values had never been measured at all, which is how four of them
-shipped below AA.
+Two tables, and the difference between them matters:
+
+  PAIRS           literals copied from the PROTOTYPE AS HANDED OFF. This is the
+                  evidence behind ux-design-review.md finding 1, so its failures
+                  are a historical record and are meant to stay red. It says
+                  nothing about the tokens shipping today.
+
+  SHIPPED_PAIRS   the tokens that actually ship, named rather than copied and
+                  resolved through build_tokens.py. A FAIL here is live.
+
+SHIPPED_PAIRS resolves token NAMES instead of carrying hex values, so it cannot
+drift from the generator it audits. It was rebuilt that way in Task R1 fix round
+1, after a hardcoded 17-pair version reported "0 of 17 fail" while the dark
+primary button sat at 1.53:1 -- every pair in it happened to be neutral, so the
+accent and status roles were never looked at. Add a role here when you add one to
+build_tokens.py.
 """
 from oklch import oklch_to_hex
 
@@ -66,45 +78,122 @@ PAIRS = [
 ]
 
 
-# ============================================================== dark theme
-# The four grounds quiet text and borders land on under [data-theme="dark"].
-# The BINDING one is the lightest, slate-700 -- the same discipline the light
-# audit applies at its darkest ground, #f2f0ec.
-D_PAGE = "#0b0c10"    # slate-975  bg-page
-D_RAIL = "#17181c"    # slate-950  bg-rail (identical in both themes, by design)
-D_SURF = "#222328"    # slate-900  bg-surface
-D_SUB = "#2b2c31"     # slate-800  bg-surface-subtle / sunken / overlay / rail-raised
-D_INSET = "#34363c"   # slate-700  bg-inset / status-neutral-bg
+# ================================================== the shipped tokens, resolved
+# Colours are read from build_tokens.py, never repeated here. An audit holding
+# its own copy of the palette drifts from the palette, and drift is the exact
+# failure mode this table exists to prevent.
+from build_tokens import semantic_color
 
-# Non-text pairs carry size 0 and weight 0; see `large` and `threshold` below.
-# 1.4.11 asks 3:1 of anything required to identify a control -- an input's border
-# is, a card's is arguably decoration, but the token is shared so it is held to
-# the stricter reading.
-DARK_PAIRS = [
-    ("text-primary on surface",    "#f7f6f3", D_SURF,  13, 400, "table cells, titles"),
-    ("text-primary on page",       "#f7f6f3", D_PAGE,  13, 400, "page-level headings"),
-    ("text-secondary on surface",  "#e6e3dd", D_SURF,  12, 400, "stage labels"),
-    ("text-muted on surface",      "#b4afa7", D_SURF,  11.5, 400, "card sub-lines"),
-    ("text-muted on page",         "#b4afa7", D_PAGE,  11, 400, "header meta line"),
-    ("text-muted on subtle",       "#b4afa7", D_SUB,   11, 400, "table header row"),
-    ("text-muted on inset",        "#b4afa7", D_INSET, 10, 500, "neutral pill ink"),
-    ("text-faint on surface",      "#a49f97", D_SURF,  10, 500, "MONO UPPERCASE LABELS"),
-    ("text-faint on subtle",       "#a49f97", D_SUB,   9.5, 500, "table header labels"),
-    ("text-faint on inset",        "#a49f97", D_INSET, 10, 500, "worst case for quiet text"),
-    ("text-disabled on surface",   "#a49f97", D_SURF,  12.5, 400, "struck-through titles"),
-    ("text-on-rail on rail",       "#f2f0ec", D_RAIL,  13, 400, "active nav item"),
 
-    ("border-default on surface",  "#8f8a82", D_SURF,   0, 0, "card and control borders"),
-    ("border-default on page",     "#8f8a82", D_PAGE,   0, 0, "card edge against the canvas"),
-    ("border-default on subtle",   "#8f8a82", D_SUB,    0, 0, "control on a hovered row"),
-    ("border-default on inset",    "#8f8a82", D_INSET,  0, 0, "control inside an inset"),
-    # Informational (-1), not a 1.4.11 requirement: two adjacent background
-    # surfaces identify no component, and the rail is identified by its links.
-    # It is measured because it was 1.00:1 -- the rail literally dissolved into
-    # the page. The ceiling is 1.17:1 (a pure black page), because bg-rail is
-    # pinned to slate-950 in both themes; a harder edge needs a border on the
-    # component, which is not a token decision.
-    ("rail against page",          D_RAIL,    D_PAGE,  -1, 0, "surface separation, ceiling 1.17"),
+def composite(fg_hex, alpha, bg_hex):
+    """Flatten a translucent colour onto an opaque one.
+
+    A linear blend of the encoded sRGB bytes, which is what axe-core does when it
+    flattens a background stack -- and axe is the gate this has to satisfy.
+    """
+    f, b = hex_to_rgb(fg_hex), hex_to_rgb(bg_hex)
+    return "#%02x%02x%02x" % tuple(
+        round(255 * (alpha * f[i] + (1 - alpha) * b[i])) for i in range(3))
+
+
+def resolve(token, theme, over=None):
+    """A semantic token -> the opaque hex it renders as.
+
+    `over` names the opaque surface a translucent token is painted on. The dark
+    status fills are washes with no colour of their own, so a pill's real
+    background depends on whether it sits on a card or a hovered table row --
+    which is why the pills below are audited on both.
+    """
+    value = semantic_color(token, theme)
+    if value[0] == "wash":
+        if over is None:
+            raise ValueError(f"{token} is translucent and needs a surface to sit on")
+        return composite(value[1], value[2], resolve(over, theme))
+    return value[1]
+
+
+def P(label, fg, bg, size, weight, where, over=None, fg_alpha=1.0):
+    """size 0 = non-text (1.4.11, 3:1). size -1 = informational, held to nothing."""
+    return (label, fg, bg, size, weight, where, over, fg_alpha)
+
+
+# The surfaces quiet text lands on. bg-inset (slate-700) is the BINDING ground in
+# dark, mirroring #f2f0ec in light -- the lightest of them, not the darkest.
+_TEXT_GROUNDS = [("page", "bg-page"), ("surface", "bg-surface"),
+                 ("subtle", "bg-surface-subtle"), ("inset", "bg-inset")]
+
+SHIPPED_PAIRS = [
+    # ---------------------------------------------------------------- body text
+    P("text-primary on surface",   "text-primary",   "bg-surface", 13, 400, "table cells, titles"),
+    P("text-primary on page",      "text-primary",   "bg-page",    13, 400, "page headings"),
+    P("text-primary on overlay",   "text-primary",   "bg-overlay", 13, 400, "popover body"),
+    P("text-secondary on surface", "text-secondary", "bg-surface", 12, 400, "secondary Button label"),
+    P("text-secondary on page",    "text-secondary", "bg-page",    12, 400, "stage labels"),
+]
+SHIPPED_PAIRS += [P(f"text-muted on {name}", "text-muted", token, 11, 400,
+                    "supporting copy, meta") for name, token in _TEXT_GROUNDS]
+SHIPPED_PAIRS += [P(f"text-faint on {name}", "text-faint", token, 10, 500,
+                    "mono labels, timestamps") for name, token in _TEXT_GROUNDS]
+SHIPPED_PAIRS += [
+    P("text-disabled on surface", "text-disabled", "bg-surface", 12.5, 400, "struck-through titles"),
+
+    # ---------------------------------------------------------------------- rail
+    # The rail is identical in both themes by design, so these hold either way.
+    P("text-on-rail on rail",        "text-on-rail", "bg-rail",        13, 400, "nav item"),
+    P("text-on-rail on rail-raised", "text-on-rail", "bg-rail-raised", 13, 500, "active nav item"),
+    P("nav inactive 72% on rail",    "text-on-rail", "bg-rail", 13, 400,
+      "inactive nav, Sidebar opacity .72", None, 0.72),
+    P("org slug 50% on rail",        "text-on-rail", "bg-rail", 10, 500,
+      "Sidebar slug, opacity .5", None, 0.50),
+
+    # -------------------------------------------------------------------- accent
+    # Button.tsx paints a primary button as text-on-accent over accent with a 1px
+    # accent border. That is the pair this widened table exists to catch: it read
+    # 1.53:1 in dark and nothing measured it.
+    P("text-on-accent on accent",       "text-on-accent", "accent",       13, 500, "PRIMARY BUTTON label"),
+    P("text-on-accent on accent-hover", "text-on-accent", "accent-hover", 13, 500, "primary button hover"),
+    P("accent-ink on accent-tint",      "accent-ink",     "accent-tint",   9, 500, "tinted panel ink"),
+    P("accent-ink on surface",          "accent-ink",     "bg-surface",   12, 400, "links on a card"),
+    # Non-text: the fill and the focus ring are what identify the control.
+    P("accent on surface",              "accent", "bg-surface", 0, 0, "primary button edge, focus ring"),
+    P("accent on page",                 "accent", "bg-page",    0, 0, "focus ring on the canvas"),
+    P("accent-tint-border on tint",     "accent-tint-border", "accent-tint", 0, 0, "tinted panel edge"),
+    P("accent-weak on surface",         "accent-weak", "bg-surface", 0, 0, "earlier chart periods"),
+
+    # -------------------------------------------------------------------- status
+]
+# StatusPill.tsx paints status-{role}-fg over status-{role}-bg. In dark the fill
+# is a translucent wash with no colour until composited, so each is audited on
+# both surfaces a pill actually appears on.
+for _role in ("on-track", "progress", "at-risk", "blocked", "neutral"):
+    SHIPPED_PAIRS += [
+        P(f"{_role} pill on surface", f"status-{_role}-fg", f"status-{_role}-bg",
+          9.5, 500, "StatusPill on a card", "bg-surface"),
+        P(f"{_role} pill on subtle", f"status-{_role}-fg", f"status-{_role}-bg",
+          9.5, 500, "StatusPill on a hovered row", "bg-surface-subtle"),
+    ]
+SHIPPED_PAIRS += [
+    P("solid-on-track on surface", "solid-on-track", "bg-surface", 0, 0, "milestone circle"),
+    P("solid-at-risk on surface",  "solid-at-risk",  "bg-surface", 0, 0, "bottleneck bar, dot"),
+    P("solid-blocked on surface",  "solid-blocked",  "bg-surface", 0, 0, "notification badge"),
+    P("text-on-solid on blocked",  "text-on-solid",  "solid-blocked", 9.5, 400, "notification count"),
+
+    # ------------------------------------------------------------------- borders
+]
+SHIPPED_PAIRS += [P(f"border-default on {name}", "border-default", token, 0, 0,
+                    "card and control borders") for name, token in _TEXT_GROUNDS]
+SHIPPED_PAIRS += [
+    P("border-strong on surface", "border-strong", "bg-surface", 0, 0, "emphasis edge"),
+    P("border-dashed on surface", "border-dashed", "bg-surface", 0, 0, "dropzone edge"),
+    # Dividers identify no control, so 1.4.11 does not reach them: informational.
+    P("border-subtle on surface", "border-subtle", "bg-surface", -1, 0, "table row divider"),
+    P("border-panel on surface",  "border-panel",  "bg-surface", -1, 0, "panel divider"),
+
+    # The rail's edge against the canvas. Informational, and deliberately so: two
+    # adjacent background surfaces identify no component. It is capped at 1.17:1
+    # while bg-rail stays pinned to slate-950 in both themes, so the visible edge
+    # is a 1px border on the Sidebar component rather than a token move.
+    P("rail against page",        "bg-rail",       "bg-page",   -1, 0, "see Sidebar's border"),
 ]
 
 
@@ -127,6 +216,7 @@ def threshold(size, weight):
 
 
 def report(title, pairs):
+    """`pairs` are (label, fg hex, bg hex, size, weight, where)."""
     print(title)
     print(f"{'pair':32s} {'fg':9s} {'bg':9s} {'px':>5s} {'ratio':>6s}  AA   AAA  where")
     print("-" * 118)
@@ -149,10 +239,27 @@ def report(title, pairs):
     return fails
 
 
-report("LIGHT THEME — the PROTOTYPE AS HANDED OFF, not the shipped tokens.\n"
-       "This table is the evidence behind ux-design-review.md finding 1, so its\n"
-       "failures are the historical record of the problem. The fixed values are in\n"
-       "the 'Now' column of that finding's table and in tokens.css.", PAIRS)
-report("DARK THEME  [data-theme=\"dark\"] — the SHIPPED token values.\n"
-       "Unlike the light table this measures what tokens.css actually emits, so a\n"
-       "failure here is a live defect. Keep it that way.", DARK_PAIRS)
+def report_shipped(theme):
+    """Resolve SHIPPED_PAIRS in one theme, then audit the resolved colours."""
+    resolved = []
+    for label, fg, bg, size, weight, where, over, fg_alpha in SHIPPED_PAIRS:
+        ground = resolve(bg, theme, over)
+        ink = resolve(fg, theme, over)
+        if fg_alpha < 1.0:
+            ink = composite(ink, fg_alpha, ground)
+        resolved.append((label, ink, ground, size, weight, where))
+    return report(
+        theme.upper() + " THEME - the SHIPPED token values, resolved from "
+        "build_tokens.py.\nEvery pair is one a component actually paints. "
+        "A FAIL here is live.", resolved)
+
+
+if __name__ == "__main__":
+    report("LIGHT THEME - the PROTOTYPE AS HANDED OFF, not the shipped tokens.\n"
+           "This is the evidence behind ux-design-review.md finding 1, so its failures\n"
+           "are the historical record of the problem and are meant to stay red. It says\n"
+           "NOTHING about the light tokens shipping today: those are measured by\n"
+           "report_shipped('light'), which is deliberately not run here. See tokens.md\n"
+           "-- turning it on surfaces the known, deferred light border-default at 1.28:1.",
+           PAIRS)
+    report_shipped("dark")

@@ -37,21 +37,25 @@
   --ob-indigo-100: oklch(0.95 0.03 274);  /* #e8eeff */
   --ob-indigo-200: oklch(0.93 0.03 274);  /* #e1e7fd */
   --ob-indigo-300: oklch(0.86 0.04 274);  /* #c8d0ec */
+  --ob-indigo-400: oklch(0.6 0.14 274);  /* #6777d3 */
   --ob-indigo-600: oklch(0.52 0.16 274);  /* #4f5cc3 */
   --ob-indigo-700: oklch(0.45 0.16 274);  /* #3d47ac */
   --ob-indigo-800: oklch(0.42 0.16 274);  /* #363ea2 */
 
   --ob-green-100: oklch(0.95 0.04 155);  /* #daf7e3 */
+  --ob-green-300: oklch(0.86 0.09 155);  /* #a1e3b7 */
   --ob-green-500: oklch(0.6 0.12 155);  /* #389560 */
   --ob-green-700: oklch(0.45 0.12 155);  /* #006836 */
 
   --ob-amber-50: oklch(0.98 0.02 70);  /* #fff6ea */
   --ob-amber-100: oklch(0.96 0.05 70);  /* #ffedce */
   --ob-amber-200: oklch(0.9 0.05 70);  /* #f4d9bb */
+  --ob-amber-300: oklch(0.86 0.09 70);  /* #f7c790 */
   --ob-amber-500: oklch(0.72 0.14 70);  /* #dc932e */
   --ob-amber-700: oklch(0.46 0.14 70);  /* #874500 */
 
   --ob-red-100: oklch(0.96 0.04 25);  /* #ffe8e4 */
+  --ob-red-300: oklch(0.86 0.06 25);  /* #f6c2bd */
   --ob-red-500: oklch(0.57 0.17 25);  /* #c84341 */
   --ob-red-700: oklch(0.5 0.17 25);  /* #b02a2d */
 
@@ -206,7 +210,8 @@
   --ob-text-muted: var(--ob-paper-800);  /* supporting copy, meta */
   --ob-text-faint: var(--ob-paper-700);  /* mono labels, timestamps */
   --ob-text-disabled: var(--ob-paper-700);  /* struck-through completed titles — same value as faint in BOTH themes; the state is carried by strike-through, not lightness, because neither palette has room for a third quiet grey clearing AA on the ground that binds it */
-  --ob-text-on-accent: var(--ob-paper-0);  /* text on indigo */
+  --ob-text-on-accent: var(--ob-paper-0);  /* text on the accent fill — see the note below */
+  --ob-text-on-solid: var(--ob-paper-0);  /* text on a solid status fill, e.g. a badge count */
   --ob-text-on-rail: var(--ob-paper-200);  /* rail navigation text */
   --ob-accent: var(--ob-indigo-600);  /* primary action, active state */
   --ob-accent-hover: var(--ob-indigo-700);  /* primary action hover */
@@ -283,25 +288,26 @@
   --ob-text-muted: var(--ob-paper-560);
   --ob-text-faint: var(--ob-paper-580);
   --ob-text-disabled: var(--ob-paper-580);
-  --ob-text-on-accent: var(--ob-paper-0);
+  --ob-text-on-accent: var(--ob-paper-950);
+  --ob-text-on-solid: var(--ob-paper-0);
   --ob-text-on-rail: var(--ob-paper-200);
   --ob-accent: var(--ob-indigo-300);
   --ob-accent-hover: var(--ob-indigo-200);
   --ob-accent-tint: var(--ob-slate-800);
-  --ob-accent-tint-border: var(--ob-slate-700);
+  --ob-accent-tint-border: var(--ob-paper-600);
   --ob-accent-ink: var(--ob-indigo-300);
-  --ob-accent-weak: var(--ob-indigo-800);
+  --ob-accent-weak: var(--ob-indigo-400);
 
   /* Status fills invert: tint becomes a low-alpha wash over the dark surface,
      ink becomes the bright end of the ramp so it clears 4.5:1 on that wash. */
   --ob-status-on-track-bg: color-mix(in oklab, var(--ob-green-500) 18%, transparent);
-  --ob-status-on-track-fg: var(--ob-green-500);
+  --ob-status-on-track-fg: var(--ob-green-300);
   --ob-status-progress-bg: color-mix(in oklab, var(--ob-indigo-600) 26%, transparent);
   --ob-status-progress-fg: var(--ob-indigo-300);
   --ob-status-at-risk-bg: color-mix(in oklab, var(--ob-amber-500) 20%, transparent);
-  --ob-status-at-risk-fg: var(--ob-amber-500);
+  --ob-status-at-risk-fg: var(--ob-amber-300);
   --ob-status-blocked-bg: color-mix(in oklab, var(--ob-red-500) 22%, transparent);
-  --ob-status-blocked-fg: var(--ob-red-500);
+  --ob-status-blocked-fg: var(--ob-red-300);
   --ob-status-neutral-bg: var(--ob-slate-700);
   --ob-status-neutral-fg: var(--ob-paper-560);
 
