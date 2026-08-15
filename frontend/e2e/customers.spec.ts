@@ -28,13 +28,15 @@ test.beforeAll(async ({ playwright }) => {
   tenant = await provisionTenant(request, "cust");
   const admin = await Api.as(request, tenant.slug, tenant.adminEmail);
 
-  // A customer with a contact, seeded through the API: sub-project 1 ships no
-  // "add contact" form, so the interface can send an invitation but not create
-  // the contact to send it to.
+  // The customer is seeded through the API because three tests need one to
+  // exist and only the first of them is about creating it. The CONTACT is
+  // deliberately NOT seeded: it used to be, and that is precisely why a green
+  // 27-test suite never noticed that nothing in the interface could create one.
+  // Spec §12's definition of done says contacts can be created and invited, so
+  // the suite creates one the way a user does.
   const seeded = await admin.createCustomer("Contoso Logistics");
   customerId = seeded.id;
   contactEmail = `ops@${tenant.slug}.test`;
-  await admin.createContact(customerId, "Jordan Vale", contactEmail);
 
   viewerEmail = await seedUser(request, admin, tenant, "viewer", {
     "customer.view": "ALL",
@@ -95,12 +97,38 @@ test("the customer table becomes a card list below 1024px", async ({ page }) => 
   expect(overflow, "the page scrolls horizontally at 1023px").toBe(false);
 });
 
-test("sends an invitation to a contact", async ({ page }) => {
+/**
+ * Both halves of spec §12's "customers and contacts can be created and invited",
+ * in one test and through the interface end to end.
+ *
+ * Creation is here rather than seeded in `beforeAll` on purpose. When the contact
+ * arrived through the API this file passed while the product had no way at all to
+ * add one — the suite was asserting the invitation button on a record no user
+ * could have produced. Seeding it back would reopen exactly that blind spot.
+ */
+test("adds a contact through the interface and sends it an invitation", async ({ page }) => {
   await signIn(page, tenant.slug, tenant.adminEmail);
   await page.goto(`/t/${tenant.slug}/customers/${customerId}`);
 
   await expect(page.getByRole("heading", { name: "Contacts" })).toBeVisible();
-  await expect(page.getByText(contactEmail)).toBeVisible();
+  await expect(page.getByText("No contacts yet")).toBeVisible();
+
+  await page.getByRole("button", { name: "Add contact" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Add contact" });
+  await dialog.getByLabel("Full name").fill("Jordan Vale");
+  await dialog.getByLabel("Email").fill(contactEmail);
+  await dialog.getByLabel("Job title").fill("Head of Operations");
+  await dialog.getByLabel("Primary contact").check();
+  await dialog.getByRole("button", { name: "Create contact" }).click();
+
+  // Success is visible: the dialog closes and the person is on the page.
+  await expect(dialog).toBeHidden();
+  const added = page.getByRole("listitem").filter({ hasText: "Jordan Vale" });
+  await expect(added.getByText(contactEmail)).toBeVisible();
+  // The flag survived the round trip, and it is marked with a word rather than
+  // only a colour.
+  await expect(added.getByText("Primary")).toBeVisible();
 
   await page.getByRole("button", { name: "Send invitation to Jordan Vale" }).click();
 

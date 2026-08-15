@@ -25,23 +25,41 @@ export function Card({
 }
 
 /**
- * Title plus an optional right-aligned count. The count is mono because it is a
- * machine-generated value; the title is not.
+ * Title plus an optional right-aligned count, and an optional action beside it.
+ * The count is mono because it is a machine-generated value; the title is not.
+ *
+ * `items-center` when there is an action and `items-baseline` when there is not:
+ * a control aligned on the title's baseline sits visibly low, while a bare count
+ * aligned on the control's centre sits visibly high.
  */
-export function CardHeader({ title, count }: { title: string; count?: number }) {
+export function CardHeader({
+  title,
+  count,
+  action,
+}: {
+  title: string;
+  count?: number;
+  action?: ReactNode;
+}) {
   return (
-    <div className="flex items-baseline justify-between" style={{ marginBottom: "var(--ob-space-16)" }}>
+    <div
+      className={`flex justify-between ${action ? "items-center" : "items-baseline"}`}
+      style={{ marginBottom: "var(--ob-space-16)" }}
+    >
       <h2 className="text-text-primary" style={{ font: "600 var(--ob-type-13-5-size)/var(--ob-type-13-5-line) var(--ob-font-family-ui)" }}>
         {title}
       </h2>
-      {count !== undefined && (
-        <span
-          className="text-text-faint"
-          style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
-        >
-          {count}
-        </span>
-      )}
+      <div className="flex items-center" style={{ gap: "var(--ob-space-11)" }}>
+        {count !== undefined && (
+          <span
+            className="text-text-faint"
+            style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
+          >
+            {count}
+          </span>
+        )}
+        {action}
+      </div>
     </div>
   );
 }

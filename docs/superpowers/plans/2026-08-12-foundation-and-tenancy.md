@@ -7465,6 +7465,32 @@ Filter chips are a `role="group"` with `aria-pressed` on each. The table is a re
 
 Customer summary, editable when `customer.edit` is held, contact list, and a "Send invitation" action per contact gated on `invitation.send`.
 
+> **Amended in Task R2 (remediation): this step omitted contact CREATION, which spec §12 requires.**
+> §12's definition of done reads "customers and contacts can be created and **invited**", and this
+> step named only display and invitation. Task 27 built exactly what was listed, so the interface
+> could show a contact and invite one but never add one — `POST /customers/{id}/contacts` had been
+> built, gated and tested since Task 21 and nothing ever called it. Neither Task 27's review nor
+> the reading of this plan noticed that the step did not satisfy the definition of done it serves;
+> Task 28 found it by trying to drive the flow end to end.
+>
+> **What hid it was the e2e, not the plan.** `e2e/customers.spec.ts` seeded its contact through the
+> API in `beforeAll` and then asserted the invitation button on it, so a green 27-test suite was
+> exercising an invitation to a record no user could have produced. The spec now creates the
+> contact through the interface. **When a definition of done names a verb, the end-to-end test must
+> perform that verb through the UI** — seeding it is what lets the whole affordance go missing
+> without a single test turning red.
+>
+> Delivered: `frontend/src/components/customers/ContactForm.tsx` and `useCreateContact()`, with an
+> "Add contact" action in the contact card header. The gate is **`contact.manage`**, read off
+> `CustomerContactService.create` — *not* `invitation.send`, which gates only the button beside it,
+> and not a `contact.create` that does not exist. `CardHeader` gained an optional `action` slot.
+>
+> **Still unexposed, and the same class of gap:** `PUT /contacts/{contactId}` exists, is gated on
+> `contact.manage` and has no interface at all. Nothing in the product can correct a contact's
+> name, address or title, or set `status` to INACTIVE — which is the only deactivation a contact
+> has, since business records are never deleted. Out of scope for Task R2, which was scoped to
+> creation, and left for sub-project 2 or a further remediation pass.
+
 - [ ] **Step 3: Handle 404 correctly**
 
 A 404 from the API renders "Not found" — never "You don't have access to this record." The backend deliberately does not distinguish the two, and the UI must not reintroduce the distinction the 404 exists to hide.

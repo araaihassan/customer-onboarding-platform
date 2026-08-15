@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setTenantSlug } from "@/lib/api/client";
 import type { Contact } from "@/lib/api/customers";
@@ -134,5 +134,128 @@ describe("ContactList", () => {
   it("explains an empty contact list rather than showing nothing", () => {
     renderList([]);
     expect(screen.getByText("No contacts yet")).not.toBeNull();
+  });
+});
+
+/**
+ * Spec §12's definition of done reads "customers and contacts can be created and
+ * invited". Until Task R2 the middle third had no interface at all: the endpoint
+ * was built, gated and tested in Task 21, and nothing ever called it.
+ *
+ * `contact.manage` is the gate, read off CustomerContactService.create — NOT
+ * `invitation.send`, which gates only the button beside it.
+ */
+describe("ContactList: adding a contact", () => {
+  function openDialog() {
+    fireEvent.click(screen.getByRole("button", { name: "Add contact" }));
+    return screen.getByRole("dialog", { name: "Add contact" });
+  }
+
+  function fillAndSubmit(dialog: HTMLElement) {
+    fireEvent.change(within(dialog).getByLabelText("Full name"), {
+      target: { value: "Ada Okonjo" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Email"), {
+      target: { value: "ada@northwind.test" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create contact" }));
+  }
+
+  it("hides the action from someone without contact.manage", () => {
+    permissions = { "invitation.send": ["ALL"] };
+    renderList();
+    expect(screen.queryByRole("button", { name: "Add contact" })).toBeNull();
+  });
+
+  it("offers the action to someone holding contact.manage", () => {
+    permissions = { "contact.manage": ["ALL"] };
+    renderList();
+    expect(screen.getByRole("button", { name: "Add contact" })).not.toBeNull();
+  });
+
+  it("posts the new contact to the customer it belongs to and closes the dialog", async () => {
+    permissions = { "contact.manage": ["ALL"] };
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 201,
+      text: async () => JSON.stringify({ id: "p-9" }),
+      json: async () => ({ id: "p-9" }),
+    } as unknown as Response);
+    renderList();
+
+    fillAndSubmit(openDialog());
+
+    await waitFor(() =>
+      expect(fetchMock.mock.calls.at(-1)![0]).toBe("/api/t/acme/customers/c-1/contacts"),
+    );
+    expect((fetchMock.mock.calls.at(-1)![1] as RequestInit).method).toBe("POST");
+    expect(JSON.parse((fetchMock.mock.calls.at(-1)![1] as RequestInit).body as string)).toMatchObject({
+      fullName: "Ada Okonjo",
+      email: "ada@northwind.test",
+    });
+
+    // Success is visible: the dialog goes, and the list says so out loud.
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.getByRole("status").textContent).toBe("Contact added");
+  });
+
+  /**
+   * The failure this project has shipped three times and caught three times in
+   * review: an async surface whose error says nothing. A create that fails
+   * silently leaves the dialog sitting open with no explanation, and the user
+   * either presses the button again or walks away believing it worked.
+   */
+  it("reports a failed create instead of falling silent", async () => {
+    permissions = { "contact.manage": ["ALL"] };
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => "boom",
+      json: async () => ({}),
+    } as unknown as Response);
+    renderList();
+
+    const dialog = openDialog();
+    fillAndSubmit(dialog);
+
+    await waitFor(() =>
+      expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe(
+        "Something went wrong",
+      ),
+    );
+    // Still open and still offering the action, because it did not happen.
+    expect(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Create contact" }),
+    ).not.toBeNull();
+  });
+
+  /**
+   * An error that outlives its cause trains people to ignore errors, so the
+   * mutation is reset when the dialog opens rather than when it closes.
+   */
+  it("does not show a stale error when the dialog is reopened", async () => {
+    permissions = { "contact.manage": ["ALL"] };
+    fetchMock.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: async () => "boom",
+      json: async () => ({}),
+    } as unknown as Response);
+    renderList();
+
+    fillAndSubmit(openDialog());
+    await waitFor(() => expect(screen.getByRole("alert")).not.toBeNull());
+
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    openDialog();
+
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  /** Business records are deactivated, never deleted — and there is no endpoint. */
+  it("offers no way to delete a contact", () => {
+    permissions = { "contact.manage": ["ALL"] };
+    renderList();
+    expect(screen.queryByRole("button", { name: /delete|remove/i })).toBeNull();
   });
 });

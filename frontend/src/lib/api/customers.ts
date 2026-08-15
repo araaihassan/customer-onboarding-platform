@@ -14,6 +14,7 @@ export type Contact = components["schemas"]["ContactView"];
 export type CustomerPage = components["schemas"]["PageCustomerView"];
 export type CreateCustomerRequest = components["schemas"]["CreateCustomerRequest"];
 export type UpdateCustomerRequest = components["schemas"]["UpdateCustomerRequest"];
+export type CreateContactRequest = components["schemas"]["CreateContactRequest"];
 export type CustomerStatus = NonNullable<Customer["status"]>;
 
 /** The four statuses, in lifecycle order — this drives the filter chips. */
@@ -141,6 +142,28 @@ export function useDeactivateCustomer() {
     onSuccess: (_result, { id }) => {
       void queryClient.invalidateQueries({ queryKey: customerKeys.detail(id) });
       void queryClient.invalidateQueries({ queryKey: customerKeys.lists() });
+    },
+  });
+}
+
+/**
+ * Gated on `contact.manage`, not `invitation.send` — the two sit side by side in
+ * the interface and are different permissions (CustomerContactService.create).
+ *
+ * Only the contact list is invalidated. A contact is not part of the customer
+ * record the detail header renders and does not appear in the customer list, so
+ * invalidating either would refetch two requests to change nothing.
+ */
+export function useCreateContact() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ customerId, body }: { customerId: string; body: CreateContactRequest }) =>
+      apiFetch<Contact>(`/customers/${customerId}/contacts`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: (_contact, { customerId }) => {
+      void queryClient.invalidateQueries({ queryKey: customerKeys.contacts(customerId) });
     },
   });
 }

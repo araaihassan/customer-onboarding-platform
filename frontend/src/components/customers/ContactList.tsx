@@ -1,27 +1,32 @@
 "use client";
 
 import { useState } from "react";
+import { ContactForm } from "@/components/customers/ContactForm";
+import type { ContactFormValues } from "@/components/customers/ContactForm";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
+import { Dialog } from "@/components/ui/Dialog";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { UsersIcon } from "@/components/icons";
-import { useSendInvitation } from "@/lib/api/customers";
+import { PlusIcon, UsersIcon } from "@/components/icons";
+import { useCreateContact, useSendInvitation } from "@/lib/api/customers";
 import type { Contact } from "@/lib/api/customers";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
 /**
- * The people at a customer.
+ * The people at a customer: adding them, and inviting them to the portal.
  *
  * Circular avatars, because these are people — a customer is a company and
  * carries a rounded square. That is the whole of the distinction, and it is the
  * only thing carrying it.
  *
- * The invitation action is gated on `invitation.send`, which hides a control
- * nobody could use. It is a courtesy, not a control: the endpoint refuses
- * independently, and Task 22's DirectApiAccessTest proves it.
+ * TWO different permissions, side by side and easy to conflate. Adding a contact
+ * is `contact.manage` (CustomerContactService.create); inviting one is
+ * `invitation.send`. Both gates hide a control nobody could use and neither is a
+ * control in itself: the endpoints refuse independently, and Task 22's
+ * DirectApiAccessTest proves it.
  */
 export function ContactList({
   customerId,
@@ -33,14 +38,55 @@ export function ContactList({
   isLoading?: boolean;
 }) {
   const canInvite = useHasPermission("invitation.send");
+  const canManage = useHasPermission("contact.manage");
   const invite = useSendInvitation();
+  const create = useCreateContact();
   const [invited, setInvited] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const [adding, setAdding] = useState(false);
+
+  function submitNew(values: ContactFormValues) {
+    create.mutate(
+      { customerId, body: values },
+      {
+        onSuccess: () => {
+          setAdding(false);
+          setAnnouncement(t("contact.create.added"));
+        },
+        // No onError: the dialog stays open and ContactForm renders
+        // `create.isError` in its own role="alert", where the person who pressed
+        // the button is already looking.
+      },
+    );
+  }
 
   return (
     <Card>
-      <CardHeader title={t("contact.list.title")} count={isLoading ? undefined : contacts.length} />
+      <CardHeader
+        title={t("contact.list.title")}
+        count={isLoading ? undefined : contacts.length}
+        action={
+          canManage ? (
+            <Button
+              type="button"
+              variant="secondary"
+              // Reset on open, not on close: a dialog reopened after a failed
+              // create would otherwise greet the user with the last attempt's
+              // error before they have done anything, and an error that outlives
+              // its cause trains people to ignore errors.
+              onClick={() => {
+                create.reset();
+                setAdding(true);
+              }}
+              style={{ height: "var(--ob-control-height-sm)", gap: "var(--ob-space-6)" }}
+            >
+              <PlusIcon size={14} />
+              {t("contact.create.title")}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {/* A persistent live region, present before there is anything to say.
           A role="status" element inserted at the moment of the announcement is
@@ -168,6 +214,17 @@ export function ContactList({
             );
           })}
         </ul>
+      )}
+
+      {adding && (
+        <Dialog title={t("contact.create.title")} onClose={() => setAdding(false)}>
+          <ContactForm
+            pending={create.isPending}
+            error={create.isError ? t("common.error") : undefined}
+            onSubmit={submitNew}
+            onCancel={() => setAdding(false)}
+          />
+        </Dialog>
       )}
     </Card>
   );

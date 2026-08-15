@@ -7,6 +7,7 @@ import {
   useCustomer,
   useCustomers,
   useContacts,
+  useCreateContact,
   useCreateCustomer,
   useDeactivateCustomer,
   useSendInvitation,
@@ -157,6 +158,29 @@ describe("mutations", () => {
 
     expect(lastUrl()).toBe("/api/t/acme/customers/c-1/deactivate");
     expect(lastInit().method).toBe("POST");
+  });
+
+  /**
+   * The write half of `useContacts`, and the one spec §12's definition of done
+   * names: "customers and contacts can be created and invited". The endpoint has
+   * existed since Task 21; nothing in the interface reached it until Task R2.
+   */
+  it("creates a contact nested under its customer with POST", async () => {
+    fetchMock.mockResolvedValue(reply({ id: "p-9" }, 201));
+
+    const { result } = renderHook(() => useCreateContact(), { wrapper: makeWrapper() });
+    await result.current.mutateAsync({
+      customerId: "c-1",
+      body: { fullName: "Ada Okonjo", email: "ada@northwind.test", primaryContact: true },
+    });
+
+    expect(lastUrl()).toBe("/api/t/acme/customers/c-1/contacts");
+    expect(lastInit().method).toBe("POST");
+    expect(JSON.parse(lastInit().body as string)).toMatchObject({
+      fullName: "Ada Okonjo",
+      email: "ada@northwind.test",
+      primaryContact: true,
+    });
   });
 
   it("sends an invitation to a contact nested under its customer", async () => {
