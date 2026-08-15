@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { CustomerTable } from "@/components/customers/CustomerTable";
 import { CustomerForm } from "@/components/customers/CustomerForm";
@@ -13,6 +13,7 @@ import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { CUSTOMER_STATUSES, useCreateCustomer, useCustomers } from "@/lib/api/customers";
 import type { CustomerStatus } from "@/lib/api/customers";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
+import { useDebounced } from "@/lib/useDebounced";
 import { t } from "@/lib/i18n";
 
 /**
@@ -176,24 +177,6 @@ export default function CustomersPage() {
       )}
     </section>
   );
-}
-
-/**
- * Holds a value still until typing stops.
- *
- * Without it every keystroke is a request and a distinct cache entry, and the
- * results arrive out of order — the list ends up showing whichever response was
- * slowest rather than whatever was typed last.
- */
-function useDebounced<T>(value: T, delay: number): T {
-  const [settled, setSettled] = useState(value);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setSettled(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-
-  return settled;
 }
 
 function SearchBox({ value, onChange }: { value: string; onChange: (next: string) => void }) {
