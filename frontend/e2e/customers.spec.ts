@@ -162,7 +162,12 @@ test("a user without customer.create cannot create one, by button or by endpoint
   // scope of, so this is a refused permission rather than a hidden record.
   expect(status, "the endpoint accepted a create from a user without customer.create").toBe(403);
 
-  // And nothing was written.
+  // And nothing was written. The heading first, deliberately: a `toHaveCount(0)`
+  // on its own also holds when the page failed to render or bounced to login,
+  // which would let this assertion pass for a reason that has nothing to do with
+  // the record being absent.
   await page.goto(`/t/${tenant.slug}/customers`);
+  await expect(page.getByRole("heading", { level: 1, name: "Customers" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Contoso Logistics" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Smuggled" })).toHaveCount(0);
 });

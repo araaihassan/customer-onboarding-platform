@@ -136,39 +136,98 @@ for (const theme of THEMES) {
  *
  * Measured, not asserted from the stylesheet: a rule that exists but is
  * overridden by an inline style would pass a CSS assertion and fail a user.
+ *
+ * **The indicator must APPEAR on focus, not merely be present while focused.**
+ * An earlier version of this test accepted any `box-shadow` other than `none` as
+ * proof, which several components paint unconditionally — `TopBar`, `Dialog`, and
+ * the role list's permanent selection ring. On any of those, an `outline: none`
+ * regression would have passed. So each stop's computed style is captured while
+ * focused, focus is then dropped, and the two are compared: a stop counts as
+ * marked only if focusing it CHANGED the outline into something visible, or
+ * changed the box-shadow.
  */
 test("every tab stop on the customer list shows a visible focus indicator", async ({ page }) => {
   await signIn(page, tenant.slug, tenant.adminEmail);
   await page.goto(`/t/${tenant.slug}/customers`);
   await expect(page.getByRole("link", { name: "Tailspin Toys" })).toBeVisible();
 
-  const unmarked: string[] = [];
+  await page.evaluate(() => {
+    (window as unknown as { __stops: unknown[] }).__stops = [];
+  });
 
-  for (let i = 0; i < 30; i += 1) {
+  let stops = 0;
+  for (let i = 0; i < 40; i += 1) {
     await page.keyboard.press("Tab");
 
-    const stop = await page.evaluate(() => {
-      const element = document.activeElement;
-      if (!element || element === document.body) return null;
+    const reached = await page.evaluate(() => {
+      const element = document.activeElement as HTMLElement | null;
+      if (!element || element === document.body) return false;
 
       const style = window.getComputedStyle(element);
-      const outlineWidth = Number.parseFloat(style.outlineWidth) || 0;
-      const visibleOutline =
-        outlineWidth > 0 && style.outlineStyle !== "none" && style.outlineColor !== "transparent";
-
-      return {
+      (window as unknown as { __stops: unknown[] }).__stops.push({
+        element,
         // Enough to name the offender in a failure message.
-        description: `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}` +
+        description:
+          `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ""}` +
           `[${(element.getAttribute("aria-label") ?? element.textContent ?? "").trim().slice(0, 40)}]`,
-        // Either a real outline or a ring drawn with box-shadow counts; both are
-        // visible, and the design uses the first.
-        focusVisible: visibleOutline || style.boxShadow !== "none",
-      };
+        focused: {
+          outlineWidth: style.outlineWidth,
+          outlineStyle: style.outlineStyle,
+          outlineColor: style.outlineColor,
+          boxShadow: style.boxShadow,
+        },
+      });
+      return true;
     });
 
-    if (!stop) break;
-    if (!stop.focusVisible) unmarked.push(stop.description);
+    if (!reached) break;
+    stops += 1;
   }
+
+  // Without this the loop could exit on the first Tab and `unmarked` would be
+  // empty — a green test that checked nothing. The customer list carries the
+  // rail's links, the two header controls, the search box, six filter chips, the
+  // create button and the record links; ten is a floor well under that.
+  expect(stops, "tab stops reached on the customer list").toBeGreaterThanOrEqual(10);
+
+  const unmarked = await page.evaluate(() => {
+    type Ring = {
+      outlineWidth: string;
+      outlineStyle: string;
+      outlineColor: string;
+      boxShadow: string;
+    };
+    type Stop = { element: HTMLElement; description: string; focused: Ring };
+
+    // Drop focus so the comparison is against the resting state. :focus-visible
+    // only applies while the element is focused from the keyboard, which is
+    // exactly the difference being measured.
+    (document.activeElement as HTMLElement | null)?.blur();
+
+    return (window as unknown as { __stops: Stop[] }).__stops
+      .filter((stop) => {
+        const resting = window.getComputedStyle(stop.element);
+        const { focused } = stop;
+
+        const paintsOutline =
+          (Number.parseFloat(focused.outlineWidth) || 0) > 0 &&
+          focused.outlineStyle !== "none" &&
+          focused.outlineColor !== "transparent";
+        const outlineAppeared =
+          paintsOutline &&
+          (resting.outlineWidth !== focused.outlineWidth ||
+            resting.outlineStyle !== focused.outlineStyle ||
+            resting.outlineColor !== focused.outlineColor);
+
+        // A ring drawn with box-shadow is legitimate too — but only if focusing
+        // is what drew it. A shadow present at rest is a component's own
+        // treatment, not a focus indicator.
+        const shadowAppeared = resting.boxShadow !== focused.boxShadow;
+
+        return !(outlineAppeared || shadowAppeared);
+      })
+      .map((stop) => stop.description);
+  });
 
   expect(unmarked, "tab stops with no visible focus indicator").toEqual([]);
 });
