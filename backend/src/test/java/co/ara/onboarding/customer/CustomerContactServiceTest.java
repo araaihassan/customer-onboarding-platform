@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -126,6 +127,131 @@ class CustomerContactServiceTest extends PostgresTestBase {
             assertThat(contacts.sendInvitation(contactId.get()))
                     .as("the raw activation token, returned once")
                     .isNotBlank());
+    }
+
+    /**
+     * A WRITE must not reach a parent the actor cannot read.
+     *
+     * create takes a customerId straight from the URL, and @RequirePermission is
+     * coarse by design -- PermissionGateAspect answers only "does this user hold
+     * the permission at ANY scope". So without a parent lookup a narrowly scoped
+     * contact.manage holder could attach a contact to any customer in the tenant,
+     * including ones invisible to them. Reads were never affected, which is what
+     * made it quiet: they could not see or invite what they had written.
+     *
+     * NoSuchElementException, not AccessDeniedException: an unreachable parent is
+     * indistinguishable from one that does not exist, and 403 here would confirm
+     * the customer is real to someone who cannot see it.
+     */
+    @Test
+    void creatingAContactUnderAnOutOfScopeCustomerIsNotFound() {
+        UUID tenant = fixture.createTenant("contact-parent-scope");
+        var user = new AtomicReference<UUID>();
+        var theirCustomer = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "narrow@example.com"));
+            UUID someoneElse = fixture.createUser(tenant, "owner@example.com");
+            theirCustomer.set(fixture.createCustomer(tenant, "Theirs Ltd", someoneElse, null, null));
+            UUID role = roles.createRole("Assigned Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ASSIGNED));
+            roles.assignRole(user.get(), role);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.create(theirCustomer.get(), new CustomerContactService.CreateContactRequest(
+                        "Smuggled", "smuggled@example.com", null, null, false))))
+                .as("a contact written under a customer the actor cannot see")
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
+     * The other half, and the one that stops the guard above passing for the wrong
+     * reason. A parent check that denied everything would satisfy the negative test
+     * perfectly while breaking the feature, so the same narrowly scoped actor must
+     * still be able to write under a customer that IS theirs.
+     */
+    @Test
+    void creatingAContactUnderAnInScopeCustomerStillWorks() {
+        UUID tenant = fixture.createTenant("contact-parent-allowed");
+        var user = new AtomicReference<UUID>();
+        var myCustomer = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "mine@example.com"));
+            myCustomer.set(fixture.createCustomer(tenant, "Mine Ltd", user.get(), null, null));
+            UUID role = roles.createRole("Assigned Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ASSIGNED));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () ->
+            assertThat(contacts.create(myCustomer.get(), new CustomerContactService.CreateContactRequest(
+                    "Legitimate", "legit@example.com", null, null, false)).email())
+                    .isEqualTo("legit@example.com"));
+    }
+
+    /**
+     * update was already covered and this proves it rather than assuming it.
+     *
+     * It reads the contact through AuthorizedQuery, and CustomerContactDescriptor
+     * resolves every contact scope through a subquery over its parent customer, so
+     * an out-of-scope parent already makes the contact itself unreachable. The
+     * request carries no customerId either, so a contact cannot be moved under a
+     * different parent. Expected to pass on its first run; kept because "already
+     * covered" is a claim that should be executable.
+     */
+    @Test
+    void updatingAContactUnderAnOutOfScopeCustomerIsNotFound() {
+        UUID tenant = fixture.createTenant("contact-update-scope");
+        var user = new AtomicReference<UUID>();
+        var theirContact = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "narrow-edit@example.com"));
+            UUID someoneElse = fixture.createUser(tenant, "owner-edit@example.com");
+            UUID theirCustomer = fixture.createCustomer(tenant, "Theirs Ltd", someoneElse, null, null);
+            theirContact.set(fixture.createContact(tenant, theirCustomer, "theirs@example.com"));
+            UUID role = roles.createRole("Assigned Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ASSIGNED));
+            roles.assignRole(user.get(), role);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.update(theirContact.get(), new CustomerContactService.UpdateContactRequest(
+                        "Hijacked", "hijacked@example.com", null, null, false, ContactStatus.ACTIVE))))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
+     * And the invitation path, which is what would have turned write-side pollution
+     * into something worse. InvitationService.issue is separately gated on
+     * INVITATION_SEND and reads the contact through AuthorizedQuery, so a contact
+     * under an unreachable customer cannot be invited either — the bypass never
+     * chained. Also expected to pass first time.
+     */
+    @Test
+    void invitingAContactUnderAnOutOfScopeCustomerIsNotFound() {
+        UUID tenant = fixture.createTenant("contact-invite-scope");
+        var user = new AtomicReference<UUID>();
+        var theirContact = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "narrow-invite@example.com"));
+            UUID someoneElse = fixture.createUser(tenant, "owner-invite@example.com");
+            UUID theirCustomer = fixture.createCustomer(tenant, "Theirs Ltd", someoneElse, null, null);
+            theirContact.set(fixture.createContact(tenant, theirCustomer, "theirs-invite@example.com"));
+            UUID role = roles.createRole("Assigned Inviter", "", Map.of(
+                    PermissionKeys.INVITATION_SEND, Scope.ASSIGNED));
+            roles.assignRole(user.get(), role);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.sendInvitation(theirContact.get())))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
     }
 
     /**

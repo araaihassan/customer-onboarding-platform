@@ -7510,19 +7510,42 @@ Customer summary, editable when `customer.edit` is held, contact list, and a "Se
 > could translate it; and it matches the Hibernate **constraint name**, with a test proving an
 > unrelated violation is *not* reported as a duplicate.
 
-- [ ] **Step 2b (Task R2 extension): a finding NOT fixed — contact creation does not scope-check its parent**
+- [ ] **Step 2b (Task R2 extension): a nested write must scope-check its PARENT — fixed**
 
-`CustomerContactService.create` takes a `customerId` and writes the row without ever resolving that
-customer through `AuthorizedQuery`. `@RequirePermission` is coarse by design — `PermissionGateAspect`
-answers only "does this user hold the permission at ANY scope" — so a user holding `contact.manage`
-at DEPARTMENT, TEAM or ASSIGNED scope can attach a contact to **any** customer in the tenant,
-including ones they cannot see. Reads are unaffected (`list`, `update` and `sendInvitation` all go
-through `AuthorizedQuery` and resolve a contact's scope through its parent customer), so the
-exposure is write-side pollution rather than disclosure — they cannot read back or invite what they
-inserted. Found by reading the code during Task R2 and deliberately left alone: closing it needs a
-decision about *which* permission the parent check should use, which is a design call rather than a
-remediation. Nested creates in sub-projects 2–9 have the same shape and will inherit the same hole
-unless this is settled first.
+**The rule, for every nested create in sub-projects 2–9:** a create has no record of its own to
+scope, so the parent id arriving from the URL is the only thing left to check. Resolve it through
+`AuthorizedQuery` before the write, using **the same permission the write is gated on**, and let the
+`NoSuchElementException` become the 404. Two rules this project already states, applied to the
+write path's parent lookup: reads of tenant business data go through `AuthorizedQuery`, and
+out-of-scope records return 404, never 403. It needs no new permission and invents no policy.
+
+`CustomerContactService.create` took a `customerId` and wrote the row with no parent lookup at all.
+`@RequirePermission` is coarse by design — `PermissionGateAspect` answers only "does this user hold
+the permission at ANY scope" — so a `contact.manage` holder scoped to DEPARTMENT, TEAM or ASSIGNED
+could attach a contact to **any** customer in the tenant, including invisible ones. Quiet rather
+than harmless: every read path resolves a contact's scope through its parent, so they could never
+see or invite what they wrote, and RLS kept it in-tenant, but the row was there. Now
+`authorizedQuery.getById(customers, Customer.class, CONTACT_MANAGE, customerId)` runs first.
+
+**Why `CONTACT_MANAGE` against `Customer.class` is coherent and not a mismatch:**
+`AuthorizationPredicateBuilder.forPermission` takes the **scopes** from the permission key and the
+predicate **shape** from the entity's descriptor. So the call asks precisely "which customers does
+this actor's `contact.manage` reach", and it keeps create in step with the read paths — you can only
+create under a parent you would then be able to see the result under.
+
+**`update` and `sendInvitation` needed no change, and that is proven rather than assumed.** `update`
+reads the contact through `AuthorizedQuery` and `CustomerContactDescriptor` resolves every contact
+scope through a subquery over the parent customer, so an unreachable parent already makes the
+contact unreachable; `UpdateContactRequest` carries no `customerId`, so a contact cannot be moved
+under a different parent either. `InvitationService.issue` is separately gated on `INVITATION_SEND`
+and also reads through `AuthorizedQuery`, so the bypass never chained. Both now have their own
+tests, which passed on their first run — that is the evidence the hole was confined to `create`.
+**Do not "restore symmetry" by adding a parent lookup to `update`**: it would cost a query per edit
+and imply the contact-level check were insufficient.
+
+The security test comes with a positive control — the same narrowly scoped actor creating under a
+customer that *is* theirs. Without it a parent check that denied everything would satisfy the
+negative test perfectly while breaking the feature.
 
 - [ ] **Step 3: Handle 404 correctly**
 

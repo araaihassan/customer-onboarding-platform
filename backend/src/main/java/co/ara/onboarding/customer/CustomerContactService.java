@@ -30,13 +30,16 @@ public class CustomerContactService {
                               boolean primaryContact, ContactStatus status) {}
 
     private final CustomerContactRepository repository;
+    private final CustomerRepository customers;
     private final AuthorizedQuery authorizedQuery;
     private final ContactInvitationSender invitations;
 
     public CustomerContactService(CustomerContactRepository repository,
+                                  CustomerRepository customers,
                                   AuthorizedQuery authorizedQuery,
                                   ContactInvitationSender invitations) {
         this.repository = repository;
+        this.customers = customers;
         this.authorizedQuery = authorizedQuery;
         this.invitations = invitations;
     }
@@ -63,9 +66,37 @@ public class CustomerContactService {
                 .getContent();
     }
 
+    /**
+     * The parent is resolved through AuthorizedQuery BEFORE the write, for the
+     * same reason list() applies a scope predicate rather than a derived finder.
+     *
+     * The permission gate is coarse by design — PermissionGateAspect answers
+     * only "does this user hold the permission at ANY scope" — and a create has
+     * no record of its own to scope, so the customerId arriving from the URL is
+     * the only thing left to check. Without this a contact.manage holder scoped to
+     * DEPARTMENT, TEAM or ASSIGNED could attach a contact to any customer in the
+     * tenant, including ones invisible to them. That was quiet rather than
+     * harmless: every read path resolves a contact's scope through its parent, so
+     * they could never see or invite what they had written, but the row was
+     * there.
+     *
+     * CONTACT_MANAGE against Customer.class is the coherent pairing, not a
+     * mismatch: AuthorizationPredicateBuilder takes the SCOPES from the
+     * permission key and the predicate SHAPE from the entity's descriptor, so
+     * this asks exactly "which customers does this actor's contact.manage
+     * reach". It needs no new permission, and it keeps create and the read paths
+     * agreeing — you can only create under a parent you would then be able to see
+     * the result under.
+     *
+     * The returned customer is deliberately unused: this is a reachability
+     * check, and getById throws NoSuchElementException — 404, never 403 — when
+     * the parent is out of scope or absent, which are the same answer by design.
+     */
     @RequirePermission(PermissionKeys.CONTACT_MANAGE)
     @Transactional
     public ContactView create(UUID customerId, CreateContactRequest request) {
+        authorizedQuery.getById(customers, Customer.class, PermissionKeys.CONTACT_MANAGE, customerId);
+
         CustomerContact c = new CustomerContact();
         c.setId(Uuid7.generate());
         c.setTenantId(TenantContext.getRequired());
@@ -81,6 +112,21 @@ public class CustomerContactService {
         return toView(save(c));
     }
 
+    /**
+     * No parent lookup here, deliberately, and NOT an omission of the one create
+     * carries.
+     *
+     * update reads the contact itself through AuthorizedQuery, and
+     * CustomerContactDescriptor resolves every contact scope through a subquery
+     * over its parent customer — so an unreachable parent already makes the
+     * contact unreachable, and getById already answers 404. UpdateContactRequest
+     * carries no customerId either, so a contact cannot be moved under a
+     * different parent. Adding a second lookup would issue an extra query per
+     * edit and imply the contact-level check were insufficient.
+     *
+     * Proven rather than asserted:
+     * CustomerContactServiceTest.updatingAContactUnderAnOutOfScopeCustomerIsNotFound.
+     */
     @RequirePermission(PermissionKeys.CONTACT_MANAGE)
     @Transactional
     public ContactView update(UUID contactId, UpdateContactRequest request) {
