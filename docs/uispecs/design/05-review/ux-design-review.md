@@ -169,6 +169,15 @@ role means adding a line to it.
   ground, so one value clears 3:1 in both. Deferred, not blocked. `accent-weak` fails in light for
   the same reason (`indigo-300` on white, 1.35:1) and belongs with it, as does enabling
   `report_shipped("light")` in `contrast.py`.
+- **The light theme's exposure was under-counted here, and `report_shipped("light")` has since been
+  run: 9 of 49 pairs fail, not two.** Beyond `border-default` (which fails on *all four* grounds,
+  1.15–1.28) and `accent-weak` (1.53), the failures are `accent-tint-border` on tint 1.06,
+  `solid-at-risk` on surface 2.54, `border-strong` 1.44 and `border-dashed` 1.68. **No text pair
+  fails** — every one is non-text under 1.4.11, which is why the frontend's axe sweep in both
+  themes came back clean and proved nothing about them: axe's default rule set has a
+  `color-contrast` rule for text and no non-text contrast rule at all. Light is also the *default*
+  theme in the application (`defaultTheme="system"`), so this is the shipped default rendering.
+  Fix all nine in one pass with the `border-control` work above.
 - **`text-secondary` (`paper-400`) sits at 12.24:1 on `bg-surface`**, much closer to
   `text-primary` (14.51) than the light theme's equivalent (8.81 vs 17.39). It passes, so it was
   left alone, but the dark ramp is compressed at the top and a visual review should revisit it.

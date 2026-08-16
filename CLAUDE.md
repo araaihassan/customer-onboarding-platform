@@ -257,8 +257,18 @@ differently. `SHIPPED_PAIRS` resolves **token names** through `build_tokens.py` 
 component paints — so a FAIL there is live. `PAIRS` is 24 **literals copied from the prototype as
 handed off**: it is the evidence behind review finding 1, its 7 failures are the historical record
 and are meant to stay red, and it says nothing about the light tokens shipping today. **The shipped
-light tokens are measured by nothing** — `report_shipped("light")` exists and is one line away, but
-turning it on surfaces the known, deferred `border-default` at 1.28:1.
+light tokens are measured by nothing, and the deferred `border-default` at 1.28:1 is not the whole
+of it**: `report_shipped("light")` was run at the close of sub-project 1 and **nine of the 49 pairs
+fail** — `accent-tint-border` on tint 1.06, `accent-weak` on surface 1.53, `solid-at-risk` on
+surface 2.54, `border-default` on all four grounds 1.15–1.28, `border-strong` 1.44,
+`border-dashed` 1.68, all against 3:1. **No text pair fails** — every one is a non-text graphic
+(WCAG 1.4.11), and **axe's default rule set evaluates `color-contrast` for text and has no non-text
+rule**, so Task 28's clean axe run in both themes measured a different thing from the one that
+fails. Light is the **default** theme (`ThemeProvider` sets `defaultTheme="system"`), so every card
+and control border in the default rendering sits near 1.2:1. The fix is the one R1 applied to dark:
+fix the tokens in `build_tokens.py`, regenerate, copy both files across, and turn
+`report_shipped("light")` on. `contrast.py`'s own `__main__` banner still carries the understated
+"the known, deferred `border-default` at 1.28:1" wording.
 
 Dark theme is keyed on `[data-theme="dark"]`, **not a class** — configure `next-themes` with
 `attribute="data-theme"` or the dark tokens never apply. Generated assets come from the scripts in

@@ -159,10 +159,29 @@ the rail (including its `.72` and `.5` opacities), the accent roles, all five st
 the card and the hovered row, the solids, and the borders. Translucent dark status fills are
 composited onto the surface beneath them first, the way a browser — and axe — does.
 
-**The shipped *light* tokens are measured by nothing.** `report_shipped("light")` exists and is one
-line from being enabled; it is off because turning it on surfaces the known, deferred
-`border-default` at 1.28:1 (and `accent-weak`, which fails in light for the same reason it did in
-dark). Enable it with that work, not before.
+**The shipped *light* tokens are measured by nothing**, and the cost of that is larger than the two
+failures this paragraph used to name. `report_shipped("light")` was run at the close of
+sub-project 1 and reports **9 of 49 pairs failing**, not one:
+
+```
+accent-tint-border on tint  1.06    border-default on page     1.19
+accent-weak on surface      1.53    border-default on surface  1.28
+solid-at-risk on surface    2.54    border-default on subtle   1.22
+border-strong on surface    1.44    border-default on inset    1.15
+border-dashed on surface    1.68                        (all need 3.0:1)
+```
+
+**No text pair fails.** All nine are non-text graphics under 1.4.11 — which is exactly why nothing
+caught them: axe's default rule set evaluates `color-contrast` for *text* and carries no non-text
+contrast rule, so the frontend's clean axe run in both themes measured a different property from
+the one failing here. And light is the **default** theme (`ThemeProvider` uses
+`defaultTheme="system"`), so this is the default rendering, not an alternate one.
+
+The fix is the one applied to dark in §1b: move the tokens in `build_tokens.py`, regenerate, copy
+`tokens.css` and `tailwind.css` across to `frontend/src/app/`, and enable `report_shipped("light")`
+in the same change. `paper-600` clears 3:1 on every light ground, so the palette does not block it.
+Note `contrast.py`'s `__main__` banner still says "the known, deferred `border-default` at 1.28:1";
+that wording predates the run above.
 
 `PRD.md` §16 asks for light/dark theming; the prototype only ever showed light plus a rail
 variant. **Task R1 was the dark theme's first review, and it was measured rather than eyeballed.**
