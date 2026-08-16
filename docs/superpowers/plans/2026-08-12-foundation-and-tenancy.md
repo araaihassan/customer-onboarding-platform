@@ -17,19 +17,54 @@
 Every task's requirements implicitly include this section.
 
 - **Java 21**, **Spring Boot 3.4.x**, **PostgreSQL 16**. No Redis. No Kubernetes.
-- **Base package:** `co.ara.onboarding`. Domain modules are subpackages: `co.ara.onboarding.tenancy`, `.identity`, `.authz`, `.audit`, `.customer`, `.platform`.
+- **Base package:** `co.ara.onboarding`. Domain modules are subpackages: `co.ara.onboarding.tenancy`, `.identity`, `.authz`, `.audit`, `.customer`, `.platform`, plus `.provisioning`, `.scoping` and `.auth` as orchestration slices above them.
+- **No dependency cycles between modules** (`ModuleBoundaryTest`). Two consequences bite repeatedly: `platform` is the foundation everything depends on, so it must never name a domain type — a domain exception's `@RestControllerAdvice` belongs in that domain's own module, not in `platform.ApiExceptionHandler`. And any class that orchestrates two or more domain modules cannot live inside one of them; it needs a slice of its own, which is why `provisioning` exists.
 - **Two PostgreSQL roles.** Migrations run as the schema owner. The application connects as `onboarding_app`, a **non-superuser, non-BYPASSRLS** role. This is mandatory: RLS does not constrain superusers or (without `FORCE`) table owners, so connecting as the owner would make every isolation test pass vacuously.
 - **Every tenant-owned table** has a non-null `tenant_id`, an RLS policy, and `ALTER TABLE ... FORCE ROW LEVEL SECURITY`, all created in the same migration as the table.
 - **Migrations are forward-only.** Never edit a migration that has been committed.
 - **No hard deletes** of business records. Deactivate instead (spec §9.4).
+- **DELETE is deny-by-default at the database layer.** `ALTER DEFAULT PRIVILEGES` grants `SELECT, INSERT, UPDATE` only; `V2_1__revoke_default_delete.sql` strips `DELETE` from the default grant and from `tenant`. Any table that genuinely needs deletion must carry an explicit `GRANT DELETE ON <table> TO onboarding_app;` in its own migration, with a comment saying why. In sub-project 1 that is only: `role`, `role_grant`, `user_role`, `team_member`, and `login_attempt` — all authorization or session bookkeeping, never business records. Grant-then-revoke is the wrong shape here: a table nobody remembered to revoke stays deletable, which is precisely backwards from how RLS, scope predicates, and the permission model all fail closed.
 - **No deny grants** in authorization. Absence of a grant is the denial (spec §6.5).
 - **Permissions are never embedded in tokens.** Authority is resolved server-side per request (spec §6.7, §7.2).
 - **Out-of-scope records return 404, never 403** (spec §6.8).
 - **TDD.** Every task writes a failing test first. Security tests are written before the mechanism they verify.
+- **Never assert an exception *inside* a `fixture.runAs(...)` / `runAsUser(...)` lambda.** Those helpers run the action in a `TransactionTemplate`. Catching an exception inside the lambda — which is what `assertThatThrownBy` does — leaves the transaction marked rollback-only while execution continues to normal completion, so the template then attempts a commit and throws `UnexpectedRollbackException`, masking the exception you meant to assert on. Wrap the helper instead:
+
+  ```java
+  // WRONG — UnexpectedRollbackException masks the real failure
+  fixture.runAs(tenant, () ->
+      assertThatThrownBy(() -> roles.createRole(...)).isInstanceOf(InvalidGrantException.class));
+
+  // RIGHT — the exception propagates out, the template rolls back and rethrows it
+  assertThatThrownBy(() -> fixture.runAs(tenant, () -> roles.createRole(...)))
+      .isInstanceOf(InvalidGrantException.class);
+  ```
+
+  Several code samples later in this plan still show the wrong form; correct them as you encounter them rather than copying them verbatim. This applies to any exception that marks the transaction rollback-only, which includes every `RuntimeException` crossing a `@Transactional` boundary — `DataIntegrityViolationException`, `AccessDeniedException`, `InvalidGrantException`, `NoSuchElementException`, and `IllegalStateException` among them.
 - **Commit at the end of every task.** Conventional Commits (`feat:`, `test:`, `chore:`, `fix:`).
 - **Test commands** are written as `./gradlew` (Git Bash). On PowerShell use `.\gradlew.bat` with the same arguments.
-- **UUIDv7-style primary keys** via `UUID` columns, generated in application code.
+- **UUIDv7 primary keys** via `UUID` columns, generated in application code by `co.ara.onboarding.platform.Uuid7.generate()` (implemented in Task 2). Time-ordered keys keep B-tree inserts local, which matters most for `audit_event`, the highest-volume append-only table.
+  **Every `UUID.randomUUID()` appearing in this plan's code samples means `Uuid7.generate()`** — the samples were written before the utility was named. The sole exceptions are values that must be unpredictable rather than merely unique; those use `SecureRandom` directly and never a UUID (refresh tokens, invitation tokens).
 - **All timestamps** are `timestamptz`, stored in UTC.
+- **The frontend implements an existing design system, it does not invent one.** `docs/uispecs/` is the authority for every visual and interaction decision in Tasks 23–28:
+
+  | Read | For |
+  |---|---|
+  | `docs/uispecs/design/README.md` | Build order, and what to preserve |
+  | `docs/uispecs/design/02-tokens/tokens.md` + `tokens.css` + `tailwind.css` | The three-layer token system — **import before writing any component** |
+  | `docs/uispecs/design/04-components/component-specs.md` | All 17 component families, with states and ARIA requirements |
+  | `docs/uispecs/design/05-review/ux-design-review.md` | 12 accessibility findings; 4 are still open and are cheaper to build in than retrofit |
+  | `docs/uispecs/design/03-icons/icons.json` + `icons-sprite.svg` | 56 icons. Generate components from the registry; never hand-copy path data |
+  | `docs/uispecs/README.md` | Screen-by-screen layout, and "Product decisions worth preserving" |
+  | `docs/uispecs/Onboarding Platform.html` | The working prototype — open it in a browser before building a screen |
+
+  Sub-project 1 builds only login/activation/reset, the shell, customers and administration, so most of the nine prototype screens are out of scope. The **token layer, icon set, component library and accessibility baseline are all in scope**, because every later sub-project depends on them and retrofitting a token system across nine modules is exactly the refactor this plan avoids elsewhere.
+
+  Four rules from the design that erode quietly and must be held:
+  - **Colour always means status, never decoration.** If you want a colour and cannot name the state it represents, use a neutral.
+  - **IBM Plex Mono for machine-generated values, Archivo for human text.** IDs, dates, counts and metrics are mono; anything a person wrote is not.
+  - **Cards are flat.** Elevation is reserved for things that genuinely float — popovers, open milestones, device frames.
+  - **Colour is never the only signal.** Every status colour is paired with a word or an icon.
 
 ---
 
@@ -48,8 +83,10 @@ Every task's requirements implicitly include this section.
 | `tenancy/TenantContext.java` | Thread-local current tenant |
 | `tenancy/TenantResolver.java`, `PathPrefixTenantResolver.java` | `/t/{slug}` resolution |
 | `tenancy/TenantContextFilter.java` | Sets `TenantContext` + `app.tenant_id` per request |
+| `tenancy/TenantExceptionHandler.java` | Maps `UnknownTenantException` → 404 (must not live in `platform`) |
 | `tenancy/TenantScopedEntity.java` | MappedSuperclass carrying `tenant_id` + Hibernate filter |
-| `tenancy/TenantProvisioningService.java` | Creates tenants, seeds role templates |
+| `provisioning/TenantProvisioningService.java` | Creates tenants, seeds role templates (own module — see Task 10) |
+| `provisioning/PlatformTenantController.java` | `/api/platform/tenants` |
 | `identity/AppUser.java`, `Department.java`, `Team.java`, `PlatformAdmin.java` | Identity entities |
 | `identity/*Repository.java` | Identity persistence |
 | `authz/PermissionCatalog.java`, `PermissionKeys.java`, `Scope.java`, `RelationshipType.java` | Code-defined catalog |
@@ -58,7 +95,8 @@ Every task's requirements implicitly include this section.
 | `authz/RoleTemplates.java` | The 12 seeded role templates |
 | `authz/AuthContext.java`, `AuthContextProvider.java` | Current user's tenant/department/teams |
 | `authz/EffectivePermissions.java`, `AuthorizationService.java` | Per-request permission resolution |
-| `authz/ResourceAuthorizationDescriptor.java`, `DescriptorRegistry.java` | Per-resource scope predicates |
+| `authz/ResourceAuthorizationDescriptor.java`, `DescriptorRegistry.java` | Per-resource scope predicate contract + startup validation |
+| `scoping/*Descriptor.java` | The descriptor implementations (own module — see Task 12) |
 | `authz/AuthorizationPredicateBuilder.java` | Scope → JPA `Specification` |
 | `authz/RequirePermission.java`, `PermissionGateAspect.java` | Service-method gate |
 | `authz/AuthorizedRepository.java` | Repository base that requires a permission key |
@@ -117,7 +155,7 @@ Establishes the build and a test base that talks to real PostgreSQL. Every later
 - Consumes: nothing.
 - Produces: `PostgresTestBase` — abstract class every integration test extends. Starts a `postgres:16-alpine` container shared across the suite.
 
-- [ ] **Step 1: Initialize the Gradle project**
+- [x] **Step 1: Initialize the Gradle project**
 
 ```bash
 mkdir -p backend/src/main/java/co/ara/onboarding backend/src/main/resources backend/src/test/java/co/ara/onboarding
@@ -126,13 +164,13 @@ cd backend && gradle init --type basic --dsl kotlin --project-name onboarding-ba
 
 If `gradle` is not installed, download the wrapper from an existing project or run `gradle wrapper --gradle-version 8.10`.
 
-- [ ] **Step 2: Write `settings.gradle.kts`**
+- [x] **Step 2: Write `settings.gradle.kts`**
 
 ```kotlin
 rootProject.name = "onboarding-backend"
 ```
 
-- [ ] **Step 3: Write `build.gradle.kts`**
+- [x] **Step 3: Write `build.gradle.kts`**
 
 ```kotlin
 plugins {
@@ -177,7 +215,7 @@ dependencies {
 tasks.withType<Test> { useJUnitPlatform() }
 ```
 
-- [ ] **Step 4: Write the application class**
+- [x] **Step 4: Write the application class**
 
 `backend/src/main/java/co/ara/onboarding/OnboardingApplication.java`:
 
@@ -195,7 +233,7 @@ public class OnboardingApplication {
 }
 ```
 
-- [ ] **Step 5: Write `application.yml`**
+- [x] **Step 5: Write `application.yml`**
 
 Note the two roles: Flyway connects as the owner, the application datasource as `onboarding_app`. The `onboarding_app` role is created by the first migration (Task 2), so on a brand-new database Flyway must run before the app datasource is used — which is Spring Boot's default ordering.
 
@@ -229,7 +267,37 @@ app:
     resolution: path-prefix
 ```
 
-- [ ] **Step 6: Write the failing test**
+> **Amended in Task R3 (remediation): the JWT secret ships with no fallback, and its absence fails
+> startup.** As written above, a deployment that forgets `JWT_SECRET` starts silently and signs
+> every access token with a value committed to this repository — anyone who can read the source can
+> then forge a token for any user in any tenant, and `JwtAuthenticationFilter` cannot tell it from a
+> real login. The line is now:
+>
+> ```yaml
+>     secret: ${JWT_SECRET:}
+> ```
+>
+> and a new `auth/JwtProperties` (`@ConfigurationProperties("app.jwt")`, `@PostConstruct validate()`
+> — the same shape as `DescriptorRegistry.validate()`) refuses to start when the secret is unset,
+> under 32 bytes, or one of the placeholders this repository has published. Two things about it are
+> deliberate and must not be "simplified":
+>
+> - **It is not keyed on the active profile.** A "fail unless `dev`" guard misses the deployment
+>   that forgot to set the profile as well as the secret, which is the same mistake. The friction of
+>   having to set `JWT_SECRET` before the application will run at all *is* the mechanism.
+> - **The message never contains the secret.** The under-length branch is reached by real secrets
+>   that were merely mis-sized, and startup failures are written to whatever collects stdout.
+>
+> Consequences elsewhere: `TokenService` (Task 12) takes `JwtProperties` rather than three `@Value`
+> strings, so the value reaching `Keys.hmacShaKeyFor` has already been validated; the backend suite
+> supplies its own secret in `src/test/resources/application-test.yml` (new file, loaded by the
+> `test` profile `PostgresTestBase` activates) — that is configuration the guard fully validates,
+> not an exemption from it; `e2e/support/backend.mjs` already passed `JWT_SECRET` and needed no
+> change. Covered by `auth/JwtSecretGuardTest` (guard behaviour, in an isolated context so a failure
+> can only be the guard) and `auth/JwtPropertiesWiringTest` (the bean is really in the running
+> application and token issuance depends on it).
+
+- [x] **Step 6: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/support/PostgresTestBase.java`:
 
@@ -290,12 +358,12 @@ class ApplicationContextTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 7: Run the test to verify it fails**
+- [x] **Step 7: Run the test to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.ApplicationContextTest"`
 Expected: FAIL — no migrations exist yet, or context startup fails. Confirm the failure is about the application, not about Docker being unavailable. If Docker is not running, start it before continuing.
 
-- [ ] **Step 8: Add an empty baseline migration so Flyway succeeds**
+- [x] **Step 8: Add an empty baseline migration so Flyway succeeds**
 
 `backend/src/main/resources/db/migration/V1__baseline.sql`:
 
@@ -304,12 +372,12 @@ Expected: FAIL — no migrations exist yet, or context startup fails. Confirm th
 SELECT 1;
 ```
 
-- [ ] **Step 9: Run the test to verify it passes**
+- [x] **Step 9: Run the test to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.ApplicationContextTest"`
 Expected: PASS
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add backend/
@@ -324,6 +392,8 @@ Creates the non-superuser role that RLS will actually constrain, plus the `tenan
 
 **Files:**
 - Create: `backend/src/main/resources/db/migration/V2__app_role_and_tenant.sql`
+- Create: `backend/src/main/java/co/ara/onboarding/platform/Uuid7.java`
+- Create: `backend/src/test/java/co/ara/onboarding/platform/Uuid7Test.java`
 - Create: `backend/src/main/java/co/ara/onboarding/platform/BaseEntity.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/Tenant.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantRepository.java`
@@ -339,7 +409,7 @@ Creates the non-superuser role that RLS will actually constrain, plus the `tenan
   - `TenantRepository extends JpaRepository<Tenant, UUID>` with `Optional<Tenant> findBySlug(String slug)`.
   - Database role `onboarding_app` with `NOLOGIN`-free login access, no superuser, no `BYPASSRLS`.
 
-- [ ] **Step 1: Write the failing test for the application role**
+- [x] **Step 1: Write the failing test for the application role**
 
 `backend/src/test/java/co/ara/onboarding/support/AppRoleTest.java`:
 
@@ -371,12 +441,12 @@ class AppRoleTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.support.AppRoleTest"`
 Expected: FAIL — `current_user` is the container superuser, not `onboarding_app`.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 `backend/src/main/resources/db/migration/V2__app_role_and_tenant.sql`:
 
@@ -405,11 +475,11 @@ CREATE TABLE tenant (
 );
 
 -- tenant is intentionally NOT tenant-scoped: it is the tenant registry itself.
--- It appears on the RLS meta-test allowlist in Task 6.
+-- It appears on the RLS meta-test allowlist in Task 7.
 GRANT SELECT, INSERT, UPDATE ON tenant TO onboarding_app;
 ```
 
-- [ ] **Step 4: Repoint the test datasource at the application role**
+- [x] **Step 4: Repoint the test datasource at the application role**
 
 Add to `PostgresTestBase`:
 
@@ -422,12 +492,143 @@ Add to `PostgresTestBase`:
     }
 ```
 
-- [ ] **Step 5: Run it to verify it passes**
+- [x] **Step 5: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.support.AppRoleTest"`
 Expected: PASS
 
-- [ ] **Step 6: Write the failing test for the tenant entity**
+- [x] **Step 5b: Write the failing test for UUIDv7 generation**
+
+`backend/src/test/java/co/ara/onboarding/platform/Uuid7Test.java`:
+
+```java
+package co.ara.onboarding.platform;
+
+import org.junit.jupiter.api.Test;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class Uuid7Test {
+
+    @Test
+    void hasVersionSevenAndRfc4122Variant() {
+        UUID id = Uuid7.generate();
+        assertThat(id.version()).isEqualTo(7);
+        assertThat(id.variant()).isEqualTo(2);
+    }
+
+    @Test
+    void idsGeneratedInSequenceSortAscending() {
+        List<UUID> ids = new ArrayList<>();
+        for (int i = 0; i < 5000; i++) ids.add(Uuid7.generate());
+
+        List<UUID> sorted = new ArrayList<>(ids);
+        sorted.sort(Uuid7::compareUnsigned);
+        assertThat(sorted)
+            .as("time-ordered keys must be monotonic even within the same millisecond")
+            .isEqualTo(ids);
+    }
+
+    @Test
+    void encodesCurrentTimeInTheLeading48Bits() {
+        long before = System.currentTimeMillis();
+        UUID id = Uuid7.generate();
+        long after = System.currentTimeMillis();
+
+        long timestamp = id.getMostSignificantBits() >>> 16;
+        assertThat(timestamp).isBetween(before, after);
+    }
+
+    @Test
+    void generatesDistinctValuesUnderContention() throws Exception {
+        var ids = java.util.Collections.synchronizedSet(new java.util.HashSet<UUID>());
+        var threads = new ArrayList<Thread>();
+        for (int t = 0; t < 8; t++) {
+            Thread thread = new Thread(() -> {
+                for (int i = 0; i < 2000; i++) ids.add(Uuid7.generate());
+            });
+            threads.add(thread);
+            thread.start();
+        }
+        for (Thread thread : threads) thread.join();
+        assertThat(ids).hasSize(8 * 2000);
+    }
+}
+```
+
+- [x] **Step 5c: Implement `Uuid7`**
+
+```java
+package co.ara.onboarding.platform;
+
+import java.security.SecureRandom;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * RFC 9562 version 7 UUIDs: a 48-bit millisecond timestamp followed by
+ * randomness, so primary keys sort by creation time and index inserts stay
+ * local instead of scattering across the B-tree.
+ *
+ * These IDs deliberately leak creation time. That is acceptable for entity
+ * identifiers; anything that must be unpredictable (refresh tokens,
+ * invitation tokens) uses SecureRandom bytes directly and never a UUID.
+ */
+public final class Uuid7 {
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+
+    /** Packs the last timestamp and counter into one long for lock-free CAS. */
+    private static final AtomicLong LAST = new AtomicLong();
+
+    private static final int COUNTER_BITS = 12;
+    private static final long COUNTER_MASK = (1L << COUNTER_BITS) - 1;
+
+    private Uuid7() {}
+
+    public static UUID generate() {
+        long stamp = nextStamp();
+        long millis = stamp >>> COUNTER_BITS;
+        long counter = stamp & COUNTER_MASK;
+
+        // 48 bits timestamp | 4 bits version (7) | 12 bits monotonic counter
+        long msb = (millis << 16) | (0x7L << 12) | counter;
+
+        // 2 bits variant (RFC 4122) | 62 bits randomness
+        long lsb = (RANDOM.nextLong() & 0x3FFFFFFFFFFFFFFFL) | 0x8000000000000000L;
+
+        return new UUID(msb, lsb);
+    }
+
+    /**
+     * Returns a strictly increasing (millis, counter) pair. Within a single
+     * millisecond the counter advances; if it saturates, the timestamp is
+     * borrowed forward so ordering is never violated.
+     */
+    private static long nextStamp() {
+        while (true) {
+            long previous = LAST.get();
+            long now = System.currentTimeMillis();
+            long candidate = (now << COUNTER_BITS);
+            long next = (candidate > previous) ? candidate : previous + 1;
+            if (LAST.compareAndSet(previous, next)) return next;
+        }
+    }
+
+    /** UUIDs compare signed by default, which breaks ordering above 0x7F. */
+    public static int compareUnsigned(UUID a, UUID b) {
+        int high = Long.compareUnsigned(a.getMostSignificantBits(), b.getMostSignificantBits());
+        return high != 0 ? high
+                : Long.compareUnsigned(a.getLeastSignificantBits(), b.getLeastSignificantBits());
+    }
+}
+```
+
+`java.util.UUID.compareTo` compares signed, so it orders v7 IDs incorrectly once the high bit is set. Sort with `Uuid7::compareUnsigned` in application code; PostgreSQL's `uuid` type already compares unsigned, so index ordering is correct there regardless.
+
+- [x] **Step 6: Write the failing test for the tenant entity**
 
 `backend/src/test/java/co/ara/onboarding/tenancy/TenantRepositoryTest.java`:
 
@@ -459,12 +660,12 @@ class TenantRepositoryTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 7: Run it to verify it fails**
+- [x] **Step 7: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.tenancy.TenantRepositoryTest"`
 Expected: FAIL — `Tenant`, `TenantStatus`, and `TenantRepository` do not exist.
 
-- [ ] **Step 8: Implement `BaseEntity`, `Tenant`, `TenantStatus`, `TenantRepository`**
+- [x] **Step 8: Implement `BaseEntity`, `Tenant`, `TenantStatus`, `TenantRepository`**
 
 `platform/BaseEntity.java`:
 
@@ -545,16 +746,80 @@ public interface TenantRepository extends JpaRepository<Tenant, UUID> {
 }
 ```
 
-- [ ] **Step 9: Run it to verify it passes**
+- [x] **Step 9: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.tenancy.*"`
 Expected: PASS
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add backend/
 git commit -m "feat: add onboarding_app database role and tenant registry"
+```
+
+- [x] **Step 11: Make DELETE deny-by-default**
+
+`ALTER DEFAULT PRIVILEGES` in `V2` grants `DELETE` on every table created afterwards, which silently overrides the narrower per-table grants and leaves `onboarding_app` able to `DELETE FROM tenant`. Since `V2` is already committed and migrations are forward-only, correct it with a new migration rather than an edit.
+
+`backend/src/main/resources/db/migration/V2_1__revoke_default_delete.sql`:
+
+```sql
+-- DELETE is deny-by-default. V2's ALTER DEFAULT PRIVILEGES granted it on all
+-- future tables, which defeats per-table grants and contradicts the project's
+-- no-hard-deletes rule. Tables that genuinely need DELETE grant it explicitly
+-- in their own migration, with a comment saying why.
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+    REVOKE DELETE ON TABLES FROM onboarding_app;
+
+REVOKE DELETE ON tenant FROM onboarding_app;
+```
+
+Flyway orders `V2` < `V2.1` < `V3`, so this slots in without renumbering any later migration.
+
+- [x] **Step 12: Write the test that proves it**
+
+Add to `backend/src/test/java/co/ara/onboarding/support/AppRoleTest.java`:
+
+```java
+    @Test
+    void applicationRoleCannotDeleteFromTenantRegistry() {
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM tenant"))
+                .hasStackTraceContaining("permission denied for table tenant");
+    }
+
+    @Test
+    void deleteIsNotGrantedByDefaultOnNewTables() {
+        // Proves the default-privilege change, not just the one-off tenant revoke:
+        // a table created after V2_1 must not inherit DELETE.
+        // Named rls_probe_* so Task 7's RlsCoverageTest, which is deny-by-default
+        // over every table in the schema, skips it. Do not rename.
+        // DDL as owner — onboarding_app has no CREATE on the schema — but the
+        // DELETE under test must run as onboarding_app or it proves nothing.
+        ownerJdbc().execute("CREATE TABLE IF NOT EXISTS rls_probe_delete (id uuid PRIMARY KEY)");
+        ownerJdbc().execute("GRANT SELECT, INSERT ON rls_probe_delete TO onboarding_app");
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM rls_probe_delete"))
+                .hasStackTraceContaining("permission denied for table rls_probe_delete");
+    }
+```
+
+The second test is the one that matters. Revoking on `tenant` alone would pass a test that only checks `tenant`, while every future table silently kept the inherited grant.
+
+Two mechanics that are easy to get wrong here, both discovered the hard way:
+
+- **`hasStackTraceContaining`, not `hasMessageContaining`.** `JdbcTemplate` wraps the driver's error in a `BadSqlGrammarException` whose own message is generic; the Postgres text `permission denied for table …` lives on the cause. A `hasMessageContaining("permission denied")` assertion never matches, so the test fails even when the migration is correct — and the tempting conclusion is that the migration is broken.
+- **DDL as owner, assertion as `onboarding_app`.** `onboarding_app` has no `CREATE` on the schema, so creating the probe through the autowired template fails outright. Creating *and* deleting as the owner would "pass" while testing nothing, since the owner bypasses the privilege being checked.
+
+`ownerJdbc()` is added to `PostgresTestBase` in Task 3 Step 0; if you are doing Task 2 before that exists, add the helper here and Task 3 will simply use it.
+
+- [x] **Step 13: Run and commit**
+
+Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.support.AppRoleTest"`
+Expected: PASS — three tests.
+
+```bash
+git add backend/
+git commit -m "fix: make DELETE deny-by-default for the application role"
 ```
 
 ---
@@ -577,7 +842,31 @@ Introduces the thread-local tenant, the connection-level `app.tenant_id` setting
   - `TenantScopedEntity extends BaseEntity` — adds `@Column(name="tenant_id") UUID tenantId` with getter/setter, and declares the Hibernate `@FilterDef`/`@Filter` named `tenantFilter`.
   - SQL function `enable_tenant_rls(text)` — applied to every tenant-owned table in later migrations.
 
-- [ ] **Step 1: Write the failing isolation test**
+- [x] **Step 0: Add an owner-role JDBC helper to `PostgresTestBase`**
+
+Tests in this task and in Tasks 6 and 7 need to run DDL and `GRANT` statements, which `onboarding_app` deliberately cannot do — it has no `CREATE` on the schema. Running those statements through the ordinary autowired `JdbcTemplate` fails with `permission denied for schema public`. Worse, if a test ran its *assertions* as the owner too, it would be testing ownership bypass rather than the privilege or policy under test.
+
+So expose a second template bound to the migration-owner role, and keep the distinction explicit: **DDL and grants as owner; the behaviour under test as `onboarding_app`.**
+
+Add to `PostgresTestBase`:
+
+```java
+    /**
+     * JdbcTemplate bound to the container's owner role, for DDL and GRANT only.
+     * Never assert privilege or RLS behaviour through this — the owner bypasses
+     * both, so an assertion made here proves nothing.
+     */
+    protected static JdbcTemplate ownerJdbc() {
+        var ds = new org.springframework.jdbc.datasource.DriverManagerDataSource(
+                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+        ds.setDriverClassName("org.postgresql.Driver");
+        return new JdbcTemplate(ds);
+    }
+```
+
+- [x] **Step 1: Write the failing isolation test**
+
+Note the split: `ownerJdbc()` creates and grants; the autowired `jdbc` (which is `onboarding_app`) does the inserts and selects whose visibility is the actual subject of the test.
 
 `backend/src/test/java/co/ara/onboarding/tenancy/RlsIsolationTest.java`:
 
@@ -597,12 +886,13 @@ class RlsIsolationTest extends PostgresTestBase {
 
     @Test
     void rlsHidesRowsOfOtherTenants() {
-        jdbc.execute("""
+        // DDL and grants as owner; everything asserted below runs as onboarding_app.
+        ownerJdbc().execute("""
             CREATE TABLE IF NOT EXISTS rls_probe (
                 id uuid PRIMARY KEY, tenant_id uuid NOT NULL, label text NOT NULL)
             """);
-        jdbc.execute("SELECT enable_tenant_rls('rls_probe')");
-        jdbc.execute("GRANT SELECT, INSERT ON rls_probe TO onboarding_app");
+        ownerJdbc().execute("SELECT enable_tenant_rls('rls_probe')");
+        ownerJdbc().execute("GRANT SELECT, INSERT ON rls_probe TO onboarding_app");
 
         UUID tenantA = UUID.randomUUID();
         UUID tenantB = UUID.randomUUID();
@@ -623,12 +913,12 @@ class RlsIsolationTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.tenancy.RlsIsolationTest"`
 Expected: FAIL — function `enable_tenant_rls` does not exist.
 
-- [ ] **Step 3: Write the RLS helper migration**
+- [x] **Step 3: Write the RLS helper migration**
 
 `backend/src/main/resources/db/migration/V3__rls_helper.sql`:
 
@@ -640,35 +930,41 @@ RETURNS void AS $$
 BEGIN
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', target_table);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', target_table);
+    -- current_setting('app.tenant_id', true) returns NULL when the GUC was
+    -- never set in this session, but PostgreSQL resets a custom (placeholder)
+    -- GUC to '' -- not NULL -- on RESET, and ''::uuid raises a cast error
+    -- rather than failing closed. nullif(...,'') collapses both "never set"
+    -- and "reset" to NULL so tenant_id = NULL (never true) is what actually
+    -- runs in both cases -- fail-closed without an exception.
     EXECUTE format($f$
         CREATE POLICY tenant_isolation ON %I
-        USING (tenant_id = current_setting('app.tenant_id', true)::uuid)
-        WITH CHECK (tenant_id = current_setting('app.tenant_id', true)::uuid)
+        USING (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
+        WITH CHECK (tenant_id = nullif(current_setting('app.tenant_id', true), '')::uuid)
     $f$, target_table);
 END;
 $$ LANGUAGE plpgsql;
 ```
 
-Note: `current_setting('app.tenant_id', true)` returns NULL when unset, and `tenant_id = NULL` is never true — so an unset tenant context sees **nothing** rather than everything. That fail-closed behaviour is deliberate.
+The `nullif` is not decoration. `current_setting(name, true)` returns NULL only when the setting was *never* established in the session; once `SET app.tenant_id` has run, a subsequent `RESET` leaves it as the empty string. `''::uuid` then raises `invalid input syntax for type uuid`, so the policy would error rather than fail closed. An erroring policy still denies access, but it turns a clean "you see nothing" into an exception surfacing from arbitrary queries — and the obvious fix under time pressure is to loosen the predicate, which is how a fail-closed policy becomes a fail-open one. Collapsing both cases to NULL keeps `tenant_id = NULL` (never true) as the actual evaluated expression.
 
-- [ ] **Step 4: Run it to verify it passes**
+- [x] **Step 4: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.tenancy.RlsIsolationTest"`
 Expected: PASS
 
-- [ ] **Step 5: Write the failing test for unset-context fail-closed behaviour**
+- [x] **Step 5: Write the failing test for unset-context fail-closed behaviour**
 
 Add to `RlsIsolationTest`:
 
 ```java
     @Test
     void unsetTenantContextSeesNothing() {
-        jdbc.execute("""
+        ownerJdbc().execute("""
             CREATE TABLE IF NOT EXISTS rls_probe2 (
                 id uuid PRIMARY KEY, tenant_id uuid NOT NULL)
             """);
-        jdbc.execute("SELECT enable_tenant_rls('rls_probe2')");
-        jdbc.execute("GRANT SELECT, INSERT ON rls_probe2 TO onboarding_app");
+        ownerJdbc().execute("SELECT enable_tenant_rls('rls_probe2')");
+        ownerJdbc().execute("GRANT SELECT, INSERT ON rls_probe2 TO onboarding_app");
 
         UUID tenant = UUID.randomUUID();
         jdbc.execute("SET app.tenant_id = '" + tenant + "'");
@@ -680,12 +976,12 @@ Add to `RlsIsolationTest`:
     }
 ```
 
-- [ ] **Step 6: Run it — it should already pass**
+- [x] **Step 6: Run it — it should already pass**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.tenancy.RlsIsolationTest"`
 Expected: PASS. This test documents an invariant rather than driving new code; if it fails, the policy in Step 3 is wrong.
 
-- [ ] **Step 7: Implement `TenantContext`**
+- [x] **Step 7: Implement `TenantContext`**
 
 ```java
 package co.ara.onboarding.tenancy;
@@ -720,7 +1016,7 @@ public final class TenantContext {
 }
 ```
 
-- [ ] **Step 8: Implement `TenantScopedEntity`**
+- [x] **Step 8: Implement `TenantScopedEntity`**
 
 ```java
 package co.ara.onboarding.tenancy;
@@ -747,7 +1043,7 @@ public abstract class TenantScopedEntity extends BaseEntity {
 }
 ```
 
-- [ ] **Step 9: Implement `TenantConnectionCustomizer`**
+- [x] **Step 9: Implement `TenantConnectionCustomizer`**
 
 Sets `app.tenant_id` on the JDBC connection for the current transaction, so RLS sees it.
 
@@ -769,8 +1065,13 @@ public class TenantConnectionCustomizer {
         this.entityManager = entityManager;
     }
 
-    /** Binds the current tenant to both the DB session and the Hibernate filter. */
-    @Transactional
+    /**
+     * Binds the current tenant to both the DB session and the Hibernate filter.
+     * MANDATORY is deliberate: set_config(..., true) is transaction-scoped, so
+     * binding outside a transaction would silently discard the setting and leave
+     * every RLS-protected query returning nothing. Fail loudly instead.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
     public void bind(UUID tenantId) {
         Session session = entityManager.unwrap(Session.class);
         session.doWork(connection -> {
@@ -786,7 +1087,7 @@ public class TenantConnectionCustomizer {
 
 `set_config(..., true)` scopes the setting to the transaction, so a pooled connection cannot leak a tenant into the next request.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add backend/
@@ -803,6 +1104,8 @@ Resolves `/api/t/{slug}` into a bound tenant for the request, and guarantees the
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantResolver.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/PathPrefixTenantResolver.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantContextFilter.java`
+- Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantTransactionBinder.java`
+- Create: `backend/src/main/java/co/ara/onboarding/platform/TransactionConfig.java`
 - Create: `backend/src/main/java/co/ara/onboarding/tenancy/UnknownTenantException.java`
 - Create: `backend/src/main/java/co/ara/onboarding/platform/ApiExceptionHandler.java`
 - Test: `backend/src/test/java/co/ara/onboarding/tenancy/TenantResolutionTest.java`
@@ -814,7 +1117,7 @@ Resolves `/api/t/{slug}` into a bound tenant for the request, and guarantees the
   - URL convention: tenant-scoped endpoints live under `/api/t/{tenantSlug}/**`; platform-admin endpoints under `/api/platform/**`.
   - `ApiExceptionHandler` — maps `UnknownTenantException` → 404, `AccessDeniedException` → 403, `NoSuchElementException` → 404.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/tenancy/TenantResolutionTest.java`:
 
@@ -879,12 +1182,12 @@ class TenantResolutionTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.tenancy.TenantResolutionTest"`
 Expected: FAIL — no filter, no debug endpoint.
 
-- [ ] **Step 3: Implement the resolver**
+- [x] **Step 3: Implement the resolver**
 
 `tenancy/TenantResolver.java`:
 
@@ -924,7 +1227,7 @@ public class PathPrefixTenantResolver implements TenantResolver {
 }
 ```
 
-- [ ] **Step 4: Implement the filter and exception type**
+- [x] **Step 4: Implement the filter and exception type**
 
 `tenancy/UnknownTenantException.java`:
 
@@ -987,14 +1290,35 @@ The `finally` block is not optional. Servlet threads are pooled; leaving a tenan
 
 Note that `tenants.findBySlug` runs before any tenant is bound. That is correct — `tenant` is the registry itself and is deliberately not RLS-protected (Task 2).
 
-- [ ] **Step 5: Implement the exception handler**
+- [x] **Step 5: Implement the exception handler**
+
+**Two files, not one.** The handler for `UnknownTenantException` must live in `tenancy`, not `platform`. `platform` is the foundation every domain module depends on — `Tenant` and `TenantScopedEntity` extend `platform.BaseEntity` — so a `platform` class naming a `tenancy` type closes a `platform → tenancy → platform` cycle, which Task 7's `ModuleBoundaryTest.noCyclesBetweenModules` rejects. This was found by that test failing on the first run after it was written. The rule generalizes: each module owns the HTTP mapping for the exceptions it defines, and `platform` keeps only the framework-level ones it can express without naming a domain.
+
+`tenancy/TenantExceptionHandler.java`:
+
+```java
+package co.ara.onboarding.tenancy;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+public class TenantExceptionHandler {
+
+    @ExceptionHandler(UnknownTenantException.class)
+    ProblemDetail unknownTenant(UnknownTenantException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Not found");
+    }
+}
+```
 
 `platform/ApiExceptionHandler.java`:
 
 ```java
 package co.ara.onboarding.platform;
 
-import co.ara.onboarding.tenancy.UnknownTenantException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
@@ -1004,11 +1328,6 @@ import java.util.NoSuchElementException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
-
-    @ExceptionHandler(UnknownTenantException.class)
-    ProblemDetail unknownTenant(UnknownTenantException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Not found");
-    }
 
     /** Out-of-scope records surface as absent, never as forbidden (spec 6.8). */
     @ExceptionHandler(NoSuchElementException.class)
@@ -1025,7 +1344,7 @@ public class ApiExceptionHandler {
 
 Both handlers return a bare `"Not found"` detail. Do not include the resource type or id — a differentiated message reintroduces the existence leak that returning 404 exists to prevent.
 
-- [ ] **Step 6: Add the debug endpoint used by the test**
+- [x] **Step 6: Add the debug endpoint used by the test**
 
 `tenancy/TenantDebugController.java`:
 
@@ -1051,7 +1370,7 @@ public class TenantDebugController {
 
 This controller is removed in Task 20 once real endpoints cover the pipeline. Leave a `// TODO(task-20): remove` comment on the class so it is not forgotten.
 
-- [ ] **Step 7: Permit the debug and auth endpoints in Spring Security**
+- [x] **Step 7: Permit the debug and auth endpoints in Spring Security**
 
 `platform/SecurityConfig.java`:
 
@@ -1078,7 +1397,7 @@ public class SecurityConfig {
 }
 ```
 
-- [ ] **Step 8: Bind the tenant to the database session on every transaction**
+- [x] **Step 8: Bind the tenant to the database session on every transaction**
 
 `TenantContextFilter` sets the thread-local, but RLS reads `app.tenant_id` on the **database** connection. Without this step the filter looks correct while RLS silently sees no tenant and every query returns nothing — or worse, a future change to a permissive policy would return everything.
 
@@ -1100,7 +1419,7 @@ import java.util.UUID;
  */
 @Aspect
 @Component
-@Order(0)
+@Order(200)   // MUST be a larger number than the transaction advisor's order — see below
 public class TenantTransactionBinder {
 
     private final TenantConnectionCustomizer binder;
@@ -1116,7 +1435,37 @@ public class TenantTransactionBinder {
 }
 ```
 
-- [ ] **Step 9: Write a test proving the binding actually reaches the database**
+**The ordering is the whole trick, and getting it backwards fails silently.** In Spring, a *lower* order value means *higher* precedence, which means the advice runs *further out* — before the transaction begins. Spring's transaction advisor defaults to `Ordered.LOWEST_PRECEDENCE`, so an aspect at `@Order(0)` would run outside the transaction entirely. `bind()` would then open its own short-lived transaction, apply `set_config('app.tenant_id', …, true)` — which is transaction-scoped — and commit, throwing the setting away before the real transaction ever starts. Every RLS-protected query would return zero rows, and because RLS fails closed, the symptom is "everything is mysteriously empty" rather than an error.
+
+So give the transaction advisor an explicit, higher precedence and place the binder inside it.
+
+`platform/TransactionConfig.java`:
+
+```java
+package co.ara.onboarding.platform;
+
+import org.springframework.context.annotation.Configuration;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
+
+/**
+ * Pins the transaction advisor's order so TenantTransactionBinder (@Order(200))
+ * runs INSIDE the transaction it is binding the tenant to.
+ */
+@Configuration
+@EnableTransactionManagement(order = 100)
+public class TransactionConfig {}
+```
+
+And make the failure loud rather than silent by requiring an active transaction in `TenantConnectionCustomizer.bind` — change its annotation from `@Transactional` to:
+
+```java
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void bind(UUID tenantId) {
+```
+
+With `MANDATORY`, a mis-ordered aspect throws `IllegalTransactionStateException` on the first request instead of quietly returning empty result sets for the rest of the project.
+
+- [x] **Step 9: Write a test proving the binding actually reaches the database**
 
 Add to `TenantResolutionTest`:
 
@@ -1142,12 +1491,12 @@ Add the matching debug endpoint to `TenantDebugController`, reading the setting 
 
 Reading it back from the database is the point — asserting the Java thread-local would prove nothing about RLS.
 
-- [ ] **Step 10: Run it to verify it passes**
+- [x] **Step 10: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.tenancy.TenantResolutionTest"`
 Expected: PASS — all four tests.
 
-- [ ] **Step 11: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add backend/
@@ -1180,7 +1529,7 @@ Departments, teams, users, and platform admins. Departments and teams exist now 
   - `AppUserRepository.findByTenantIdAndEmailIgnoreCase(UUID, String)`.
   - `PlatformAdmin` — **not** tenant-scoped; `email`, `passwordHash`, `fullName`, `enabled`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/identity/IdentityPersistenceTest.java`:
 
@@ -1239,7 +1588,7 @@ class IdentityPersistenceTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Write the shared test fixture**
+- [x] **Step 2: Write the shared test fixture**
 
 `backend/src/test/java/co/ara/onboarding/support/TenantFixture.java`:
 
@@ -1285,12 +1634,12 @@ public class TenantFixture {
 }
 ```
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.identity.IdentityPersistenceTest"`
 Expected: FAIL — identity entities do not exist.
 
-- [ ] **Step 4: Write the migration**
+- [x] **Step 4: Write the migration**
 
 `backend/src/main/resources/db/migration/V4__identity.sql`:
 
@@ -1359,11 +1708,15 @@ SELECT enable_tenant_rls('team');
 SELECT enable_tenant_rls('app_user');
 SELECT enable_tenant_rls('team_member');
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON department, team, app_user, team_member TO onboarding_app;
+GRANT SELECT, INSERT, UPDATE ON department, team, app_user, team_member TO onboarding_app;
 GRANT SELECT, INSERT, UPDATE ON platform_admin TO onboarding_app;
+
+-- team_member is a pure join table: changing someone's teams means removing
+-- rows. Users, departments and teams are deactivated, never deleted.
+GRANT DELETE ON team_member TO onboarding_app;
 ```
 
-- [ ] **Step 5: Implement the enums**
+- [x] **Step 5: Implement the enums**
 
 ```java
 package co.ara.onboarding.identity;
@@ -1375,7 +1728,7 @@ package co.ara.onboarding.identity;
 public enum UserStatus { INVITED, ACTIVE, SUSPENDED, DEACTIVATED }
 ```
 
-- [ ] **Step 6: Implement `AppUser`**
+- [x] **Step 6: Implement `AppUser`**
 
 ```java
 package co.ara.onboarding.identity;
@@ -1406,8 +1759,20 @@ public class AppUser extends TenantScopedEntity {
     @Column(name = "mfa_secret") private String mfaSecret;
     @Column(name = "last_login_at") private Instant lastLoginAt;
 
+    /**
+     * tenant_id must be a second join column. team_member.tenant_id is NOT NULL
+     * and RLS-checked, and a single-join-column mapping emits
+     * INSERT INTO team_member (user_id, team_id) — omitting tenant_id entirely,
+     * so every write fails the NOT NULL constraint. Hibernate populates both
+     * columns from the owner when they are declared here.
+     */
     @ElementCollection(fetch = FetchType.EAGER)
-    @CollectionTable(name = "team_member", joinColumns = @JoinColumn(name = "user_id"))
+    @CollectionTable(
+            name = "team_member",
+            joinColumns = {
+                @JoinColumn(name = "user_id",   referencedColumnName = "id"),
+                @JoinColumn(name = "tenant_id", referencedColumnName = "tenant_id")
+            })
     @Column(name = "team_id")
     private Set<UUID> teamIds = new HashSet<>();
 
@@ -1434,7 +1799,7 @@ public class AppUser extends TenantScopedEntity {
 }
 ```
 
-- [ ] **Step 7: Implement `Department`, `Team`, `PlatformAdmin` and the repositories**
+- [x] **Step 7: Implement `Department`, `Team`, `PlatformAdmin` and the repositories**
 
 `Department` and `Team` follow the same shape as `AppUser`: extend `TenantScopedEntity`, map `name`, `description`, and (for `Team`) `departmentId`. `PlatformAdmin` extends `BaseEntity` — **not** `TenantScopedEntity` — and maps `email`, `passwordHash`, `fullName`, `enabled`.
 
@@ -1482,12 +1847,55 @@ public interface PlatformAdminRepository extends JpaRepository<PlatformAdmin, UU
 }
 ```
 
-- [ ] **Step 8: Run it to verify it passes**
+- [x] **Step 8: Prove the Hibernate filter is actually registered and filtering**
 
-Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.identity.*"`
+Carried forward from Task 4's review. `@FilterDef`/`@Filter` live on `TenantScopedEntity`, a `@MappedSuperclass`, and Hibernate only registers the filter once metadata scanning walks a **concrete entity** that extends it. Until Task 5 there was no such entity, so `TenantConnectionCustomizer.bind` guards the call with a `getDefinedFilterNames().contains(...)` check.
+
+`AppUser` is the first real entity, so this is the first moment the guard can be verified. A guard that silently stays false forever would remove the application-layer half of the two-layer isolation design while everything still appeared to work — RLS underneath would keep returning correct results and hide it.
+
+`backend/src/test/java/co/ara/onboarding/tenancy/HibernateFilterTest.java`:
+
+```java
+package co.ara.onboarding.tenancy;
+
+import co.ara.onboarding.support.PostgresTestBase;
+import jakarta.persistence.EntityManager;
+import org.hibernate.SessionFactory;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class HibernateFilterTest extends PostgresTestBase {
+
+    @Autowired EntityManager entityManager;
+
+    @Test
+    void tenantFilterIsRegisteredNowThatAConcreteEntityExists() {
+        var names = entityManager.getEntityManagerFactory()
+                .unwrap(SessionFactory.class)
+                .getDefinedFilterNames();
+
+        assertThat(names)
+            .as("the guard in TenantConnectionCustomizer must now pass, not silently skip")
+            .contains("tenantFilter");
+    }
+}
+```
+
+- [x] **Step 9: Prove the filter actually excludes other tenants' rows**
+
+Registration is not the same as enforcement. This test asserts the filter *works* through JPA, which no existing test does — `RlsIsolationTest` exercises RLS through raw JDBC only.
+
+Add to `HibernateFilterTest` a test that creates users in two tenants, then reads through `AppUserRepository` inside `fixture.runAs(tenantA, …)` and asserts only tenant A's users come back. Because RLS would also produce that result, temporarily disabling the filter must **not** change the outcome — so to prove the filter specifically, assert on the generated SQL instead: enable Hibernate's `SessionFactory` statistics or use a query-count/SQL-capture approach and confirm the emitted SQL contains a `tenant_id = ?` predicate that the application added.
+
+If capturing SQL proves awkward, the acceptable fallback is asserting `session.getEnabledFilter("tenantFilter")` is non-null and carries the expected `tenantId` parameter after `bind()` runs. State in the report which approach you used and why.
+
+- [x] **Step 10: Run it to verify it passes**
+
+Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.identity.*" --tests "co.ara.onboarding.tenancy.HibernateFilterTest"`
 Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [x] **Step 11: Commit**
 
 ```bash
 git add backend/
@@ -1519,7 +1927,7 @@ A finite action registry, an append-only event table, and a recorder that captur
   - `AuditRecorder.record(AuditAction action, String resourceType, UUID resourceId, String summary, Object payload)`.
   - `RequestAuditContext` — request-scoped bean exposing `actorUserId()`, `actorType()`, `ip()`, `userAgent()`, `requestId()`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 `backend/src/test/java/co/ara/onboarding/audit/AuditRecorderTest.java`:
 
@@ -1584,21 +1992,24 @@ class AuditAppendOnlyTest extends PostgresTestBase {
 
     @Test
     void applicationRoleCannotUpdateOrDeleteAuditEvents() {
+        // hasStackTraceContaining, not hasMessageContaining: JdbcTemplate wraps the
+        // driver error in a BadSqlGrammarException whose own message is generic,
+        // so the Postgres text only appears on the cause.
         assertThatThrownBy(() -> jdbc.execute("UPDATE audit_event SET summary = 'tampered'"))
-                .hasMessageContaining("permission denied");
+                .hasStackTraceContaining("permission denied for table audit_event");
 
         assertThatThrownBy(() -> jdbc.execute("DELETE FROM audit_event"))
-                .hasMessageContaining("permission denied");
+                .hasStackTraceContaining("permission denied for table audit_event");
     }
 }
 ```
 
-- [ ] **Step 2: Run them to verify they fail**
+- [x] **Step 2: Run them to verify they fail**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.audit.*"`
 Expected: FAIL — no audit table or classes.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 `backend/src/main/resources/db/migration/V5__audit.sql`:
 
@@ -1641,9 +2052,9 @@ GRANT SELECT, INSERT ON audit_event TO onboarding_app;
 REVOKE UPDATE, DELETE ON audit_event FROM onboarding_app;
 ```
 
-Because `ALTER DEFAULT PRIVILEGES` in Task 2 grants `UPDATE, DELETE` on new tables, the explicit `REVOKE` here is required. Do not remove it.
+The explicit `REVOKE` is required for `UPDATE`, which `ALTER DEFAULT PRIVILEGES` in Task 2 does grant on new tables. `DELETE` is already deny-by-default after `V2_1`, so revoking it here is redundant — keep it anyway, because this table's append-only guarantee is important enough to state at its own definition rather than rely on a default set three migrations earlier.
 
-- [ ] **Step 4: Implement the action registry**
+- [x] **Step 4: Implement the action registry**
 
 ```java
 package co.ara.onboarding.audit;
@@ -1657,6 +2068,12 @@ package co.ara.onboarding.audit;
 import java.util.*;
 
 public final class AuditActions {
+
+    // MUST be declared before the constants below. Static initialisers run in
+    // declaration order, and each of() call writes into this map — declaring it
+    // afterwards leaves it null at that point and the class fails to load with
+    // ExceptionInInitializerError.
+    private static final Map<String, AuditAction> BY_KEY = new LinkedHashMap<>();
 
     public static final AuditAction TENANT_CREATED            = of("tenant.created", false);
     public static final AuditAction USER_CREATED              = of("user.created", false);
@@ -1672,8 +2089,6 @@ public final class AuditActions {
     public static final AuditAction CUSTOMER_DEACTIVATED      = of("customer.deactivated", true);
     public static final AuditAction INVITATION_SENT           = of("invitation.sent", true);
     public static final AuditAction INVITATION_ACCEPTED       = of("invitation.accepted", true);
-
-    private static final Map<String, AuditAction> BY_KEY = new LinkedHashMap<>();
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
@@ -1691,7 +2106,7 @@ public final class AuditActions {
 }
 ```
 
-- [ ] **Step 5: Implement `RequestAuditContext`**
+- [x] **Step 5: Implement `RequestAuditContext`**
 
 ```java
 package co.ara.onboarding.platform;
@@ -1732,9 +2147,17 @@ public class RequestAuditContext {
 }
 ```
 
-- [ ] **Step 6: Implement `AuditEvent`, repository, and `AuditRecorder`**
+- [x] **Step 6: Implement `AuditEvent`, repository, and `AuditRecorder`**
 
 `AuditEvent` extends `TenantScopedEntity` and maps every column in the migration. Use `@Column(columnDefinition = "jsonb") String payload` with Hibernate's `@JdbcTypeCode(SqlTypes.JSON)`.
+
+**On the primary key mismatch, which will look wrong and is not.** PostgreSQL requires the partition key to be part of any primary key, so the table declares `PRIMARY KEY (id, occurred_at)` while the entity inherits a single `@Id UUID id` from `BaseEntity`. Leave it that way:
+
+- `id` is a UUIDv7 and is unique on its own, so a single-column `@Id` is a correct entity identity.
+- Hibernate's `validate` mode checks columns and types, not primary-key composition, so this does not fail startup.
+- Do **not** "fix" it with an `@IdClass` or `@EmbeddedId` of `(id, occurredAt)`. That would push `occurredAt` into every association and lookup for no benefit, and audit rows are written far more often than they are fetched by id.
+
+The one real consequence: `findById` cannot prune partitions and will scan all of them. That is acceptable here because audit events are read through time-bounded, tenant-scoped queries, never by bare id in any hot path.
 
 ```java
 package co.ara.onboarding.audit;
@@ -1796,12 +2219,12 @@ public class AuditRecorder {
 
 `Propagation.MANDATORY` is deliberate: an audit event must be written in the same transaction as the change it records, so a rolled-back operation cannot leave a phantom audit entry.
 
-- [ ] **Step 7: Run the tests to verify they pass**
+- [x] **Step 7: Run the tests to verify they pass**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.audit.*"`
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/
@@ -1821,9 +2244,16 @@ These two tests are the reason the isolation and authorization design survives s
 
 **Interfaces:**
 - Consumes: everything built so far.
-- Produces: three always-on structural tests. `AuthorizationCoverageTest` is written now but asserts against `@RequirePermission`, which arrives in Task 13; until then it is `@Disabled` with an explicit reason.
+- Produces: three always-on structural tests. `AuthorizationCoverageTest` is written now but asserts against `@RequirePermission`; it is ignored until **Task 9**, whose `RoleService` is the first `*Service` class in the codebase.
 
-- [ ] **Step 1: Write the RLS coverage meta-test**
+**ArchUnit fails a rule whose `should()` matched nothing** — "failed to check any classes" — rather than passing it vacuously. Every rule in this task that has no matching classes yet therefore needs a deliberate decision, and there are only two correct answers:
+
+- `.allowEmptyShould(true)` on the rule, when it will start binding within a task or two and going green now is harmless.
+- `@ArchIgnore` on the class, when the obligation is further out and should stay visible in test reports.
+
+**`@ArchIgnore`, never JUnit's `@Disabled`.** `@ArchTest` fields are collected by ArchUnit's own JUnit 5 `TestEngine`, which does not process Jupiter annotations. `@Disabled` on an `@AnalyzeClasses` class is silently inert and the rule still runs — verified by observing exactly that.
+
+- [x] **Step 1: Write the RLS coverage meta-test**
 
 `backend/src/test/java/co/ara/onboarding/architecture/RlsCoverageTest.java`:
 
@@ -1901,16 +2331,20 @@ class RlsCoverageTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it — it should pass against the current schema**
+- [x] **Step 2: Run it — it should pass against the current schema**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.architecture.RlsCoverageTest"`
 Expected: PASS. If it fails, a table from Task 5 or 6 is missing its `enable_tenant_rls` call — fix the migration with a new `V*` file, never by editing a committed one.
 
-- [ ] **Step 3: Prove the guard actually catches an unprotected table**
+- [x] **Step 3: Prove the guard actually catches an unprotected table**
 
-Temporarily add to `V5__audit.sql` a table with no `enable_tenant_rls` call, re-run, confirm FAIL, then revert. A structural guard you have never seen fail is a guard you cannot trust.
+Add a **throwaway `V99__guard_probe_TEMPORARY.sql`**, re-run, confirm FAIL, then delete the file. Do not edit `V5__audit.sql` — migrations are forward-only, and a committed one stays untouched even for a temporary experiment.
 
-- [ ] **Step 4: Write the module boundary test**
+Give the probe two tables so both assertions are proven independently: one with a `tenant_id` but no `enable_tenant_rls()` call (trips the RLS test), one with no `tenant_id` at all (trips the column test). `GRANT SELECT` on both, and name them something other than `rls_probe*` or the meta-test will skip them. The `GRANT` is load-bearing: `information_schema.columns` hides columns the current role has no privilege on, so without it the column test would fail for lack of access rather than for the missing column — passing for the wrong reason.
+
+A structural guard you have never seen fail is a guard you cannot trust.
+
+- [x] **Step 4: Write the module boundary test**
 
 `backend/src/test/java/co/ara/onboarding/architecture/ModuleBoundaryTest.java`:
 
@@ -1922,7 +2356,7 @@ import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 
-import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.library.dependencies.SlicesRuleDefinition.slices;
 
 @AnalyzeClasses(
@@ -1935,15 +2369,39 @@ class ModuleBoundaryTest {
             slices().matching("co.ara.onboarding.(*)..").should().beFreeOfCycles();
 
     @ArchTest
-    static final ArchRule domainModulesDoNotDependOnControllers =
-            layeredArchitecture().consideringOnlyDependenciesInLayers()
-                .layer("Controllers").definedBy("..controller..", "co.ara.onboarding..*Controller")
-                .layer("Services").definedBy("co.ara.onboarding..*Service")
-                .whereLayer("Controllers").mayNotBeAccessedByAnyLayer();
+    static final ArchRule servicesDoNotDependOnControllers =
+            noClasses().that().haveSimpleNameEndingWith("Service")
+                .should().dependOnClassesThat().haveSimpleNameEndingWith("Controller")
+                .because("controllers are an entry point, never a dependency of the domain");
+
+    /**
+     * Carried forward from Task 4's review. Spring Data repository proxies get
+     * their own transaction handling and do NOT trigger TenantTransactionBinder,
+     * so a repository called outside an enclosing @Transactional service method
+     * runs with no tenant bound. RLS then fails closed and the query returns
+     * nothing — silently, with no error to follow.
+     *
+     * Controllers must therefore never touch a repository directly.
+     */
+    @ArchTest
+    static final ArchRule controllersDoNotUseRepositoriesDirectly =
+            noClasses().that().haveSimpleNameEndingWith("Controller")
+                .should().dependOnClassesThat().haveSimpleNameEndingWith("Repository")
+                .because("a repository call outside a @Transactional service has no tenant bound");
 }
 ```
 
-- [ ] **Step 5: Write the authorization coverage test, disabled for now**
+Both `servicesDoNotDependOnControllers` and `controllersDoNotUseRepositoriesDirectly` need `.allowEmptyShould(true)` at this point in the plan: no `*Service` class exists until Task 9, and excluding `TenantDebugController` leaves the second rule with no controllers to check. Without it both go red for having nothing to check.
+
+`noCyclesBetweenModules` **will fail on the first run** against a faithful Task 4 implementation: `platform.ApiExceptionHandler` imports `tenancy.UnknownTenantException` while `tenancy.Tenant` extends `platform.BaseEntity`, closing a `platform → tenancy → platform` cycle. That is a real defect, not a rule to soften — fix it by moving the handler into `tenancy` (Task 4 Step 5, now amended). Confirm `TenantResolutionTest`'s `unknownTenantSlugReturns404` and `suspendedTenantReturns404` still pass afterwards; they are what prove the relocated `@RestControllerAdvice` is still registered.
+
+`TenantDebugController` is the one violation of the repository rule — it injects `TenantRepository`. It is deleted in Task 20, so exclude it by name (`.and().doNotHaveSimpleName("TenantDebugController")`) with a comment referencing that task, so any *new* controller is still caught. Do not weaken the rule.
+
+**Do not use `layeredArchitecture().definedBy("co.ara.onboarding..*Controller")` here.** `definedBy(String...)` takes *package* identifiers, not class-name patterns, so `*Controller` would be read as a package segment and match nothing — producing a layer that is empty and a rule that can never fail. This project also has no `..controller..` package; controllers live directly in their domain module. The `noClasses()` form above expresses the same intent and actually binds to real classes.
+
+Verify it can fail. There is no `*Service` yet to hang a `*Controller` field on, so prove the repository rule instead: temporarily drop the `doNotHaveSimpleName` clause, run, and confirm it reports the real `TenantDebugController` violations, then restore. Also drop `allowEmptyShould(true)` from `servicesDoNotDependOnControllers` once and confirm the "failed to check any classes" error, so the reason that flag is present is something you have seen rather than something you were told.
+
+- [x] **Step 5: Write the authorization coverage test, ignored for now**
 
 `backend/src/test/java/co/ara/onboarding/architecture/AuthorizationCoverageTest.java`:
 
@@ -1977,7 +2435,13 @@ class AuthorizationCoverageTest {
 }
 ```
 
-This will not compile until Task 13 creates `RequirePermission`. Create the annotation now as an empty marker so the build stays green, and Task 13 gives it behaviour:
+Annotate the class `@ArchIgnore(reason = "No *Service classes exist until Task 9's RoleService; ArchUnit fails an empty should(). Re-enable at Task 9.")`.
+
+**Re-enable at Task 9, not Task 13.** Task 9's `RoleService` is the first `*Service` class in the codebase — Task 8 adds the permission catalog but no service — and `RequirePermission` exists as of this task, so each service can declare its key as it is written; Task 13's `PermissionGateAspect` then makes those declarations enforceable. Waiting for Task 13 would leave the services from Tasks 9–12 unpoliced and force a retrofit across all of them at once.
+
+Before ignoring it, prove the rule binds: add a throwaway `*Service` class with one public method, confirm RED naming that method, add `@RequirePermission` to it, confirm GREEN, then delete the class. Do not annotate it `@Service` — ArchUnit reads bytecode, and a real bean would change the Spring context.
+
+This will not compile until `RequirePermission` exists. Create the annotation now as a marker so the build stays green, and Task 13 gives it behaviour:
 
 ```java
 package co.ara.onboarding.authz;
@@ -1991,14 +2455,24 @@ public @interface RequirePermission {
 }
 ```
 
-Services that legitimately need no gate — provisioning run by platform admins, internal helpers — must be annotated `@RequirePermission(PermissionKeys.PLATFORM_ADMIN)` or excluded by an explicit, commented `.and().areNotDeclaredIn(...)` clause. Never by deleting the rule.
+Services that legitimately need no gate — `TenantProvisioningService`, which runs before any tenant user exists — are excluded by an explicit, commented clause naming the class:
 
-- [ ] **Step 6: Run all architecture tests**
+```java
+                     .and().areNotDeclaredIn(TenantProvisioningService.class)
+```
+
+That clause cannot be added in this task: `TenantProvisioningService` does not exist until Task 10 and the file would not compile. Record it as a comment now and add the code when re-enabling.
+
+Never by deleting or weakening the rule. There is deliberately **no** `PermissionKeys.PLATFORM_ADMIN` catch-all: a permission that means "skip the check" would be indistinguishable from a real grant in the catalog, and every future ungated service would reach for it. Platform-admin endpoints are secured at the HTTP layer instead (Task 22 Step 9).
+
+- [x] **Step 6: Run all architecture tests**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.architecture.*"`
-Expected: PASS (`AuthorizationCoverageTest` will pass trivially while no `*Service` classes exist yet).
+Expected: PASS, with `AuthorizationCoverageTest` reported as **skipped**, not passed — it does not pass trivially. An ArchUnit rule matching zero classes fails; that test is green only because `@ArchIgnore` keeps it from running at all.
 
-- [ ] **Step 7: Commit**
+Then run the whole suite (`./gradlew test`) before committing, not just the architecture package — Task 4's exception-handler relocation is verified by `TenantResolutionTest`, which lives elsewhere.
+
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/
@@ -2028,7 +2502,7 @@ The finite, code-defined catalog, mirrored to a database table at startup. Tenan
   - `PermissionCatalog.all()`, `PermissionCatalog.byKey(String)`, `PermissionCatalog.allows(String key, Scope scope)`.
   - `PermissionKeys` — string constants used everywhere else in the codebase.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/authz/PermissionCatalogTest.java`:
 
@@ -2074,12 +2548,12 @@ class PermissionCatalogTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.PermissionCatalogTest"`
 Expected: FAIL — catalog classes and `permission` table do not exist.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 `backend/src/main/resources/db/migration/V6__permission.sql`:
 
@@ -2094,10 +2568,12 @@ CREATE TABLE permission (
     allowed_scopes  varchar(255) NOT NULL
 );
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON permission TO onboarding_app;
+-- No DELETE: orphaned permissions are logged and ignored, never auto-removed,
+-- so a mistaken catalog removal stays revertible (spec 6.2).
+GRANT SELECT, INSERT, UPDATE ON permission TO onboarding_app;
 ```
 
-- [ ] **Step 4: Implement `Scope`, `Permission`, `PermissionKeys`, `PermissionCatalog`**
+- [x] **Step 4: Implement `Scope`, `Permission`, `PermissionKeys`, `PermissionCatalog`**
 
 ```java
 package co.ara.onboarding.authz;
@@ -2200,7 +2676,7 @@ public final class PermissionCatalog {
 
 `CUSTOMER_CREATE` is `ALL`-only on purpose: creation has no existing record to scope against, so a narrower scope would be meaningless.
 
-- [ ] **Step 5: Implement the startup sync with orphan reporting**
+- [x] **Step 5: Implement the startup sync with orphan reporting**
 
 ```java
 package co.ara.onboarding.authz;
@@ -2252,12 +2728,12 @@ public class PermissionSyncRunner implements ApplicationRunner {
 }
 ```
 
-- [ ] **Step 6: Run it to verify it passes**
+- [x] **Step 6: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.PermissionCatalogTest"`
 Expected: PASS — all four tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/
@@ -2289,7 +2765,7 @@ Tenant-owned roles with per-permission scope. Invalid permission/scope combinati
   - `RoleService.createRole(String name, String description, Map<String,Scope> grants)`, `.updateGrants(UUID roleId, Map<String,Scope>)`, `.setEnabled(UUID roleId, boolean)`, `.assignRole(UUID userId, UUID roleId)`, `.deleteRole(UUID roleId)`.
   - `InvalidGrantException` — thrown on unknown permission key or disallowed scope; mapped to 400 in `ApiExceptionHandler`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/authz/RoleServiceTest.java`:
 
@@ -2361,7 +2837,7 @@ class RoleServiceTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Extend `TenantFixture` with `createUser`**
+- [x] **Step 2: Extend `TenantFixture` with `createUser`**
 
 ```java
     @Autowired private AppUserRepository users;
@@ -2381,12 +2857,12 @@ class RoleServiceTest extends PostgresTestBase {
 
 Add `AppUserRepository` to the constructor rather than field injection if the existing fixture uses constructor injection; keep it consistent with Task 5.
 
-- [ ] **Step 3: Run it to verify it fails**
+- [x] **Step 3: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.RoleServiceTest"`
 Expected: FAIL — `RoleService` does not exist.
 
-- [ ] **Step 4: Write the migration**
+- [x] **Step 4: Write the migration**
 
 `backend/src/main/resources/db/migration/V7__roles.sql`:
 
@@ -2426,10 +2902,16 @@ SELECT enable_tenant_rls('role');
 SELECT enable_tenant_rls('role_grant');
 SELECT enable_tenant_rls('user_role');
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON role, role_grant, user_role TO onboarding_app;
+GRANT SELECT, INSERT, UPDATE ON role, role_grant, user_role TO onboarding_app;
+
+-- Explicit DELETE (deny-by-default since V2_1). These are authorization
+-- metadata, not business records: a role is deletable once no users hold it,
+-- updateGrants replaces a role's grants wholesale, and unassigning a role
+-- removes its user_role row.
+GRANT DELETE ON role, role_grant, user_role TO onboarding_app;
 ```
 
-- [ ] **Step 5: Implement the entities**
+- [x] **Step 5: Implement the entities**
 
 `Role` extends `TenantScopedEntity` with `name`, `description`, `systemTemplate`, `enabled`, and:
 
@@ -2440,9 +2922,13 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON role, role_grant, user_role TO onboardin
 
 `RoleGrant` extends `TenantScopedEntity` with `@ManyToOne @JoinColumn(name="role_id") Role role`, `@Column(name="permission_key") String permissionKey`, and `@Enumerated(EnumType.STRING) Scope scope`.
 
-`UserRole` maps the `user_role` join table with an `@IdClass` or `@EmbeddedId` of `(userId, roleId)` plus `tenantId`.
+`UserRole` maps the `user_role` join table with an `@IdClass` of `(userId, roleId)` plus a `tenantId` column.
 
-- [ ] **Step 6: Implement `InvalidGrantException` and `RoleService`**
+**`UserRole` must NOT extend `TenantScopedEntity`.** That superclass chain supplies `id`, `created_at` and `updated_at`, and `user_role` has none of those columns. The consequence is deliberate and worth stating in the class: `UserRole` carries no Hibernate `tenantFilter`, so its tenant isolation rests on RLS alone rather than the usual two layers. Require `tenantId` in the constructor so no caller can forget it; RLS's `WITH CHECK` rejects the insert if it disagrees with the bound tenant.
+
+Keep `tenantId` out of the composite key — `user_id` is already tenant-unique, so including it would let the same assignment be written twice under different tenants.
+
+- [x] **Step 6: Implement `InvalidGrantException` and `RoleService`**
 
 ```java
 package co.ara.onboarding.authz;
@@ -2558,28 +3044,56 @@ public class RoleService {
 
 Validation runs over the whole map before any grant is added, so a partially-valid update never leaves a partially-applied role.
 
-- [ ] **Step 7: Map `InvalidGrantException` to 400**
+**`updateGrants` needs a flush between `clear()` and `applyGrants()`:**
 
-Add to `ApiExceptionHandler`:
+```java
+    role.getGrants().clear();
+    roles.saveAndFlush(role);   // execute the orphan deletes BEFORE inserting replacements
+    applyGrants(role, grants);
+```
+
+`role_grant` carries `UNIQUE (role_id, permission_key)`, and Hibernate's action queue executes entity inserts *before* entity deletes within one flush. Re-granting a permission the role already holds at a different scope — the ordinary way a role is edited — therefore inserts the replacement while the old row still exists and fails with `duplicate key value violates unique constraint "role_grant_role_id_permission_key_key"`. Confirmed by writing the test first and watching it fail exactly that way.
+
+The plan's four tests do not cover `updateGrants` at all, which is how this survived to here. Add `updateGrantsCanRescopeAnExistingPermission`: create a role granting `customer.view` at `TEAM`, call `updateGrants` with `customer.view` at `ALL`, reload and assert one grant at `ALL`.
+
+- [x] **Step 7: Map `InvalidGrantException` to 400 and `IllegalStateException` to 409**
+
+**These two handlers go in different modules.** Putting the `InvalidGrantException` handler in `platform.ApiExceptionHandler` closes a `platform → authz → tenancy → platform` cycle (`Role` extends `TenantScopedEntity` extends `BaseEntity`), which is the same defect Task 4 Step 5 had. `ModuleBoundaryTest.noCyclesBetweenModules` catches it.
+
+Create `authz/AuthzExceptionHandler.java`:
 
 ```java
     @ExceptionHandler(InvalidGrantException.class)
     ProblemDetail invalidGrant(InvalidGrantException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
     }
+```
 
+400, not 403: a grant naming an unknown permission or a disallowed scope is a malformed request, and the caller may be perfectly authorized to manage roles. Conflating the two tells a legitimate admin they lack permission.
+
+Add only the `IllegalStateException` handler to `platform/ApiExceptionHandler.java` — `java.lang` types name no domain, so this introduces no dependency:
+
+```java
     @ExceptionHandler(IllegalStateException.class)
     ProblemDetail conflict(IllegalStateException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
 ```
 
-- [ ] **Step 8: Run it to verify it passes**
+Echoing the message is safe only because these are operator-facing state conflicts ("disable it instead"). Any domain exception whose message could leak record existence needs its own handler in its own module, returning a bare detail.
+
+- [x] **Step 8: Re-enable `AuthorizationCoverageTest`**
+
+`RoleService` is the first `*Service` class in the codebase, so this is where the Task 7 guard starts binding. Remove its `@ArchIgnore` and confirm every public `RoleService` method carries `@RequirePermission`. Prove it polices real code, not just the throwaway probe from Task 7: drop the annotation from one method, confirm the failure names that method and line, restore it.
+
+- [x] **Step 9: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.RoleServiceTest"`
-Expected: PASS — all four tests. The `@RequirePermission` annotation has no behaviour yet (Task 13), so it does not block these tests.
+Expected: PASS — five tests. The `@RequirePermission` annotation has no behaviour yet (Task 13), so it does not block these tests.
 
-- [ ] **Step 9: Commit**
+Then run the whole suite. `RlsCoverageTest` must accept `role`, `role_grant` and `user_role` — all three get `enable_tenant_rls` and carry `tenant_id`, so it should stay green without touching the allowlist. Total skipped should now be 0.
+
+- [x] **Step 10: Commit**
 
 ```bash
 git add backend/
@@ -2594,10 +3108,14 @@ The twelve PRD roles, seeded into every new tenant.
 
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/authz/RoleTemplates.java`
-- Create: `backend/src/main/java/co/ara/onboarding/tenancy/TenantProvisioningService.java`
-- Create: `backend/src/main/java/co/ara/onboarding/tenancy/PlatformTenantController.java`
-- Test: `backend/src/test/java/co/ara/onboarding/tenancy/TenantProvisioningTest.java`
+- Create: `backend/src/main/java/co/ara/onboarding/provisioning/TenantProvisioningService.java`
+- Create: `backend/src/main/java/co/ara/onboarding/provisioning/PlatformTenantController.java`
+- Test: `backend/src/test/java/co/ara/onboarding/provisioning/TenantProvisioningTest.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/RoleTemplateValidityTest.java`
+
+**`provisioning` is a new module, and it has to be.** Provisioning reaches into tenancy, authz and identity at once, and both authz and identity already depend on tenancy (`Role` and `AppUser` extend `TenantScopedEntity`). Putting `TenantProvisioningService` in `tenancy`, as earlier drafts of this plan did, closes `tenancy → authz → tenancy` and `tenancy → identity → tenancy`; with `audit` in the mix it also closes `audit → tenancy → authz → audit`. `ModuleBoundaryTest.noCyclesBetweenModules` rejects all of them — verified by adding a one-field probe class in `tenancy` referencing `authz.Role` and watching two cycles appear.
+
+`provisioning` is an orchestration slice above the domain modules: it depends on them, nothing depends on it. `PlatformTenantController` must move with the service — leaving it in `tenancy` recreates the cycle as `tenancy → provisioning → tenancy`.
 
 **Interfaces:**
 - Consumes: `RoleService`, `PermissionCatalog`, `TenantRepository`, `AuditRecorder`.
@@ -2605,7 +3123,13 @@ The twelve PRD roles, seeded into every new tenant.
   - `RoleTemplates.all()` → `List<RoleTemplate>` where `record RoleTemplate(String name, String description, Map<String,Scope> grants)`.
   - `TenantProvisioningService.provision(String slug, String name, String adminEmail, String adminFullName)` → `UUID tenantId`. Creates the tenant, seeds roles, creates the first `INTERNAL` administrator user in `INVITED` status.
 
-- [ ] **Step 1: Write the failing template validity test**
+**Amended in Task R1 (remediation).** As written above, provisioning produces a tenant nobody can ever sign into, and no test in the suite catches it because every other test constructs its users directly instead of going through provisioning → login. The administrator is `INVITED` with a null password hash; `LoginService` admits only `ACTIVE`; only `ActivationService.accept` promotes `INVITED → ACTIVE` and it requires an `InvitationPurpose.ACTIVATION` row. Nothing creates that row: `UserInvitationService.issueForUser` would, but it is gated on `user.manage`, and the only account that would hold it is the one locked out. A password reset is not a substitute — `PasswordResetService.reset` sets the hash and deliberately never touches `status`, so the subsequent login still answers 401. Found by driving the real HTTP surface with curl during Task 26, invisible to the suite until Task R1 added `ProvisionedTenantLoginTest`.
+
+`provision` must therefore also create the `ACTIVATION` invitation and dispatch it through `EmailSender`, in the same transaction as the `app_user` and `user_role` rows it already writes outside the permission gate for the same bootstrap reason. The raw token is **not** returned in the provisioning response — it is a `SecureRandom` bearer credential and travels by email like every other one, which under `dev`/`test` means the `LoggingEmailSender` log. This needed `auth.SecureTokens` and `InvitationService.ACTIVATION_TTL` widened to public; `provisioning → auth` is a new module edge and closes no cycle, since `auth` does not depend on `provisioning`. No new `AuthorizationCoverageTest` exclusion was needed — `TenantProvisioningService` is already excluded by class (Step 7).
+
+Accepted cost: there is no re-issue path once the seven-day `ACTIVATION_TTL` expires, so a tenant provisioned and forgotten for a week needs manual intervention. Tenant administration is a sub-project 2 concern.
+
+- [x] **Step 1: Write the failing template validity test**
 
 This guards the startup check required by spec §6.2.
 
@@ -2644,7 +3168,7 @@ class RoleTemplateValidityTest {
 }
 ```
 
-- [ ] **Step 2: Write the failing provisioning test**
+- [x] **Step 2: Write the failing provisioning test**
 
 `backend/src/test/java/co/ara/onboarding/tenancy/TenantProvisioningTest.java`:
 
@@ -2683,12 +3207,12 @@ class TenantProvisioningTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 3: Run both to verify they fail**
+- [x] **Step 3: Run both to verify they fail**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.RoleTemplateValidityTest" --tests "co.ara.onboarding.tenancy.TenantProvisioningTest"`
 Expected: FAIL — `RoleTemplates` and `TenantProvisioningService` do not exist.
 
-- [ ] **Step 4: Implement `RoleTemplates`**
+- [x] **Step 4: Implement `RoleTemplates`**
 
 Scopes below are deliberate starting points, not arbitrary. Operational roles that work case-by-case default to `TEAM`; Administrator is the only role granted `ROLE_MANAGE`.
 
@@ -2741,13 +3265,18 @@ public final class RoleTemplates {
         new RoleTemplate("Support", "Assists customers post-activation", Map.of(
             CUSTOMER_VIEW, TEAM, CONTACT_VIEW, TEAM)),
 
-        new RoleTemplate("Administrator", "Full tenant administration", Map.of(
-            TENANT_SETTINGS_VIEW, ALL, TENANT_SETTINGS_EDIT, ALL,
-            USER_VIEW, ALL, USER_MANAGE, ALL, ROLE_VIEW, ALL, ROLE_MANAGE, ALL,
-            DEPARTMENT_MANAGE, ALL, TEAM_MANAGE, ALL,
-            CUSTOMER_VIEW, ALL, CUSTOMER_CREATE, ALL, CUSTOMER_EDIT, ALL,
-            CUSTOMER_DEACTIVATE, ALL, CONTACT_VIEW, ALL, CONTACT_MANAGE, ALL,
-            INVITATION_SEND, ALL, AUDIT_VIEW, ALL))
+        // Map.ofEntries, NOT Map.of: this covers all 16 catalog permissions and
+        // Map.of has no overload past 10 key-value pairs, so Map.of here does not
+        // compile. Needs `import static java.util.Map.entry;`.
+        new RoleTemplate("Administrator", "Full tenant administration", Map.ofEntries(
+            entry(TENANT_SETTINGS_VIEW, ALL), entry(TENANT_SETTINGS_EDIT, ALL),
+            entry(USER_VIEW, ALL), entry(USER_MANAGE, ALL),
+            entry(ROLE_VIEW, ALL), entry(ROLE_MANAGE, ALL),
+            entry(DEPARTMENT_MANAGE, ALL), entry(TEAM_MANAGE, ALL),
+            entry(CUSTOMER_VIEW, ALL), entry(CUSTOMER_CREATE, ALL),
+            entry(CUSTOMER_EDIT, ALL), entry(CUSTOMER_DEACTIVATE, ALL),
+            entry(CONTACT_VIEW, ALL), entry(CONTACT_MANAGE, ALL),
+            entry(INVITATION_SEND, ALL), entry(AUDIT_VIEW, ALL)))
     );
 
     private RoleTemplates() {}
@@ -2756,7 +3285,7 @@ public final class RoleTemplates {
 }
 ```
 
-- [ ] **Step 5: Implement `TenantProvisioningService`**
+- [x] **Step 5: Implement `TenantProvisioningService`**
 
 ```java
 package co.ara.onboarding.tenancy;
@@ -2848,18 +3377,33 @@ public class TenantProvisioningService {
 }
 ```
 
-Add to `RoleRepository`:
+Add to `RoleRepository` — only the finder:
 
 ```java
     Optional<Role> findByTenantIdAndName(UUID tenantId, String name);
-
-    @Modifying
-    @Query(value = "INSERT INTO user_role (tenant_id, user_id, role_id) VALUES (?1, ?2, ?3)",
-           nativeQuery = true)
-    void assignRoleDirect(UUID tenantId, UUID userId, UUID roleId);
 ```
 
-- [ ] **Step 6: Add the platform controller**
+**Do not add `assignRoleDirect` as a native `@Modifying` query.** Spring Data's `@Modifying` defaults to `flushAutomatically = false`, so the raw `INSERT INTO user_role` can execute before the pending `app_user` insert is flushed, violating `user_role.user_id`'s foreign key. It only appears to work because the preceding `findByTenantIdAndName` happens to trigger an autoflush — incidental behaviour, not a contract. Inject `UserRoleRepository` and write the row as an entity instead, with an explicit flush ordering the two inserts:
+
+```java
+    users.saveAndFlush(admin);                                          // app_user row exists
+    userRoles.save(new UserRole(tenantId, admin.getId(), roleId));      // then its FK reference
+```
+
+This still bypasses the gated `RoleService.assignRole`, which is the point — during provisioning there is no actor to hold `USER_MANAGE`.
+
+**`provision` must restore the caller's `TenantContext`.** Seeding writes to RLS-protected tables so a tenant has to be bound, but `TenantContext` is a `ThreadLocal` on a pooled request thread: leaving it set hands the next request served by that thread a tenant it never asked for, silently scoping its reads to a stranger's data. Capture the previous value and restore it in a `finally`:
+
+```java
+    UUID previous = TenantContext.getOrNull();
+    TenantContext.set(tenant.getId());
+    try { /* seed roles, create admin, audit */ }
+    finally { if (previous == null) TenantContext.clear(); else TenantContext.set(previous); }
+```
+
+Every `UUID.randomUUID()` in the sample above means `Uuid7.generate()`, per Global Constraints.
+
+- [x] **Step 6: Add the platform controller**
 
 ```java
 package co.ara.onboarding.tenancy;
@@ -2889,12 +3433,24 @@ public class PlatformTenantController {
 }
 ```
 
-- [ ] **Step 7: Run both tests to verify they pass**
+- [x] **Step 7: Add the `AuthorizationCoverageTest` exclusion**
 
-Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.RoleTemplateValidityTest" --tests "co.ara.onboarding.tenancy.TenantProvisioningTest"`
+`TenantProvisioningService.provision` is public and carries no `@RequirePermission`, so the guard re-enabled in Task 9 now fails. Add the clause promised there:
+
+```java
+                     .and().areNotDeclaredIn(TenantProvisioningService.class)
+```
+
+Exclude by class, not by name pattern, so a future `*ProvisioningService` does not silently inherit the exemption.
+
+- [x] **Step 8: Run both tests to verify they pass**
+
+Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.RoleTemplateValidityTest" --tests "co.ara.onboarding.provisioning.TenantProvisioningTest"`
 Expected: PASS
 
-- [ ] **Step 8: Commit**
+Then run the whole suite and confirm `ModuleBoundaryTest` is still green — that is what proves the `provisioning` slice actually broke the cycles rather than moving them.
+
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/
@@ -2927,7 +3483,9 @@ Data only — no service, no endpoints. This lands before the descriptor registr
   - `CustomerRepository extends JpaRepository<Customer, UUID>, JpaSpecificationExecutor<Customer>`.
   - `CustomerContactRepository extends JpaRepository<CustomerContact, UUID>, JpaSpecificationExecutor<CustomerContact>` with `List<CustomerContact> findByCustomerId(UUID)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
+
+**Call `fixture.createUser` INSIDE `runAs`, not before it.** The sample below hoists it above the `runAs` block, which cannot work: `app_user` is RLS-protected, and Spring Data repository proxies manage their own transactions without triggering `TenantTransactionBinder`, so the save runs with no tenant bound and fails the policy's `WITH CHECK`. Move it inside the lambda — the owner id is only used there anyway. As always, every `UUID.randomUUID()` below means `Uuid7.generate()`.
 
 `backend/src/test/java/co/ara/onboarding/customer/CustomerPersistenceTest.java`:
 
@@ -3003,12 +3561,12 @@ class CustomerPersistenceTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.customer.CustomerPersistenceTest"`
 Expected: FAIL — customer classes do not exist.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 `backend/src/main/resources/db/migration/V8__customer.sql`:
 
@@ -3056,13 +3614,29 @@ SELECT enable_tenant_rls('customer');
 SELECT enable_tenant_rls('customer_contact');
 
 GRANT SELECT, INSERT, UPDATE ON customer, customer_contact TO onboarding_app;
--- No DELETE grant: business records are deactivated, never deleted (spec 9.4).
-REVOKE DELETE ON customer, customer_contact FROM onboarding_app;
+-- No DELETE grant, and none is inherited: DELETE is deny-by-default since
+-- V2_1. Business records are deactivated, never deleted (spec 9.4).
 ```
 
-The `REVOKE DELETE` turns "no hard deletes" from a code convention into a database guarantee. Sub-projects 2–9 should follow this pattern for their own business tables.
+There is no `REVOKE DELETE` statement here and none is needed — V5_1 already revoked the schema-wide default, so a table created after it starts with no privileges at all and the `GRANT` above is the complete grant. That is what turns "no hard deletes" from a code convention into a database guarantee. Sub-projects 2–9 should follow this pattern for their own business tables.
 
-- [ ] **Step 4: Implement the enums and entities**
+**Add a test for it.** The guarantee is the loudest claim this task makes and the plan asserted it nowhere:
+
+```java
+    @Test
+    void applicationRoleCannotDeleteBusinessRecords() {
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM customer"))
+                .hasStackTraceContaining("permission denied");
+        assertThatThrownBy(() -> jdbc.execute("DELETE FROM customer_contact"))
+                .hasStackTraceContaining("permission denied");
+    }
+```
+
+`hasStackTraceContaining`, not `hasMessageContaining` — matching `AppRoleTest`. PostgreSQL reports insufficient privilege as SQLState 42501, and Spring's `SQLStateSQLExceptionTranslator` maps the whole 42xxx class to `BadSqlGrammarException`, whose message says only "bad SQL grammar"; "permission denied" is in the wrapped cause. Asserting on the top-level message fails while the privilege check is working perfectly — which is exactly what happened on the first run.
+
+No tenant needs to be bound: PostgreSQL checks table privileges before row security. That also bounds what the test proves — the grant, not the policy.
+
+- [x] **Step 4: Implement the enums and entities**
 
 ```java
 package co.ara.onboarding.customer;
@@ -3076,7 +3650,7 @@ public enum ContactStatus { ACTIVE, INACTIVE }
 
 `Customer` extends `TenantScopedEntity` and maps every column from the migration with standard getters and setters, using `@Enumerated(EnumType.STRING)` for `status`. `CustomerContact` does the same; note the field is named `primaryContact` mapping to column `primary_contact`, because `primary` is awkward as a Java identifier and `isPrimary()` reads poorly next to JPA conventions.
 
-- [ ] **Step 5: Implement the repositories**
+- [x] **Step 5: Implement the repositories**
 
 ```java
 package co.ara.onboarding.customer;
@@ -3103,17 +3677,17 @@ public interface CustomerContactRepository
 }
 ```
 
-- [ ] **Step 6: Run it to verify it passes**
+- [x] **Step 6: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.customer.CustomerPersistenceTest"`
 Expected: PASS
 
-- [ ] **Step 7: Verify the RLS meta-test still passes**
+- [x] **Step 7: Verify the RLS meta-test still passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.architecture.RlsCoverageTest"`
 Expected: PASS. If it fails, an `enable_tenant_rls` call is missing from `V8`.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/
@@ -3131,11 +3705,24 @@ Declares, per resource type, how `DEPARTMENT`, `TEAM`, and `ASSIGNED` resolve �
 - Create: `backend/src/main/java/co/ara/onboarding/authz/AuthContext.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/ResourceAuthorizationDescriptor.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/DescriptorRegistry.java`
-- Create: `backend/src/main/java/co/ara/onboarding/identity/AppUserDescriptor.java`
-- Create: `backend/src/main/java/co/ara/onboarding/audit/AuditEventDescriptor.java`
-- Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerDescriptor.java`
-- Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerContactDescriptor.java`
+- Create: `backend/src/main/java/co/ara/onboarding/scoping/AppUserDescriptor.java`
+- Create: `backend/src/main/java/co/ara/onboarding/scoping/AuditEventDescriptor.java`
+- Create: `backend/src/main/java/co/ara/onboarding/scoping/CustomerDescriptor.java`
+- Create: `backend/src/main/java/co/ara/onboarding/scoping/CustomerContactDescriptor.java`
+- Move: `identity/UserType.java` → `platform/UserType.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/DescriptorRegistryTest.java`
+
+**The descriptors go in a new `scoping` module, not in the module owning each entity.** Placing them per-entity closes cycles, because the dependency arrows already run the other way:
+
+| Descriptor in owning module | Edge added | Existing opposite edge | Result |
+|---|---|---|---|
+| `audit/AuditEventDescriptor` | `audit → authz` | `authz → audit` (`RoleService` uses `AuditRecorder`) | cycle |
+| `identity/AppUserDescriptor` | `identity → authz` | `authz → identity` (via `AuthContext`) | cycle |
+| `customer/CustomerDescriptor` | `customer → authz` | none — and `authz` must never depend on `customer`, since Task 20's gated `CustomerService` needs this direction | safe, but inconsistent |
+
+`scoping` depends on authz, customer, identity and audit, and nothing depends on it — Spring collects the implementations by the `ResourceAuthorizationDescriptor` interface, so no class ever imports one.
+
+**`UserType` moves from `identity` to `platform`.** `AuthContext` carries it, so leaving it in identity forces `authz → identity`, which cycles against `identity → authz` the moment identity gains a permission-gated service (Task 21's `UserAdminService`). It is a cross-cutting classification used by identity for storage and authz for policy, and platform is the only module both may depend on — the same reasoning that puts `RequestAuditContext.ActorType` there. Six files reference it; the database column is unaffected.
 
 **Interfaces:**
 - Consumes: `PermissionCatalog`, `Customer`, `CustomerContact`, `AppUser`, `AuditEvent`.
@@ -3145,7 +3732,7 @@ Declares, per resource type, how `DEPARTMENT`, `TEAM`, and `ASSIGNED` resolve �
   - `ResourceAuthorizationDescriptor<T>` — `resourceType()`, `entityType()`, `assignedRelationships()`, `departmentScope(AuthContext)`, `teamScope(AuthContext)`, `assignedScope(AuthContext)`.
   - `DescriptorRegistry.forEntity(Class<T>)`, `.forResourceType(String)`, `.validate()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/authz/DescriptorRegistryTest.java`:
 
@@ -3188,12 +3775,12 @@ class DescriptorRegistryTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.DescriptorRegistryTest"`
 Expected: FAIL — registry and descriptors do not exist.
 
-- [ ] **Step 3: Implement `RelationshipType` and `AuthContext`**
+- [x] **Step 3: Implement `RelationshipType` and `AuthContext`**
 
 ```java
 package co.ara.onboarding.authz;
@@ -3217,7 +3804,7 @@ public record AuthContext(UUID tenantId, UUID userId, UserType userType,
                           UUID departmentId, Set<UUID> teamIds) {}
 ```
 
-- [ ] **Step 4: Implement the descriptor interface**
+- [x] **Step 4: Implement the descriptor interface**
 
 ```java
 package co.ara.onboarding.authz;
@@ -3242,7 +3829,7 @@ public interface ResourceAuthorizationDescriptor<T> {
 }
 ```
 
-- [ ] **Step 5: Implement the registry with its startup check**
+- [x] **Step 5: Implement the registry with its startup check**
 
 ```java
 package co.ara.onboarding.authz;
@@ -3309,7 +3896,7 @@ public class DescriptorRegistry {
 }
 ```
 
-- [ ] **Step 6: Implement the four descriptors**
+- [x] **Step 6: Implement the four descriptors**
 
 `customer/CustomerDescriptor.java`:
 
@@ -3351,7 +3938,11 @@ public class CustomerDescriptor implements ResourceAuthorizationDescriptor<Custo
 }
 ```
 
-A user with no department returns `cb.disjunction()` — matches nothing. Fail closed, never open.
+A user with no department returns `cb.disjunction()` — an empty OR, i.e. FALSE — so it matches nothing. Fail closed, never open.
+
+**Test that, because nothing else does.** The plan's three tests never execute a Specification, so a `departmentScope` returning `cb.conjunction()` (match *everything*) would pass all of them. Add a test that runs both halves against real rows — an actor in the department sees only that department's records, and an actor with no department sees none. The positive half is not optional: a predicate that unconditionally matches nothing would satisfy the fail-closed assertion by itself.
+
+Note that `customer.owning_department_id` is a foreign key to `department(id)`, so the test needs a real department row — add a `createDepartment` helper to `TenantFixture` that flushes, rather than passing a synthetic UUID.
 
 `customer/CustomerContactDescriptor.java` scopes through the parent customer with a subquery:
 
@@ -3414,20 +4005,26 @@ public class CustomerContactDescriptor implements ResourceAuthorizationDescripto
 }
 ```
 
-`identity/AppUserDescriptor.java` — `resourceType()` returns `"app_user"`, `assignedRelationships()` returns `Set.of(RelationshipType.OWNER)` meaning the user themselves, `departmentScope` compares `departmentId`, `teamScope` uses an `@ElementCollection` join on `teamIds`, `assignedScope` compares `id` to `ctx.userId()`.
+`scoping/AppUserDescriptor.java` — `resourceType()` returns `"app_user"`, `assignedRelationships()` returns `Set.of(RelationshipType.OWNER)` meaning the user themselves, `departmentScope` compares `departmentId`, `teamScope` joins the `@ElementCollection` on `teamIds`, `assignedScope` compares `id` to `ctx.userId()`.
 
-`audit/AuditEventDescriptor.java` — `resourceType()` returns `"audit_event"`. Audit events have no owner, so `assignedRelationships()` returns `Set.of()` and `assignedScope` returns `cb.disjunction()`. `departmentScope` and `teamScope` resolve through `actorUserId` joined to `app_user`. `AUDIT_VIEW` is only granted at `ALL`, `DEPARTMENT`, or `TEAM`, so the empty `ASSIGNED` implementation is unreachable in practice but must still fail closed.
+`teamScope` must call `query.distinct(true)`: joining a collection multiplies the row for a user who shares several teams with the actor, so a list query returns duplicates without it. Guard the call with a null check — `Specification` is also invoked with a null `CriteriaQuery` in some count paths.
 
-- [ ] **Step 7: Run it to verify it passes**
+`scoping/AuditEventDescriptor.java` — `resourceType()` returns `"audit_event"`. Audit events have no owner, so `assignedRelationships()` returns `Set.of()` and `assignedScope` returns `cb.disjunction()`. `departmentScope` and `teamScope` resolve through `actorUserId` via a subquery over `AppUser`. `AUDIT_VIEW` is only granted at `ALL`, `DEPARTMENT`, or `TEAM`, so the empty `ASSIGNED` implementation is unreachable in practice but must still fail closed — a future catalog edit widening `AUDIT_VIEW` to `ASSIGNED` would otherwise turn "unreachable" into "unrestricted".
+
+An event with a null `actorUserId` (`actorType` SYSTEM) matches no actor-scoped predicate. That is the intended reading: system activity is visible at `ALL` scope only.
+
+- [x] **Step 7: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.DescriptorRegistryTest"`
 Expected: PASS — all three tests.
 
-- [ ] **Step 8: Prove the startup check catches a missing descriptor**
+- [x] **Step 8: Prove the startup check catches a missing descriptor**
 
 Temporarily comment out the `@Component` on `CustomerDescriptor`, run any `@SpringBootTest`, and confirm the context fails with "no ResourceAuthorizationDescriptor". Restore it. This is the guard that protects sub-projects 2–9; verify it works now.
 
-- [ ] **Step 9: Commit**
+This is a different guarantee from `missingDescriptorIsAStartupFailure`, which only proves `validate()`'s logic against a hand-built registry. This proves the `@PostConstruct` is actually wired into the real context — that the check runs at all. Expect the failure to name every affected permission at once (`customer.view`, `customer.edit`, `customer.deactivate`), since `validate()` collects all problems before throwing.
+
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/
@@ -3442,8 +4039,10 @@ Resolves a user's authority per request as the union across all enabled roles, a
 
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/authz/EffectivePermissions.java`
+- Create: `backend/src/main/java/co/ara/onboarding/authz/ActorDirectory.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/AuthContextProvider.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/AuthorizationService.java`
+- Create: `backend/src/main/java/co/ara/onboarding/identity/IdentityActorDirectory.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/AuthorizationPredicateBuilder.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/EffectivePermissionsTest.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/PredicateBuilderTest.java`
@@ -3456,7 +4055,7 @@ Resolves a user's authority per request as the union across all enabled roles, a
   - `AuthorizationService.effectivePermissions()` — resolved per request, memoized for the request only (spec §6.7).
   - `AuthorizationPredicateBuilder.forPermission(String permissionKey, Class<T> entityType)` → `Specification<T>`.
 
-- [ ] **Step 1: Write the failing effective-permissions test**
+- [x] **Step 1: Write the failing effective-permissions test**
 
 `backend/src/test/java/co/ara/onboarding/authz/EffectivePermissionsTest.java`:
 
@@ -3560,33 +4159,47 @@ class EffectivePermissionsTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Extend `TenantFixture` with `runAsUser`**
+- [x] **Step 2: Extend `TenantFixture` with `runAsUser`**
 
 Each `runAsUser` call simulates a distinct request, which is what makes the "next request" assertions meaningful.
 
 ```java
     /** Runs the action as an authenticated user in a fresh request scope. */
     public void runAsUser(UUID tenantId, UUID userId, Runnable action) {
-        var attributes = new org.springframework.web.context.request.RequestContextHolder();
-        var request = new org.springframework.mock.web.MockHttpServletRequest();
-        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
-                new org.springframework.web.context.request.ServletRequestAttributes(request));
-        var auth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
-                new AuthenticatedPrincipal(tenantId, userId), null, java.util.List.of());
-        org.springframework.security.core.context.SecurityContextHolder.getContext()
-                .setAuthentication(auth);
+        // A request scope must exist because AuthorizationService and
+        // RequestAuditContext are @RequestScope beans; without it, resolving
+        // their scoped proxies throws IllegalStateException.
+        var request = new MockHttpServletRequest();
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+
+        var auth = new UsernamePasswordAuthenticationToken(
+                new AuthenticatedPrincipal(tenantId, userId), null, List.of());
+        SecurityContextHolder.getContext().setAuthentication(auth);
+
         try {
             runAs(tenantId, action);
         } finally {
-            org.springframework.security.core.context.SecurityContextHolder.clearContext();
-            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+            SecurityContextHolder.clearContext();
+            RequestContextHolder.resetRequestAttributes();
         }
     }
 ```
 
-Add `spring-boot-starter-test`'s `MockHttpServletRequest` — already on the test classpath from Task 1.
+with these imports on `TenantFixture`:
 
-- [ ] **Step 3: Define the authenticated principal**
+```java
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+```
+
+`RequestContextHolder` is a static utility — do not try to instantiate it. `MockHttpServletRequest` comes from `spring-boot-starter-test`, already on the test classpath from Task 1.
+
+Note the interaction with Task 14: once the permission gate is live, `runAs` itself must run privileged, so `runAs` delegates to `runAsUser` with a tenant administrator. Both methods therefore establish request scope, and nesting them is safe because `setRequestAttributes` is idempotent for this purpose.
+
+- [x] **Step 3: Define the authenticated principal**
 
 `backend/src/main/java/co/ara/onboarding/authz/AuthenticatedPrincipal.java`:
 
@@ -3599,12 +4212,12 @@ import java.util.UUID;
 public record AuthenticatedPrincipal(UUID tenantId, UUID userId) {}
 ```
 
-- [ ] **Step 4: Run it to verify it fails**
+- [x] **Step 4: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.EffectivePermissionsTest"`
 Expected: FAIL — `AuthorizationService` does not exist.
 
-- [ ] **Step 5: Implement `EffectivePermissions`**
+- [x] **Step 5: Implement `EffectivePermissions`**
 
 ```java
 package co.ara.onboarding.authz;
@@ -3625,13 +4238,37 @@ public record EffectivePermissions(Map<String, Set<Scope>> byPermission) {
 }
 ```
 
-- [ ] **Step 6: Implement `AuthContextProvider`**
+- [x] **Step 6: Implement `AuthContextProvider` behind an `ActorDirectory` port**
+
+**`AuthContextProvider` must not import `identity`.** The sample below injects `AppUserRepository` directly, which closes `authz → identity → authz` — identity depends on authz for `@RequirePermission` (Task 21's `UserAdminService`), and this task itself adds that edge. Invert it: authz declares the port, identity implements it.
+
+```java
+// authz/ActorDirectory.java — the port
+public interface ActorDirectory {
+    Optional<AuthContext> findActor(UUID userId);
+}
+```
+
+```java
+// identity/IdentityActorDirectory.java — the implementation
+@Component
+public class IdentityActorDirectory implements ActorDirectory {
+    private final AppUserRepository users;
+    public IdentityActorDirectory(AppUserRepository users) { this.users = users; }
+
+    @Override public Optional<AuthContext> findActor(UUID userId) {
+        return users.findById(userId).map(u -> new AuthContext(
+                u.getTenantId(), u.getId(), u.getUserType(),
+                u.getDepartmentId(), Set.copyOf(u.getTeamIds())));
+    }
+}
+```
+
+`AuthContextProvider` then depends only on `ActorDirectory`. Querying `app_user` with raw SQL from authz would also break the cycle but duplicates schema knowledge identity owns.
 
 ```java
 package co.ara.onboarding.authz;
 
-import co.ara.onboarding.identity.AppUser;
-import co.ara.onboarding.identity.AppUserRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -3654,15 +4291,15 @@ public class AuthContextProvider {
 
     public AuthContext current() {
         AuthenticatedPrincipal p = principal();
-        AppUser user = users.findById(p.userId())
+        return actors.findActor(p.userId())
                 .orElseThrow(() -> new AccessDeniedException("Unknown user"));
-        return new AuthContext(user.getTenantId(), user.getId(), user.getUserType(),
-                user.getDepartmentId(), Set.copyOf(user.getTeamIds()));
     }
 }
 ```
 
-- [ ] **Step 7: Implement `AuthorizationService`**
+The lookup is tenant-scoped by RLS, so a principal naming a user in another tenant resolves to nothing and is rejected here rather than silently producing an `AuthContext` for a stranger.
+
+- [x] **Step 7: Implement `AuthorizationService`**
 
 ```java
 package co.ara.onboarding.authz;
@@ -3722,12 +4359,26 @@ public class AuthorizationService {
 }
 ```
 
-- [ ] **Step 8: Run the effective-permissions test to verify it passes**
+`Map.copyOf(byPermission)` is not enough — it leaves the inner `EnumSet`s mutable, so a caller could widen its own authority in place. Copy each value with `Set.copyOf` as well.
+
+- [x] **Step 8: Exclude `AuthorizationService` from `AuthorizationCoverageTest`**
+
+This task trips the guard re-enabled in Task 9: `AuthorizationService` is named `*Service` and its public `effectivePermissions()` and `has()` carry no `@RequirePermission`. Gating them would be circular — resolving the gate would require resolving the gate — so add an exclusion beside `TenantProvisioningService`, with a comment saying it is authorization infrastructure rather than a domain service:
+
+```java
+                     .and().areNotDeclaredIn(AuthorizationService.class)
+```
+
+The two exclusions exist for different reasons and both belong in the comment: `TenantProvisioningService` has no actor to authorize; `AuthorizationService` *is* the mechanism.
+
+- [x] **Step 9: Run the effective-permissions test to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.EffectivePermissionsTest"`
-Expected: PASS — all four tests.
+Expected: PASS.
 
-- [ ] **Step 9: Write the failing predicate-builder test**
+Add a fifth test the plan omits: `permissionsAreMemoizedWithinARequestButNotAcrossThem`. The memo is what makes the two "next request" assertions meaningful, and nothing verified it exists — a version that re-queried on every call would pass all four, and one that cached in a singleton would pass within a single request. Assert the same instance is returned twice inside one `runAsUser`, and a different instance in a second.
+
+- [x] **Step 10: Write the failing predicate-builder test**
 
 `backend/src/test/java/co/ara/onboarding/authz/PredicateBuilderTest.java`:
 
@@ -3810,9 +4461,13 @@ class PredicateBuilderTest extends PostgresTestBase {
 }
 ```
 
-Add `createTeam(UUID tenantId, String name)` and `createCustomer(UUID tenantId, String displayName, UUID ownerUserId, UUID departmentId, UUID teamId)` to `TenantFixture`, following the shape of `createUser` from Task 9.
+Add `createTeam(UUID tenantId, String name)`, `createCustomer(UUID tenantId, String displayName, UUID ownerUserId, UUID departmentId, UUID teamId)` and `addToTeam(UUID tenantId, UUID userId, UUID teamId)` to `TenantFixture`, following the shape of `createUser`. All of them `saveAndFlush` — `user_role`, `team_member` and `customer` all carry foreign keys to `app_user`, so flushing removes a whole class of insert-ordering fragility rather than relying on Hibernate's ordering. `addToTeam` must mutate `AppUser.teamIds` rather than inserting into `team_member` directly, so the composite join mapping populates `tenant_id`.
 
-- [ ] **Step 10: Implement `AuthorizationPredicateBuilder`**
+**As elsewhere, call these inside `runAs`** — every table involved is RLS-protected.
+
+Add a fourth test the plan omits: `twoRecordScopesUnionRatherThanOverride`. All three tests above grant a single scope, so they cannot tell a correct union from an implementation that keeps only the last scope it iterated. Grant `ASSIGNED` and `TEAM` through two roles, with ownership and team membership on *different* records, and assert both come back. Verified by replacing `combined.or(part)` with `combined = part` and confirming only this test fails.
+
+- [x] **Step 11: Implement `AuthorizationPredicateBuilder`**
 
 ```java
 package co.ara.onboarding.authz;
@@ -3865,12 +4520,12 @@ public class AuthorizationPredicateBuilder {
 }
 ```
 
-- [ ] **Step 11: Run it to verify it passes**
+- [x] **Step 12: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.PredicateBuilderTest"`
 Expected: PASS. The first test is the important one — it proves scopes union rather than nest.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 git add backend/
@@ -3896,7 +4551,7 @@ Makes `@RequirePermission` enforce, and provides the only sanctioned way to read
   - `AuthorizedQuery.findAll(repo, entityType, permissionKey, extra, pageable)` → `Page<T>`.
   - `AuthorizedQuery.getById(repo, entityType, permissionKey, id)` → `T`, throwing `NoSuchElementException` (→ 404) when out of scope.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/authz/PermissionGateTest.java`:
 
@@ -3978,12 +4633,12 @@ class PermissionGateTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.PermissionGateTest"`
 Expected: FAIL — `AuthorizedQuery` does not exist and `@RequirePermission` has no behaviour.
 
-- [ ] **Step 3: Implement the gate aspect**
+- [x] **Step 3: Implement the gate aspect**
 
 ```java
 package co.ara.onboarding.authz;
@@ -4020,7 +4675,13 @@ public class PermissionGateAspect {
 
 The gate answers only "does the user hold this permission at *any* scope". Which records they may touch is the predicate builder's job — the two are separate on purpose.
 
-- [ ] **Step 4: Implement `AuthorizedQuery`**
+**Annotate it `@Order(300)`.** The advice must run inside the transaction and after the tenant is bound, because resolving permissions queries `user_role`, `role` and `role_grant`, all RLS-protected: run it earlier and the query takes a pooled connection with no tenant GUC, RLS returns nothing, and the gate denies every request — a failure that reads as a permissions bug rather than an ordering one. The chain is transaction advisor (100, pinned in `TransactionConfig`) → `TenantTransactionBinder` (200) → gate (300).
+
+Note honestly that the annotation is explicitness rather than a fix: removing it was tested and the suite still passed, because an unordered aspect gets `LOWEST_PRECEDENCE` (`Integer.MAX_VALUE`) and is therefore already innermost. Keep it so a later aspect cannot be slipped between the binder and the gate without someone choosing a number deliberately.
+
+**Add a fourth test** the plan omits, and it is the gate's most important negative case: `gateIsNotSatisfiedByADifferentPermission`. Grant the user `customer.view` only, then call `createRole`, which is gated on `role.manage`. A gate implemented as "has any grant at all" passes all three planned tests, because their users hold either nothing or exactly the permission under test.
+
+- [x] **Step 4: Implement `AuthorizedQuery`**
 
 ```java
 package co.ara.onboarding.authz;
@@ -4064,65 +4725,90 @@ public class AuthorizedQuery {
 }
 ```
 
-- [ ] **Step 5: Run it to verify it passes**
+- [x] **Step 5: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.authz.PermissionGateTest"`
 Expected: PASS — all three tests.
 
-- [ ] **Step 6: Add the ArchUnit rule that forbids bypassing `AuthorizedQuery`**
+- [x] **Step 6: Add the ArchUnit rule that forbids bypassing `AuthorizedQuery`**
 
 Add to `AuthorizationCoverageTest`:
 
 ```java
     /**
-     * Services must read tenant data through AuthorizedQuery. Calling repository
-     * finders directly would skip the scope predicate entirely.
+     * Services must read tenant business data through AuthorizedQuery. Calling
+     * repository finders directly would skip the scope predicate entirely.
      */
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
-            noClasses().that().haveSimpleNameEndingWith("Service")
-                .and().resideInAPackage("co.ara.onboarding.customer..")
+            noClasses().that().resideInAPackage("co.ara.onboarding.customer..")
+                .and().haveSimpleNameEndingWith("Service")
                 .should().callMethodWhere(
-                    target(owner(assignableTo(JpaSpecificationExecutor.class)))
-                        .and(target(nameMatching("findAll|findOne|findById"))))
+                        target(name("findAll"))
+                        .or(target(name("findOne")))
+                        .or(target(name("findById")))
+                        .or(target(nameStartingWith("findBy"))))
                 .because("reads must go through AuthorizedQuery so scope cannot be bypassed");
 ```
 
-Scope the rule to `co.ara.onboarding.customer..` for now. As each later sub-project adds a domain module, add its package here. Note in a comment that `TenantProvisioningService` and `RoleService` are exempt because they operate on authorization metadata rather than scoped business records.
+These are the exact static imports it needs — get them wrong and the failure is a confusing compile error rather than an obvious one:
 
-- [ ] **Step 7: Repair the earlier tests this task deliberately breaks**
+```java
+import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
+import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameStartingWith;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
+```
+
+The `findBy*` clause matters as much as the rest: a derived query like `contactRepository.findByCustomerId(id)` carries no scope predicate either, so it bypasses authorization exactly as `findAll()` would. `CustomerContactService` must therefore reach contacts through `AuthorizedQuery` with a `customerId` specification rather than through a derived finder.
+
+Scope the rule to `co.ara.onboarding.customer..` for now; each later sub-project adds its own domain package here. `TenantProvisioningService` and `RoleService` are outside that package and unaffected — they operate on authorization metadata, not scoped business records.
+
+It needs `.allowEmptyShould(true)`: no customer service exists until Task 20, and ArchUnit fails a rule that matched nothing. That makes the rule vacuous for now, so **prove it binds** — add a throwaway `customer/BypassProbeService` calling `customers.findAll()`, confirm the failure names that method and call, then delete it. (It will trip `serviceMethodsAreGated` too, which is its own confirmation that both guards cover new services.)
+
+- [x] **Step 7: Repair the earlier tests this task deliberately breaks**
 
 Activating the gate breaks every earlier test that called a gated service through `fixture.runAs`, which establishes a tenant but no authenticated user. That fallout is expected — those tests were passing only because the annotation had no behaviour. Fix the fixture, not the services.
 
-Give `TenantFixture` a privileged variant, and change `runAs` to use it:
+`TenantFixture` needs **three** methods, not two, because `runAs` and `runAsUser` would otherwise recurse into each other — `runAsUser` currently calls `runAs` at its core (Task 13 Step 2), so making `runAs` delegate to `runAsUser` loops forever. Extract the tenant-binding primitive first:
 
 ```java
-    /**
-     * Runs with a tenant bound AND an authenticated administrator, so gated
-     * services work in setup code. Tests asserting authorization behaviour must
-     * use runAsUser with a specific user instead.
-     */
-    public void runAs(UUID tenantId, Runnable action) {
-        UUID admin = administratorFor(tenantId);
-        runAsUser(tenantId, admin, action);
-    }
+    /** Tenant bound, NO authenticated user. The primitive the other two build on. */
+    public void runUnauthenticated(UUID tenantId, Runnable action) { /* the old runAs body */ }
 
-    /** Lazily creates (once per tenant) an ACTIVE user holding the seeded Administrator role. */
-    private UUID administratorFor(UUID tenantId) { /* memoize per tenantId */ }
+    /** Tenant bound AND an authenticated administrator, so gated services work in setup. */
+    public void runAs(UUID tenantId, Runnable action) {
+        runAsUser(tenantId, administratorFor(tenantId), action);
+    }
 ```
+
+and change `runAsUser` to call `runUnauthenticated`, not `runAs`.
+
+`administratorFor` must **reuse the seeded "Administrator" role when one exists** and only create its own otherwise:
+
+```java
+    UUID roleId = roleRepository.findByTenantIdAndName(t, "Administrator")
+            .map(Role::getId)
+            .orElseGet(() -> createSuperuserRole(t));
+```
+
+Without that, a fixture role added to a provisioned tenant makes `TenantProvisioningTest`'s twelve templates thirteen. The role must be written through the repositories, not `RoleService.createRole` — that method is now gated on `role.manage`, so bootstrapping the administrator through the gate would require an administrator. Every catalogued permission allows `ALL`, so the superuser role can grant all of them at `ALL` with no filtering; keep `systemTemplate` false and the name distinctive.
 
 `runAsUser` must also establish request scope, because `AuthorizationService` is `@RequestScope`; it already does this via `RequestContextHolder` from Task 13 Step 2.
 
-Two consequences to handle:
-- `TenantProvisioningService.provision` runs before any user exists, so it must not be gated. Keep it ungated and add the documented ArchUnit exclusion from Task 7 Step 5.
+Three consequences to handle:
+- `TenantProvisioningService.provision` runs before any user exists, so it must not be gated. Keep it ungated; the ArchUnit exclusion was already added in Task 10.
 - Tests in Tasks 9, 10, 13 that used `runAs` for setup now run as an administrator, which is correct: setup should be privileged, and only the assertions should be scope-constrained.
+- **`HibernateFilterTest.tenantFilterExcludesOtherTenantsRowsAtTheSqlLevel` breaks, and its assertion is what needs fixing.** It asserts `containsExactly("a-user@example.com")`, but the fixture's administrator is a legitimate second tenant-A user, so tenant A now holds two. The test's actual claim is that tenant B's row is *excluded*; `containsExactly` conflated exclusion with cardinality. Replace it with `contains("a-user@…")` plus `doesNotContain("b-user@…")`.
 
-- [ ] **Step 8: Run the full suite**
+In practice this is the *only* test that breaks. Everything else adapts, because the fixture change is the whole repair.
+
+- [x] **Step 8: Run the full suite**
 
 Run: `cd backend && ./gradlew test`
 Expected: PASS. Every previously green test must be green again. If a test now needs a permission it did not have, change the fixture or the test's role setup — never the gate.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add backend/
@@ -4139,9 +4825,16 @@ Argon2id hashing and a login endpoint issuing a 15-minute access token that carr
 - Create: `backend/src/main/java/co/ara/onboarding/auth/PasswordEncoderConfig.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/TokenService.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/JwtAuthenticationFilter.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/LoginService.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/LoginOutcome.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`
 - Modify: `backend/src/main/java/co/ara/onboarding/platform/SecurityConfig.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/tenancy/TenantContextFilter.java` (order)
 - Test: `backend/src/test/java/co/ara/onboarding/auth/LoginTest.java`
+
+**The login logic goes in a `LoginService`, not in `AuthController`.** `AuthController` injecting `AppUserRepository` violates `ModuleBoundaryTest.controllersDoNotUseRepositoriesDirectly`. The service then needs an `AuthorizationCoverageTest` exclusion — login is how a caller *becomes* authenticated, so requiring a permission is unsatisfiable. `TokenService` needs one too: it is named `*Service` but signs and parses JWTs, and issuing a token cannot require a token.
+
+**`LoginService` must return an outcome, not throw.** It records `LOGIN_FAILED` before rejecting, and `AuditRecorder` is `@Transactional(MANDATORY)` — so throwing to signal failure marks the transaction rollback-only and discards the very audit row that records the attempt. Task 17's throttling depends on failed attempts being durable. Use a sealed `LoginOutcome` with `Success`, `InvalidCredentials` and `MfaRequired`, and let the controller map each to a status.
 
 **Interfaces:**
 - Consumes: `AppUserRepository`, `TenantContext`, `AuditRecorder`, `AuthenticatedPrincipal`.
@@ -4150,7 +4843,7 @@ Argon2id hashing and a login endpoint issuing a 15-minute access token that carr
   - `POST /api/t/{slug}/auth/login` — body `{email, password}`, returns `{accessToken, expiresInSeconds, user:{id, fullName, userType}}`.
   - `JwtAuthenticationFilter` — populates the `SecurityContext` from the `Authorization: Bearer` header.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/auth/LoginTest.java`:
 
@@ -4238,14 +4931,16 @@ class LoginTest extends PostgresTestBase {
 }
 ```
 
-Add `createUserWithPassword(UUID, String, String)` returning `AppUser` and `createInvitedUser(UUID, String, String)` to `TenantFixture`, both encoding the password with the injected `PasswordEncoder`.
+Add `createUserWithPassword(UUID, String, String)` returning `AppUser`, an overload taking `boolean mfaEnabled`, and `createInvitedUser(UUID, String, String)` to `TenantFixture`, all encoding the password with the injected `PasswordEncoder`.
 
-- [ ] **Step 2: Run it to verify it fails**
+Unlike the other create helpers these should bind the tenant themselves via `runUnauthenticated` rather than requiring an enclosing `runAs`: login tests have no other reason to open one, and `app_user` is RLS-protected so calling them unbound fails the policy's `WITH CHECK`. Nesting inside an existing `runAs` stays safe — the `TransactionTemplate` joins the outer transaction.
+
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.LoginTest"`
 Expected: FAIL — no auth classes.
 
-- [ ] **Step 3: Configure Argon2id**
+- [x] **Step 3: Configure Argon2id**
 
 ```java
 package co.ara.onboarding.auth;
@@ -4266,7 +4961,13 @@ public class PasswordEncoderConfig {
 }
 ```
 
-- [ ] **Step 4: Implement `TokenService`**
+- [x] **Step 4: Implement `TokenService`**
+
+> **Amended in Task R3 (remediation): the constructor takes `JwtProperties`, not three `@Value`
+> strings.** As written below it feeds an unvalidated secret straight into `Keys.hmacShaKeyFor` —
+> a missing `JWT_SECRET` then signs with the committed default, and an under-length one surfaces a
+> JJWT complaint about key bit lengths from inside token issuance rather than a startup failure
+> naming the variable. See the amendment on Task 1's `application.yml` for the guard.
 
 ```java
 package co.ara.onboarding.auth;
@@ -4331,7 +5032,7 @@ public class TokenService {
 }
 ```
 
-- [ ] **Step 5: Implement the authentication filter**
+- [x] **Step 5: Implement the authentication filter**
 
 ```java
 package co.ara.onboarding.auth;
@@ -4391,7 +5092,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
 The tenant match is essential. Test 1 of the negative suite in Task 21 depends on it.
 
-- [ ] **Step 6: Implement `AuthController` login**
+**`@Component @Order(20)` does not work, and the ordering here is the trickiest part of this task.** Spring Security's `FilterChainProxy` registers at order **-100**, so an `@Order(20)` servlet-filter bean runs *after* the security chain has already evaluated `authorizeHttpRequests` — with `.anyRequest().authenticated()` every request 401s regardless of the token presented. Two changes:
+
+1. Register the filter **inside** the security chain: `http.addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class)`. Also add a `FilterRegistrationBean` with `setEnabled(false)` to suppress Boot's automatic servlet-chain registration, so the filter exists in exactly one place. (`OncePerRequestFilter` would dedupe a double registration, so the symptom would not be a visible double execution but an unanswered ordering question.)
+2. Change `TenantContextFilter` from `@Order(10)` to an order **below -100** (`-110`). This filter must run before the security chain, because the JWT filter inside that chain compares the token's `tid` claim against `TenantContext`. At order 10 the tenant is still unbound when the chain runs, `getOrNull()` returns null, and every bearer token is silently rejected.
+
+Inject the filter into `SecurityConfig` as `@Qualifier("jwtAuthenticationFilter") OncePerRequestFilter` rather than by its concrete type — `auth` depends on `platform`, so naming `JwtAuthenticationFilter` there would close a cycle. Note that injecting `OncePerRequestFilter` unqualified is ambiguous, since `TenantContextFilter` is one too.
+
+**Add a test for the tenant match.** Nothing else in this task exercises the filter, so the check could be missing or inverted and every other test would still pass. Assert both directions against a path with no handler: a token from tenant A gets 401 on tenant B's path, and 404 on its own — 404 proving it authenticated and reached routing. Without the same-tenant half, a filter that rejected everything would satisfy the assertion.
+
+- [x] **Step 6: Implement `AuthController` login**
 
 ```java
 package co.ara.onboarding.auth;
@@ -4462,7 +5172,7 @@ public class AuthController {
 }
 ```
 
-- [ ] **Step 7: Tighten `SecurityConfig`**
+- [x] **Step 7: Tighten `SecurityConfig`**
 
 Replace the `permitAll` rule from Task 4:
 
@@ -4472,11 +5182,19 @@ Replace the `permitAll` rule from Task 4:
                                  "/api/t/*/auth/refresh",
                                  "/api/t/*/auth/activate",
                                  "/api/t/*/auth/password-reset/**").permitAll()
-                .requestMatchers("/api/platform/**").permitAll()   // secured in Task 21
+                .requestMatchers("/api/t/*/_debug/**").permitAll()  // TODO(task-20): with TenantDebugController
+                .requestMatchers("/api/platform/**").permitAll()   // secured in Task 22
                 .anyRequest().authenticated())
+            .exceptionHandling(e -> e.authenticationEntryPoint(
+                    new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
 ```
 
-- [ ] **Step 8: Add the reserved MFA challenge step**
+Two additions the plan's version omits, both found by tests failing:
+
+- **The `_debug` matcher.** `TenantResolutionTest`'s four tests hit `/api/t/*/_debug/**`; without it they all 401. Removed in Task 20 along with the controller.
+- **The 401 entry point.** With none configured, Spring Security installs `Http403ForbiddenEntryPoint`, so a missing or expired bearer token answers **403**. Task 24's API client refreshes on 401 only — it would never retry, and the user would be silently logged out. 403 stays correct for an authenticated caller lacking a permission, which goes through the `AccessDeniedHandler` instead.
+
+- [x] **Step 8: Add the reserved MFA challenge step**
 
 Spec §7.8 requires the login flow to reserve a place for MFA without implementing it. Add to `AuthController.login`, immediately after credential verification:
 
@@ -4489,16 +5207,18 @@ Spec §7.8 requires the login flow to reserve a place for MFA without implementi
         }
 ```
 
-Failing closed is deliberate: an account flagged for MFA must not be able to sign in with a password alone just because the second factor is unimplemented.
+Failing closed is deliberate: an account flagged for MFA must not be able to sign in with a password alone just because the second factor is unimplemented. Keep it **after** credential verification, so the 501 cannot be used to discover which accounts have MFA enabled.
 
-Add a test asserting an `mfaEnabled` user receives 501 rather than a token.
+With the `LoginOutcome` shape this becomes `return new LoginOutcome.MfaRequired();` and the controller maps it to 501 — 501 rather than 401 because the credentials were correct, making this a missing capability rather than a rejected identity.
 
-- [ ] **Step 9: Run it to verify it passes**
+Add a test asserting an `mfaEnabled` user receives 501 and no token.
+
+- [x] **Step 9: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.LoginTest"`
 Expected: PASS — all five tests.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add backend/
@@ -4516,10 +5236,17 @@ The mechanism that provides breach *detection* rather than only breach resistanc
 - Create: `backend/src/main/java/co/ara/onboarding/auth/RefreshToken.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/RefreshTokenRepository.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/RefreshTokenService.java`
-- Create: `backend/src/main/java/co/ara/onboarding/auth/RefreshTokenReuseException.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/platform/ApiExceptionHandler.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/RotationOutcome.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`, `LoginService.java`, `LoginOutcome.java`
 - Test: `backend/src/test/java/co/ara/onboarding/auth/RefreshTokenTest.java`
+
+**`rotate` must return an outcome, not throw — this is the most important correction in the task.** Reuse detection revokes the family and writes a `REFRESH_REUSE_DETECTED` audit event, and both are writes inside `rotate`'s transaction. Throwing to signal the rejection marks that transaction rollback-only, so **both writes are discarded**: the replayed token gets its 401 while the stolen family stays fully live.
+
+Verified, not reasoned about. With the plan's throw in place, replaying a retired token produced the 401 and then the *legitimate* token still rotated successfully, issuing a fresh one. Reuse detection that does not revoke is worse than none, because the 401 makes it look like it worked.
+
+So there is no `RefreshTokenReuseException` and no `ApiExceptionHandler` change — which also removes the `platform → auth` cycle that mapping it in `platform` would have created. Use a sealed `RotationOutcome` with `Rotated(user, newRawToken)` and `Rejected(Reason)` where `Reason ∈ {UNKNOWN, REUSED, EXPIRED, REVOKED}`. The reason is for logs, metrics and tests only — every case answers an identical 401, or the endpoint becomes an oracle for which tokens ever existed.
+
+**`AuthController` must not be `@Transactional`.** The plan puts `@Transactional` on `refresh` and `logout`, which reintroduces the same problem one layer up: the controller throws `ResponseStatusException` to produce the 401, and an open transaction there would roll back the service's committed revocation. Let the services own their transactions and have the controller translate an outcome into a status with no transaction open. Same for `login`.
 
 **Interfaces:**
 - Consumes: `TokenService`, `AppUserRepository`, `AuditRecorder`.
@@ -4530,7 +5257,7 @@ The mechanism that provides breach *detection* rather than only breach resistanc
   - `POST /api/t/{slug}/auth/refresh` and `POST /api/t/{slug}/auth/logout`.
   - Cookie: name `refresh_token`, `HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/api/t/{slug}/auth`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/auth/RefreshTokenTest.java`:
 
@@ -4617,12 +5344,12 @@ class RefreshTokenTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.RefreshTokenTest"`
 Expected: FAIL — refresh token classes do not exist.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 `backend/src/main/resources/db/migration/V9__refresh_token.sql`:
 
@@ -4648,10 +5375,12 @@ CREATE TABLE refresh_token (
 CREATE INDEX refresh_token_family_idx ON refresh_token (tenant_id, family_id);
 
 SELECT enable_tenant_rls('refresh_token');
-GRANT SELECT, INSERT, UPDATE, DELETE ON refresh_token TO onboarding_app;
+-- No DELETE: tokens are retired via used_at / revoked_at, never removed, so
+-- reuse detection can still recognise a replayed token after rotation.
+GRANT SELECT, INSERT, UPDATE ON refresh_token TO onboarding_app;
 ```
 
-- [ ] **Step 4: Implement `RefreshTokenService`**
+- [x] **Step 4: Implement `RefreshTokenService`**
 
 ```java
 package co.ara.onboarding.auth;
@@ -4765,13 +5494,32 @@ public class RefreshTokenService {
 }
 ```
 
-`RefreshTokenReuseException extends RuntimeException`; map it to 401 in `ApiExceptionHandler`.
+Three further corrections to the sample above:
 
-- [ ] **Step 5: Add refresh and logout endpoints**
+- **`UUID.randomUUID()` means `Uuid7.generate()`** for the entity id and the family id, per Global Constraints. The *token* is the exception: it stays `SecureRandom`, because it must be unpredictable rather than merely unique, and a UUIDv7 leaks its creation time and is guessable from a neighbour.
+- **Check `revokedAt` and `usedAt` separately**, not with `||`. They mean different things — already-revoked (by earlier reuse detection or by logout) versus replay-of-a-rotated-token — and only the second is evidence of theft. Collapsing them makes every post-logout refresh look like an attack and pollutes the audit log with false reuse events.
+- **`RefreshTokenService` needs an `AuthorizationCoverageTest` exclusion**, in the same category as `LoginService`: refreshing is how a session *stays* authenticated, and the credential it verifies is a cookie rather than an authority.
+
+Note that revoking the family on **expiry** is safe, and worth saying why: an unused token is by definition the newest in its family, so nothing live is being cut off.
+
+Login must also issue a refresh token, in a **new family** — reusing one would let a reuse detection on an old session revoke a freshly logged-in one. Thread the raw value out through `LoginOutcome.Success` so the controller can set the cookie; `ip` and `userAgent` come from `RequestAuditContext`.
+
+- [x] **Step 5: Add refresh and logout endpoints**
 
 Add to `AuthController`. On login, also issue a refresh cookie:
 
 ```java
+    // Injected on the controller; the same value the refresh token is issued with.
+    private final Duration refreshTtl;
+
+    public AuthController(/* existing dependencies */,
+                          RefreshTokenService refreshTokens,
+                          @Value("${app.refresh-token.ttl}") Duration refreshTtl) {
+        // ...
+        this.refreshTokens = refreshTokens;
+        this.refreshTtl = refreshTtl;
+    }
+
     private ResponseCookie refreshCookie(String tenantSlug, String rawToken, Duration maxAge) {
         return ResponseCookie.from("refresh_token", rawToken)
                 .httpOnly(true)
@@ -4817,12 +5565,20 @@ Add to `AuthController`. On login, also issue a refresh cookie:
 
 Add `revokeByRawToken(String)` to `RefreshTokenService`, which looks the token up by hash and revokes its family. Logout revoking the whole family is intentional — logging out should end the session everywhere it was rotated.
 
-- [ ] **Step 6: Run it to verify it passes**
+- [x] **Step 6: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.RefreshTokenTest"`
-Expected: PASS — all four tests.
+Expected: PASS.
 
-- [ ] **Step 7: Commit**
+**Each rotation in the reuse test must be in its own `runAs`.** The plan's version does all of them inside one, which cannot detect the rollback defect above — inside a single transaction the revocation is visible whether or not it would ever commit. Separate transactions are what make the assertion mean "committed". (The plan's version also asserts exceptions inside a `runAs` lambda, which Global Constraints forbids.)
+
+Three tests worth adding beyond the plan's four:
+
+- `unknownTokenIsRejected` — the `Reason.UNKNOWN` path is otherwise never exercised.
+- `tokenCannotBeRotatedUnderADifferentTenant` — `refresh_token` is RLS-protected and the endpoint runs with the tenant resolved from the path, so a stolen cookie must be useless against another tenant. Assert it rotates fine in its own tenant too, or a filter that rejects everything would satisfy the test.
+- `logoutRevokesTheFamilySoOlderRotationsAlsoDie` — logout revoking the family is a deliberate decision and nothing else covers it.
+
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/
@@ -4840,10 +5596,12 @@ Progressive delay and lockout counted in PostgreSQL, since Redis is out of scope
 - Create: `backend/src/main/java/co/ara/onboarding/auth/LoginAttempt.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/LoginAttemptRepository.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/LoginThrottleService.java`
-- Create: `backend/src/main/java/co/ara/onboarding/auth/TooManyAttemptsException.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/platform/ApiExceptionHandler.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/LoginService.java`, `LoginOutcome.java`, `AuthController.java`
 - Test: `backend/src/test/java/co/ara/onboarding/auth/LoginThrottleTest.java`
+
+**No `TooManyAttemptsException` and no `ApiExceptionHandler` change.** Mapping an `auth` exception in `platform` closes the `platform → auth` cycle for the third time in this phase. Add a `LockedOut` case to `LoginOutcome` instead — the throttle decision belongs on the same outcome type as the other two login rejections, and the controller maps it to 429.
+
+Throttling is wired into **`LoginService`**, not `AuthController`. The controller is not transactional (Task 16), and `recordFailure` is a write that must commit even though the request is rejected — the same constraint that shaped `LoginOutcome` and `RotationOutcome`.
 
 **Interfaces:**
 - Consumes: `AuditRecorder`.
@@ -4852,7 +5610,7 @@ Progressive delay and lockout counted in PostgreSQL, since Redis is out of scope
   - `LoginThrottleService.recordFailure(UUID tenantId, String email)`, `.recordSuccess(UUID tenantId, String email)`.
   - Policy: lockout after **5** consecutive failures within **15 minutes**, for **15 minutes**. A success clears the counter.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```java
 package co.ara.onboarding.auth;
@@ -4906,12 +5664,12 @@ class LoginThrottleTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.LoginThrottleTest"`
 Expected: FAIL — throttle classes do not exist.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 ```sql
 CREATE TABLE login_attempt (
@@ -4923,14 +5681,20 @@ CREATE TABLE login_attempt (
     locked_until   timestamptz,
     created_at     timestamptz NOT NULL,
     updated_at     timestamptz NOT NULL,
-    UNIQUE (tenant_id, email)
 );
 
+-- NOT "UNIQUE (tenant_id, email)" as earlier drafts had it -- see below.
+CREATE UNIQUE INDEX login_attempt_tenant_email_key
+    ON login_attempt (tenant_id, lower(email));
+
 SELECT enable_tenant_rls('login_attempt');
-GRANT SELECT, INSERT, UPDATE, DELETE ON login_attempt TO onboarding_app;
+GRANT SELECT, INSERT, UPDATE ON login_attempt TO onboarding_app;
+-- Explicit DELETE (deny-by-default since V2_1): a successful login clears the
+-- counter by removing the row. Throttling state, not a business record.
+GRANT DELETE ON login_attempt TO onboarding_app;
 ```
 
-- [ ] **Step 4: Implement `LoginThrottleService`**
+- [x] **Step 4: Implement `LoginThrottleService`**
 
 Policy constants: `MAX_FAILURES = 5`, `WINDOW = Duration.ofMinutes(15)`, `LOCKOUT = Duration.ofMinutes(15)`.
 
@@ -4938,16 +5702,42 @@ Policy constants: `MAX_FAILURES = 5`, `WINDOW = Duration.ofMinutes(15)`, `LOCKOU
 
 Counting per `(tenant, email)` rather than per IP is deliberate: it protects accounts against distributed guessing, which IP-based counting does not.
 
-- [ ] **Step 5: Wire it into `AuthController.login`**
+**Three corrections, each a real hole in the version above.**
 
-Call `throttle.checkAllowed(...)` before verifying the password, `throttle.recordFailure(...)` on the failure path, and `throttle.recordSuccess(...)` after a successful login. Map `TooManyAttemptsException` to 429 in `ApiExceptionHandler`.
+**1. Case-insensitivity, in two places.** `app_user` is unique on `lower(email)`, so counting failures against the raw string is a lockout bypass. The unique index must be on `(tenant_id, lower(email))`, *and* the service must lowercase before reading. The two protect different things and fail differently, which is worth knowing:
 
-- [ ] **Step 6: Run it to verify it passes**
+- The index makes the **count** correct — the UPSERT's conflict target matches across capitalisations regardless of what the service does.
+- Lowercasing makes the **lookup** correct — the finder is an exact match, so without it `isLockedOut` misses a row stored under another casing.
+
+Tested by removing the lowercasing: the count stayed right and `isLockedOut` returned `false`. The account was locked and the check silently did not fire, which is worse than a wrong count because nothing looks broken. Use `Locale.ROOT` — in a Turkish locale `"I".toLowerCase()` is `"ı"` and would not match the database's `lower()`.
+
+**2. `recordFailure` must be an atomic UPSERT, not a read-modify-write.** Concurrent failed logins for one address are exactly the case that matters, and they collide on the unique index; in PostgreSQL that violation poisons the transaction, so the attempt is never counted. An attacker firing requests in parallel would stay under the threshold indefinitely. Use `INSERT … ON CONFLICT (tenant_id, lower(email)) DO UPDATE`, applying the window inside the statement, then a separate idempotent `UPDATE … WHERE failure_count >= 5 AND (locked_until IS NULL OR locked_until <= now)` to apply the lock. Two concurrent callers both setting the lock is harmless, so the two statements need no coordination. The `@Modifying` query needs `clearAutomatically = true`, or a stale first-level cache entry reports the pre-increment count.
+
+**3. `recordFailure` must be called for unknown addresses too.** If only real accounts could ever lock out, then 429-versus-401 tells an attacker which addresses exist — undoing the shared 401 that the login flow returns precisely to hide that.
+
+Prefer `isLockedOut(...)` returning a boolean over a `checkAllowed(...)` that throws: `LoginService` needs to turn the answer into an outcome, and an exception thrown inside its transaction would roll back the failure it just recorded.
+
+- [x] **Step 5: Wire it into `LoginService.login`**
+
+Check `isLockedOut(...)` **before** the password is looked at, so a locked account cannot be probed for credential correctness. Call `recordFailure(...)` on the failure path and `recordSuccess(...)` after a successful login. Return `LoginOutcome.LockedOut` and let `AuthController` map it to 429 — `auth` maps its own statuses, `platform` does not name `auth` types.
+
+`LoginThrottleService` needs an `AuthorizationCoverageTest` exclusion, in the pre-authentication category alongside `LoginService` and `RefreshTokenService`.
+
+- [x] **Step 6: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.LoginThrottleTest"`
-Expected: PASS
+Expected: PASS.
 
-- [ ] **Step 7: Commit**
+Four tests beyond the plan's three, all covering behaviour nothing else reaches:
+
+- `lockoutIgnoresEmailCase` — five capitalisations of one address must be five failures and **one row**. Assert both; the row count is what catches a missing index and the lockout flag is what catches a missing `toLowerCase`.
+- `failuresOutsideTheWindowStartAFreshCount` — age `first_failure` past the window rather than waiting fifteen minutes. Without this the window is never exercised.
+- `sixthAttemptOverHttpAnswers429` — proves the policy is wired to the endpoint, and that a *correct* password is still refused while locked. Task 25 shows a different message for 429 than 401, so the status is a contract.
+- `unknownAddressesAreThrottledSoTheStatusLeaksNothing` — the reason correction 3 exists.
+
+Also assert the negative edge in the lockout test: four failures must **not** lock. Asserting only the fifth cannot distinguish a threshold of five from a threshold of one.
+
+- [x] **Step 7: Commit**
 
 ```bash
 git add backend/
@@ -4968,12 +5758,24 @@ Invitation-based provisioning per QA Q12. The narrow `EmailSender` interface exi
 - Create: `backend/src/main/java/co/ara/onboarding/auth/LoggingEmailSender.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/Invitation.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/InvitationRepository.java`
-- Create: `backend/src/main/java/co/ara/onboarding/auth/InvitationService.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/InvitationService.java` (issuing — gated)
+- Create: `backend/src/main/java/co/ara/onboarding/auth/ActivationService.java` (accepting — ungated)
 - Create: `backend/src/main/java/co/ara/onboarding/auth/PasswordResetService.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/InvalidTokenException.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/platform/ApiExceptionHandler.java`
-- Test: `backend/src/test/java/co/ara/onboarding/auth/InvitationFlowTest.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/AuthExceptionHandler.java`
+- Create: `backend/src/main/java/co/ara/onboarding/auth/SecureTokens.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/AuthController.java`, `RefreshTokenService.java`
+- Test: `backend/src/test/java/co/ara/onboarding/auth/InvitationFlowTest.java`, `PasswordResetTest.java`
+
+**Issuing and accepting must be separate services.** `invitation.send` is a real catalogued permission, so `issue` has to carry `@RequirePermission(INVITATION_SEND)`; `accept` is performed by an unauthenticated person holding only a token and cannot be gated at all. `AuthorizationCoverageTest` requires *every* public method on a `*Service` to be annotated, so one class carrying both could only pass by exempting the half that must be gated. Split along the actor boundary: `InvitationService.issue` (gated) and `ActivationService.accept` (excluded, pre-authentication category), with `PasswordResetService` excluded for the same reason.
+
+This is the case the exclusion list's comment warns about — `InvitationService` is the first `auth` service that must *not* be exempt.
+
+**`issue` reads the contact through `AuthorizedQuery`, not the repository**, so `invitation.send` applies at record level too: a contact outside the caller's scope is not found and answers 404 rather than being invitable.
+
+**No `ApiExceptionHandler` change.** Mapping `InvalidTokenException` in `platform` closes the `platform → auth` cycle for the fourth time this phase. Add `auth/AuthExceptionHandler`, matching `TenantExceptionHandler` and `AuthzExceptionHandler`.
+
+An exception *is* right here, unlike login and refresh: nothing is written before a rejection, so there is no durable state for the rollback to discard. That is the test for which shape to use — not consistency for its own sake.
 
 **Interfaces:**
 - Consumes: `CustomerContactRepository`, `AppUserRepository`, `PasswordEncoder`, `AuditRecorder`.
@@ -4984,7 +5786,7 @@ Invitation-based provisioning per QA Q12. The narrow `EmailSender` interface exi
   - `PasswordResetService.request(String email)`, `.reset(String rawToken, String newPassword)` — same token table, `purpose` column distinguishes them.
   - `POST /api/t/{slug}/auth/activate`, `POST /api/t/{slug}/auth/password-reset/request`, `POST /api/t/{slug}/auth/password-reset/confirm`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```java
 package co.ara.onboarding.auth;
@@ -5069,12 +5871,12 @@ class InvitationFlowTest extends PostgresTestBase {
 
 Add `createContact(UUID tenantId, UUID customerId, String email)` and `expireInvitations()` to `TenantFixture`.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.InvitationFlowTest"`
 Expected: FAIL — invitation classes do not exist.
 
-- [ ] **Step 3: Write the migration**
+- [x] **Step 3: Write the migration**
 
 ```sql
 CREATE TABLE invitation (
@@ -5098,7 +5900,7 @@ GRANT SELECT, INSERT, UPDATE ON invitation TO onboarding_app;
 
 Activation invitations carry `customer_contact_id`; password resets carry `user_id`. Both are nullable because exactly one applies.
 
-- [ ] **Step 4: Implement `EmailSender` and its two implementations**
+- [x] **Step 4: Implement `EmailSender` and its two implementations**
 
 ```java
 package co.ara.onboarding.auth;
@@ -5116,26 +5918,45 @@ public interface EmailSender {
 
 `LoggingEmailSender` is `@Component` `@Profile({"dev","test"})` and logs subject, recipient, and body at INFO. `SmtpEmailSender` is `@Component` `@Profile("!dev & !test")` and uses `JavaMailSender`.
 
-Token lifetimes: activation invitations expire after **7 days**, password resets after **1 hour**.
+**`PostgresTestBase` needs `@ActiveProfiles("test")`.** Without it no profile is active, so `!dev & !test` matches and `SmtpEmailSender` is the bean under test — every test that sends mail would try to open an SMTP connection.
 
-- [ ] **Step 5: Implement `InvitationService`**
+Token lifetimes: activation invitations expire after **7 days**, password resets after **1 hour**. The asymmetry is deliberate: a reset link is a live credential to an existing account, so its window should be as short as usability allows, whereas an activation link has to survive someone being on holiday.
+
+Extract the token generation and hashing shared with `RefreshTokenService` into an `auth/SecureTokens` helper rather than copying it. Three independent copies of "generate randomness, hash it, store the hash" is three chances for one to use a weaker source or skip the hash.
+
+- [x] **Step 5: Implement `InvitationService`**
 
 Reuse the SHA-256 hashing approach from `RefreshTokenService` — the raw token is returned once and emailed; only the hash is stored. `accept` validates that `acceptedAt` and `revokedAt` are null and `expiresAt` is in the future, creates the `PORTAL` `AppUser` with `UserStatus.ACTIVE`, links `customer_contact.user_id`, stamps `acceptedAt`, and records `AuditActions.INVITATION_ACCEPTED`.
 
-`InvalidTokenException extends RuntimeException`, mapped to 400.
+`InvalidTokenException extends RuntimeException`, mapped to 400 by `auth/AuthExceptionHandler` with a bare detail. Unknown, expired, already-redeemed, revoked and wrong-purpose must all answer identically — "expired" confirms the token was once real, and "already used" confirms someone redeemed it.
 
-- [ ] **Step 6: Add the endpoints**
+**`accept` must handle an address that already has an account.** `app_user` is unique on `(tenant, lower(email))`, so a contact sharing an address with an existing user fails the constraint and surfaces as a 500. Reject it as an invalid token instead, which is also the honest answer: the invitation cannot create the account it promises.
+
+**`reset` must check `purpose`, not just validity.** Both flows share one table, so nothing else stops a seven-day activation token being redeemed as a one-hour password reset. Put the check in the entity (`isRedeemable(purpose, now)`) so it cannot be forgotten at one of the two call sites.
+
+**`reset` must also revoke the user's refresh tokens.** Whoever prompted the reset may be the attacker; leaving their family alive lets them keep the account the reset was meant to secure. Needs `revokeAllForUser(userId)` on `RefreshTokenService`.
+
+- [x] **Step 6: Add the endpoints**
 
 `POST /auth/activate` with body `{token, password}`; `POST /auth/password-reset/request` with `{email}` — always returns 204 regardless of whether the address exists, so the endpoint cannot be used to enumerate accounts; `POST /auth/password-reset/confirm` with `{token, password}`.
 
 Password policy: minimum 12 characters, validated with `@Size(min = 12)`.
 
-- [ ] **Step 7: Run it to verify it passes**
+- [x] **Step 7: Run it to verify it passes**
 
-Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.InvitationFlowTest"`
-Expected: PASS — all four tests.
+Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.InvitationFlowTest" --tests "co.ara.onboarding.auth.PasswordResetTest"`
+Expected: PASS.
 
-- [ ] **Step 8: Commit**
+The plan's four invitation tests all assert exceptions **inside** a `runAs` lambda, which Global Constraints forbids — wrap the helper instead. It also has no password-reset coverage at all, despite the flow being half the task. Add `PasswordResetTest` with: the hash is actually replaced and the old password stops working; a reset token is single-use; **an activation token cannot be redeemed as a password reset**; the request endpoint answers identically for known and unknown addresses; and `request` returns empty for an unknown address rather than inventing a token.
+
+Two more on the invitation side:
+
+- `issuingAnInvitationRequiresThePermission` — the only thing proving the gate is on the right half of the split.
+- `invitationForAnAddressThatAlreadyHasAnAccountIsRejected` — the 500 described above.
+
+`createdPortalUserCannotHoldInternalRoles` should assert the type **as persisted**, not only on the returned object; the plan's version would pass on an entity that was never saved with it.
+
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/
@@ -5149,9 +5970,15 @@ git commit -m "feat: add invitation, activation and password reset flows"
 Supplies the frontend's permission-aware UI and produces the contract the frontend types are generated from.
 
 **Files:**
+- Create: `backend/src/main/java/co/ara/onboarding/auth/MeService.java`
 - Create: `backend/src/main/java/co/ara/onboarding/auth/MeController.java`
-- Modify: `backend/build.gradle.kts`
+- Modify: `backend/build.gradle.kts`, `platform/SecurityConfig.java`
 - Test: `backend/src/test/java/co/ara/onboarding/auth/MeControllerTest.java`
+- Test: `backend/src/test/java/co/ara/onboarding/architecture/OpenApiDocumentTest.java`
+
+**The controller must not inject `AppUserRepository`.** It violates `ModuleBoundaryTest.controllersDoNotUseRepositoriesDirectly`, and here the rule is preventing a real bug rather than enforcing taste: a controller is not `@Transactional`, so a repository call from one runs with no tenant bound on the connection, RLS returns nothing, and the plan's `orElseThrow()` becomes a 500 on every request. Put the lookup in a `@Transactional` `MeService`.
+
+`MeService` then needs an `AuthorizationCoverageTest` exclusion, in a third category the list did not have: it returns only the caller's own record, and there is no catalogued permission for knowing who you are — inventing one would be a permission every role must hold, which is the same as no permission at all.
 
 **Interfaces:**
 - Consumes: `AuthorizationService`, `AuthContextProvider`.
@@ -5159,7 +5986,7 @@ Supplies the frontend's permission-aware UI and produces the contract the fronte
   - `GET /api/t/{slug}/me` → `{id, fullName, email, userType, departmentId, teamIds, permissions: {"customer.view": ["TEAM","ASSIGNED"], ...}}`.
   - A Gradle task `openApiSpec` writing `build/openapi.json`, consumed by the frontend in Task 23.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```java
 package co.ara.onboarding.auth;
@@ -5211,14 +6038,20 @@ class MeControllerTest extends PostgresTestBase {
 }
 ```
 
-Note the JSON path expects a single value because `jsonPath` on a one-element array unwraps it; if the assertion proves awkward, assert on `$.permissions['customer.view'][0]` instead.
+`jsonPath` does **not** unwrap a one-element array — `.value("TEAM")` compares a `List` to a `String` and fails. Use a Hamcrest matcher against the array itself: `jsonPath("$.permissions['customer.view']", hasItem("TEAM"))`. Matching the array is also the honest assertion, since a permission can be held at several scopes.
 
-- [ ] **Step 2: Run it to verify it fails**
+Three tests beyond the plan's two:
+
+- `permissionsUnionScopesAcrossRoles` — the case the UI actually depends on, and the one a response that keeps only one scope would fail. The plan's single-scope test cannot detect that.
+- `userWithNoRolesGetsAnEmptyPermissionMap` — the frontend reads the map unconditionally, and holding nothing is normal for a freshly invited user.
+- `tokenFromAnotherTenantCannotReadMe` — `/me` returns a profile, so it is worth proving the token's tenant check covers it.
+
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.MeControllerTest"`
 Expected: FAIL — `MeController` does not exist.
 
-- [ ] **Step 3: Implement `MeController`**
+- [x] **Step 3: Implement `MeController`**
 
 ```java
 package co.ara.onboarding.auth;
@@ -5270,31 +6103,65 @@ public class MeController {
 
 This response drives UI affordances only. It is convenience, never security — every endpoint enforces independently (spec §10.3).
 
-- [ ] **Step 4: Add the OpenAPI export task**
+**Return a typed record, not `Map<String, Object>`.** Both serialise identically, but a Map documents as an untyped object in the OpenAPI schema — useless to the generator this task exists to feed. With a record, `Me` appears as a real schema alongside `LoginRequest` and `LoginResponse`.
+
+- [x] **Step 4: Add the OpenAPI export task**
 
 Add to `build.gradle.kts`:
 
+**Generate the document from a test, not from a printed curl command.** `OpenApiDocumentTest` fetches `/v3/api-docs` through MockMvc, asserts the endpoints the frontend depends on are present, and writes `build/openapi.json`. Two things that buys:
+
+- The contract becomes a real build artifact, produced by `./gradlew test` with no manually started server — regenerable from a checkout, diffable in CI.
+- springdoc genuinely can fail to describe a type. Caught here as a failing backend test rather than as a broken frontend build days later.
+
+Writing a file from a test is a deliberate impurity; the alternative is a contract nobody can regenerate without running the application by hand.
+
 ```kotlin
 tasks.register("openApiSpec") {
-    description = "Writes build/openapi.json for frontend type generation"
-    dependsOn("bootJar")
+    description = "Produces build/openapi.json for frontend type generation"
+    group = "documentation"
+    dependsOn("test")
+    val output = layout.buildDirectory.file("openapi.json")
+    outputs.file(output)
     doLast {
-        // springdoc serves the document at /v3/api-docs when the app runs.
-        // Fetch it with the app started, or run:
-        //   curl -s http://localhost:8080/v3/api-docs > build/openapi.json
-        println("Start the app and run: curl -s http://localhost:8080/v3/api-docs > build/openapi.json")
+        if (!output.get().asFile.exists()) {
+            throw GradleException("openapi.json was not produced; did OpenApiDocumentTest run?")
+        }
     }
 }
 ```
 
-Generating the document requires a running application. Task 23 documents the exact frontend command that consumes it.
+**Amended in Task R1 (remediation). `outputs.file(output)` on `openApiSpec` makes the task fail every single run** — verified at both the first run from a wiped `build/` and the run immediately after. `build/openapi.json` is written by `OpenApiDocumentTest` during `:test`, not by `openApiSpec`, and Gradle's stale-output cleanup deletes a file registered as a task's output but produced elsewhere, immediately before that task executes. So the file the test had just written was removed moments before `doLast` looked for it, and the task threw its own "did OpenApiDocumentTest run?" every time. `npm run generate:api` was therefore unusable and the frontend types could not be refreshed.
 
-- [ ] **Step 5: Run it to verify it passes**
+Declare the output on the task that actually writes it, and let `openApiSpec` merely consume it:
+
+```kotlin
+val openApiDocument = layout.buildDirectory.file("openapi.json")
+
+tasks.named<Test>("test") { outputs.file(openApiDocument) }
+
+tasks.register("openApiSpec") {
+    dependsOn("test")
+    inputs.file(openApiDocument)
+    outputs.upToDateWhen { false }   // its only job is to assert the file exists
+    doLast { /* … */ }
+}
+```
+
+Declaring it on `test` has a second benefit: deleting only `build/openapi.json` now makes `:test` re-run rather than reporting UP-TO-DATE, which is exactly what a regeneration wants. Also fixed there: the `doLast` `println` used `${'$'}{file.absolutePath}`, which escapes the dollar and prints the expression literally — invisible until the task first succeeded.
+
+Two findings for whoever consumes this document: springdoc emits schema properties in a **nondeterministic order**, so back-to-back regenerations of `frontend/src/lib/api/generated.ts` produce pure reordering diffs with no semantic change. Treat those as noise, and do not diff the document in CI without normalising it first.
+
+**`/v3/api-docs` must be added to `permitAll` in `SecurityConfig`**, or `.anyRequest().authenticated()` answers 401 and both the test and `openapi-typescript` fail. It describes endpoint shapes rather than data; Task 22 should decide whether to expose it outside development, which is better done by disabling springdoc per profile than by securing the path.
+
+Task 23 documents the exact frontend command that consumes it.
+
+- [x] **Step 5: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.auth.MeControllerTest"`
 Expected: PASS
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/
@@ -5312,8 +6179,13 @@ The first real business surface, and the first place every mechanism built so fa
 - Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerContactService.java`
 - Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerController.java`
 - Create: `backend/src/main/java/co/ara/onboarding/customer/CustomerContactController.java`
-- Create: `backend/src/main/java/co/ara/onboarding/customer/dto/` (request/response records)
+- Create: `backend/src/main/java/co/ara/onboarding/customer/ContactInvitationSender.java` (port)
 - Test: `backend/src/test/java/co/ara/onboarding/customer/CustomerServiceTest.java`
+- Test: `backend/src/test/java/co/ara/onboarding/customer/CustomerContactServiceTest.java`
+
+**`CustomerContactService` cannot call `auth.InvitationService` directly.** `auth` already depends on `customer` — `InvitationService` reads `CustomerContactRepository` — so a call the other way closes `customer → auth → customer`. Declare a `ContactInvitationSender` port in `customer` and have `InvitationService` implement it, the same shape as authz's `ActorDirectory`.
+
+**Name the port method exactly as the implementation's, `issue`.** A differently-named port method delegating to the real one is a self-invocation inside the bean, which bypasses the Spring proxy — and with it the `@RequirePermission` gate. One name, one gated method, no way around it. (Written the other way first; the `@Override` mismatch is what surfaced it.)
 
 **Interfaces:**
 - Consumes: `AuthorizedQuery`, `AuthContextProvider`, `AuditRecorder`, `InvitationService`, `EmailSender`.
@@ -5323,7 +6195,7 @@ The first real business surface, and the first place every mechanism built so fa
   - Endpoints under `/api/t/{slug}/customers` and `/api/t/{slug}/customers/{customerId}/contacts`.
   - `DELETE` is **not** exposed. Deactivation is `POST /customers/{id}/deactivate` (spec §9.4).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```java
 package co.ara.onboarding.customer;
@@ -5419,12 +6291,12 @@ class CustomerServiceTest extends PostgresTestBase {
 }
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.customer.CustomerServiceTest"`
 Expected: FAIL — `CustomerService` does not exist.
 
-- [ ] **Step 3: Implement `CustomerService`**
+- [x] **Step 3: Implement `CustomerService`**
 
 ```java
 package co.ara.onboarding.customer;
@@ -5564,11 +6436,27 @@ public class CustomerService {
 
 Note `update` and `deactivate` fetch through `authorizedQuery.getById` with the *write* permission, not `CUSTOMER_VIEW`. Fetching with a read permission and then writing is a privilege-escalation bug; a user who can see a record is not necessarily allowed to change it.
 
-- [ ] **Step 4: Implement `CustomerContactService`**
+**Test that**, because none of the plan's four tests can detect it: `editingUsesTheWritePermissionNotTheReadOne` grants `CUSTOMER_VIEW` at `ALL` and `CUSTOMER_EDIT` at `ASSIGNED`, then asserts someone else's record is visible but not editable. With the read permission used for both fetches, every other test here still passes.
 
-Same shape. `list` and `create` gate on `CONTACT_VIEW` / `CONTACT_MANAGE`. `sendInvitation` gates on `INVITATION_SEND`, calls `InvitationService.issue(contactId)`, sends the email through `EmailSender`, and records `AuditActions.INVITATION_SENT`.
+`UUID.randomUUID()` means `Uuid7.generate()`, per Global Constraints.
 
-- [ ] **Step 5: Implement the controllers**
+**Tighten `servicesDoNotCallRepositoryFindersDirectly` when this task lands.** `AuthorizedQuery`'s own methods are named `findAll` and `getById`, so the name-only predicate from Task 14 flags the sanctioned wrapper exactly as loudly as the bypass — the first correct implementation fails the guard. Exclude calls whose target owner is `AuthorizedQuery`:
+
+```java
+.and(not(target(owner(nameEndingWith("AuthorizedQuery")))))
+```
+
+Then re-prove it still binds, since the fix could easily have neutered it: a throwaway service calling `customers.findAll()` and `contacts.findByCustomerId(...)` must fail on both. Drop its `allowEmptyShould(true)` at the same time — the rule is no longer vacuous.
+
+- [x] **Step 4: Implement `CustomerContactService`**
+
+Same shape. `list` and `create` gate on `CONTACT_VIEW` / `CONTACT_MANAGE`. `sendInvitation` gates on `INVITATION_SEND` and delegates to the `ContactInvitationSender` port.
+
+**`sendInvitation` must not also send the email or record the audit event** — `InvitationService.issue` already does both (Task 18). Doing it here as well double-sends and writes two `INVITATION_SENT` rows for one action.
+
+**`list` must use a `customerId` Specification through `AuthorizedQuery`, never `repository.findByCustomerId`.** A derived finder carries no scope predicate, so it returns every contact of that customer regardless of whether the caller may see it. This is the exact case `servicesDoNotCallRepositoryFindersDirectly` names, and Task 20 is where that rule stops being vacuous.
+
+- [x] **Step 5: Implement the controllers**
 
 Thin controllers that bind path variables and delegate. No authorization logic in controllers — that is the gate's job, and the ArchUnit rule from Task 7 enforces it.
 
@@ -5623,16 +6511,32 @@ public class CustomerController {
 }
 ```
 
-- [ ] **Step 6: Run it to verify it passes**
+- [x] **Step 6: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.customer.*"`
 Expected: PASS
 
-- [ ] **Step 7: Remove the debug endpoint from Task 4**
+The plan has **no contact tests at all**, despite `CustomerContactService` being half the task and the only place the no-derived-finders rule binds. Add `CustomerContactServiceTest` covering: contacts of the named customer only; contacts inheriting scope from their parent customer (they carry no owner of their own, so `CustomerContactDescriptor` resolves through the customer); `create` refused without `CONTACT_MANAGE`; and `sendInvitation` both working through the port and refused without `INVITATION_SEND`.
 
-Delete `TenantDebugController` and the `_debug` assertions in `TenantResolutionTest`, replacing them with assertions against `/api/t/{slug}/customers` returning 401 when unauthenticated. The tenant pipeline is now covered by real endpoints.
+Two more on the customer side beyond the plan's four: `editingUsesTheWritePermissionNotTheReadOne` (above) and `creatorBecomesTheOwnerSoAssignedScopeSeesItImmediately`, which pins the default-owner behaviour the service comment claims — without it a user holding `customer.create` plus `customer.view` at `ASSIGNED` would create records they instantly cannot see.
 
-- [ ] **Step 8: Commit**
+`deactivationSetsStatusAndWritesAudit` should assert the audit event, not only the status. Its name claims one, deactivation is the closest thing to a delete this system has, and that row is the only record it happened.
+
+- [x] **Step 7: Remove the debug endpoint from Task 4**
+
+Delete `TenantDebugController` and the `_debug` assertions in `TenantResolutionTest`, replacing them with assertions against `/api/t/{slug}/customers`. The tenant pipeline is now covered by real endpoints.
+
+Three things go with it, and leaving any behind means an exemption outliving its reason:
+
+- the `doNotHaveSimpleName("TenantDebugController")` clause in `ModuleBoundaryTest`, which was that rule's only exemption;
+- the `/api/t/*/_debug/**` `permitAll` in `SecurityConfig`;
+- `TenantResolutionTest`'s four `_debug` requests.
+
+The replacements say more than the originals. Unauthenticated `/customers` answers **401** where an unknown tenant answers **404** — which is itself the proof that `TenantContextFilter` (order −110) runs ahead of Spring Security's chain (−100), and that an unknown tenant is rejected before authentication is considered, so the endpoint cannot be used to probe which tenants exist.
+
+For the old `app.tenant_id` assertion, make a real authenticated request instead of reading the GUC back through a debug endpoint. A 200 from `GET /customers` requires the entire chain: the filter resolves the tenant, the binder sets `app.tenant_id`, permission resolution reads three RLS-protected tables through that connection, the gate passes, and the scope predicate matches. Unbound, RLS would return no roles and the gate would answer 403.
+
+- [x] **Step 8: Commit**
 
 ```bash
 git add backend/
@@ -5652,7 +6556,19 @@ The screens in Task 28 need these: users, roles and grants, departments, teams.
 - Create: `backend/src/main/java/co/ara/onboarding/identity/OrgStructureController.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/RoleController.java`
 - Create: `backend/src/main/java/co/ara/onboarding/authz/PermissionCatalogController.java`
+- Create: `backend/src/main/java/co/ara/onboarding/identity/UserActivationSender.java` (port)
+- Create: `backend/src/main/java/co/ara/onboarding/auth/UserInvitationService.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/ActivationService.java`
+- Modify: `identity/AppUserRepository.java`, `DepartmentRepository.java`, `TeamRepository.java`
 - Test: `backend/src/test/java/co/ara/onboarding/identity/UserAdminTest.java`
+
+**`identity` cannot call `auth.InvitationService` directly** — `auth` already depends on `identity`, so that closes `identity → auth → identity`. Same fix as Task 20: a `UserActivationSender` port in `identity`, implemented in `auth`, with the port method named exactly as the implementation's so no self-invocation can skip the gate.
+
+**Inviting a colleague is not the same operation as inviting a contact**, so it is a separate `UserInvitationService`: gated on `user.manage` rather than `invitation.send`, and setting `invitation.user_id` rather than `customer_contact_id`. What they share is the table, the token machinery and `ActivationService` — which is what "reuse the machinery rather than adding a parallel flow" means. `ActivationService.accept` branches on which column is set: a contact invitation creates a PORTAL user, a user invitation activates an account that already exists.
+
+That branch must refuse anything not in `INVITED` status, or activation becomes a password reset without the reset flow's one-hour window, and silently resurrects deactivated accounts.
+
+**The three identity repositories need `JpaSpecificationExecutor`.** `AuthorizedQuery` composes the scope predicate as a `Specification`, so a repository without it can only be queried in ways that bypass scope — the compile error is the design telling you.
 
 **Interfaces:**
 - Consumes: `AuthorizedQuery`, `RoleService`, `PermissionCatalog`, `InvitationService`.
@@ -5662,7 +6578,75 @@ The screens in Task 28 need these: users, roles and grants, departments, teams.
   - `GET/POST /api/t/{slug}/admin/departments`, `GET/POST /api/t/{slug}/admin/teams`.
   - `GET /api/t/{slug}/admin/permissions` — the catalog with each permission's `allowedScopes`, so the role editor can only offer valid combinations.
 
-- [ ] **Step 1: Write the failing test**
+**Amended in Task 28 — the `GET` on `/admin/roles` above was not built.** Only `POST` and
+`PUT /{id}/grants` shipped, so a role could be written but never read: the role editor had nothing
+to load and the user screen had no role id to assign, which made §12's Definition of Done item 2
+("assigns roles, and edits role grants") unreachable through the API. Task 28 adds
+`RoleService.listRoles()` (gated `role.view`, `RoleView(id, name, description, enabled,
+systemTemplate, grants)`) and the `@GetMapping` that exposes it.
+
+**Also amended: `UserAdminService.UserView` gained `roleIds`.** Without it the user screen could
+assign a role and show nothing different, and `DELETE /users/{id}/roles/{roleId}` was unreachable
+from any interface because nothing could name a role the user already held. It is read-only and
+deliberately absent from `UpdateUserRequest` — role assignment goes through the gated, audited
+POST/DELETE pair rather than riding on a full-replace PUT where an omitted field would strip every
+role. The lookup is `authz.UserRoleDirectory`, a bulk directory in the shape of `ActorDirectory`
+rather than a `*Service`: one query per page instead of one per row, and no cross-gate coupling
+between the `user.view` read path and the `user.manage` write path.
+
+**Amended in the final fix wave — `user.manage` at a narrow scope was a full tenant privilege
+escalation.** The plan says every read goes through `AuthorizedQuery`, and it was followed for
+`get`, `list` and the inbound read in `update` and `deactivate`. It was not followed for the ids
+the *write* paths take from the URL or the body, and that is the whole defect:
+`@RequirePermission` cannot see arguments, so a passing gate says only "this actor may manage SOME
+users". `assignRole` and `unassignRole` delegated to `RoleService`, which resolves its target
+through `ActorDirectory` — `users.findById`, bounded by RLS and nothing narrower; `create` wrote
+`request.departmentId()` unchecked; and `UserInvitationService.issueForUser` read its target with
+`users.findById` under the same gate. A tenant's "Ops Lead" role — `{user.view: DEPARTMENT,
+user.manage: DEPARTMENT}`, the obvious delegation and exactly what `PermissionCatalog` advertises
+at `ORG_SCOPES` — could therefore assign any role in the tenant to any user in the tenant
+(themselves included), plant users in departments they cannot see, and mint and mail an activation
+invitation, which is a live credential, for anyone.
+
+All four now resolve their target through `AuthorizedQuery` with `USER_MANAGE`; `create` and
+`update` re-read the written row through the same predicate rather than comparing `departmentId`
+by hand, so `TEAM` and `ASSIGNED` fail closed without a special case. **The generalisation, which
+every later sub-project inherits: a service method that takes a foreign id from the URL or body
+and writes without resolving it through `AuthorizedQuery` is a scope bypass, not a style
+question.** `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` was widened to
+cover `auth..` for that reason — it had been scoped to `customer..` and `identity..`, and both
+escapes found in the final review were in packages it was scoped away from.
+
+**Known limitation, deliberately left for sub-project 2: there is no escalation guard on the role
+being granted.** A `user.manage` holder can still assign a role wider than their own to a user
+they legitimately manage, including themselves — so DEPARTMENT-scoped `user.manage` remains a
+privilege-escalation path for anyone who can see a wider role's id, even though it is no longer a
+cross-department one. Closing it means choosing a policy — require `role.manage` to assign at all,
+or refuse a role whose grants exceed the caller's — and that choice has real consequences for how
+delegation works, so it belongs with sub-project 2's tenant administration rather than with a
+fix wave. Until then, treat `user.manage` at any scope as equivalent to the widest role in the
+tenant, and grant it accordingly.
+
+**Also amended: deactivation must end the session, not set a column.** `deactivate` recorded its
+audit event and stopped. `UserStatus.ACTIVE` was consulted in exactly one place in the whole main
+source tree — `LoginService` — which a browser holding a refresh cookie never reaches again, and
+every rotation minted a *fresh* full-TTL refresh token. A deactivated account kept its full role
+set and kept reading and writing indefinitely. `deactivate` now calls `revokeAllForUser` through a
+new `identity/UserSessionRevoker` port (`auth` depends on `identity`, so the reverse edge would
+close a module cycle — same shape as `UserActivationSender`), `RefreshTokenService.rotate` refuses
+a non-ACTIVE user rather than trusting the writer to have remembered, and
+`AuthorizationService.effectivePermissions` joins `app_user` on `status = 'ACTIVE'`, which closes
+the ≤15 minutes an already-issued access token would otherwise stay good for. That last one is a
+decision, not a leftover: this project's stated invariant is that authority is resolved
+server-side per request precisely so a revocation lands on the next call, and honouring that for a
+revoked grant but not for a revoked account is an inconsistency with no defence. It costs one join
+on a query that already runs once per request.
+
+**Also amended: `unassignRole` is audited.** `AuditActions.USER_ROLE_UNASSIGNED`
+(`user.role_unassigned`, `timelineVisible = false`), recorded inside the `ifPresent` so an
+idempotent no-op does not write a revocation that never happened.
+
+- [x] **Step 1: Write the failing test**
 
 ```java
 package co.ara.onboarding.identity;
@@ -5720,12 +6704,12 @@ class UserAdminTest extends PostgresTestBase {
 
 Add `createDepartment(UUID, String)` and `createUserInDepartment(UUID, String, UUID)` to `TenantFixture`.
 
-- [ ] **Step 2: Run it to verify it fails**
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.identity.UserAdminTest"`
 Expected: FAIL — `UserAdminService` does not exist.
 
-- [ ] **Step 3: Implement the services and controllers**
+- [x] **Step 3: Implement the services and controllers**
 
 Follow the exact pattern established in Task 20: `@RequirePermission` on every public service method, all reads through `AuthorizedQuery` with the matching permission key, writes fetched with the write permission, and an audit event per mutation.
 
@@ -5733,17 +6717,29 @@ Follow the exact pattern established in Task 20: `@RequirePermission` on every p
 
 `PermissionCatalogController` is read-only and returns `PermissionCatalog.all()` with `allowedScopes` — the role editor uses it to offer only valid scope options per permission, so invalid combinations are rejected in the UI as well as at the API.
 
-- [ ] **Step 4: Run it to verify it passes**
+**Extend `servicesDoNotCallRepositoryFindersDirectly` to `co.ara.onboarding.identity..`.** Until now it covered only `customer`, but `UserAdminService` makes `user.view` scoping real, so identity is a scoped domain too. Use `resideInAnyPackage(...)` — and prove the new package actually matches with a throwaway service calling `users.findAll()`, because a mis-specified package makes the rule silently vacuous rather than failing.
+
+`OrgStructureService` reads through `AuthorizedQuery` as well, even though `department.manage` and `team.manage` are ALL-only and have no descriptors. It works because `AuthorizationPredicateBuilder` short-circuits `ALL` *before* the registry lookup, and it keeps the pattern from varying by whether a permission happens to be ALL-only today.
+
+- [x] **Step 4: Run it to verify it passes**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.identity.UserAdminTest"`
 Expected: PASS
 
-- [ ] **Step 5: Run the whole backend suite**
+Five tests beyond the plan's two:
+
+- `createdUserIsInvitedAndCannotLogInYet` — asserts INVITED, INTERNAL, and a **null** password hash. An administrator must be able to create colleagues but never mint a usable credential for one; that is an account-takeover path rather than an invitation.
+- `creatingAUserRequiresUserManageNotJustUserView` — `user.view` must not imply `user.manage`.
+- `deactivatingAUserSetsDeactivatedStatus` — deactivation is how a user is removed, since there is no delete.
+- `aCreatedUserCanActivateAndBecomesActive` — the flow Task 25's manual verification depends on, and the only cover for `ActivationService`'s second branch.
+- `activationIsRefusedForAnAccountThatIsNotInvited` — the status guard above.
+
+- [x] **Step 5: Run the whole backend suite**
 
 Run: `cd backend && ./gradlew test`
 Expected: PASS, including all architecture tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/
@@ -5773,7 +6769,14 @@ The completion gate for this sub-project (spec §11.3, §12). If these are not g
 
 Every test in this task goes through **MockMvc against real HTTP endpoints**, not through services directly. Testing at the service layer would miss exactly the bypasses these tests exist to catch.
 
-- [ ] **Step 1: Test 1 — cross-tenant access**
+**Two production gaps surface here rather than in the tasks that should have closed them**, which is the point of writing the attacks last:
+
+- `RoleService.assignRole` did not check `userType`, so a PORTAL contact could be given an internal role. The check goes through the `ActorDirectory` port, since authz must not depend on identity.
+- There was no way to *unassign* a role, so a role could never become deletable. Added `RoleService.unassignRole` and `DELETE /admin/users/{id}/roles/{roleId}`.
+
+**Slugs must be unique across the whole suite.** Every test shares one container, so `createTenant("role-delete")` in two classes collides on `tenant_slug_key` — and only when the classes run together, which is why it survives a per-class run. Prefix the security tests' slugs.
+
+- [x] **Step 1: Test 1 — cross-tenant access**
 
 ```java
 package co.ara.onboarding.security;
@@ -5843,23 +6846,23 @@ class CrossTenantAccessTest extends PostgresTestBase {
 
 Add `createAdminUser(UUID tenantId, String email)` to `TenantFixture`, returning an `ACTIVE` `INTERNAL` user holding the seeded Administrator role.
 
-- [ ] **Step 2: Test 2 — insufficient permission**
+- [x] **Step 2: Test 2 — insufficient permission**
 
 `InsufficientPermissionTest`: an authenticated user with no roles receives **403** from `POST /customers`, `GET /admin/users`, and `POST /admin/roles`. Assert the response body contains no permission name — the message must not teach a caller which permission would unlock the endpoint.
 
-- [ ] **Step 3: Test 3 — correct permission, insufficient scope**
+- [x] **Step 3: Test 3 — correct permission, insufficient scope**
 
 `InsufficientScopeTest`: a user holding `customer.view` at `TEAM` requests a customer owned by a different team and receives **404, not 403**. Assert the status is exactly 404, and assert that the same user receives 200 for a customer owned by their own team — otherwise the test would pass against a system that simply denies everything.
 
-- [ ] **Step 4: Test 4 — multiple roles**
+- [x] **Step 4: Test 4 — multiple roles**
 
 `MultipleRolesTest`: a user holds one role granting `customer.view` at `TEAM` and another at `ASSIGNED`. Assert the list contains a record reachable through *only* the team grant, a record reachable through *only* the personal-owner grant, and excludes a record reachable through neither. This is the test that proves scopes union rather than nest.
 
-- [ ] **Step 5: Test 5 — conflicting role grants**
+- [x] **Step 5: Test 5 — conflicting role grants**
 
 `ConflictingGrantsTest`: the same permission granted at `ALL` in one role and `ASSIGNED` in another resolves to `ALL`, deterministically, regardless of role creation order. Run the assertion twice with the roles assigned in opposite order to prove there is no precedence dependency.
 
-- [ ] **Step 6: Test 6 — disabled and deleted roles**
+- [x] **Step 6: Test 6 — disabled and deleted roles**
 
 `RoleLifecycleTest`:
 - Disabling a role removes its authority on the very next request.
@@ -5867,11 +6870,11 @@ Add `createAdminUser(UUID tenantId, String email)` to `TenantFixture`, returning
 - After unassigning every user, deletion succeeds.
 - Re-enabling a disabled role restores authority.
 
-- [ ] **Step 7: Test 7 — changed role permissions**
+- [x] **Step 7: Test 7 — changed role permissions**
 
 `ChangedPermissionsTest`: with a session already established, revoke a grant through `PUT /admin/roles/{id}`, then reuse the *same unexpired access token*. The request must be refused. This is the test that proves permissions are not embedded in the token and not cached across requests.
 
-- [ ] **Step 8: Test 8 — direct API access bypassing the UI**
+- [x] **Step 8: Test 8 — direct API access bypassing the UI**
 
 `DirectApiAccessTest`:
 - A `PORTAL` user with a valid token receives **403** from `GET /admin/users`, `POST /customers`, and `GET /admin/roles`.
@@ -5879,7 +6882,13 @@ Add `createAdminUser(UUID tenantId, String email)` to `TenantFixture`, returning
 - `POST /api/platform/tenants` without platform-admin credentials returns **401**.
 - Every mutating endpoint refuses an unauthenticated request with **401**, iterating the endpoint list explicitly rather than sampling.
 
-- [ ] **Step 9: Secure the platform endpoints**
+**That sweep needs a second pass, or it proves nothing.** With `.anyRequest().authenticated()`, a request to a path that does not exist *also* answers 401 — so a typo in the list passes silently. Repeat the sweep with an administrator's token and assert the response is **not 404**.
+
+Note the asymmetry, because getting it wrong is easy: anonymous requests answer 401 for real and imaginary paths alike, so only the *authenticated* pass can tell them apart, and there the signal is 404. A first attempt asserting "not 401" on the authenticated pass was verified useless by adding a deliberately misspelled path — the test still passed. Add that misspelled path, watch it fail, then remove it.
+
+Empty request bodies mean a handler that does run may answer 400 or throw, with MockMvc rethrowing rather than converting. Both mean the request reached a controller, so treat them as success.
+
+- [x] **Step 9: Secure the platform endpoints**
 
 Replace the `permitAll` on `/api/platform/**` from Task 15 with authentication against `platform_admin` — HTTP Basic is sufficient for sub-project 1, since these endpoints are operated by hand:
 
@@ -5889,17 +6898,23 @@ Replace the `permitAll` on `/api/platform/**` from Task 15 with authentication a
 
 Back it with a `UserDetailsService` reading `platform_admin`, and add `.httpBasic(Customizer.withDefaults())`.
 
-- [ ] **Step 10: Run the full security suite**
+**Put it in a separate `SecurityFilterChain` at `@Order(1)`, matched to `/api/platform/**`.** Adding `httpBasic()` to the main chain makes `BasicAuthenticationEntryPoint` the default for the whole application, which puts a `WWW-Authenticate` header on every API 401 and makes browsers show a native credential prompt over the SPA. A separate chain keeps the main one's `HttpStatusEntryPoint(401)` intact.
+
+The `UserDetailsService` implementation lives in `identity`, since it reads `platform_admin` and `platform` must not depend on a domain module; inject it into `SecurityConfig` by interface. It also needs excluding from **both** `AuthorizationCoverageTest` rules — it is Spring Security SPI rather than a domain service, invoked by the filter chain during authentication and never reachable from a controller, and `platform_admin` is not tenant-scoped so there is no scope for `AuthorizedQuery` to apply even in principle. Exclude with `areNotAssignableTo(UserDetailsService.class)` rather than by name, so any future SPI adapter is covered.
+
+Assert both directions here too: unauthenticated → 401, a *tenant* access token → 401 (it is not platform authority), and valid Basic credentials → 200. Without the last, "requires credentials" could be satisfied by a chain that rejects everything.
+
+- [x] **Step 10: Run the full security suite**
 
 Run: `cd backend && ./gradlew test --tests "co.ara.onboarding.security.*"`
 Expected: PASS — all eight classes.
 
-- [ ] **Step 11: Run everything**
+- [x] **Step 11: Run everything**
 
 Run: `cd backend && ./gradlew test`
 Expected: PASS. This is the definition-of-done gate for the backend.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add backend/
@@ -5913,10 +6928,14 @@ git commit -m "test: add the eight required negative security tests"
 **Files:**
 - Create: `frontend/package.json`, `tsconfig.json`, `next.config.ts`, `tailwind.config.ts`
 - Create: `frontend/src/app/globals.css`
+- Copy: `frontend/src/app/tokens.css`, `frontend/src/app/tailwind-theme.css` (from `docs/uispecs/design/02-tokens/`)
+- Create: `frontend/src/components/icons/` (generated from `docs/uispecs/design/03-icons/icons.json`)
 - Create: `frontend/src/lib/i18n/messages/en.json`
 - Create: `frontend/src/lib/i18n/index.ts`
 - Create: `frontend/src/components/ThemeProvider.tsx`
 - Test: `frontend/src/lib/i18n/i18n.test.ts`
+
+**Read `docs/uispecs/design/README.md` first.** Its build order — tokens, then icons, then components, and the review before any screen — is the order of this task and the next five, and it is that order because each step is far cheaper before the one after it than retrofitted afterwards.
 
 **Interfaces:**
 - Consumes: the backend OpenAPI document from Task 19.
@@ -5925,22 +6944,37 @@ git commit -m "test: add the eight required negative security tests"
   - `frontend/src/lib/api/generated.ts` — types generated by `openapi-typescript`.
   - `npm run generate:api` — regenerates types from a running backend.
 
-- [ ] **Step 1: Scaffold**
+- [x] **Step 1: Scaffold**
 
 ```bash
-npx create-next-app@latest frontend --typescript --tailwind --app --eslint --src-dir --no-import-alias
+npx create-next-app@15 frontend --typescript --tailwind --app --eslint --src-dir \
+  --no-import-alias --no-turbopack --use-npm --skip-install --disable-git
 cd frontend
+npm install
 npm install @tanstack/react-query next-themes zod
-npm install -D openapi-typescript vitest @testing-library/react @playwright/test
-npx shadcn@latest init
-npx shadcn@latest add button input label card table dialog dropdown-menu badge sonner
+npm install -D openapi-typescript vitest @testing-library/react @testing-library/jest-dom \
+  jsdom @vitejs/plugin-react
 ```
 
-- [ ] **Step 2: Enable TypeScript strict mode**
+Pin `create-next-app@15`, not `@latest` — latest is Next 16, and the stated stack is 15. Jumping a major version is a decision, not a default.
+
+`--no-turbopack` is required: without it the generator prompts interactively and hangs. `--disable-git` matters too, since this lands inside an existing repository.
+
+The scaffold ships **Geist**; replace it with **Archivo** and **IBM Plex Mono** in `layout.tsx` and point `--ob-font-family-ui` / `--ob-font-family-data` at the `next/font` variables, so the tokens stay the source of truth. Mono for machine-generated values, Archivo for human text, is one of the four decisions that erode quietly.
+
+**Amended in Task 26.** Put the `next/font` variable classes on `<html>`, **not** `<body>` — the scaffold's default. `globals.css` declares `--ob-font-family-ui` on `:root`, so if `--font-archivo` is only defined one level lower the reference is undefined *at :root* and the declaration is invalid at computed-value time. The failure is silent and total: the family token resolves to nothing, so every `font:` shorthand built on it — the whole type ramp, in every component — is dropped, and the application renders in the browser's default sans at default sizes while every variable still appears to exist. It survived Tasks 23–25 undetected because the pages still looked plausible.
+
+`layout.tsx` needs `suppressHydrationWarning` on `<html>` — `next-themes` writes `data-theme` before hydration, so server and client markup differ by that attribute by design.
+
+**shadcn/ui is deferred to Task 26**, where the first components that need it are built. `shadcn init` is interactive and rewrites `globals.css`, which would overwrite the token imports set up in Step 6; running it after the token layer exists means reconciling the two by hand.
+
+**Amended in Task 26.** Not initialised there after all: nothing in the shell needs Radix. The rail is links, the header is a button plus one popover, and the popover's whole behaviour — open, focus in, `Escape` closes and returns focus, click-outside — is about thirty lines against a `useEffect`. Running `shadcn init` to get that would have meant reconciling its `globals.css` rewrite by hand for no gain. Defer it again to the first component that genuinely needs a headless primitive — a combobox, a date picker or a modal dialog with a real focus trap.
+
+- [x] **Step 2: Enable TypeScript strict mode**
 
 In `tsconfig.json` set `"strict": true`, `"noUncheckedIndexedAccess": true`, `"noImplicitOverride": true`. These catch a class of bug that is otherwise found at runtime, and the cost is lowest at the start of a project.
 
-- [ ] **Step 3: Write the failing i18n test**
+- [x] **Step 3: Write the failing i18n test**
 
 `frontend/src/lib/i18n/i18n.test.ts`:
 
@@ -5964,12 +6998,12 @@ describe("t", () => {
 });
 ```
 
-- [ ] **Step 4: Run it to verify it fails**
+- [x] **Step 4: Run it to verify it fails**
 
 Run: `cd frontend && npx vitest run src/lib/i18n`
 Expected: FAIL — module not found.
 
-- [ ] **Step 5: Implement the translation layer**
+- [x] **Step 5: Implement the translation layer**
 
 `frontend/src/lib/i18n/messages/en.json`:
 
@@ -6020,11 +7054,70 @@ export function t(key: string, params?: Record<string, string>): string {
 }
 ```
 
-- [ ] **Step 6: Implement theming**
+- [x] **Step 6: Port the design tokens — before any component**
 
-Use `next-themes` with `attribute="class"` and `defaultTheme="system"`. Define light and dark CSS custom properties in `globals.css` following the shadcn convention. Verify contrast meets WCAG AA for body text and interactive elements.
+**Do not hand-author a light/dark palette.** `docs/uispecs/design/02-tokens/` already contains one, derived under accessibility constraints that are not obvious and not re-derivable by eye. Copy `tokens.css` and `tailwind.css` into `frontend/src/app/` and import them from `globals.css`, in this order:
 
-- [ ] **Step 7: Add the type generation script**
+```css
+@import "./tokens.css";    /* defines the --ob-* variables */
+@import "./tailwind.css";  /* Tailwind v4 @theme mapping that points at them */
+```
+
+Order matters — `tailwind.css` references variables `tokens.css` defines.
+
+Three details the plan previously got wrong or omitted:
+
+- **`attribute="data-theme"`, not `attribute="class"`.** `tokens.css` keys its dark theme on `[data-theme="dark"]`. With `next-themes` set to `class` the dark tokens never apply and the app renders light-on-light in dark mode. Keep `defaultTheme="system"`; `tokens.css` already has a `prefers-color-scheme: dark` block for that case.
+- **Map shadcn's variables onto the semantic layer** rather than keeping its default palette. shadcn expects `--background`, `--foreground`, `--primary` and so on; point each at the corresponding `--ob-*` role (`--background: var(--ob-bg-page)`, `--primary: var(--ob-accent)`, …). Two palettes coexisting is how a design system dies in month two.
+- **Never reference a primitive token from a component.** `--ob-paper-400` is deliberately not exposed as a Tailwind utility so nobody can bypass the semantic layer.
+
+**The Tailwind utility names are not what `tailwind.css` documents.** Its header says classes like `bg-surface`, `text-muted` and `border-default` resolve to tokens. They do not. The `@theme` block declares `--color-bg-surface`, `--color-text-muted`, `--color-border-default`, and Tailwind v4 forms a utility as `<namespace>-<name>` — so the real classes are **`bg-bg-surface`, `text-text-muted`, `border-border-default`**. Names without the category prefix (`--color-accent`) are unaffected, which is why `bg-accent` and `rounded-card` work as written.
+
+Use the generated names rather than inventing a short alias layer — a second set of utilities for the same tokens is the parallel-system problem the token layer exists to prevent. **The real fix belongs in `design/scripts/build_tokens.py`**, dropping the category prefix from the `--color-*` names so the generated utilities match the documentation. Until then, verify with `grep '\.bg-bg-surface' .next/static/css/*.css` after a build: an unrecognised class emits nothing at all rather than failing, so a typo is silent.
+
+**One semantic role is missing from the generated set.** `tokens.md` documents `paper-600` as a graphics-only tier valid at 3:1 for 20px+ marks, but exposes no semantic name for it — and components must not reference primitives. Its own guidance covers this case: add a semantic role pointing at the primitive. Declared as `--ob-graphic-muted` in `globals.css`, which is the non-generated file; it belongs in `build_tokens.py` if the dark theme ever needs a different value. **Confirmed in Task R1 that it does not:** `paper-600` clears 3:1 on every dark ground too (4.57 / 4.06 / 3.52 on `slate-900` / `800` / `700`), so one value serves both themes.
+
+**Amended in Task R1 (remediation). The dark theme had never been measured, and 13 of its 17 pairs failed WCAG AA.** "Do not hand-author a palette" above is right, but it was read as "the supplied one is verified" — and only the *light* half ever was. `contrast.py` audited `PAIRS` (light) and nothing else. Copy the token files, yes; do not assume the dark block has been checked, and re-run `contrast.py` after any regeneration — it now carries a `DARK_PAIRS` table beside the light one, and unlike the light table (which preserves the *prototype's* pre-fix values as the review's evidence) the dark table measures the values `tokens.css` actually emits, so a FAIL there is live.
+
+Fixed in `build_tokens.py` and regenerated; derivation and before/after ratios in `05-review/ux-design-review.md` §1b. Summary: `bg-page` moves to a new `slate-975` because it and `bg-rail` both resolved to `slate-950` (1.00:1 — the rail had no edge), and the rail is pinned in both themes by design so the page is what may move; `text-muted`/`text-faint` move to two new tiers `paper-560`/`paper-580`, with `text-disabled` collapsing onto faint in dark exactly as it does in light; the three control-carrying borders move to `paper-600`. The same structural finding as §1 reappears mirrored — light quiet text is bound by its darkest ground, dark quiet text by its lightest.
+
+**Amended again in Task R1 fix round 1 — the audit, not the values, was the defect.** The first widened table above covered 17 pairs and reported all passing, but **every pair in it was neutral**: text, borders, surfaces. No accent pair, no `text-on-accent`, no status ink on its wash. Meanwhile `Button.tsx` painted the dark primary button as white on the pale `indigo-300` accent — **1.53:1**, on the login screen Task 28 runs axe against in both themes. Widening to the 49 pairs a component actually paints found **ten** failures: both `text-on-accent` pairs, `accent-tint-border`, `accent-weak`, and three of the five status pills on both the card and the hovered-row grounds.
+
+Two structural fixes came out of it and both matter more than the values:
+
+- **`contrast.py` resolves token NAMES through `build_tokens.py`** rather than holding its own hex copies. An instrument that duplicates the thing it measures drifts from it, which is the same failure mode that let the dark theme ship unmeasured in the first place. `DARK_STATUS` moved to module scope so the audit reads the generator's own map, and translucent dark status fills are composited onto the surface beneath them exactly as a browser — and axe — does.
+- **`SHIPPED_PAIRS` is now the thing you extend when you add a role.** "0 of N fail" is only as good as N.
+
+Also: `text-on-solid` was split out of `text-on-accent`. Both are white in light so one token served both, but the dark accent's ink has to invert to near-black while the *solid* status fills do not — leaving `--destructive-foreground` on `text-on-accent` would have put near-black on `solid-blocked` at 3.43:1.
+
+**The rail/page edge is a border on `Sidebar.tsx`, not a token.** `bg-rail` is pinned to `slate-950` in both themes, so the palette caps rail-against-page at 1.17:1 even with a pure black page; the earlier 1.00 → 1.10 token move was measurable and invisible. `border-right: 1px solid var(--ob-graphic-muted)` clears 3:1 against everything it touches in both themes.
+
+**Whoever changes a token must copy BOTH generated files into `frontend/src/app/`.** They are verbatim copies (`tokens.css` → `tokens.css`, `tailwind.css` → `tailwind-theme.css`) with no build step keeping them in sync, so a regeneration that is not copied across is silently a no-op for the application.
+
+Contrast is already solved and must not be "improved": `text-faint` and `text-disabled` intentionally resolve to the same value because this palette has no room for a third quiet grey that clears AA, and `paper-600` is a **graphics-only** tier that is not valid for text. The derivation is in `05-review/ux-design-review.md` §1. If you add any text colour, run `design/scripts/contrast.py`.
+
+- [x] **Step 6b: Generate the icon components**
+
+Generate a typed icon component set from `docs/uispecs/design/03-icons/icons.json`, or inline the sprite. Do not hand-copy path data — every icon is a single path precisely so it can live in a data layer, and hand-copying is how the set drifts. Sub-project 1 needs roughly 20 of the 56; generate all of them, since later sub-projects need the rest and the registry is the source of truth.
+
+Every icon is decorative unless it is the only content of a control: `aria-hidden="true"` when a text label sits beside it, and an `aria-label` on the control when it does not.
+
+- [x] **Step 6c: Build the four load-bearing components first**
+
+`docs/uispecs/design/04-components/component-specs.md` specifies 17 families. Card, progress bar, status pill and table cover most of the surface area — build those four and the screens largely assemble themselves. Each has ARIA requirements the prototype left unmet; build them in now rather than retrofitting:
+
+| Component | Requirement the prototype misses |
+|---|---|
+| Progress bar | `role="progressbar"` with `aria-valuenow/min/max` and a label, with the visible percentage and `aria-valuenow` derived from **one** value so they cannot disagree |
+| Table | a real `<table>` with `<th scope="col">`; a clickable row is a `<tr>` with a link in its primary cell, never a `<div>` with `onClick` |
+| Status pill | always contains the **word**, never a bare coloured dot |
+| Checkbox | a real `<input type="checkbox">`, or `role="checkbox"` + `aria-checked` — the prototype uses a `<button>` with no checked state |
+
+Also add the two states the design does not cover at all, since every list in Tasks 27–28 needs them: **empty** (24px icon in the graphics-only grey, a `type-13-5`/600 line, a `type-12` `text-muted` explanation, and the action that fills it) and **loading** (skeletons at the real row height so the layout does not jump).
+
+Focus is global and non-negotiable: a 2px `accent` outline at 2px offset on `:focus-visible` for every interactive element. The prototype had none anywhere — a straight WCAG 2.4.7 failure — and it is fixed with a single zero-specificity `:where(...)` rule.
+
+- [x] **Step 7: Add the type generation script**
 
 In `package.json`:
 
@@ -6034,14 +7127,23 @@ In `package.json`:
 }
 ```
 
-Run it with the backend running. Commit the generated file so the frontend builds without a live backend, and regenerate whenever a backend contract changes — a stale file then surfaces as a compile error, which is the point.
+Two scripts, and the local one is the default:
 
-- [ ] **Step 8: Run the test to verify it passes**
+```json
+"generate:api": "openapi-typescript ../backend/build/openapi.json -o src/lib/api/generated.ts",
+"generate:api:live": "openapi-typescript http://localhost:8080/v3/api-docs -o src/lib/api/generated.ts"
+```
+
+Task 19's `OpenApiDocumentTest` writes `backend/build/openapi.json` during `./gradlew test`, so types regenerate from a checkout with no server running. Keep the live variant for checking against a deployed backend.
+
+Commit the generated file so the frontend builds without a live backend, and regenerate whenever a backend contract changes — a stale file then surfaces as a compile error, which is the point.
+
+- [x] **Step 8: Run the test to verify it passes**
 
 Run: `cd frontend && npx vitest run src/lib/i18n`
 Expected: PASS
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add frontend/
@@ -6059,8 +7161,11 @@ The access token lives in memory only. This task is where that guarantee is eith
 - Create: `frontend/src/lib/auth/AuthProvider.tsx`
 - Create: `frontend/src/lib/auth/useAuth.ts`
 - Create: `frontend/src/lib/auth/useHasPermission.ts`
-- Create: `frontend/src/app/(app)/layout.tsx`
-- Test: `frontend/src/lib/api/client.test.ts`
+- Create: `frontend/src/lib/auth/types.ts`, `AuthGuard.tsx`
+- Create: `frontend/src/app/(app)/t/[slug]/layout.tsx`
+- Test: `frontend/src/lib/api/client.test.ts`, `frontend/src/lib/auth/useHasPermission.test.ts`
+
+**The guard belongs at `(app)/t/[slug]/layout.tsx`, not `(app)/layout.tsx`.** It needs the tenant slug — to set it on the API client and to build the login redirect — and only a layout inside the `[slug]` segment receives that param. Every authenticated route lives under it, so it is still one guard for the whole application. In Next 15 `params` arrives as a promise; unwrap it with `use()`.
 
 **Interfaces:**
 - Consumes: `/api/t/{slug}/auth/login`, `/auth/refresh`, `/me`.
@@ -6069,7 +7174,19 @@ The access token lives in memory only. This task is where that guarantee is eith
   - `useAuth()` → `{ user, permissions, login, logout, isLoading }`.
   - `useHasPermission(key: string, scope?: Scope)` → `boolean`.
 
-- [ ] **Step 1: Write the failing test**
+**Amended in Task R1 (remediation). The same-origin prefix needs a rewrite, and the plan never asks for one.** `apiFetch` issues `/api/t/{slug}/…` same-origin deliberately — that is what keeps the HttpOnly, `SameSite=Strict`, path-scoped `refresh_token` cookie attached, which a cross-origin `fetch` to :8080 would drop, silently breaking silent refresh. But nothing routes :3000's `/api` to :8080, so **no page that calls the API works at all** and no end-to-end test can pass. Invisible to the unit suite, which stubs `fetch`.
+
+Add to `frontend/next.config.ts`:
+
+```typescript
+async rewrites() { return apiRewrites(); }
+```
+
+backed by `src/lib/api/rewrites.ts` — one rule, `/api/:path*` → `${BACKEND_ORIGIN}/api/:path*`, defaulting to `http://localhost:8080`. It lives in `src/` rather than inline because the vitest `include` glob is `src/**`, so a config-only version could not be tested. `BACKEND_ORIGIN` is deliberately not `NEXT_PUBLIC_`: rewrites resolve on the Next.js server, and the prefix would inline the address into the client bundle.
+
+Chosen over a catch-all route handler under `app/api/…`, which would have to forward cookies, headers, status codes and bodies correctly; one existed briefly as a mock in Task 24 and was correctly deleted — do not resurrect it. Accepted cost: `rewrites` is a dev/runtime-server mechanism, so a production deployment behind a real reverse proxy configures the same mapping at the edge instead (sub-project 10).
+
+- [x] **Step 1: Write the failing test**
 
 `frontend/src/lib/api/client.test.ts`:
 
@@ -6128,12 +7245,24 @@ describe("apiFetch", () => {
 
 The last test is the one that matters. It is easy to "fix" a refresh bug by persisting the token, which silently discards the whole reason for choosing this session model.
 
-- [ ] **Step 2: Run it to verify it fails**
+**Strengthen it: the version above only spies on the setter**, which proves nothing about the refresh path where a well-meaning "keep the user signed in" change would actually land. Run a full 401-refresh-retry cycle and assert `setItem` was never called, `document.cookie` was never assigned, and both storages are still empty.
+
+Three more tests worth adding:
+
+- **`collapses concurrent refreshes into one`** — the highest-consequence case in this file. The backend reads a replayed refresh token as theft and revokes the whole family (§7.4), so two parallel 401s each rotating would sign the user out everywhere and write a `REFRESH_REUSE_DETECTED` audit event, from nothing worse than two requests racing. Fire three `apiFetch` calls concurrently and assert `/auth/refresh` was called exactly once.
+- **`clears the token when the refresh itself is rejected`** — otherwise every later request retries a credential already known to be dead.
+- **`prefixes the tenant path`** — cheap, and the prefix is easy to get wrong once.
+
+`AuthProvider`'s mount effect needs a ref guard. React StrictMode mounts effects twice in development, and a second silent refresh rotates the token again — which the backend reads as reuse. The symptom would be developers being mysteriously signed out only in dev.
+
+`useHasPermission` deserves its own unit test for the scope algebra: `ALL` satisfying any narrower scope, and a unioned set matching each of its members. That is the frontend mirror of `MultipleRolesTest`, and getting it wrong either hides affordances a user is entitled to or shows ones that then fail at the server.
+
+- [x] **Step 2: Run it to verify it fails**
 
 Run: `cd frontend && npx vitest run src/lib/api`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement the client**
+- [x] **Step 3: Implement the client**
 
 ```typescript
 // The access token lives ONLY in this module-scoped variable.
@@ -6197,7 +7326,14 @@ export class ApiError extends Error {
 }
 ```
 
-- [ ] **Step 4: Implement `AuthProvider` and the hooks**
+Two corrections to that sketch:
+
+- **Normalise headers rather than spreading them.** `...(init.headers ?? {})` yields an empty object when a caller passes a `Headers` instance, silently dropping every header it carried — including `Content-Type` on a POST. Build a `Headers` and `set()` onto it.
+- **Return `undefined` for 204 without calling `.json()`.** Logout, activate, deactivate and invite all answer 204 with an empty body, and `.json()` throws on those.
+
+This is also where Task 15's entry-point fix pays off: the backend answers **401** rather than Spring Security's default 403 for a missing or expired token, so this refresh path triggers at all. With a 403 the request would fall straight to the error branch and the user would be silently signed out mid-session.
+
+- [x] **Step 4: Implement `AuthProvider` and the hooks**
 
 `AuthProvider` holds `user` and `permissions` (from `/me`), exposes `login` and `logout`, and on mount attempts a silent refresh so a page reload does not log the user out — the refresh cookie survives, the in-memory token does not.
 
@@ -6213,16 +7349,16 @@ export function useHasPermission(key: string, scope?: Scope): boolean {
 
 Add a comment at the top of the file: **this hook controls UI affordances only; the server is the sole authority (spec §10.3).**
 
-- [ ] **Step 5: Implement route protection**
+- [x] **Step 5: Implement route protection**
 
 `src/app/(app)/layout.tsx` reads `useAuth()`, renders a loading state while the silent refresh resolves, and redirects to `/t/{slug}/login` when unauthenticated.
 
-- [ ] **Step 6: Run it to verify it passes**
+- [x] **Step 6: Run it to verify it passes**
 
 Run: `cd frontend && npx vitest run src/lib/api`
 Expected: PASS — all four tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add frontend/
@@ -6243,28 +7379,44 @@ git commit -m "feat: add API client with in-memory token and silent refresh"
 - Consumes: `useAuth`, `apiFetch`, `t`.
 - Produces: three routed pages. All use `AuthCard` for consistent layout.
 
-- [ ] **Step 1: Build the login page**
+The prototype has **no authentication screens** — it opens already signed in — so these three pages are the one part of the frontend with no visual reference. Build them from the token and component layers rather than inventing a second visual language: `AuthCard` is the §3 Card (flat, `bg-surface`, 1px `border-default`, 13px radius), fields are `control-height` at `radius-control`, and the submit is the same primary button as the header's.
+
+`docs/uispecs/design/01-brand/brand-guidelines.md` governs the logo lockup and its minimum sizes on these pages.
+
+- [x] **Step 1: Build the login page**
 
 Email and password fields, submit, error handling for 401 (`auth.login.error`) and 429 (`auth.login.lockedOut`). On success, redirect to `/t/{slug}/dashboard`.
 
 Every string goes through `t()`. No hardcoded copy.
 
-- [ ] **Step 2: Build the activation page**
+The error message must be identical for a wrong password, an unknown address, and an inactive account — the backend deliberately returns one 401 for all three, and a differentiated message in the UI reintroduces the account-existence oracle that the single response exists to prevent.
+
+- [x] **Step 2: Build the activation page**
 
 Reads `?token=` from the query string, prompts for a password with a minimum of 12 characters and a confirmation field, and posts to `/auth/activate`. On success, redirects to login with a success toast.
 
-- [ ] **Step 3: Build the password reset pages**
+- [x] **Step 3: Build the password reset pages**
 
 Request form posting to `/auth/password-reset/request`. It always shows the same confirmation message regardless of whether the address exists — the UI must not undo the backend's deliberate non-enumeration. Confirm form reads `?token=` and posts to `/auth/password-reset/confirm`.
 
-- [ ] **Step 4: Verify manually**
+- [x] **Step 4: Fix the platform-admin bootstrap deadlock**
 
-Start both applications, provision a tenant via `POST /api/platform/tenants` with the platform-admin credentials, and confirm you can log in as the seeded administrator after activating through the emailed link. In development the link is printed by `LoggingEmailSender` in the backend log.
+**This step cannot be performed as written, and finding out why is the point.** Task 22 secured `/api/platform/**` behind `hasRole("PLATFORM_ADMIN")`, but `platform_admin` ships empty and nothing in production code ever inserts a row — only the test fixture does. So provisioning the first tenant requires an administrator that no code path can create. It is invisible in tests, which seed their own, and fatal on a fresh deployment. Task 28's end-to-end setup depends on the same call.
 
-- [ ] **Step 5: Commit**
+Add an `identity/PlatformAdminBootstrap` `ApplicationRunner` reading `app.platform-admin.email` / `app.platform-admin.password`, both blank by default:
+
+- **Configuration, not a migration.** A seeded password in a committed migration is a credential in version control, and migrations are forward-only so it could never be rotated.
+- **Idempotent, and specifically it must not reset the password.** A restart silently reverting a rotated credential back to the environment value is worse than not running at all.
+- **A no-op when unconfigured**, so it never creates a blank account.
+
+- [x] **Step 5: Verify manually**
+
+Start both applications with `APP_PLATFORM_ADMIN_EMAIL` and `APP_PLATFORM_ADMIN_PASSWORD` set, provision a tenant via `POST /api/platform/tenants` using those credentials over HTTP Basic, and confirm you can log in as the seeded administrator after activating through the emailed link. In development the link is printed by `LoggingEmailSender` in the backend log.
+
+- [x] **Step 6: Commit**
 
 ```bash
-git add frontend/
+git add frontend/ backend/
 git commit -m "feat: add login, activation and password reset pages"
 ```
 
@@ -6276,30 +7428,60 @@ git commit -m "feat: add login, activation and password reset pages"
 - Create: `frontend/src/components/shell/Sidebar.tsx`
 - Create: `frontend/src/components/shell/TopBar.tsx`
 - Create: `frontend/src/components/shell/ThemeToggle.tsx`
-- Modify: `frontend/src/app/(app)/layout.tsx`
+- Create: `frontend/src/components/shell/PageHeader.tsx`
+- Modify: `frontend/src/app/(app)/t/[slug]/layout.tsx`
 - Create: `frontend/src/app/(app)/t/[slug]/dashboard/page.tsx`
 
 **Interfaces:**
 - Consumes: `useAuth`, `useHasPermission`, `t`.
-- Produces: the authenticated shell wrapping every application page.
+- Produces: the authenticated shell wrapping every application page, and `useSetPageHeader`.
 
-- [ ] **Step 1: Build the sidebar**
+**Amended in Task 26.** Two corrections to the file list above. `(app)/layout.tsx` does not exist — Task 24 placed the authenticated layout at `(app)/t/[slug]/layout.tsx`, because the tenant slug only exists inside the `[slug]` segment and both the guard and the rail need it. And `PageHeader.tsx` is new: the header's left side is a screen title plus a meta line, but the header lives in the layout while the title belongs to the page, and App Router gives the layout no way to read it. A page calls `useSetPageHeader(title, meta?)`; without it the title would have to be derived from the route, which cannot express a record name or a live count, and every later sub-project would work around it.
 
-Navigation entries filtered by permission: Customers requires `customer.view`; Administration requires `role.view` or `user.view`. Collapses to a sheet on mobile.
+The shell is fully specified — `docs/uispecs/design/04-components/component-specs.md` §Shell, §1 Rail, §2 Header. Build to those numbers rather than inventing a layout; every later sub-project renders inside this frame.
 
-- [ ] **Step 2: Build the top bar**
+- [x] **Step 1: Build the rail**
 
-Tenant name, user menu with the user's name and a sign-out action, and the theme toggle.
+`rail-width` (244px), `flex: 0 0 244px`, sticky, `100vh`, flex column, on the `slate` ramp. The rail is the one surface identical in both themes — it is already dark in light mode — which is what keeps navigation stable when the theme flips.
 
-- [ ] **Step 3: Build the dashboard placeholder**
+Logo block: 26px mark from `docs/uispecs/design/01-brand/logo/logo-tile.svg`, product name `type-14`/600, tenant slug `type-10` mono at 50% opacity. Nav item: padding `8px 11px`, radius 9px, `type-13`, 16px icon at stroke 1.5 in a fixed 16px column; inactive 0.72 opacity, hover `rgba(255,255,255,0.07)`, active `bg-rail-raised` at weight 500.
 
-An empty state naming what arrives in sub-project 8, so it reads as deliberate rather than unfinished.
+Navigation entries filtered by permission: Customers requires `customer.view`; Administration requires `role.view` or `user.view`.
 
-- [ ] **Step 4: Verify responsiveness and contrast**
+**Accessibility:** a `<nav>` containing a list, the active item carrying `aria-current="page"`, and icons `aria-hidden` since the label is already there.
 
-Check at 375px, 768px, and 1440px in both themes. Verify AA contrast for body text and interactive elements.
+Note the prototype's "VIEWING AS" role switcher is **out of scope** for sub-project 1, and when it does arrive it must be a real permission boundary rather than a view flag (component-specs §1).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 2: Build the header**
+
+`header-height` (60px), sticky, `z-index: 30`, `rgba(247,246,243,0.88)` with `backdrop-filter: blur(10px)`, 1px `border-default` bottom, `space-28` horizontal padding. Left: screen title `type-17`/600 with a `type-11` mono `text-muted` meta line that ellipsises. Right: user menu with a sign-out action, and the theme toggle.
+
+Main column needs `flex: 1; min-width: 0` — without the `min-width`, long mono strings blow out the grid. Content padding is 24 / 28 / 56; the 56px bottom is deliberate, so the last table row clears the fold rather than looking truncated.
+
+Search and notifications are specified but **visual-only in the prototype and out of scope here** — omit them rather than shipping dead controls.
+
+- [x] **Step 3: Build the dashboard placeholder**
+
+An empty state naming what arrives in sub-project 8, so it reads as deliberate rather than unfinished. Use the empty-state pattern from Task 23 Step 6c, not ad-hoc markup — this is the first of many.
+
+- [x] **Step 4: Verify responsiveness, theming and contrast**
+
+The design targets ≥1440px and has **no layout below it** — `ux-design-review.md` §11 is an open finding, not a solved problem, so the breakpoints are a decision this task has to make. Its recommendation, which is the cheapest path: at ≤1280px collapse the rail to a 56px icon-only rail (every nav icon is a distinct, legible 16px glyph precisely so this works); at ≤1024px collapse tables to a two-line card list keeping name, stage, progress and health.
+
+Check 375px, 768px, 1280px and 1440px in both themes. Verify AA contrast for body text and interactive elements — and note that **the dark theme has never been reviewed at screen level**, so treat its values as a starting point and expect to report back what breaks.
+
+**Decided in Task 26 — later tasks must honour these two breakpoints.**
+
+| Boundary | Written as | Behaviour |
+|---|---|---|
+| 1280px | `min-[1281px]:` | Rail is 244px at ≥1281px, 56px icon-only at ≤1280px. Nav labels stay in the DOM as `sr-only`, so accessible names never change. |
+| 1024px | `lg:` | **Task 27's to implement.** The customer table keeps its column grid at ≥1024px and becomes a two-line card list below it, keeping name, stage, progress and health. |
+
+The rail boundary is 1281 rather than Tailwind's `xl` (1280) on purpose. The design's content column is 1440 − 244 = 1196px; a 56px rail on a 1280px viewport leaves 1224px, so a screen built to the design's own width still fits without reflowing. Expanding *at* 1280 instead would leave 1036px and force the table to reflow on exactly the laptop width the finding was written about.
+
+Below `md` (768px) the header and content drop from `content-padding-x` (28px) to `space-16`, which is what makes 375px usable at all.
+
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/
@@ -6317,28 +7499,151 @@ git commit -m "feat: add authenticated application shell"
 - Create: `frontend/src/components/customers/CustomerForm.tsx`
 - Create: `frontend/src/components/customers/ContactList.tsx`
 - Create: `frontend/src/lib/api/customers.ts`
+- **Amended (Task 27):** also `frontend/src/lib/api/QueryProvider.tsx`,
+  `frontend/src/components/ui/Dialog.tsx`, `frontend/src/components/ui/Avatar.tsx`. TanStack Query
+  was installed in Task 23 but no `QueryClientProvider` was ever mounted, so the first `useQuery`
+  would have thrown; it belongs inside `AuthGuard` so the cache dies with the session. `Dialog` and
+  `Avatar` exist because the create form, the deactivation confirmation and four avatar sites would
+  otherwise each reimplement focus trapping and the company/person shape rule.
 
 **Interfaces:**
 - Consumes: `apiFetch`, `useHasPermission`, TanStack Query.
 - Produces: `useCustomers(params)`, `useCustomer(id)`, `useCreateCustomer()`, `useUpdateCustomer()`, `useDeactivateCustomer()`, `useSendInvitation()`.
+- **Amended (Task 27):** also `useContacts(customerId, enabled)` — the detail screen's contact list
+  needs it, and it is disabled rather than merely hidden for a user without `contact.view`.
 
-- [ ] **Step 1: Build the list page**
+- [x] **Step 1: Build the list page**
 
 Search, status filter, pagination. "New customer" is rendered only when `useHasPermission("customer.create")`. Empty state uses `customer.list.empty`.
 
-- [ ] **Step 2: Build the detail page**
+Follow `component-specs.md` §7 Table and §8 Chips. The customer table's column grid is `2.1fr 1.2fr 1.5fr 1fr 1fr 0.7fr`. Cells are specified: **entity** is a 30px rounded-square initials avatar plus name `type-13`/500 over a `type-10` mono sub-line; **progress** is a 6px bar plus percentage; **date** is `type-11` mono, turning `status-blocked-fg` when overdue and `status-at-risk-fg` when expiring within 30 days.
+
+Two details that carry meaning and are easy to flatten: **rounded-square avatars mean a company, circular means a person** — the customer table relies on that distinction — and status is a **pill containing the word**, never a bare coloured dot.
+
+Filter chips are a `role="group"` with `aria-pressed` on each. The table is a real `<table>` with `<th scope="col">`, and a clickable row is a `<tr>` with a link in its primary cell — the prototype's `<div>`-with-`onClick` pattern is not keyboard reachable, and it appears in both the dashboard and the customer list, so it is the specific thing not to copy.
+
+> **Amended (Task 27): the six-column grid describes a screen sub-project 1 has no data for.**
+> The design's Customers screen lists **cases**, not companies — handoff README §4 says so
+> explicitly — and its six columns are name, stage, progress, owner, due date and health. The
+> §7 "Cells" block the step quotes is a catalogue of cell types across *every* table in the
+> product, not a description of this one; it also defines a "Visible to" cell, which belongs to
+> the documents table. `CustomerView` carries `displayName`, `legalName`, `status`, `industry`,
+> `country` and three ownership ids — no stage, no progress, no health and **no timestamps at
+> all**. Rendering a progress bar or an overdue date here would mean inventing the number behind
+> it. The table therefore ships **five** columns — Customer, Status, Legal name, Industry,
+> Country — keeping the design's fr shares for the columns that remain (`2.1 1.2 1.5 1 1`,
+> converted to percentages because `fr` is not a table width), and keeping the entity cell
+> verbatim. The progress and overdue-date cells become live in sub-project 2, when cases exist.
+> Consequence for Task 28: **these screens contain no progress bar**, so there is no
+> `aria-valuenow` on them to assert against.
+>
+> Two API asymmetries found while building against it, both backend fixes and neither done here:
+> `externalRef` is writable on `CreateCustomerRequest`/`UpdateCustomerRequest` but absent from
+> `CustomerView`, so no client can round-trip it and `PUT` silently erases it — the form
+> deliberately submits no `externalRef` rather than sending a blank one. And `PUT` replaces every
+> field, so the edit form must round-trip `ownerUserId`, `owningDepartmentId` and `owningTeamId`
+> or an edit to a display name would drop the record out of every DEPARTMENT, TEAM and ASSIGNED
+> scope. Covered by a test.
+
+**Amended in Task R1 (remediation).** `externalRef` is now on `CustomerView`, chosen over making the update partial: a full replace is only honest if the read returns everything the write accepts, and the spec (§9.1) lists `external_ref` as an ordinary column with no write-only qualification, so there was no security reason to withhold it. Partial-update semantics would have changed behaviour every existing caller depends on for a defect one field wide.
+
+**And the mitigation quoted above did not work.** "Submits no `externalRef` rather than a blank one" is a distinction the backend cannot see: `PUT` is a full replace, so a field absent from the JSON body deserialises to `null` and is written as `null`, exactly as a blank would be. The detail page therefore erased `external_ref` on every save, and the comment saying otherwise made it look handled. The page now round-trips it alongside the three ownership ids, and the detail-page test asserts all four. When adding a field to `UpdateCustomerRequest`, add it to `CustomerView` in the same change — the coupling is the invariant, and it is stated on the record itself.
+
+- [x] **Step 2: Build the detail page**
 
 Customer summary, editable when `customer.edit` is held, contact list, and a "Send invitation" action per contact gated on `invitation.send`.
 
-- [ ] **Step 3: Handle 404 correctly**
+> **Amended in Task R2 (remediation): this step omitted contact CREATION, which spec §12 requires.**
+> §12's definition of done reads "customers and contacts can be created and **invited**", and this
+> step named only display and invitation. Task 27 built exactly what was listed, so the interface
+> could show a contact and invite one but never add one — `POST /customers/{id}/contacts` had been
+> built, gated and tested since Task 21 and nothing ever called it. Neither Task 27's review nor
+> the reading of this plan noticed that the step did not satisfy the definition of done it serves;
+> Task 28 found it by trying to drive the flow end to end.
+>
+> **What hid it was the e2e, not the plan.** `e2e/customers.spec.ts` seeded its contact through the
+> API in `beforeAll` and then asserted the invitation button on it, so a green 27-test suite was
+> exercising an invitation to a record no user could have produced. The spec now creates the
+> contact through the interface. **When a definition of done names a verb, the end-to-end test must
+> perform that verb through the UI** — seeding it is what lets the whole affordance go missing
+> without a single test turning red.
+>
+> Delivered: `frontend/src/components/customers/ContactForm.tsx` and `useCreateContact()`, with an
+> "Add contact" action in the contact card header. The gate is **`contact.manage`**, read off
+> `CustomerContactService.create` — *not* `invitation.send`, which gates only the button beside it,
+> and not a `contact.create` that does not exist. `CardHeader` gained an optional `action` slot.
+>
+> **Editing was the same gap one endpoint over, and was closed in the Task R2 extension.**
+> `PUT /contacts/{contactId}` had existed since Task 21 with nothing calling it. That mattered more
+> than "a missing edit form" sounds: DELETE is deny-by-default at the database layer and business
+> records are deactivated rather than deleted, so `status = INACTIVE` is the **only** retirement a
+> contact has. With no edit path a contact once created was permanent *and* immutable — a typo in
+> the address an invitation is sent to could never be corrected, and a departed contact could never
+> be retired. The gate is `contact.manage`, the same as create, read off
+> `CustomerContactService.update` rather than assumed from it.
+>
+> **The full-replace check came back clean, for once.** `UpdateContactRequest` accepts six fields
+> and `ContactView` returns all six, so unlike the customer (Task 27's three ownership ids, R1's
+> `externalRef`) there is no field here that is writable but unreadable and nothing has to be
+> round-tripped blind. The form carries all six and the test asserts the PUT body equals them
+> exactly. **Run this check on every `Update*Request` you add** — it is two minutes and it has
+> already caught two silent data-erasure bugs in this sub-project.
+>
+> **A duplicate contact email answered 500.** `UNIQUE (customer_id, email)` is a foreseeable user
+> error, and an unhandled `DataIntegrityViolationException` told the caller only that something
+> broke. Now `DuplicateContactEmailException` → 409 via `customer/CustomerExceptionHandler` — in
+> the customer module, never in `platform`, which must not name a domain type. Two details worth
+> carrying forward: the translation needs `saveAndFlush`, because with an assigned id Hibernate
+> defers the INSERT to commit, which is outside any `try` in the service and outside the proxy that
+> could translate it; and it matches the Hibernate **constraint name**, with a test proving an
+> unrelated violation is *not* reported as a duplicate.
+
+- [x] **Step 2b (Task R2 extension): a nested write must scope-check its PARENT — fixed**
+
+**The rule, for every nested create in sub-projects 2–9:** a create has no record of its own to
+scope, so the parent id arriving from the URL is the only thing left to check. Resolve it through
+`AuthorizedQuery` before the write, using **the same permission the write is gated on**, and let the
+`NoSuchElementException` become the 404. Two rules this project already states, applied to the
+write path's parent lookup: reads of tenant business data go through `AuthorizedQuery`, and
+out-of-scope records return 404, never 403. It needs no new permission and invents no policy.
+
+`CustomerContactService.create` took a `customerId` and wrote the row with no parent lookup at all.
+`@RequirePermission` is coarse by design — `PermissionGateAspect` answers only "does this user hold
+the permission at ANY scope" — so a `contact.manage` holder scoped to DEPARTMENT, TEAM or ASSIGNED
+could attach a contact to **any** customer in the tenant, including invisible ones. Quiet rather
+than harmless: every read path resolves a contact's scope through its parent, so they could never
+see or invite what they wrote, and RLS kept it in-tenant, but the row was there. Now
+`authorizedQuery.getById(customers, Customer.class, CONTACT_MANAGE, customerId)` runs first.
+
+**Why `CONTACT_MANAGE` against `Customer.class` is coherent and not a mismatch:**
+`AuthorizationPredicateBuilder.forPermission` takes the **scopes** from the permission key and the
+predicate **shape** from the entity's descriptor. So the call asks precisely "which customers does
+this actor's `contact.manage` reach", and it keeps create in step with the read paths — you can only
+create under a parent you would then be able to see the result under.
+
+**`update` and `sendInvitation` needed no change, and that is proven rather than assumed.** `update`
+reads the contact through `AuthorizedQuery` and `CustomerContactDescriptor` resolves every contact
+scope through a subquery over the parent customer, so an unreachable parent already makes the
+contact unreachable; `UpdateContactRequest` carries no `customerId`, so a contact cannot be moved
+under a different parent either. `InvitationService.issue` is separately gated on `INVITATION_SEND`
+and also reads through `AuthorizedQuery`, so the bypass never chained. Both now have their own
+tests, which passed on their first run — that is the evidence the hole was confined to `create`.
+**Do not "restore symmetry" by adding a parent lookup to `update`**: it would cost a query per edit
+and imply the contact-level check were insufficient.
+
+The security test comes with a positive control — the same narrowly scoped actor creating under a
+customer that *is* theirs. Without it a parent check that denied everything would satisfy the
+negative test perfectly while breaking the feature.
+
+- [x] **Step 3: Handle 404 correctly**
 
 A 404 from the API renders "Not found" — never "You don't have access to this record." The backend deliberately does not distinguish the two, and the UI must not reintroduce the distinction the 404 exists to hide.
 
-- [ ] **Step 4: Wire deactivation**
+- [x] **Step 4: Wire deactivation**
 
 Confirmation dialog using `customer.deactivate.confirm` with the customer name interpolated. No delete action exists anywhere in the UI.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/
@@ -6364,15 +7669,17 @@ git commit -m "feat: add customer list and detail pages"
 - Consumes: `/admin/*` endpoints from Task 21, `/admin/permissions` for the catalog.
 - Produces: Playwright coverage of login, activation, refresh, and reuse detection.
 
-- [ ] **Step 1: Build the role editor**
+- [x] **Step 1: Build the role editor**
 
 This is the most intricate screen in the sub-project. It lists the permission catalog grouped by category, and for each permission offers **only the scopes that permission allows** — read from `/admin/permissions`, never hardcoded. A permission that is `ALL`-only shows a single option, not a disabled dropdown of four.
 
-- [ ] **Step 2: Build the user and org screens**
+The prototype's closest analogue is the workflow-builder stage inspector (`component-specs.md` §12): a sticky inspector at `top: 76px`, 32px fields at `radius-chip` on `bg-surface-sunken`, and toggles as a 34×20px track. If you use toggles for scope selection they are `role="switch"` with `aria-checked` — and any field that *looks* like an input but is not must be `readonly`, or it lies about being editable.
+
+- [x] **Step 2: Build the user and org screens**
 
 User list with role assignment, invite action, and deactivate. Departments and teams as simple CRUD.
 
-- [ ] **Step 3: Write the end-to-end tests**
+- [x] **Step 3: Write the end-to-end tests**
 
 Spec §11.4 names four flows, all of which must be covered: login, invitation activation, token refresh, and refresh-token reuse detection.
 
@@ -6401,12 +7708,18 @@ That last assertion is the one worth writing carefully. Rejecting the stolen tok
 - Add a contact and send an invitation.
 - A user without `customer.create` does not see the "New customer" button **and** receives an error if the endpoint is called directly from the page context.
 
-- [ ] **Step 4: Run the end-to-end suite**
+`e2e/accessibility.spec.ts` — the design's accessibility work is only worth having if something holds it:
+- Run `@axe-core/playwright` against login, the customer list, and the role editor, in **both themes**, and fail on any serious or critical violation. The dark theme has never been reviewed at screen level, so this is where its problems surface.
+- Tab through the customer list and assert a visible focus indicator on every stop — the prototype had none anywhere, and it is the single easiest regression to reintroduce.
+- Assert every progress bar exposes `aria-valuenow`, and that its value equals the visible percentage. They are separate DOM text in the prototype and can disagree.
+- Assert no interactive element is an unlabelled icon-only control.
+
+- [x] **Step 4: Run the end-to-end suite**
 
 Run: `cd frontend && npx playwright test`
 Expected: PASS. Both applications must be running, against a database seeded by the platform provisioning endpoint.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/
@@ -6423,20 +7736,34 @@ The handoff artifact. After this, a cold session in this repository can continue
 - Create: `CLAUDE.md` (repository root)
 - Modify: `docs/superpowers/plans/2026-08-12-foundation-and-tenancy.md` (mark remaining boxes)
 
+> **Amended in Task 29.** `CLAUDE.md` is **extended, not created** — it already existed (bfb9da8 on
+> main, merged at 74245a0) carrying the invariants and the whole design-system section, and its own
+> closing line names Task 29 as the step that adds the operational detail. Creating it would have
+> discarded that. Task 29 also ran in **two passes**: a scoped pass (afcae5a) wrote the operational
+> content when Playwright did not yet exist, and a closing pass after Tasks 26–28, R1 and R2 ran the
+> full gate, re-verified every documented command against a live system, and marked these boxes.
+
 **Interfaces:**
 - Consumes: everything built in Tasks 1–28.
 - Produces: the conventions file loaded automatically in every future session.
 
-- [ ] **Step 1: Verify the whole suite is green before documenting it**
+- [x] **Step 1: Verify the whole suite is green before documenting it**
 
 ```bash
-cd backend && ./gradlew test
+cd backend && ./gradlew cleanTest test
 cd ../frontend && npx vitest run && npx playwright test
 ```
 
 Do not write CLAUDE.md describing invariants that are not actually passing. If anything fails, fix it first.
 
-- [ ] **Step 2: Write CLAUDE.md**
+> **Amended in Task 29 — `cleanTest test`, never a bare `test`.** The command as originally written
+> (`./gradlew test`) is a false-green trap and it has already fooled one run in this project: Gradle
+> marks an unchanged `test` task `UP-TO-DATE` and prints `BUILD SUCCESSFUL` having executed nothing,
+> which is indistinguishable from a passing run. `cleanTest` is what makes this step evidence.
+> Playwright additionally needs a database; it starts both applications itself via its `webServer`
+> config, and takes `DB_URL=…` the same way the backend does.
+
+- [x] **Step 2: Write CLAUDE.md**
 
 It must cover, concretely:
 
@@ -6464,25 +7791,79 @@ It must cover, concretely:
 
 **What sub-project 2 inherits** — the descriptor seam, the `RelationshipType` vocabulary that cases and milestones will extend, and the `timeline_visible` flag on `audit_event` that the Activity Timeline reads.
 
-- [ ] **Step 3: Verify CLAUDE.md against reality**
+- [x] **Step 3: Verify CLAUDE.md against reality**
 
 Run every command listed in the file and confirm each works as written. A CLAUDE.md with a stale command is worse than none — it gets trusted.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add CLAUDE.md docs/
 git commit -m "docs: add CLAUDE.md capturing durable project conventions"
 ```
 
-- [ ] **Step 5: Final verification**
+- [x] **Step 5: Final verification**
 
 ```bash
-cd backend && ./gradlew test
+cd backend && ./gradlew cleanTest test
 cd ../frontend && npx vitest run && npx playwright test
 ```
 
 Confirm the definition of done in spec §12: tenant provisioning seeds twelve roles; a tenant administrator manages users, roles, departments and teams; customers and contacts can be created and invited; a contact activates and logs in as a `PORTAL` user; every action is audited; and all eight negative security tests plus the structural guards pass.
+
+> **Amended in Task 29 — `cleanTest test`, as in Step 1.**
+>
+> **Five of the six clauses are met in full and the sixth is substantially met**, verified against
+> the running system rather than against this plan: twelve roles (`RoleTemplates` holds exactly twelve; `TenantProvisioningTest` asserts twelve
+> exist after a real provision); administration of users, roles, departments and teams (`admin.spec.ts`
+> drives all three screens as a logged-in administrator); customers and contacts created and invited
+> (`customers.spec.ts` creates both through the interface and invites the contact); a contact
+> activating and signing in as `PORTAL` (`activation.spec.ts`); and the eight negative security tests
+> plus all four structural guards, which execute rather than pass vacuously.
+>
+> **"Every action is audited" is the sixth, and it needs stating precisely rather than ticking.**
+> Four surfaces were found recording nothing or recording the wrong thing, in two waves, and all four
+> are fixed. But this clause was twice declared met on the strength of a partial check — first for
+> contacts, then again after the identity fixes — so what follows is an enumeration, not a claim.
+>
+> **Audited:** tenant creation; user create, update, deactivate and role-assignment; role create,
+> update and disable; department and team creation; customer create, update and deactivate; contact
+> create, update and deactivate; portal invitation sent and accepted; login succeeded and failed;
+> refresh-token reuse detection.
+>
+> **Not audited, and routed to the final review rather than fixed here:** `RoleService.deleteRole`;
+> `RoleService.unassignRole` (its `assignRole` counterpart *is* audited, so a grant can be added
+> traceably and removed silently — the sharpest of these); and re-enabling a disabled role, because
+> `setEnabled` records only on the disable branch. `PasswordResetService` records neither the request
+> nor the completion, though a failed login after one is visible. Defensible omissions rather than
+> gaps: refresh-token *rotation* (every request would write a row, and reuse detection — the security
+> event — is recorded), login-throttle counters, and `UserInvitationService` issuance for internal
+> users, which `user.created` already covers at the moment it happens.
+>
+> The first wave was contacts. `CustomerContactService.create` and `.update` recorded no audit event
+> and `AuditActions` carried no `contact.*` constant, so contact creation and retirement left no
+> trace — a consequence of the contact write surface arriving last, in Task R2, where the customer
+> equivalents were audited from Task 20. Now `contact.created`, `contact.updated` and
+> `contact.deactivated`, all timeline-visible like their `customer.*` counterparts. Retirement is a
+> **distinct** action keyed on the *transition* into INACTIVE, because a contact has no separate
+> deactivate endpoint the way a customer does yet has the same property that makes
+> `customer.deactivated` necessary: nothing is ever deleted, so the event is the only record the
+> retirement happened.
+>
+> The second wave was Task 21's identity work, found only because the review re-checked the
+> completeness claim instead of accepting it. `UserAdminService.deactivate` recorded
+> `AuditActions.USER_CREATED` — the summary read "Deactivated user" while the action key, the field
+> every consumer filters on, said `user.created`. **A wrong record is worse than a missing one**, and
+> `audit_event` is append-only, so every deactivation performed before this fix is permanently
+> mislabelled in the log. `update` recorded nothing, and `OrgStructureService` had no `AuditRecorder`
+> injected at all, so department and team creation — DoD clause 2, driven live by `admin.spec.ts` —
+> left no trace. Added `user.updated`, `user.deactivated`, `department.created` and `team.created`.
+>
+> All four new actions are `timelineVisible = false`, and the rule is now written at the top of
+> `AuditActions`: **the side is decided by whose record changed, not by how weighty the verb is.**
+> `customer.deactivated` is visible because the customer's own record changed; `user.deactivated` is
+> not, because a vendor's internal staffing change is not the customer's business and surfacing it
+> would leak the vendor's org changes onto a customer-facing timeline.
 
 ---
 
@@ -6495,6 +7876,34 @@ Confirm the definition of done in spec §12: tenant provisioning seeds twelve ro
 **Migrations are forward-only.** If a committed migration is wrong, add a new `V*` file that corrects it.
 
 **Tasks 20 and 21 are the pattern for sub-projects 2–9.** Every later domain module repeats the same shape: entity with `tenant_id`, migration with `enable_tenant_rls`, a `ResourceAuthorizationDescriptor`, a service where every public method is gated and every read goes through `AuthorizedQuery`, and a thin controller.
+
+---
+
+### From the final whole-branch review (2026-08-17)
+
+The review's own report was deleted with the SDD workspace; these are the process findings worth carrying into sub-projects 2–10. The functional and security findings live in `CLAUDE.md`'s *Open at the close of sub-project 1*.
+
+**Every enumeration in this sub-project drifted behind the code, and each was correct when written.** Four hand-written lists are load-bearing guards, and all four were narrower than the thing they claimed to cover by the end of the branch: `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` named `customer..` and `identity..` but not `auth..`, where the third escalation then hid; `DirectApiAccessTest`'s path list is eleven endpoints short; `contrast.py`'s `SHIPPED_PAIRS` is run against one of the two themes that ship, and its first version was all-neutral and reported "0 of 17 fail" while the dark primary button sat at 1.53:1. The lesson is not "be more careful with lists" — it is that **a guard whose scope is typed by hand decays, and one whose scope is derived does not.** Sweep the `RequestMappingHandlerMapping` for every registered path rather than listing them; iterate the themes `build_tokens.py` knows about rather than naming one; match packages by a property of the class rather than by an allowlist where you can.
+
+`DirectApiAccessTest.everyEndpointRefusesAnonymousAndResolvesForAnAdministrator` carries a comment promising that adding an endpoint without adding it there is "a visible gap in the list rather than an invisible one". It is not; these are missing, verified against every `@RestController` on the branch (the `/auth/**` endpoints are deliberately anonymous and correctly absent):
+
+| Missing from the sweep |
+|---|
+| `GET /admin/roles` |
+| `PUT /admin/roles/{id}/grants` |
+| `POST /admin/roles/{id}/disable` |
+| `POST /admin/roles/{id}/enable` |
+| `DELETE /admin/roles/{id}` |
+| `GET /admin/users/{id}` |
+| `PUT /admin/users/{id}` |
+| `DELETE /admin/users/{id}/roles/{roleId}` |
+| `GET /customers/{customerId}/contacts` |
+| `PUT /customers/{customerId}/contacts/{contactId}` |
+| `POST /customers/{customerId}/contacts/{contactId}/invitations` |
+
+**"Measured" is meaningless without "by what, over which inputs".** Two claims on this branch were read as broader than they were. A clean axe run in both themes was taken as "the light theme is measured" — axe's default rule set has no non-text contrast rule, and nine light pairs fail 1.4.11. And `report_shipped` was written precisely to measure the *shipped* tokens, then wired to run against one theme. When recording that something has been verified, record the instrument and the inputs in the same sentence; a bare "measured" is what both of these were.
+
+**A coarse gate plus a fine predicate leaves a seam on every write.** `@RequirePermission` cannot see method arguments, so any service method taking a foreign id from the URL or body and writing without resolving it through `AuthorizedQuery` is a scope bypass. This branch found it three times — contact creation, role assignment, invitation issuance — and fixed each individually before naming the pattern. Sub-projects 2–10 nest resources far more deeply than customer→contact, so treat "which argument did I not resolve?" as a standing review question rather than a bug class that was closed.
 
 
 

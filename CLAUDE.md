@@ -25,6 +25,245 @@ Read the relevant one before starting work. Where they disagree, the more specif
 
 ---
 
+## Project shape
+
+Single monorepo: `backend/` (Spring Boot, Gradle) and `frontend/` (Next.js), with `docs/` holding
+the PRD, QA, specs, plans and the design system. `docker/` arrives in sub-project 10.
+
+The backend is a modular monolith organised by domain, one package per module under
+`co.ara.onboarding`: `platform/` (cross-cutting infrastructure), `tenancy/` (tenant records and
+context), `identity/` (users, departments, teams, platform admins), `authz/` (permission catalog,
+roles, grants, enforcement), `audit/`, `customer/` (customers, contacts). `provisioning/` and
+`scoping/` exist only because they orchestrate two or more of the others.
+
+**Sub-project 1 delivered:** tenancy with RLS, identity, RBAC with record-level scope and twelve
+seeded role templates, JWT auth with refresh rotation and reuse detection, invitation / activation /
+password reset, login throttling, the audit substrate, customer and contact management, and on the
+frontend the token layer, i18n, API client and public auth pages.
+
+**Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
+`docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
+Collaboration → 4 Documents → 5 Agreements (needs 4) → 6 Notifications, SLA & Escalation (2, 3) →
+7 Customer Portal (2, 4, 5) → 8 Dashboards & Real-time (2–6) → 9 Reporting & Analytics (2–6) →
+10 Packaging & Deploy. Sub-projects 2–9 each add one module in the shape of sub-project 1's Tasks
+20–21: entity with `tenant_id`, migration calling `enable_tenant_rls`, a
+`ResourceAuthorizationDescriptor`, a service where every public method is gated and every read goes
+through `AuthorizedQuery`, and a thin controller.
+
+---
+
+## Running it locally
+
+PostgreSQL 16, database `onboarding`:
+
+```bash
+docker run -d --name onboarding-db -p 5432:5432 \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=onboarding postgres:16-alpine
+```
+
+Flyway connects as the owner (`postgres`/`postgres`) and `V2` creates the `onboarding_app` login
+role the application then connects as. Override with `DB_URL`, `DB_OWNER_USER` / `DB_OWNER_PASSWORD`,
+`DB_APP_USER` / `DB_APP_PASSWORD` (defaults in `backend/src/main/resources/application.yml`). If 5432
+is already taken, map another port and set `DB_URL` to match.
+
+**Backend** on :8080 —
+
+```bash
+cd backend && SPRING_PROFILES_ACTIVE=dev \
+  JWT_SECRET="$(openssl rand -base64 48)" \
+  APP_PLATFORM_ADMIN_EMAIL=ops@example.com APP_PLATFORM_ADMIN_PASSWORD=<pick-one> ./gradlew bootRun
+```
+
+PowerShell — this repository is developed on Windows, and the bash form above runs on neither
+`cmd` nor PowerShell (`VAR=value cmd` prefixing and `$(…)` are bash). Omitting `JWT_SECRET` is not
+an option: the application refuses to start without it.
+
+```powershell
+cd backend
+$env:SPRING_PROFILES_ACTIVE = "dev"
+$env:JWT_SECRET = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))
+$env:APP_PLATFORM_ADMIN_EMAIL = "ops@example.com"
+$env:APP_PLATFORM_ADMIN_PASSWORD = "<pick-one>"
+.\gradlew.bat bootRun
+```
+
+`JWT_SECRET` is **required, on every profile** — the application refuses to start without at least 32
+bytes of it, and says so naming the variable. There is no dev default: a committed one is a signing
+key every reader of this repository holds, and the deployment that forgets the variable is exactly
+the one that would use it. Pick a value once and keep it in your shell; changing it between restarts
+invalidates every access token already issued, which reads as a spate of 401s.
+
+Both platform-admin variables are blank by default and `PlatformAdminBootstrap` does nothing without
+them — but `/api/platform/**` is HTTP Basic behind `hasRole("PLATFORM_ADMIN")`, so without one no
+tenant can ever be created. It is idempotent: an existing address is left untouched, never re-hashed —
+so against a database that already has that administrator, changing `APP_PLATFORM_ADMIN_PASSWORD`
+silently does nothing and the provisioning call below answers 401. Startup logs which it did
+("already exists; leaving it unchanged"), and that line is the fastest way to read a puzzling 401.
+
+**Frontend** on :3000 — `cd frontend && npm install && npm run dev`. `src/lib/api/client.ts` issues
+same-origin `/api/t/{slug}/…` requests, which is what keeps the HttpOnly `SameSite=Strict` refresh
+cookie attached; `next.config.ts` rewrites `/api/:path*` to `BACKEND_ORIGIN` (default
+`http://localhost:8080`) to make that reach the backend. `rewrites` is a dev/runtime-server
+mechanism — a production deployment configures the same mapping at its edge proxy instead
+(sub-project 10). Never replace it with a route handler under `app/api/…`; one existed as a mock and
+was deleted.
+
+**Provision a tenant** (seeds the twelve role templates and one `INTERNAL` administrator):
+
+```bash
+curl -u ops@example.com:<password> -X POST http://localhost:8080/api/platform/tenants \
+  -H 'Content-Type: application/json' \
+  -d '{"slug":"acme","name":"Acme Corp","adminEmail":"admin@acme.test","adminFullName":"Acme Admin"}'
+# → {"tenantId":"01a0001e-…"}
+```
+
+**Activation and reset tokens** are obtainable only from the log. Under the `dev` and `test` profiles
+`LoggingEmailSender` logs each message body in full; `SmtpEmailSender` takes over elsewhere. Trigger
+one (e.g. `POST /api/t/acme/auth/password-reset/request` with `{"email":"…"}`, which answers 204 for
+known and unknown addresses alike) and grep the application's stdout for `[email]`:
+
+```
+… c.a.onboarding.auth.LoggingEmailSender : [email] to=admin@acme.test subject=Reset your password
+Use this token to reset your password: <base64url token>
+```
+
+The body carries a bare token, not a URL; the activation page reads it from
+`/t/{slug}/activate?token=…`.
+
+Provisioning also issues the administrator an `ACTIVATION` invitation and emails it, in the same
+transaction — that is the only way in, since the account is created `INVITED` and `LoginService`
+admits only `ACTIVE`. So the full bootstrap is: provision → read the token from the log → `POST
+/auth/activate` → `POST /auth/login`. A password reset is **not** a substitute: it sets the hash and
+deliberately leaves `status` alone, so the login still returns 401. There is no re-issue path once
+the seven-day TTL expires; a tenant provisioned and forgotten for a week needs manual intervention
+(sub-project 2).
+
+Also operational: `audit_event` is partitioned by month and `V5` creates only `2026_08`, `2026_09`
+and a DEFAULT partition. The job that rolls partitions forward arrives in sub-project 6.
+
+**Open at the close of sub-project 1**, verified against the running system — none of these is a
+regression to hunt:
+
+- **`user.manage` at DEPARTMENT or TEAM scope is still a privilege-escalation path.** Its holder
+  can no longer reach users outside their scope — every target is resolved through
+  `AuthorizedQuery` — but nothing checks the *role being granted*, so they can assign a role wider
+  than their own to anyone they legitimately manage, themselves included, and `RoleEditor` shows
+  them the ids. The guard (require `role.manage` to assign, or refuse a role whose grants exceed
+  the caller's) is a policy decision about delegation and belongs to sub-project 2's tenant
+  administration. **Until it exists, `user.manage` at any scope is equivalent to the widest role in
+  the tenant. Grant it accordingly.**
+- **A narrow-scoped `user.manage` holder cannot create a user through the Users screen.** The create
+  form sends only `{email, fullName}`, so `departmentId` is null, and a department-less user is
+  outside a DEPARTMENT- or TEAM-scoped actor's own scope — `UserAdminService.create` refuses with a
+  404 rather than making them a user its author could not then manage. Correct, and fails closed,
+  but the screen offers no department field to succeed with and the 404 says nothing useful. None
+  of the twelve seeded templates is affected: only `Administrator` holds `user.manage`, at `ALL`.
+  A department picker on that form is the fix, with the options scoped to the actor. There is no
+  user-edit screen either — `PUT /admin/users/{id}` exists but `lib/api/admin.ts` never calls it —
+  so a department cannot be changed after creation from the UI at all.
+- **TEAM scope is dead in a running system, and four seeded roles therefore confer nothing.**
+  Nothing in the API writes `team_member`: `OrgStructureController` exposes only list and create
+  for departments and teams, and `AppUser.teamIds` is written only by `TenantFixture.addToTeam` in
+  tests. So `ctx.teamIds()` is empty for every real user and every descriptor's `teamScope` —
+  `AppUserDescriptor`, `CustomerDescriptor`, and the two that resolve through them — returns
+  `cb.disjunction()`. Account Manager, Project Manager, Technical and Support grant **only** at
+  TEAM, so all four resolve to no access whatsoever. It fails closed, so this is not a security
+  hole; it is the largest functional gap on the branch. It needs team-membership endpoints and a
+  screen, and until then those four templates should not be handed out.
+- **Ownership foreign keys carry no tenant component, and one is observable.** `CustomerService`
+  writes `ownerUserId`, `owningDepartmentId` and `owningTeamId` straight from the request with no
+  existence or tenancy check. PostgreSQL evaluates referential integrity with row security
+  bypassed, so a UUID belonging to **another tenant's** `app_user` satisfies the FK and answers
+  200, while an invented UUID raises an FK violation and answers 500. That difference is a
+  cross-tenant existence oracle, and it leaves a customer owned by a stranger. Fix shape: resolve
+  all three ids through their repositories and let RLS do the tenancy work. `app_user.department_id
+  REFERENCES department(id)` has the same shape — undiscoverable through the API under RLS, but
+  `UserAdminService.create` and `update` now lean on `departmentId` for authorization decisions.
+- **Deactivation ends the session but not the pending credentials.** `deactivate` revokes every
+  refresh family and `AuthorizationService` zeroes authority for a non-ACTIVE user, but
+  `PasswordResetService` consults `status` nowhere — so a DEACTIVATED account can still request and
+  complete a reset — and outstanding `invitation` rows stay redeemable. No authority is gained
+  (`LoginService` admits only ACTIVE, rotation refuses), but if "deactivation ends the account" is
+  an invariant, invalidating its pending tokens is the missing half.
+- **The tenant slug is unvalidated at provisioning.** `PlatformTenantController` carries no
+  `@Valid` and `ProvisionRequest` no constraints. A slug that does not match
+  `PathPrefixTenantResolver`'s `^[a-z0-9][a-z0-9-]{0,62}$` — `Acme`, `acme_corp` — creates a tenant
+  that is permanently unreachable, since every request resolves no slug and answers 401, with no
+  error at creation time. A duplicate slug is a raw 500 from the unique constraint: nothing maps
+  `DataIntegrityViolationException`.
+- **`DB_APP_PASSWORD` defaults to the committed literal `onboarding_app`.**
+  `V2__app_role_and_tenant.sql` creates the login role with that password and `application.yml`
+  defaults to it, with no guard — the same failure shape `JwtProperties` was just built to prevent
+  for `JWT_SECRET`. Migrations are forward-only, so the role's password must be rotated
+  operationally; the code half is to drop the default and refuse to start without the variable,
+  exactly as `JWT_SECRET` now does.
+- **Contact email drifts from `app_user`, and the two uniqueness rules disagree.**
+  `CustomerContactService.update` rewrites `contact.email` without touching the linked
+  `app_user.email`, so a corrected address leaves the portal login on the old one. And
+  `customer_contact` is unique on `(customer_id, email)` **case-sensitively** while `app_user` is
+  unique on `(tenant_id, lower(email))` — so two contacts differing only in case are accepted, and
+  the second one's activation fails as an "invalid token".
+- **Three write paths are still unaudited**, all in `authz`/`auth` rather than the domain modules:
+  `RoleService.deleteRole`; re-enabling a disabled role, because `setEnabled` records only on the
+  disable branch; and `PasswordResetService`, which records neither request nor completion.
+  `RoleService.unassignRole` was the fourth and is now audited — `user.role_unassigned`, written
+  inside the `ifPresent` so an idempotent no-op records nothing. Deliberately not audited:
+  refresh-token rotation (every request would write a row, and reuse detection — the security event —
+  *is* recorded) and login-throttle counters.
+- **Deactivations recorded before 2026-08-16 are mislabelled.** `UserAdminService.deactivate` wrote
+  the `user.created` action key with only its prose summary dissenting. Fixed, but `audit_event` is
+  append-only, so historical rows cannot be corrected — anything querying `user.created` over that
+  period is counting deactivations too.
+- **Retiring a contact does not revoke portal access, and does not stop a new one being granted.**
+  `update` sets `status = INACTIVE` on the contact only; the linked `app_user` stays `ACTIVE`, and
+  `LoginService` reads the user, so a retired contact can still sign in. It can also still be
+  invited and activated: neither `InvitationService.issue` nor `ActivationService.activateContact`
+  reads `ContactStatus`, and nothing revokes outstanding invitations on retirement — so a retired
+  contact holding a live seven-day token still creates an ACTIVE `PORTAL` user.
+- **The 409 on a duplicate contact email is not in the OpenAPI document.** The behaviour is real and
+  tested (`DuplicateContactEmailException`, unique `customer_contact_customer_id_email_key`), but
+  springdoc advertises only 201 on create and 200 on update, so `generated.ts` has no 409 for a
+  client to narrow on.
+
+### Tests
+
+```bash
+cd backend && ./gradlew cleanTest test     # needs Docker running
+cd frontend && npx vitest run
+```
+
+All three suites — backend, frontend unit, Playwright — were green at the close of sub-project 1
+(2026-08-16), with nothing skipped and no retries. Counts are deliberately not pinned here: they
+move every time sub-project 2 adds a test, and a number in this file that drifts is a number that
+gets trusted. Read the suite's own summary line, and treat a *failure* as the signal, never a count.
+
+**Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
+prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a green run.
+`org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
+cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
+
+`cd frontend && npx playwright test` is the end-to-end command: six specs — login, activation,
+refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
+1024px fallback, the administration screens, and accessibility in both themes at four widths.
+It starts **both** applications itself, so nothing needs to be running first; if 8080 or
+3000 is already bound it reuses what is there, which is wrong often enough that killing strays
+first is worth it. The backend goes through `e2e/support/backend.mjs`, which tees its output to
+`frontend/e2e/.artifacts/backend.log` — **that log is the only place an activation token exists**,
+and Playwright gives a test no way to read a `webServer`'s stdout. Override the database the same
+way the backend does: `DB_URL=… npx playwright test`. It provisions a tenant per spec file and
+never truncates, so point it at a scratch database.
+
+API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
+during `:test`; `./gradlew openApiSpec` is the wrapper that produces it and says where it is. `npm run
+generate:api` then regenerates `frontend/src/lib/api/generated.ts` from it, and
+`npm run generate:api:live` reads a running backend instead. The document's output is declared on
+`test`, which writes it — declaring it on `openApiSpec`, which only checks for it, made Gradle delete
+it as a stale output moments before the check and the task failed every run. Deleting only
+`openapi.json` re-runs `:test`. Note springdoc orders schema properties nondeterministically, so
+back-to-back regenerations produce reordering-only diffs; that is noise, not a contract change.
+
+---
+
 ## UI/UX: the design system is an input, not a deliverable
 
 `docs/uispecs/` is a complete design system for the whole platform. **Frontend work implements it;
@@ -36,7 +275,7 @@ first builds the shell.
 | `docs/uispecs/design/README.md` | Build order, and what to preserve |
 | `docs/uispecs/design/02-tokens/` | Three-layer tokens (`tokens.md`, `tokens.css`, `tailwind.css`) |
 | `docs/uispecs/design/04-components/component-specs.md` | All 17 component families, with states and ARIA |
-| `docs/uispecs/design/05-review/ux-design-review.md` | 12 accessibility findings; 4 still open |
+| `docs/uispecs/design/05-review/ux-design-review.md` | 14 accessibility findings; 4 still open |
 | `docs/uispecs/design/03-icons/` | 56 icons + JSON registry |
 | `docs/uispecs/README.md` | Screen-by-screen layout, and product decisions worth preserving |
 | `docs/uispecs/Onboarding Platform.html` | The working prototype — open it before building a screen |
@@ -54,18 +293,42 @@ Four decisions erode quietly and must be held:
 4. **Colour is never the only signal.** Every status colour is paired with a word or an icon.
 
 Two token constraints are **not re-derivable by eye — do not "fix" them**: `text-faint` and
-`text-disabled` resolve to the same value because the palette has no room for a third quiet grey
-clearing WCAG AA on the darkest ground it lands on; and `paper-600` is a graphics-only tier valid
-at 3:1 for 20px+ marks, never for text. Derivation in `05-review/ux-design-review.md` §1. Run
-`docs/uispecs/design/scripts/contrast.py` if you add any text colour.
+`text-disabled` resolve to the same value *in both themes* because neither palette has room for a
+third quiet grey clearing WCAG AA on the ground that binds it — the *darkest* in light (`#f2f0ec`),
+the *lightest* in dark (`slate-700`); and `paper-600` is a graphics-only tier valid at 3:1 for 20px+
+marks and 1px borders, never for text. Derivation in `05-review/ux-design-review.md` §1 and §1b.
+
+Run `docs/uispecs/design/scripts/contrast.py` if you add any colour, and read its two tables
+differently. `SHIPPED_PAIRS` resolves **token names** through `build_tokens.py` — 49 pairs in the
+**dark** theme covering text, rail, accent, status pills, solids and borders, i.e. every pair a
+component paints — so a FAIL there is live. `PAIRS` is 24 **literals copied from the prototype as
+handed off**: it is the evidence behind review finding 1, its 7 failures are the historical record
+and are meant to stay red, and it says nothing about the light tokens shipping today. **The shipped
+light tokens are measured by nothing, and the deferred `border-default` at 1.28:1 is not the whole
+of it**: `report_shipped("light")` was run at the close of sub-project 1 and **nine of the 49 pairs
+fail** — `accent-tint-border` on tint 1.06, `accent-weak` on surface 1.53, `solid-at-risk` on
+surface 2.54, `border-default` on all four grounds 1.15–1.28, `border-strong` 1.44,
+`border-dashed` 1.68, all against 3:1. **No text pair fails** — every one is a non-text graphic
+(WCAG 1.4.11), and **axe's default rule set evaluates `color-contrast` for text and has no non-text
+rule**, so Task 28's clean axe run in both themes measured a different thing from the one that
+fails. Light is the **default** theme (`ThemeProvider` sets `defaultTheme="system"`), so every card
+and control border in the default rendering sits near 1.2:1. The fix is the one R1 applied to dark:
+fix the tokens in `build_tokens.py`, regenerate, copy both files across, and turn
+`report_shipped("light")` on. `contrast.py`'s own `__main__` banner still carries the understated
+"the known, deferred `border-default` at 1.28:1" wording.
 
 Dark theme is keyed on `[data-theme="dark"]`, **not a class** — configure `next-themes` with
 `attribute="data-theme"` or the dark tokens never apply. Generated assets come from the scripts in
-`design/scripts/`; never hand-edit them.
+`design/scripts/`; never hand-edit them. `frontend/src/app/tokens.css` and `tailwind-theme.css` are
+verbatim copies of `02-tokens/tokens.css` and `tailwind.css` — regenerate, then copy both across.
 
 **Gaps the design does not cover, which implementations must supply:** empty states, loading
-skeletons, error states, and any layout below 1440px. The dark theme exists structurally but has
-never been reviewed at screen level.
+skeletons, error states, and any layout below 1440px. Task R1 measured the dark theme's **contrast**
+for the 49 pairs listed above and fixed every failure (§1b). That is a claim about those pairs and
+nothing else: it is **not** a visual review, which has still never happened, so composition, weight
+and hierarchy are unproven. Add a pair to `SHIPPED_PAIRS` whenever you add a role — the first
+version of that table was all-neutral and reported "0 of 17 fail" while the dark primary button sat
+at 1.53:1.
 
 ---
 
@@ -91,12 +354,55 @@ correct response to one failing is to fix the code, never to weaken the guard.
 - **Every public `*Service` method carries `@RequirePermission`** (`AuthorizationCoverageTest`).
   Exclusions are per-class, commented, and fall into exactly two categories: runs before there is
   an actor to authorize, or is infrastructure the gate itself depends on.
-- **Reads of tenant business data go through `AuthorizedQuery`.** A repository finder called
-  directly skips the scope predicate — a silent, total bypass rather than a visible error.
-- **Permissions are never embedded in tokens.** Authority is resolved server-side per request.
+- **Reads of tenant business data go through `AuthorizedQuery`** — and so does **every id a write
+  path takes from a URL or a request body**, before it writes. A repository finder called directly
+  skips the scope predicate: a silent, total bypass rather than a visible error. The write half is
+  the one that keeps escaping, because `@RequirePermission` cannot see arguments, so a passing gate
+  proves only that the actor may touch *some* record of that type. Three separate escalations in
+  sub-project 1 were this exact shape — contact creation, role assignment, invitation issuance —
+  and each was fixed individually before the pattern was named. Sub-projects 2–10 nest resources
+  far more deeply than customer→contact, so expect more of them, not fewer.
+  `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` covers `customer..`,
+  `identity..` and `auth..`; **add your package to it in the same commit that adds your service.**
+  Note the rule is **name-shaped**: it binds to classes ending in `Service`, so `IdentityActorDirectory`
+  and `UserRoleDirectory` call finders directly and are invisible to it. Both are correct today, but
+  a future `*Directory` taking a foreign id would be unguarded in exactly the way `auth` was.
+- **Permissions are never embedded in tokens and never cached across requests.** Authority is
+  resolved server-side per request, so a revoked grant takes effect on the next call rather than
+  when a token happens to expire. **The same applies to a revoked account**, which is why
+  `AuthorizationService` joins `app_user` on `status = 'ACTIVE'`: a deactivated user resolves zero
+  permissions, so every gate denies and every `AuthorizedQuery` predicate collapses to disjunction
+  on the very next request, rather than after the access token's remaining ≤15 minutes.
+- **Deactivating a user must end the session, not set a column.** `deactivate` revokes every
+  refresh family (through the `identity/UserSessionRevoker` port) and `RefreshTokenService.rotate`
+  independently refuses a non-ACTIVE user, because deactivation will not stay the only way a status
+  changes. Before this, `UserStatus.ACTIVE` was read in exactly one place in the whole main source
+  tree — `LoginService` — which a browser holding a refresh cookie never reaches again.
+- **`JWT_SECRET` is required configuration, not a default with an override.** `JwtProperties`
+  refuses to start the application when it is unset, under 32 bytes, or one of the three secrets
+  this repository has published (`JwtSecretGuardTest`). The guard is deliberately not keyed on
+  profile — a "unless dev" check misses the deployment that forgot the profile too. **No usable
+  signing secret is written down anywhere in this repository**: `application.yml` ships no fallback,
+  the backend suite generates one per run in `PostgresTestBase`, and the e2e harness does the same
+  in `e2e/support/backend.mjs`. Do not reintroduce a literal — a committed secret is a secret
+  nobody has, and the denylist is what a value becomes once it has been published.
+- **Every resource type registers a `ResourceAuthorizationDescriptor`.** `DescriptorRegistry.validate()`
+  refuses to start the application otherwise — an unregistered type would reach scope resolution with
+  no predicate to apply. Descriptors must fail closed: no department, no teams ⇒ `cb.disjunction()`.
+- **`ASSIGNED` means a personal relationship** (`RelationshipType`); access mediated by a team the
+  user belongs to is `TEAM`. Conflating them silently widens `ASSIGNED` to everything the user's
+  teams can reach.
 - **Out-of-scope records return 404, never 403.** The UI must not reintroduce the distinction the
   404 exists to hide.
+- **A `PUT` is a full replace, so its view type must carry every field its request type accepts.**
+  A field absent from the JSON body deserialises to null and is written as null — omitting it is
+  identical to blanking it, so "the form just doesn't send it" is not a mitigation. Adding a field
+  to an `Update*Request` without adding it to the matching `*View` makes every client silently
+  erase it.
 - **Absence of a grant is the denial.** There are no deny grants anywhere in authorization.
+- **`audit_event` is append-only at the database layer** — `GRANT SELECT, INSERT` with `UPDATE` and
+  `DELETE` revoked. A permission, not a convention, because an audit trail the application can
+  rewrite is not evidence.
 - **UUIDv7 primary keys** via `co.ara.onboarding.platform.Uuid7.generate()`. Values that must be
   unpredictable rather than merely unique (refresh tokens, invitation tokens) use `SecureRandom`
   directly and never a UUID.
@@ -104,10 +410,43 @@ correct response to one failing is to fix the code, never to weaken the guard.
 
 ---
 
+## Where the guards live
+
+- `backend/src/test/java/co/ara/onboarding/architecture/` — `RlsCoverageTest`,
+  `AuthorizationCoverageTest`, `ModuleBoundaryTest`, `OpenApiDocumentTest`.
+- `.../authz/DescriptorRegistryTest`, covering `DescriptorRegistry.validate()`.
+- `.../security/` — the eight negative tests: `ChangedPermissionsTest`, `ConflictingGrantsTest`,
+  `CrossTenantAccessTest`, `DirectApiAccessTest`, `InsufficientPermissionTest`,
+  `InsufficientScopeTest`, `MultipleRolesTest`, `RoleLifecycleTest`.
+
+**These are not to be weakened to make a change pass.** They exist precisely to fail when something
+is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
+and its failure mode — silent cross-tenant exposure — is the one this product cannot survive.
+
+**A guard is only as wide as its enumeration, and every enumeration in sub-project 1 drifted
+behind the code.** All three ArchUnit rules, `DirectApiAccessTest`'s endpoint list and
+`contrast.py`'s pair table are hand-written lists, and each was correct when written: the
+`AuthorizedQuery` rule named two of the packages that needed it, the endpoint list is eleven
+endpoints short (detail in the plan's *Notes for the Executor*), the contrast table covered one of
+the two themes that ship. **Prefer a derivable list to a typed one** — sweep every `@RestController`
+mapping rather than naming paths, resolve both themes rather than one — so a guard grows with the
+code instead of being re-widened by hand after each miss.
+
+---
+
 ## Working conventions
 
+- **One module per domain**, owning its own entities, repositories, services and controllers and
+  exposing a narrow interface. Sub-projects 2–9 each add one; nothing reaches into another module's
+  internals.
+- **Every user-facing string goes through `t()`** (`frontend/src/lib/i18n`). A missing key renders
+  as the key itself, so gaps are visible rather than silent.
 - **TDD.** Write the failing test first; security tests before the mechanism they verify. A
   structural guard you have never seen fail is a guard you cannot trust — prove new ones red.
+- **Tests that construct their own preconditions converge on the happy scope.** Every write case in
+  `UserAdminTest` granted `USER_MANAGE` at `ALL`, which is precisely why the escalation survived:
+  not one test asked what a *narrow* write scope does. Wherever a permission is catalogued at
+  several scopes, **at least one write test must run at the narrowest one.**
 - **Conventional Commits** (`feat:`, `fix:`, `test:`, `docs:`, `chore:`). Explain *why* in the
   body, especially when deviating from the plan.
 - **Never assert an exception inside a `fixture.runAs(...)` lambda.** Those helpers run in a
@@ -116,7 +455,35 @@ correct response to one failing is to fix the code, never to weaken the guard.
 - **Fixture create-helpers must run inside `runAs`** — the tables they write are RLS-protected, and
   Spring Data repository proxies do not trigger the tenant binder.
 - **Backend tests need Docker running** (Testcontainers, `postgres:16-alpine`).
-- Run `cd backend && ./gradlew test` before committing. On PowerShell use `.\gradlew.bat`.
+- Run `cd backend && ./gradlew cleanTest test` before committing. On PowerShell use `.\gradlew.bat`.
+
+---
+
+## What sub-project 2 inherits
+
+- **The descriptor seam.** A new resource type implements `ResourceAuthorizationDescriptor` in
+  `scoping/` — never in the module owning the entity, which would close a module cycle — and returns
+  the DEPARTMENT, TEAM and ASSIGNED predicates. Nothing imports the implementations; Spring collects
+  them by interface and the registry validates coverage against the permission catalog at startup.
+- **`RelationshipType`** (`OWNER, ASSIGNEE, PARTICIPANT, APPROVER, CREATOR`) is the vocabulary cases
+  and milestones extend. Extend the enum; do not invent a parallel one.
+- **`audit_event.timeline_visible`** is on every event and is what the Activity Timeline reads: the
+  audit trail and the customer-visible timeline are one table, separated only by this flag. Set it
+  deliberately for each new action rather than copying a neighbour. The split so far: business
+  records (`customer.*`, `contact.*`, `invitation.*`) are visible, identity and auth
+  (`user.*`, `role.*`, `auth.*`, `tenant.created`) are compliance-only.
+- **"What does deactivation revoke?" is a required design question**, asked alongside "does it have
+  a descriptor?" whenever a sub-project adds a deactivatable entity. "Never delete, deactivate
+  instead" is only half a mechanism: the *storage* half is enforced rigorously (DELETE revoked at
+  the database, proven red), but the *consequence* half is convention only. Nothing revoked
+  sessions, invitations, tokens or grants on deactivation until the final fix wave of sub-project 1,
+  and two gaps remain open above. Enumerate what a status change must invalidate before writing the
+  setter, not after.
+- **Retirement gets its own action**, not a flag on an update — `contact.deactivated` is recorded
+  when an update *transitions* status into INACTIVE, never when it merely arrives INACTIVE. Because
+  business records are never deleted, that event is the only record the retirement happened, and it
+  must stay distinguishable from a phone-number correction. Repeat the shape for anything a later
+  sub-project retires.
 
 ## Plan deviations
 
@@ -127,5 +494,5 @@ carry such amendments.
 
 ---
 
-*Sub-project 1 Task 29 extends this file with the operational detail (local setup, running both
-applications, environment variables). Keep it dense — this file is loaded into every session.*
+*Keep it dense — this file is loaded into every session. Add a line only when its absence would cost
+a future session real time, and delete one when it stops being true.*

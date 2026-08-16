@@ -392,11 +392,30 @@ QA Q11 requires right-to-erasure to be satisfied by pseudonymization rather than
 
 ## 10. Frontend
 
+### 10.0 The design system is an input, not a deliverable
+
+`docs/uispecs/` contains a complete UI/UX design system for the platform — brand and logo suite, a three-layer token system with light and dark themes, 56 icons, specifications for 17 component families, a WCAG review, and a working HTML prototype of nine screens. **The frontend implements it; it does not invent a visual language.**
+
+The token layer, icon set, component library and accessibility baseline are all in scope for this sub-project even though most of the nine prototype screens are not, because every later sub-project builds on them. Retrofitting a token system across nine modules is the same class of refactor that §10.5 avoids for i18n.
+
+Build order, from `docs/uispecs/design/README.md`: tokens, then icons, then components, and read the accessibility review before any screen. Each step is markedly cheaper before the next than retrofitted after it.
+
+Four design decisions are load-bearing and erode quietly:
+
+1. **Colour always means status, never decoration.** A token exists for a *state*; if a colour cannot be named as a state, use a neutral.
+2. **Mono for machine-generated values, Archivo for human text.** Applied consistently across all nine prototype screens; a real semantic distinction, not a stylistic one.
+3. **Cards are flat.** Elevation is reserved for what genuinely floats.
+4. **Colour is never the only signal.** Every status colour is paired with a word or an icon.
+
+Two constraints in the token system are not re-derivable by eye and must not be "improved": `text-faint` and `text-disabled` deliberately resolve to the same value, because the palette has no room for a third quiet grey clearing AA on the darkest ground it lands on; and `paper-600` is a graphics-only tier valid at 3:1 for 20px+ marks, never for text.
+
+Known gaps the frontend must fill, because the design does not cover them: **empty states**, **loading skeletons**, **error states**, and **any layout below 1440px**. The dark theme exists structurally but has never been reviewed at screen level.
+
 ### 10.1 Structure
 
 App Router with two route groups: public (login, activation, password reset) and authenticated (everything else).
 
-Shell: sidebar navigation, top bar with tenant name and user menu. Light and dark themes per PRD §16. WCAG AA contrast. Responsive to mobile widths.
+Shell per `docs/uispecs/design/04-components/component-specs.md`: a 244px `slate` rail (identical in both themes, which keeps navigation stable when the theme flips) and a 60px sticky header. Light and dark themes per PRD §16, keyed on `[data-theme]` as `tokens.css` defines — not on a class. WCAG AA contrast, verified rather than assumed. Responsive down from 1440px, which the design does not specify and the implementation must decide.
 
 ### 10.2 Auth handling
 
@@ -411,6 +430,8 @@ A `/me` endpoint returns the user's effective permissions, feeding a `useHasPerm
 ### 10.4 Pages
 
 Login; invitation activation; password reset; an empty dashboard placeholder; customer list and detail; administration screens for users, roles, departments, and teams.
+
+The prototype has **no authentication screens** — it opens already signed in — so login, activation and reset are the one part of the frontend with no visual reference. They must still be built from the token and component layers rather than acquiring a second visual language.
 
 ### 10.5 Internationalization
 
@@ -463,8 +484,11 @@ Playwright end-to-end coverage for flows where failure is expensive: login, invi
 4. A contact activates that invitation and logs in as a `PORTAL` user.
 5. Every action above appears in the audit log with correct actor and request context.
 6. All eight negative security tests pass, together with the RLS meta-test, the ArchUnit rules, and the startup checks.
+7. The interface is built on the `docs/uispecs/` token, icon and component layers rather than an ad-hoc equivalent, and an automated accessibility pass over login, the customer list and the role editor is clean of serious and critical violations **in both themes**.
 
 Item 6 is the gate. If the security tests are not green, this sub-project is not done, regardless of how much of the interface works.
+
+Item 7 is a second, softer gate, and it is here because it is the cheapest it will ever be. Every subsequent sub-project renders inside this shell and reuses these components; a divergent token layer or an inaccessible table pattern established now is inherited nine times over.
 
 ---
 

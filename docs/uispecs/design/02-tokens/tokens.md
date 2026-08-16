@@ -67,14 +67,32 @@ Neutrals stay hex: they are near-achromatic, so `oklch()` would buy nothing and 
 Two primitives carry accessibility constraints in their definition, and both are commented as
 such in `tokens.css`:
 
-- **`paper-700` (`#716d67`)** is the accessible floor for quiet text: ≥4.5:1 on all four
-  surfaces text can land on (`#fff`, `#faf9f7`, `#f7f6f3`, `#f2f0ec`). Nothing lighter passes.
-- **`paper-600` (`#8f8a82`)** is a **graphics-only** tier — clears 3:1, valid for a 20px+ glyph
-  or a decorative mark, **not valid for text.**
+- **`paper-700` (`#716d67`)** is the accessible floor for quiet text **on the light surfaces**:
+  ≥4.5:1 on all four it can land on (`#fff`, `#faf9f7`, `#f7f6f3`, `#f2f0ec`). Nothing lighter
+  passes. It is *not* an accessible value on a dark ground — 2.35:1 on `slate-700`.
+- **`paper-600` (`#8f8a82`)** is a **graphics-only** tier — clears 3:1 on every surface in
+  *both* themes, valid for a 20px+ glyph, a decorative mark or a 1px border, **not valid for
+  text.**
+- **`paper-560` (`#b4afa7`) and `paper-580` (`#a49f97`)** are the dark theme's two quiet-text
+  tiers, added in Task R1. Dark quiet text is bound by its *lightest* ground, `slate-700`, and
+  nothing already on the ramp sat between `paper-550` (7.18:1 there, indistinguishable from
+  secondary) and `paper-600` (3.52:1, and graphics-only anyway). `paper-580` is the floor at
+  4.59:1.
+- **The `300` tier is the dark theme's ink tier.** `indigo-300` always existed and was the only
+  status ink that passed in dark; `green-300`, `amber-300` and `red-300` joined it in Task R1 fix
+  round 1 at the same `L=0.86`, with the most chroma the sRGB gamut allows per hue. A `500` is a
+  mid-tone, and over a low-alpha wash of its own hue on a dark surface it measured 3.33 / 4.38 /
+  2.65:1 — so the dark status pills used to fail on three of five roles.
+- **`indigo-400` (`#6777d3`)** is the dark theme's `accent-weak`. A chart series is a graphic
+  required to understand the content, so it owes 3:1 against `bg-surface`; `indigo-800` gave
+  1.77:1.
 
-`text-faint` and `text-disabled` both resolve to `paper-700`. That is not an oversight: this
-palette has no room for a third distinct quiet-grey that passes AA. See
-[`../05-review/ux-design-review.md`](../05-review/ux-design-review.md) §1 for the derivation.
+`text-faint` and `text-disabled` resolve to the same value in **both** themes — `paper-700` in
+light, `paper-580` in dark. That is not an oversight: neither palette has room for a third
+distinct quiet grey that passes AA on the ground that binds it, so the completed-task state is
+carried by the strike-through rather than by lightness. See
+[`../05-review/ux-design-review.md`](../05-review/ux-design-review.md) §1 for the light
+derivation; the dark one is measured by `scripts/contrast.py`, which now audits both themes.
 
 ### Status
 
@@ -105,11 +123,74 @@ knowing:
   solid pastel tint on a dark surface reads as a bright blob. Inks move to the bright end of the
   ramp so they still clear 4.5:1 on the wash.
 - The rail does not move. It is already dark in the light theme, so it is the one surface that is
-  identical in both, which keeps navigation stable when the theme flips.
+  identical in both, which keeps navigation stable when the theme flips. That pin is what forced
+  `bg-page` down onto the new `slate-975` rather than lightening the rail: both resolved to
+  `slate-950`, so the rail dissolved into the canvas at 1.00:1. Honest ceiling — even a pure
+  black page is only 1.17:1 against `slate-950`, so this edge is 1.10:1 and can never be strong.
+  A rail that needs a hard edge needs a border on the component, which is not a token decision.
+- `border-default`, `border-strong` and `border-dashed` resolve to `paper-600` in dark, not
+  `slate-700`. `slate-700` gave 1.30:1 against `bg-surface`, below 1.4.11's 3:1 for anything
+  required to identify a control, and all three already shared one value there — so lifting only
+  `border-default` would have made "strong" weaker than "default". The row dividers
+  (`border-subtle`, `border-panel`) stay on `slate-800`: a row rule identifies nothing.
+  **Known asymmetry:** the *light* `border-default` (`paper-400` on `paper-0`) is 1.28:1, the
+  same design decision, and was never flagged. The complete fix is a separate `border-control`
+  token applied in both themes; that is a design change beyond this pass and is not done.
+
+- `text-on-accent` **inverts**: `paper-0` in light, `paper-950` in dark. The dark accent is a pale
+  `indigo-300` fill, so white on it measured 1.53:1 — the standard dark-theme pattern is a bright
+  fill with a dark label. `text-on-solid` was split out from it at the same time: both are white
+  in light, so one token served both, but the *solid* status fills do not invert, and riding on
+  `text-on-accent` would have put near-black on `solid-blocked` at 3.43:1.
+- `accent-tint-border` is `paper-600` in dark, not `slate-700`, which was 1.15:1 on the tint.
+
+### Measuring it
+
+`scripts/contrast.py` carries two tables and they mean different things.
+
+| Table | What it measures | How to read a failure |
+|-------|------------------|-----------------------|
+| `PAIRS` | 24 literals from the **prototype as handed off** | Historical. Evidence for finding 1; meant to stay red. |
+| `SHIPPED_PAIRS` | Token **names**, resolved through `build_tokens.py` | Live. Fix it. |
+
+`SHIPPED_PAIRS` resolves names rather than repeating hex values, so the audit cannot drift from the
+generator it audits. Run for **dark** by default: 49 pairs covering body text on all four grounds,
+the rail (including its `.72` and `.5` opacities), the accent roles, all five status pills on both
+the card and the hovered row, the solids, and the borders. Translucent dark status fills are
+composited onto the surface beneath them first, the way a browser — and axe — does.
+
+**The shipped *light* tokens are measured by nothing**, and the cost of that is larger than the two
+failures this paragraph used to name. `report_shipped("light")` was run at the close of
+sub-project 1 and reports **9 of 49 pairs failing**, not one:
+
+```
+accent-tint-border on tint  1.06    border-default on page     1.19
+accent-weak on surface      1.53    border-default on surface  1.28
+solid-at-risk on surface    2.54    border-default on subtle   1.22
+border-strong on surface    1.44    border-default on inset    1.15
+border-dashed on surface    1.68                        (all need 3.0:1)
+```
+
+**No text pair fails.** All nine are non-text graphics under 1.4.11 — which is exactly why nothing
+caught them: axe's default rule set evaluates `color-contrast` for *text* and carries no non-text
+contrast rule, so the frontend's clean axe run in both themes measured a different property from
+the one failing here. And light is the **default** theme (`ThemeProvider` uses
+`defaultTheme="system"`), so this is the default rendering, not an alternate one.
+
+The fix is the one applied to dark in §1b: move the tokens in `build_tokens.py`, regenerate, copy
+`tokens.css` and `tailwind.css` across to `frontend/src/app/`, and enable `report_shipped("light")`
+in the same change. `paper-600` clears 3:1 on every light ground, so the palette does not block it.
+Note `contrast.py`'s `__main__` banner still says "the known, deferred `border-default` at 1.28:1";
+that wording predates the run above.
 
 `PRD.md` §16 asks for light/dark theming; the prototype only ever showed light plus a rail
-variant. The dark theme here is new and has not been visually reviewed at screen level — treat
-its individual values as a starting point, and the layer structure as the deliverable.
+variant. **Task R1 was the dark theme's first review, and it was measured rather than eyeballed.**
+The first pass fixed 13 neutral failures but its table was *all* neutral, so it reported "0 of 17
+fail" while the dark primary button sat at 1.53:1; fix round 1 widened the table to the accent and
+status roles, found 10 more failures, and fixed them. All 49 hold now — which is a claim about
+those 49 pairs and nothing else. **Add a pair whenever you add a role.** The dark theme has still
+never been reviewed *visually* at screen level, so treat composition and weight as unproven even
+though the contrast is not.
 
 ---
 

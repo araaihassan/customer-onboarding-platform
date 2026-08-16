@@ -1,0 +1,38 @@
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/onboarding}
+    username: ${DB_APP_USER:onboarding_app}
+    password: ${DB_APP_PASSWORD:onboarding_app}
+  flyway:
+    enabled: true
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/onboarding}
+    user: ${DB_OWNER_USER:postgres}
+    password: ${DB_OWNER_PASSWORD:postgres}
+    locations: classpath:db/migration
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.jdbc.time_zone: UTC
+
+app:
+  jwt:
+    issuer: onboarding-platform
+    access-token-ttl: PT15M
+    # Deliberately no fallback, on any profile. A committed default is a signing key
+    # every reader of this repository holds, and the deployment that forgets
+    # JWT_SECRET is exactly the one that would use it. JwtProperties refuses to start
+    # the application when this is unset or under 32 bytes.
+    secret: ${JWT_SECRET:}
+  refresh-token:
+    ttl: P14D
+  tenant:
+    resolution: path-prefix
+  # The first platform administrator, for bootstrapping a fresh deployment.
+  # Both blank by default, so nothing is created unless an operator opts in:
+  #   APP_PLATFORM_ADMIN_EMAIL=... APP_PLATFORM_ADMIN_PASSWORD=... 
+  # Without one, /api/platform/tenants cannot be called and no tenant can exist.
+  platform-admin:
+    email: ${APP_PLATFORM_ADMIN_EMAIL:}
+    password: ${APP_PLATFORM_ADMIN_PASSWORD:}

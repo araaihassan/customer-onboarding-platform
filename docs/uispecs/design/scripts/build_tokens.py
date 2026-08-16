@@ -41,10 +41,22 @@ PAPER = {
     "450": "#dbd7cf",
     "500": "#d6d1c9",
     "550": "#ccc7bf",
-    # 600 is a graphics-only tier: it clears 3:1 on every surface above, which is
-    # enough for a 20px+ glyph or a decorative mark, and is NOT valid for text.
+    # 560 and 580 are the DARK theme's two quiet-text tiers, added in Task R1.
+    # Light quiet text is bound by its darkest ground (#f2f0ec); dark quiet text is
+    # bound by its LIGHTEST one, slate-700 (#34363c), and nothing already on this
+    # ramp sits between paper-550 (7.18:1 there -- indistinguishable from
+    # secondary) and paper-600 (3.52:1 -- below AA and graphics-only anyway).
+    # 580 is the floor: 4.59:1 on slate-700, the tightest cell in the dark table.
+    "560": "#b4afa7",
+    "580": "#a49f97",
+    # 600 is a graphics-only tier: it clears 3:1 on every surface above AND on
+    # every dark ground (4.57 / 4.06 / 3.52 on slate-900 / 800 / 700), which is
+    # enough for a 20px+ glyph, a decorative mark or a 1px border, and is NOT
+    # valid for text in either theme.
     "600": "#8f8a82",
-    # 700 is the accessible floor for quiet text: >=4.5:1 on all six surfaces.
+    # 700 is the accessible floor for quiet text ON THE LIGHT SURFACES:
+    # >=4.5:1 on all six of them. It is nowhere near that on a dark ground --
+    # 2.35:1 on slate-700 -- which is why the dark theme uses 560/580 instead.
     "700": "#716d67",
     "800": "#625f5a",
     "900": "#4d4a46",
@@ -57,19 +69,39 @@ SLATE = {
     "800": "#2b2c31",
     "900": "#222328",
     "950": "#17181c",
+    # 975 exists only so the dark theme's page has a ground the rail is not
+    # already sitting on. bg-page and bg-rail both resolved to 950, so the rail
+    # dissolved into the canvas at 1.00:1. The rail is pinned to 950 in BOTH
+    # themes by design -- that is what keeps navigation stable when the theme
+    # flips -- so the page is what had to move, and it can only move down.
+    # Honest ceiling: even pure black is 1.17:1 against 950, so this edge is
+    # 1.10:1 and can never be strong. A rail that needs a hard edge needs a
+    # border on the component, which is not a token decision.
+    "975": "#0b0c10",
 }
 
+# The 300 tier is the DARK theme's ink tier: bright enough to clear 4.5:1 on a
+# low-alpha wash of its own hue over a dark surface, and deliberately low-chroma
+# so it stays in this palette's register rather than going neon. indigo-300
+# already existed and was the only status ink that passed in dark, which is what
+# established the pattern; green/amber/red joined it in Task R1 fix round 1.
+# Chroma per hue is the most the sRGB gamut allows at L=0.86 without clipping.
 INDIGO = {
     "50":  ok(0.97, 0.02, 274),
     "100": ok(0.95, 0.03, 274),
     "200": ok(0.93, 0.03, 274),
     "300": ok(0.86, 0.04, 274),
+    # 400 is the dark theme's accent-weak: dimmer than accent, but still >=3:1 on
+    # bg-surface, because a chart series is a graphic required to understand the
+    # content. indigo-800 was 1.77:1 there.
+    "400": ok(0.60, 0.14, 274),
     "600": ok(0.52, 0.16, 274),
     "700": ok(0.45, 0.16, 274),
     "800": ok(0.42, 0.16, 274),
 }
 GREEN = {
     "100": ok(0.95, 0.04, 155),
+    "300": ok(0.86, 0.09, 155),
     "500": ok(0.60, 0.12, 155),
     "700": ok(0.45, 0.12, 155),
 }
@@ -77,13 +109,20 @@ AMBER = {
     "50":  ok(0.98, 0.02, 70),
     "100": ok(0.96, 0.05, 70),
     "200": ok(0.90, 0.05, 70),
+    "300": ok(0.86, 0.09, 70),
     "500": ok(0.72, 0.14, 70),
     "700": ok(0.46, 0.14, 70),
 }
 RED = {
     "100": ok(0.96, 0.04, 25),
+    "300": ok(0.86, 0.06, 25),
     "500": ok(0.57, 0.17, 25),
     "700": ok(0.50, 0.17, 25),
+}
+
+PRIMITIVE_SCALES = {
+    "paper": PAPER, "slate": SLATE, "indigo": INDIGO,
+    "green": GREEN, "amber": AMBER, "red": RED,
 }
 
 # Literals found in the prototype that are near-duplicates of a real token.
@@ -110,7 +149,7 @@ COLLAPSE = [
 # (token, light value, dark value, note)
 SEMANTIC_COLOR = [
     # surfaces
-    ("bg-page",            "paper-100", "slate-950", "app canvas"),
+    ("bg-page",            "paper-100", "slate-975", "app canvas"),
     ("bg-surface",         "paper-0",   "slate-900", "cards, tables, panels"),
     ("bg-surface-subtle",  "paper-50",  "slate-800", "row hover, table header"),
     ("bg-surface-sunken",  "paper-25",  "slate-800", "read-only inspector fields"),
@@ -119,27 +158,38 @@ SEMANTIC_COLOR = [
     ("bg-rail",            "slate-950", "slate-950", "navigation rail"),
     ("bg-rail-raised",     "slate-800", "slate-800", "active rail item"),
     ("bg-overlay",         "paper-0",   "slate-800", "popovers, notification panel"),
-    # borders
-    ("border-default",     "paper-400", "slate-700", "card and control borders"),
+    # borders. The three that carry a control's edge resolve to paper-600 in dark:
+    # slate-700 gave 1.30:1 against bg-surface, below 1.4.11's 3:1, and all three
+    # already shared one value there so lifting only border-default would have made
+    # "strong" weaker than "default". The dividers (subtle, panel) stay on slate-800
+    # — a row rule identifies nothing, so 1.4.11 does not reach it.
+    ("border-default",     "paper-400", "paper-600", "card and control borders"),
     ("border-subtle",      "paper-150", "slate-800", "table row dividers"),
     ("border-panel",       "paper-300", "slate-800", "expanded panel dividers"),
-    ("border-strong",      "paper-450", "slate-700", "open milestone, emphasis"),
-    ("border-dashed",      "paper-550", "slate-700", "dropzones, add affordances"),
+    ("border-strong",      "paper-450", "paper-600", "open milestone, emphasis"),
+    ("border-dashed",      "paper-550", "paper-600", "dropzones, add affordances"),
     # text
     ("text-primary",       "paper-950", "paper-100", "headings, table values"),
     ("text-secondary",     "paper-900", "paper-400", "body, stage labels"),
-    ("text-muted",         "paper-800", "paper-700", "supporting copy, meta"),
-    ("text-faint",         "paper-700", "paper-800", "mono labels, timestamps"),
-    ("text-disabled",      "paper-700", "paper-900", "struck-through completed titles — same value as faint; the state is carried by strike-through, not lightness, because no lighter grey clears AA on this palette"),
-    ("text-on-accent",     "paper-0",   "paper-0",   "text on indigo"),
+    ("text-muted",         "paper-800", "paper-560", "supporting copy, meta"),
+    ("text-faint",         "paper-700", "paper-580", "mono labels, timestamps"),
+    ("text-disabled",      "paper-700", "paper-580", "struck-through completed titles — same value as faint in BOTH themes; the state is carried by strike-through, not lightness, because neither palette has room for a third quiet grey clearing AA on the ground that binds it"),
+    ("text-on-accent",     "paper-0",   "paper-950", "text on the accent fill — see the note below"),
+    # A separate role from text-on-accent, and it has to be. Both are white in
+    # light, so one token served both until the dark accent's ink had to invert;
+    # the solid status fills do NOT invert, so riding on text-on-accent would put
+    # near-black on solid-blocked in dark and drop it to 3.43:1.
+    ("text-on-solid",      "paper-0",   "paper-0",   "text on a solid status fill, e.g. a badge count"),
     ("text-on-rail",       "paper-200", "paper-200", "rail navigation text"),
     # accent
     ("accent",             "indigo-600", "indigo-300", "primary action, active state"),
     ("accent-hover",       "indigo-700", "indigo-200", "primary action hover"),
     ("accent-tint",        "indigo-100", "slate-800",  "selection ring, rule strips"),
-    ("accent-tint-border", "indigo-200", "slate-700",  "edge of tinted panels"),
+    # paper-600 in dark, not slate-700: slate-700 on slate-800 was 1.15:1, and
+    # the same graphics tier already carries the other control-bearing edges.
+    ("accent-tint-border", "indigo-200", "paper-600",  "edge of tinted panels"),
     ("accent-ink",         "indigo-800", "indigo-300", "text on accent tint, links"),
-    ("accent-weak",        "indigo-300", "indigo-800", "earlier periods in charts"),
+    ("accent-weak",        "indigo-300", "indigo-400", "earlier periods in charts"),
 ]
 
 # status role -> (fill primitive, ink primitive, meaning)
@@ -156,6 +206,77 @@ SEMANTIC_SOLID = [
     ("solid-at-risk",  "amber-500", "bottleneck bar, warning dot"),
     ("solid-blocked",  "red-500",   "notification badge, blocked circle"),
 ]
+
+# Status fills invert in dark: the tint becomes a low-alpha wash over whatever
+# surface the pill sits on, because a solid pastel on a dark ground reads as a
+# bright blob. Module level rather than inline in build() so contrast.py can
+# import it -- the audit must read the same values the generator emits, never a
+# copy that can drift.
+# The inks are the 300 tier, NOT the 500s. A 500 is a mid-tone: over a wash of
+# its own hue on a dark surface it measured 3.33 / 4.38 / 2.65:1 for on-track,
+# at-risk and blocked. progress was the only one that passed, because it was
+# already using indigo-300 -- so the other three now follow it.
+DARK_STATUS = {
+    "on-track": ("color-mix(in oklab, var(--ob-green-500) 18%, transparent)", "green-300"),
+    "progress": ("color-mix(in oklab, var(--ob-indigo-600) 26%, transparent)", "indigo-300"),
+    "at-risk":  ("color-mix(in oklab, var(--ob-amber-500) 20%, transparent)", "amber-300"),
+    "blocked":  ("color-mix(in oklab, var(--ob-red-500) 22%, transparent)", "red-300"),
+    # The neutral pill is the dark theme's binding case, exactly as #f2f0ec is
+    # the light theme's: quiet ink on the lightest ground it ever lands on.
+    # paper-700 here was 2.35:1. paper-560 is text-muted's dark value, which
+    # mirrors the light pill's use of text-muted's light value.
+    "neutral":  ("var(--ob-slate-700)", "paper-560"),
+}
+
+
+# ===================================================== resolution, for the audit
+# contrast.py needs to answer "what colour does token X actually resolve to in
+# theme Y". That knowledge lives here, in the generator, so there is exactly one
+# copy of it. An audit holding its own hardcoded table is an audit that drifts
+# from the thing it audits -- which is how the dark theme shipped unmeasured.
+
+def primitive_hex(ref):
+    """'paper-560' / 'indigo-300' -> '#rrggbb'."""
+    family, step = ref.split("-", 1)
+    value = PRIMITIVE_SCALES[family][step]
+    # oklch scales carry (css, hex); the neutral scales are bare hex.
+    return value[1] if isinstance(value, tuple) else value
+
+
+def _dark_status_value(raw):
+    """A DARK_STATUS fill -> ('hex', h) or ('wash', h, alpha)."""
+    if raw.startswith("color-mix"):
+        inner = raw.split("var(--ob-")[1]
+        ref = inner.split(")")[0]
+        percent = int(inner.split()[1].rstrip("%,"))
+        return ("wash", primitive_hex(ref), percent / 100)
+    return ("hex", primitive_hex(raw.split("var(--ob-")[1].split(")")[0]))
+
+
+def semantic_color(token, theme):
+    """A semantic token name + theme -> ('hex', h) or ('wash', h, alpha).
+
+    'wash' means a translucent fill that has no colour until it is composited
+    over the surface beneath it, which is exactly what a browser -- and axe --
+    does at render time.
+    """
+    for name, light, dark, _note in SEMANTIC_COLOR:
+        if name == token:
+            return ("hex", primitive_hex(light if theme == "light" else dark))
+
+    for name, fill, ink, _meaning in SEMANTIC_STATUS:
+        if token == f"status-{name}-bg":
+            return (("hex", primitive_hex(fill)) if theme == "light"
+                    else _dark_status_value(DARK_STATUS[name][0]))
+        if token == f"status-{name}-fg":
+            return ("hex", primitive_hex(ink if theme == "light"
+                                         else DARK_STATUS[name][1]))
+
+    for name, value, _desc in SEMANTIC_SOLID:
+        if name == token:
+            return ("hex", primitive_hex(value))   # identical in both themes
+
+    raise KeyError(f"no semantic token named {token!r}")
 
 # ============================================================ layer 3: component
 COMPONENT = [
@@ -405,15 +526,8 @@ def build():
     L.append("")
     L.append("  /* Status fills invert: tint becomes a low-alpha wash over the dark surface,")
     L.append("     ink becomes the bright end of the ramp so it clears 4.5:1 on that wash. */")
-    dark_status = {
-        "on-track": ("color-mix(in oklab, var(--ob-green-500) 18%, transparent)", "green-500"),
-        "progress": ("color-mix(in oklab, var(--ob-indigo-600) 26%, transparent)", "indigo-300"),
-        "at-risk":  ("color-mix(in oklab, var(--ob-amber-500) 20%, transparent)", "amber-500"),
-        "blocked":  ("color-mix(in oklab, var(--ob-red-500) 22%, transparent)", "red-500"),
-        "neutral":  ("var(--ob-slate-700)", "paper-700"),
-    }
     for n, f, i, m in SEMANTIC_STATUS:
-        bg, fg = dark_status[n]
+        bg, fg = DARK_STATUS[n]
         L.append(f"  --ob-status-{n}-bg: {bg};")
         L.append(f"  --ob-status-{n}-fg: {resolve(fg)};")
     L.append("")
