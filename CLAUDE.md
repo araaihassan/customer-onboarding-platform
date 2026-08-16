@@ -144,6 +144,17 @@ and a DEFAULT partition. The job that rolls partitions forward arrives in sub-pr
 **Open at the close of sub-project 1**, verified against the running system — none of these is a
 regression to hunt:
 
+- **Four write paths are still unaudited**, all in `authz`/`auth` rather than the domain modules:
+  `RoleService.deleteRole`; `RoleService.unassignRole` — its `assignRole` counterpart *is* audited,
+  so a grant can be added traceably and removed silently, which is the one worth fixing first;
+  re-enabling a disabled role, because `setEnabled` records only on the disable branch; and
+  `PasswordResetService`, which records neither request nor completion. Deliberately not audited:
+  refresh-token rotation (every request would write a row, and reuse detection — the security event —
+  *is* recorded) and login-throttle counters.
+- **Deactivations recorded before 2026-08-16 are mislabelled.** `UserAdminService.deactivate` wrote
+  the `user.created` action key with only its prose summary dissenting. Fixed, but `audit_event` is
+  append-only, so historical rows cannot be corrected — anything querying `user.created` over that
+  period is counting deactivations too.
 - **Retiring a contact does not revoke portal access.** `update` sets `status = INACTIVE` on the
   contact only; the linked `app_user` stays `ACTIVE`, and `LoginService` reads the user. A retired
   contact can still sign in to the portal.

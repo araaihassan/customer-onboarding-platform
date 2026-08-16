@@ -7761,25 +7761,57 @@ Confirm the definition of done in spec §12: tenant provisioning seeds twelve ro
 
 > **Amended in Task 29 — `cleanTest test`, as in Step 1.**
 >
-> **The definition of done is met in full**, verified against the running system rather than against
-> this plan: twelve roles (`RoleTemplates` holds exactly twelve; `TenantProvisioningTest` asserts twelve
+> **Five of the six clauses are met in full and the sixth is substantially met**, verified against
+> the running system rather than against this plan: twelve roles (`RoleTemplates` holds exactly twelve; `TenantProvisioningTest` asserts twelve
 > exist after a real provision); administration of users, roles, departments and teams (`admin.spec.ts`
 > drives all three screens as a logged-in administrator); customers and contacts created and invited
 > (`customers.spec.ts` creates both through the interface and invites the contact); a contact
 > activating and signing in as `PORTAL` (`activation.spec.ts`); and the eight negative security tests
 > plus all four structural guards, which execute rather than pass vacuously.
 >
-> **"Every action is audited" was the one clause found unmet, and was fixed rather than deferred.**
-> `CustomerContactService.create` and `.update` recorded no audit event and `AuditActions` carried no
-> `contact.*` constant, so contact creation and retirement left no trace — a consequence of the
-> contact write surface arriving last, in Task R2, where the customer equivalents were audited from
-> Task 20. Contacts were the only business entity in this sub-project whose writes went unrecorded,
-> which made it an inconsistency against an established pattern rather than an open design question.
-> Now `contact.created`, `contact.updated` and `contact.deactivated`, all timeline-visible like their
-> `customer.*` counterparts. Retirement is a **distinct** action keyed on the *transition* into
-> INACTIVE, because a contact has no separate deactivate endpoint the way a customer does yet has the
-> same property that makes `customer.deactivated` necessary: nothing is ever deleted, so the event is
-> the only record the retirement happened.
+> **"Every action is audited" is the sixth, and it needs stating precisely rather than ticking.**
+> Four surfaces were found recording nothing or recording the wrong thing, in two waves, and all four
+> are fixed. But this clause was twice declared met on the strength of a partial check — first for
+> contacts, then again after the identity fixes — so what follows is an enumeration, not a claim.
+>
+> **Audited:** tenant creation; user create, update, deactivate and role-assignment; role create,
+> update and disable; department and team creation; customer create, update and deactivate; contact
+> create, update and deactivate; portal invitation sent and accepted; login succeeded and failed;
+> refresh-token reuse detection.
+>
+> **Not audited, and routed to the final review rather than fixed here:** `RoleService.deleteRole`;
+> `RoleService.unassignRole` (its `assignRole` counterpart *is* audited, so a grant can be added
+> traceably and removed silently — the sharpest of these); and re-enabling a disabled role, because
+> `setEnabled` records only on the disable branch. `PasswordResetService` records neither the request
+> nor the completion, though a failed login after one is visible. Defensible omissions rather than
+> gaps: refresh-token *rotation* (every request would write a row, and reuse detection — the security
+> event — is recorded), login-throttle counters, and `UserInvitationService` issuance for internal
+> users, which `user.created` already covers at the moment it happens.
+>
+> The first wave was contacts. `CustomerContactService.create` and `.update` recorded no audit event
+> and `AuditActions` carried no `contact.*` constant, so contact creation and retirement left no
+> trace — a consequence of the contact write surface arriving last, in Task R2, where the customer
+> equivalents were audited from Task 20. Now `contact.created`, `contact.updated` and
+> `contact.deactivated`, all timeline-visible like their `customer.*` counterparts. Retirement is a
+> **distinct** action keyed on the *transition* into INACTIVE, because a contact has no separate
+> deactivate endpoint the way a customer does yet has the same property that makes
+> `customer.deactivated` necessary: nothing is ever deleted, so the event is the only record the
+> retirement happened.
+>
+> The second wave was Task 21's identity work, found only because the review re-checked the
+> completeness claim instead of accepting it. `UserAdminService.deactivate` recorded
+> `AuditActions.USER_CREATED` — the summary read "Deactivated user" while the action key, the field
+> every consumer filters on, said `user.created`. **A wrong record is worse than a missing one**, and
+> `audit_event` is append-only, so every deactivation performed before this fix is permanently
+> mislabelled in the log. `update` recorded nothing, and `OrgStructureService` had no `AuditRecorder`
+> injected at all, so department and team creation — DoD clause 2, driven live by `admin.spec.ts` —
+> left no trace. Added `user.updated`, `user.deactivated`, `department.created` and `team.created`.
+>
+> All four new actions are `timelineVisible = false`, and the rule is now written at the top of
+> `AuditActions`: **the side is decided by whose record changed, not by how weighty the verb is.**
+> `customer.deactivated` is visible because the customer's own record changed; `user.deactivated` is
+> not, because a vendor's internal staffing change is not the customer's business and surfacing it
+> would leak the vendor's org changes onto a customer-facing timeline.
 
 ---
 
