@@ -20,9 +20,19 @@ public final class AuditActions {
     // constants.
     private static final Map<String, AuditAction> BY_KEY = new LinkedHashMap<>();
 
+    // Which side of timelineVisible an action falls on is decided by WHOSE record
+    // changed, not by how weighty the verb is. customer.deactivated is visible
+    // because the customer's own record changed; user.deactivated is not, because a
+    // vendor's internal staffing change is not the customer's business and putting
+    // it on their timeline would leak the vendor's org changes. Everything below is
+    // the tenant's own internal administration, so all of it is compliance-only.
     public static final AuditAction TENANT_CREATED            = of("tenant.created", false);
     public static final AuditAction USER_CREATED              = of("user.created", false);
+    public static final AuditAction USER_UPDATED              = of("user.updated", false);
+    public static final AuditAction USER_DEACTIVATED          = of("user.deactivated", false);
     public static final AuditAction USER_ROLE_ASSIGNED        = of("user.role_assigned", false);
+    public static final AuditAction DEPARTMENT_CREATED        = of("department.created", false);
+    public static final AuditAction TEAM_CREATED              = of("team.created", false);
     public static final AuditAction ROLE_CREATED              = of("role.created", false);
     public static final AuditAction ROLE_UPDATED              = of("role.updated", false);
     public static final AuditAction ROLE_DISABLED             = of("role.disabled", false);

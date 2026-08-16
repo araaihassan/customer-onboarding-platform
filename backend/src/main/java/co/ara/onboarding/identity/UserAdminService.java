@@ -118,7 +118,11 @@ public class UserAdminService {
                 PermissionKeys.USER_MANAGE, id);
         user.setFullName(request.fullName());
         user.setDepartmentId(request.departmentId());
-        return toView(repository.save(user));
+        AppUser saved = repository.save(user);
+
+        audit.record(AuditActions.USER_UPDATED, "app_user", saved.getId(),
+                "Updated user " + saved.getEmail(), Map.of());
+        return toView(saved);
     }
 
     /** Deactivation is how a user is removed; there is no delete (spec 9.4). */
@@ -129,7 +133,11 @@ public class UserAdminService {
                 PermissionKeys.USER_MANAGE, id);
         user.setStatus(UserStatus.DEACTIVATED);
         repository.save(user);
-        audit.record(AuditActions.USER_CREATED, "app_user", user.getId(),
+        // USER_DEACTIVATED, not USER_CREATED. This recorded a creation for years'
+        // worth of deactivations with only the prose summary dissenting, and the
+        // action key is the field consumers filter on. audit_event is append-only,
+        // so rows already written stay wrong — this fixes the ones from here on.
+        audit.record(AuditActions.USER_DEACTIVATED, "app_user", user.getId(),
                 "Deactivated user " + user.getEmail(), Map.of());
     }
 

@@ -1,5 +1,6 @@
 package co.ara.onboarding.identity;
 
+import co.ara.onboarding.audit.AuditEventRepository;
 import co.ara.onboarding.auth.ActivationService;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
@@ -26,6 +27,7 @@ class UserAdminTest extends PostgresTestBase {
     @Autowired UserActivationSender activations;
     @Autowired ActivationService activation;
     @Autowired TenantFixture fixture;
+    @Autowired AuditEventRepository auditEvents;
 
     @Test
     void listingUsersRequiresUserViewPermission() {
@@ -207,6 +209,103 @@ class UserAdminTest extends PostgresTestBase {
         fixture.runAs(tenant, () ->
             assertThat(users.findById(target.get()).orElseThrow().getStatus())
                     .isEqualTo(UserStatus.DEACTIVATED));
+    }
+
+    /**
+     * deactivate() wrote AuditActions.USER_CREATED. Only the prose summary said
+     * "Deactivated"; the action KEY on the row — the field every consumer filters
+     * on, including sub-project 2's Activity Timeline — read user.created. A wrong
+     * audit record is worse than a missing one: it asserts something that did not
+     * happen, and audit_event is append-only, so rows already written cannot be
+     * corrected.
+     *
+     * The target is created through the fixture rather than userAdmin.create, so
+     * no legitimate user.created exists for it and the absence assertion below
+     * cannot be satisfied by accident.
+     */
+    @Test
+    void deactivatingAUserIsKeyedAsADeactivationNotACreation() {
+        UUID tenant = fixture.createTenant("admin-deact-audit");
+        var admin = new AtomicReference<UUID>();
+        var target = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            admin.set(fixture.createUser(tenant, "auditboss@example.com"));
+            target.set(fixture.createUser(tenant, "auditleaver@example.com"));
+            UUID role = roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL));
+            roles.assignRole(admin.get(), role);
+        });
+
+        fixture.runAsUser(tenant, admin.get(), () -> userAdmin.deactivate(target.get()));
+
+        fixture.runAs(tenant, () ->
+            assertThat(auditEvents.findAll())
+                    .filteredOn(e -> target.get().equals(e.getResourceId()))
+                    .extracting(e -> e.getAction())
+                    .as("the action key, not just the summary, must say what happened")
+                    .containsExactly("user.deactivated"));
+    }
+
+    @Test
+    void updatingAUserIsAudited() {
+        UUID tenant = fixture.createTenant("admin-update-audit");
+        var admin = new AtomicReference<UUID>();
+        var target = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            admin.set(fixture.createUser(tenant, "auditeditor@example.com"));
+            target.set(fixture.createUser(tenant, "audittarget@example.com"));
+            UUID role = roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL));
+            roles.assignRole(admin.get(), role);
+        });
+
+        fixture.runAsUser(tenant, admin.get(), () ->
+            userAdmin.update(target.get(),
+                    new UserAdminService.UpdateUserRequest("Renamed Person", null)));
+
+        fixture.runAs(tenant, () ->
+            assertThat(auditEvents.findAll())
+                    .filteredOn(e -> target.get().equals(e.getResourceId()))
+                    .extracting(e -> e.getAction())
+                    .containsExactly("user.updated"));
+    }
+
+    /**
+     * Identity actions stay OFF the customer-visible timeline. The flag is decided
+     * by whose record it is, not by how weighty the verb is: customer.deactivated
+     * is visible because the customer's own record changed, whereas a vendor's
+     * internal staffing change is not the customer's business and putting it on
+     * their timeline would leak the vendor's org changes.
+     */
+    @Test
+    void identityAuditEventsAreNotTimelineVisible() {
+        UUID tenant = fixture.createTenant("admin-audit-flag");
+        var admin = new AtomicReference<UUID>();
+        var target = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            admin.set(fixture.createUser(tenant, "flagboss@example.com"));
+            target.set(fixture.createUser(tenant, "flagtarget@example.com"));
+            UUID role = roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL));
+            roles.assignRole(admin.get(), role);
+        });
+
+        fixture.runAsUser(tenant, admin.get(), () -> {
+            userAdmin.update(target.get(),
+                    new UserAdminService.UpdateUserRequest("Flag Person", null));
+            userAdmin.deactivate(target.get());
+        });
+
+        fixture.runAs(tenant, () ->
+            assertThat(auditEvents.findAll())
+                    .filteredOn(e -> target.get().equals(e.getResourceId()))
+                    .allSatisfy(e -> assertThat(e.isTimelineVisible()).isFalse()));
     }
 
     /**
