@@ -144,11 +144,19 @@ and a DEFAULT partition. The job that rolls partitions forward arrives in sub-pr
 **Open at the close of sub-project 1**, verified against the running system — none of these is a
 regression to hunt:
 
-- **Four write paths are still unaudited**, all in `authz`/`auth` rather than the domain modules:
-  `RoleService.deleteRole`; `RoleService.unassignRole` — its `assignRole` counterpart *is* audited,
-  so a grant can be added traceably and removed silently, which is the one worth fixing first;
-  re-enabling a disabled role, because `setEnabled` records only on the disable branch; and
-  `PasswordResetService`, which records neither request nor completion. Deliberately not audited:
+- **`user.manage` at DEPARTMENT or TEAM scope is still a privilege-escalation path.** Its holder
+  can no longer reach users outside their scope — every target is resolved through
+  `AuthorizedQuery` — but nothing checks the *role being granted*, so they can assign a role wider
+  than their own to anyone they legitimately manage, themselves included, and `RoleEditor` shows
+  them the ids. The guard (require `role.manage` to assign, or refuse a role whose grants exceed
+  the caller's) is a policy decision about delegation and belongs to sub-project 2's tenant
+  administration. **Until it exists, `user.manage` at any scope is equivalent to the widest role in
+  the tenant. Grant it accordingly.**
+- **Three write paths are still unaudited**, all in `authz`/`auth` rather than the domain modules:
+  `RoleService.deleteRole`; re-enabling a disabled role, because `setEnabled` records only on the
+  disable branch; and `PasswordResetService`, which records neither request nor completion.
+  `RoleService.unassignRole` was the fourth and is now audited — `user.role_unassigned`, written
+  inside the `ifPresent` so an idempotent no-op records nothing. Deliberately not audited:
   refresh-token rotation (every request would write a row, and reuse detection — the security event —
   *is* recorded) and login-throttle counters.
 - **Deactivations recorded before 2026-08-16 are mislabelled.** `UserAdminService.deactivate` wrote
@@ -282,11 +290,25 @@ correct response to one failing is to fix the code, never to weaken the guard.
 - **Every public `*Service` method carries `@RequirePermission`** (`AuthorizationCoverageTest`).
   Exclusions are per-class, commented, and fall into exactly two categories: runs before there is
   an actor to authorize, or is infrastructure the gate itself depends on.
-- **Reads of tenant business data go through `AuthorizedQuery`.** A repository finder called
-  directly skips the scope predicate — a silent, total bypass rather than a visible error.
+- **Reads of tenant business data go through `AuthorizedQuery`** — and so does **every id a write
+  path takes from a URL or a request body**, before it writes. A repository finder called directly
+  skips the scope predicate: a silent, total bypass rather than a visible error. The write half is
+  the one that keeps escaping, because `@RequirePermission` cannot see arguments, so a passing gate
+  proves only that the actor may touch *some* record of that type. Three separate escalations in
+  sub-project 1 were this exact shape. `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly`
+  covers `customer..`, `identity..` and `auth..`; **add your package to it in the same commit that
+  adds your service.**
 - **Permissions are never embedded in tokens and never cached across requests.** Authority is
   resolved server-side per request, so a revoked grant takes effect on the next call rather than
-  when a token happens to expire.
+  when a token happens to expire. **The same applies to a revoked account**, which is why
+  `AuthorizationService` joins `app_user` on `status = 'ACTIVE'`: a deactivated user resolves zero
+  permissions, so every gate denies and every `AuthorizedQuery` predicate collapses to disjunction
+  on the very next request, rather than after the access token's remaining ≤15 minutes.
+- **Deactivating a user must end the session, not set a column.** `deactivate` revokes every
+  refresh family (through the `identity/UserSessionRevoker` port) and `RefreshTokenService.rotate`
+  independently refuses a non-ACTIVE user, because deactivation will not stay the only way a status
+  changes. Before this, `UserStatus.ACTIVE` was read in exactly one place in the whole main source
+  tree — `LoginService` — which a browser holding a refresh cookie never reaches again.
 - **`JWT_SECRET` is required configuration, not a default with an override.** `JwtProperties`
   refuses to start the application when it is unset, under 32 bytes, or one of the three secrets
   this repository has published (`JwtSecretGuardTest`). The guard is deliberately not keyed on

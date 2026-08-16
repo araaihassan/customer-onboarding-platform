@@ -6594,6 +6594,58 @@ role. The lookup is `authz.UserRoleDirectory`, a bulk directory in the shape of 
 rather than a `*Service`: one query per page instead of one per row, and no cross-gate coupling
 between the `user.view` read path and the `user.manage` write path.
 
+**Amended in the final fix wave — `user.manage` at a narrow scope was a full tenant privilege
+escalation.** The plan says every read goes through `AuthorizedQuery`, and it was followed for
+`get`, `list` and the inbound read in `update` and `deactivate`. It was not followed for the ids
+the *write* paths take from the URL or the body, and that is the whole defect:
+`@RequirePermission` cannot see arguments, so a passing gate says only "this actor may manage SOME
+users". `assignRole` and `unassignRole` delegated to `RoleService`, which resolves its target
+through `ActorDirectory` — `users.findById`, bounded by RLS and nothing narrower; `create` wrote
+`request.departmentId()` unchecked; and `UserInvitationService.issueForUser` read its target with
+`users.findById` under the same gate. A tenant's "Ops Lead" role — `{user.view: DEPARTMENT,
+user.manage: DEPARTMENT}`, the obvious delegation and exactly what `PermissionCatalog` advertises
+at `ORG_SCOPES` — could therefore assign any role in the tenant to any user in the tenant
+(themselves included), plant users in departments they cannot see, and mint and mail an activation
+invitation, which is a live credential, for anyone.
+
+All four now resolve their target through `AuthorizedQuery` with `USER_MANAGE`; `create` and
+`update` re-read the written row through the same predicate rather than comparing `departmentId`
+by hand, so `TEAM` and `ASSIGNED` fail closed without a special case. **The generalisation, which
+every later sub-project inherits: a service method that takes a foreign id from the URL or body
+and writes without resolving it through `AuthorizedQuery` is a scope bypass, not a style
+question.** `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` was widened to
+cover `auth..` for that reason — it had been scoped to `customer..` and `identity..`, and both
+escapes found in the final review were in packages it was scoped away from.
+
+**Known limitation, deliberately left for sub-project 2: there is no escalation guard on the role
+being granted.** A `user.manage` holder can still assign a role wider than their own to a user
+they legitimately manage, including themselves — so DEPARTMENT-scoped `user.manage` remains a
+privilege-escalation path for anyone who can see a wider role's id, even though it is no longer a
+cross-department one. Closing it means choosing a policy — require `role.manage` to assign at all,
+or refuse a role whose grants exceed the caller's — and that choice has real consequences for how
+delegation works, so it belongs with sub-project 2's tenant administration rather than with a
+fix wave. Until then, treat `user.manage` at any scope as equivalent to the widest role in the
+tenant, and grant it accordingly.
+
+**Also amended: deactivation must end the session, not set a column.** `deactivate` recorded its
+audit event and stopped. `UserStatus.ACTIVE` was consulted in exactly one place in the whole main
+source tree — `LoginService` — which a browser holding a refresh cookie never reaches again, and
+every rotation minted a *fresh* full-TTL refresh token. A deactivated account kept its full role
+set and kept reading and writing indefinitely. `deactivate` now calls `revokeAllForUser` through a
+new `identity/UserSessionRevoker` port (`auth` depends on `identity`, so the reverse edge would
+close a module cycle — same shape as `UserActivationSender`), `RefreshTokenService.rotate` refuses
+a non-ACTIVE user rather than trusting the writer to have remembered, and
+`AuthorizationService.effectivePermissions` joins `app_user` on `status = 'ACTIVE'`, which closes
+the ≤15 minutes an already-issued access token would otherwise stay good for. That last one is a
+decision, not a leftover: this project's stated invariant is that authority is resolved
+server-side per request precisely so a revocation lands on the next call, and honouring that for a
+revoked grant but not for a revoked account is an inconsistency with no defence. It costs one join
+on a query that already runs once per request.
+
+**Also amended: `unassignRole` is audited.** `AuditActions.USER_ROLE_UNASSIGNED`
+(`user.role_unassigned`, `timelineVisible = false`), recorded inside the `ifPresent` so an
+idempotent no-op does not write a revocation that never happened.
+
 - [x] **Step 1: Write the failing test**
 
 ```java
