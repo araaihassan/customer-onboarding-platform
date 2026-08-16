@@ -267,6 +267,36 @@ app:
     resolution: path-prefix
 ```
 
+> **Amended in Task R3 (remediation): the JWT secret ships with no fallback, and its absence fails
+> startup.** As written above, a deployment that forgets `JWT_SECRET` starts silently and signs
+> every access token with a value committed to this repository — anyone who can read the source can
+> then forge a token for any user in any tenant, and `JwtAuthenticationFilter` cannot tell it from a
+> real login. The line is now:
+>
+> ```yaml
+>     secret: ${JWT_SECRET:}
+> ```
+>
+> and a new `auth/JwtProperties` (`@ConfigurationProperties("app.jwt")`, `@PostConstruct validate()`
+> — the same shape as `DescriptorRegistry.validate()`) refuses to start when the secret is unset,
+> under 32 bytes, or one of the placeholders this repository has published. Two things about it are
+> deliberate and must not be "simplified":
+>
+> - **It is not keyed on the active profile.** A "fail unless `dev`" guard misses the deployment
+>   that forgot to set the profile as well as the secret, which is the same mistake. The friction of
+>   having to set `JWT_SECRET` before the application will run at all *is* the mechanism.
+> - **The message never contains the secret.** The under-length branch is reached by real secrets
+>   that were merely mis-sized, and startup failures are written to whatever collects stdout.
+>
+> Consequences elsewhere: `TokenService` (Task 12) takes `JwtProperties` rather than three `@Value`
+> strings, so the value reaching `Keys.hmacShaKeyFor` has already been validated; the backend suite
+> supplies its own secret in `src/test/resources/application-test.yml` (new file, loaded by the
+> `test` profile `PostgresTestBase` activates) — that is configuration the guard fully validates,
+> not an exemption from it; `e2e/support/backend.mjs` already passed `JWT_SECRET` and needed no
+> change. Covered by `auth/JwtSecretGuardTest` (guard behaviour, in an isolated context so a failure
+> can only be the guard) and `auth/JwtPropertiesWiringTest` (the bean is really in the running
+> application and token issuance depends on it).
+
 - [x] **Step 6: Write the failing test**
 
 `backend/src/test/java/co/ara/onboarding/support/PostgresTestBase.java`:
@@ -4932,6 +4962,12 @@ public class PasswordEncoderConfig {
 ```
 
 - [x] **Step 4: Implement `TokenService`**
+
+> **Amended in Task R3 (remediation): the constructor takes `JwtProperties`, not three `@Value`
+> strings.** As written below it feeds an unvalidated secret straight into `Keys.hmacShaKeyFor` —
+> a missing `JWT_SECRET` then signs with the committed default, and an under-length one surfaces a
+> JJWT complaint about key bit lengths from inside token issuance rather than a startup failure
+> naming the variable. See the amendment on Task 1's `application.yml` for the guard.
 
 ```java
 package co.ara.onboarding.auth;

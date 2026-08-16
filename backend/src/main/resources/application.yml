@@ -20,7 +20,11 @@ app:
   jwt:
     issuer: onboarding-platform
     access-token-ttl: PT15M
-    secret: ${JWT_SECRET:dev-only-secret-replace-in-production-min-32-bytes}
+    # Deliberately no fallback, on any profile. A committed default is a signing key
+    # every reader of this repository holds, and the deployment that forgets
+    # JWT_SECRET is exactly the one that would use it. JwtProperties refuses to start
+    # the application when this is unset or under 32 bytes.
+    secret: ${JWT_SECRET:}
   refresh-token:
     ttl: P14D
   tenant:

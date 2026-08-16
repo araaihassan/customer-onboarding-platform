@@ -1,0 +1,12 @@
+# Test-only configuration, layered over src/main/resources/application.yml by the
+# "test" profile that PostgresTestBase activates.
+#
+# application.yml deliberately ships no fallback for the JWT signing secret and
+# JwtProperties refuses to start the application without one (see JwtSecretGuardTest).
+# The suite therefore has to supply a real secret, and this is that secret — it is not
+# a relaxation of the guard, which still runs in full against this value: it is 46
+# bytes, it is not the placeholder the guard denylists, and it exists only on the test
+# classpath, so it can never reach a deployment.
+app:
+  jwt:
+    secret: test-only-jwt-signing-secret-of-at-least-32-bytes

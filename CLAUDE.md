@@ -70,8 +70,15 @@ is already taken, map another port and set `DB_URL` to match.
 
 ```bash
 cd backend && SPRING_PROFILES_ACTIVE=dev \
+  JWT_SECRET="$(openssl rand -base64 48)" \
   APP_PLATFORM_ADMIN_EMAIL=ops@example.com APP_PLATFORM_ADMIN_PASSWORD=<pick-one> ./gradlew bootRun
 ```
+
+`JWT_SECRET` is **required, on every profile** — the application refuses to start without at least 32
+bytes of it, and says so naming the variable. There is no dev default: a committed one is a signing
+key every reader of this repository holds, and the deployment that forgets the variable is exactly
+the one that would use it. Pick a value once and keep it in your shell; changing it between restarts
+invalidates every access token already issued, which reads as a spate of 401s.
 
 Both platform-admin variables are blank by default and `PlatformAdminBootstrap` does nothing without
 them — but `/api/platform/**` is HTTP Basic behind `hasRole("PLATFORM_ADMIN")`, so without one no
@@ -79,7 +86,6 @@ tenant can ever be created. It is idempotent: an existing address is left untouc
 so against a database that already has that administrator, changing `APP_PLATFORM_ADMIN_PASSWORD`
 silently does nothing and the provisioning call below answers 401. Startup logs which it did
 ("already exists; leaving it unchanged"), and that line is the fastest way to read a puzzling 401.
-Other variables worth knowing: `JWT_SECRET` (dev default is a placeholder, min 32 bytes).
 
 **Frontend** on :3000 — `cd frontend && npm install && npm run dev`. `src/lib/api/client.ts` issues
 same-origin `/api/t/{slug}/…` requests, which is what keeps the HttpOnly `SameSite=Strict` refresh
@@ -257,6 +263,12 @@ correct response to one failing is to fix the code, never to weaken the guard.
 - **Permissions are never embedded in tokens and never cached across requests.** Authority is
   resolved server-side per request, so a revoked grant takes effect on the next call rather than
   when a token happens to expire.
+- **`JWT_SECRET` is required configuration, not a default with an override.** `JwtProperties`
+  refuses to start the application when it is unset, under 32 bytes, or a placeholder this
+  repository has published (`JwtSecretGuardTest`). The guard is deliberately not keyed on profile —
+  a "unless dev" check misses the deployment that forgot the profile too. `application.yml` ships no
+  fallback; the backend suite supplies its own in `src/test/resources/application-test.yml` and the
+  e2e backend in `e2e/support/backend.mjs`.
 - **Every resource type registers a `ResourceAuthorizationDescriptor`.** `DescriptorRegistry.validate()`
   refuses to start the application otherwise — an unregistered type would reach scope resolution with
   no predicate to apply. Descriptors must fail closed: no department, no teams ⇒ `cb.disjunction()`.

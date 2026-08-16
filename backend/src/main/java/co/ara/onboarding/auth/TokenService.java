@@ -5,7 +5,6 @@ import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.platform.Uuid7;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
@@ -23,12 +22,18 @@ public class TokenService {
     private final String issuer;
     private final Duration ttl;
 
-    public TokenService(@Value("${app.jwt.secret}") String secret,
-                        @Value("${app.jwt.issuer}") String issuer,
-                        @Value("${app.jwt.access-token-ttl}") Duration ttl) {
-        this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
-        this.issuer = issuer;
-        this.ttl = ttl;
+    /**
+     * Takes JwtProperties rather than the raw @Value strings so the secret has
+     * already been through {@link JwtProperties#validate()} by the time it reaches
+     * Keys.hmacShaKeyFor — an unset or under-length secret has failed startup with a
+     * message naming JWT_SECRET, instead of surfacing here as a library complaint
+     * about key bit lengths, or worse, silently signing with a value committed to
+     * this repository.
+     */
+    public TokenService(JwtProperties properties) {
+        this.key = Keys.hmacShaKeyFor(properties.getSecret().getBytes(StandardCharsets.UTF_8));
+        this.issuer = properties.getIssuer();
+        this.ttl = properties.getAccessTokenTtl();
     }
 
     /**
