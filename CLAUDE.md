@@ -152,6 +152,13 @@ regression to hunt:
   the caller's) is a policy decision about delegation and belongs to sub-project 2's tenant
   administration. **Until it exists, `user.manage` at any scope is equivalent to the widest role in
   the tenant. Grant it accordingly.**
+- **A narrow-scoped `user.manage` holder cannot create a user through the Users screen.** The create
+  form sends only `{email, fullName}`, so `departmentId` is null, and a department-less user is
+  outside a DEPARTMENT- or TEAM-scoped actor's own scope — `UserAdminService.create` refuses with a
+  404 rather than making them a user its author could not then manage. Correct, and fails closed,
+  but the screen offers no department field to succeed with and the 404 says nothing useful. None
+  of the twelve seeded templates is affected: only `Administrator` holds `user.manage`, at `ALL`.
+  A department picker on that form is the fix, with the options scoped to the actor.
 - **Three write paths are still unaudited**, all in `authz`/`auth` rather than the domain modules:
   `RoleService.deleteRole`; re-enabling a disabled role, because `setEnabled` records only on the
   disable branch; and `PasswordResetService`, which records neither request nor completion.
