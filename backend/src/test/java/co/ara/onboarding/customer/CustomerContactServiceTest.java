@@ -7,6 +7,7 @@ import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Map;
@@ -193,6 +194,116 @@ class CustomerContactServiceTest extends PostgresTestBase {
     }
 
     /**
+     * DEPARTMENT and TEAM run through different descriptor branches from ASSIGNED,
+     * so a parent check exercised only at ASSIGNED is a parent check whose other
+     * paths are assumed. Each scope gets both directions, because a predicate that
+     * denied everything would satisfy every negative case perfectly while breaking
+     * the feature.
+     */
+    @Test
+    void theParentCheckHoldsAtDepartmentScope() {
+        UUID tenant = fixture.createTenant("contact-parent-dept");
+        var user = new AtomicReference<UUID>();
+        var mine = new AtomicReference<UUID>();
+        var theirs = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            UUID myDepartment = fixture.createDepartment(tenant, "Onboarding");
+            UUID otherDepartment = fixture.createDepartment(tenant, "Finance");
+            user.set(fixture.createUserInDepartment(tenant, "dept@example.com", myDepartment));
+            mine.set(fixture.createCustomer(tenant, "Ours Ltd", null, myDepartment, null));
+            theirs.set(fixture.createCustomer(tenant, "Theirs Ltd", null, otherDepartment, null));
+            UUID role = roles.createRole("Department Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.DEPARTMENT));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () ->
+            assertThat(contacts.create(mine.get(), new CustomerContactService.CreateContactRequest(
+                    "In Department", "in-dept@example.com", null, null, false)).email())
+                    .isEqualTo("in-dept@example.com"));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.create(theirs.get(), new CustomerContactService.CreateContactRequest(
+                        "Other Department", "out-dept@example.com", null, null, false))))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void theParentCheckHoldsAtTeamScope() {
+        UUID tenant = fixture.createTenant("contact-parent-team");
+        var user = new AtomicReference<UUID>();
+        var mine = new AtomicReference<UUID>();
+        var theirs = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            UUID myTeam = fixture.createTeam(tenant, "Pod A");
+            UUID otherTeam = fixture.createTeam(tenant, "Pod B");
+            user.set(fixture.createUser(tenant, "team@example.com"));
+            fixture.addToTeam(tenant, user.get(), myTeam);
+            mine.set(fixture.createCustomer(tenant, "Ours Ltd", null, null, myTeam));
+            theirs.set(fixture.createCustomer(tenant, "Theirs Ltd", null, null, otherTeam));
+            UUID role = roles.createRole("Team Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.TEAM));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () ->
+            assertThat(contacts.create(mine.get(), new CustomerContactService.CreateContactRequest(
+                    "In Team", "in-team@example.com", null, null, false)).email())
+                    .isEqualTo("in-team@example.com"));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.create(theirs.get(), new CustomerContactService.CreateContactRequest(
+                        "Other Team", "out-team@example.com", null, null, false))))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
+     * The fail-closed branches, which are the ones nobody writes by hand. A
+     * DEPARTMENT-scoped actor with no department, and a TEAM-scoped actor in no
+     * team, each resolve to cb.disjunction() — no rows, never all rows — so
+     * neither can create anywhere. An inverted predicate would hand them the whole
+     * tenant, and no other test in this file would notice.
+     */
+    @Test
+    void anActorWithNoDepartmentOrTeamCanCreateNothing() {
+        UUID tenant = fixture.createTenant("contact-parent-failclosed");
+        var noDepartment = new AtomicReference<UUID>();
+        var noTeam = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            UUID department = fixture.createDepartment(tenant, "Onboarding");
+            UUID team = fixture.createTeam(tenant, "Pod A");
+            noDepartment.set(fixture.createUser(tenant, "no-dept@example.com"));
+            noTeam.set(fixture.createUser(tenant, "no-team@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Owned Ltd", null, department, team));
+
+            UUID departmentRole = roles.createRole("Department Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.DEPARTMENT));
+            UUID teamRole = roles.createRole("Team Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.TEAM));
+            roles.assignRole(noDepartment.get(), departmentRole);
+            roles.assignRole(noTeam.get(), teamRole);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, noDepartment.get(),
+                () -> contacts.create(customerId.get(), new CustomerContactService.CreateContactRequest(
+                        "Departmentless", "no-dept-contact@example.com", null, null, false))))
+                .as("a DEPARTMENT-scoped actor with no department reaches no customer")
+                .isInstanceOf(NoSuchElementException.class);
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, noTeam.get(),
+                () -> contacts.create(customerId.get(), new CustomerContactService.CreateContactRequest(
+                        "Teamless", "no-team-contact@example.com", null, null, false))))
+                .as("a TEAM-scoped actor in no team reaches no customer")
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
      * update was already covered and this proves it rather than assuming it.
      *
      * It reads the contact through AuthorizedQuery, and CustomerContactDescriptor
@@ -348,26 +459,41 @@ class CustomerContactServiceTest extends PostgresTestBase {
     }
 
     /**
-     * A different constraint must NOT be reported as a duplicate address. A
-     * contact hung off a customer id that does not exist violates the foreign
-     * key, and translating every DataIntegrityViolationException into "that email
-     * is taken" would send the caller looking for a duplicate that is not there.
+     * A different constraint must NOT be reported as a duplicate address, or the
+     * caller goes hunting for a duplicate that is not there.
+     *
+     * The customer is deliberately IN SCOPE and the violation is full_name's NOT
+     * NULL (V8). An earlier version reached for a non-existent customer id to trip
+     * the foreign key, and the parent scope check added a commit later silently
+     * voided it: findOne returned empty and NoSuchElementException was thrown
+     * before any SQL write, so the assertion below still passed while NO
+     * DataIntegrityViolationException was raised at all. Widening violates() to
+     * translate every integrity violation would not have turned it red — it had
+     * become a test that could not fail.
+     *
+     * Hence the FIRST assertion, which is the anti-vacuity guard: the write must
+     * actually reach the database and be refused there. "Not a duplicate" alone is
+     * satisfied just as well by never getting that far.
      */
     @Test
     void anUnrelatedConstraintViolationIsNotReportedAsADuplicateEmail() {
-        UUID tenant = fixture.createTenant("contact-fk");
+        UUID tenant = fixture.createTenant("contact-not-null");
         var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
 
         fixture.runAs(tenant, () -> {
-            user.set(fixture.createUser(tenant, "fk@example.com"));
+            user.set(fixture.createUser(tenant, "notnull@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Not Null Ltd", user.get(), null, null));
             UUID role = roles.createRole("Contact Manager", "", Map.of(
                     PermissionKeys.CONTACT_MANAGE, Scope.ALL));
             roles.assignRole(user.get(), role);
         });
 
         assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
-                () -> contacts.create(UUID.randomUUID(), new CustomerContactService.CreateContactRequest(
-                        "Orphan", "orphan@example.com", null, null, false))))
+                () -> contacts.create(customerId.get(), new CustomerContactService.CreateContactRequest(
+                        null, "no-name@example.com", null, null, false))))
+                .as("the write must reach the database, or this guard proves nothing")
+                .isInstanceOf(DataIntegrityViolationException.class)
                 .isNotInstanceOf(DuplicateContactEmailException.class);
     }
 
