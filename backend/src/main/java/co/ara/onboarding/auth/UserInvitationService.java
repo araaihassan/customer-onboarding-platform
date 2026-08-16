@@ -1,5 +1,6 @@
 package co.ara.onboarding.auth;
 
+import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.identity.AppUser;
@@ -28,21 +29,38 @@ public class UserInvitationService implements UserActivationSender {
 
     private final InvitationRepository invitations;
     private final AppUserRepository users;
+    private final AuthorizedQuery authorizedQuery;
     private final EmailSender email;
 
     public UserInvitationService(InvitationRepository invitations, AppUserRepository users,
-                                 EmailSender email) {
+                                 AuthorizedQuery authorizedQuery, EmailSender email) {
         this.invitations = invitations;
         this.users = users;
+        this.authorizedQuery = authorizedQuery;
         this.email = email;
     }
 
+    /**
+     * userId is a foreign id the caller supplies, so it must be resolved through
+     * AuthorizedQuery and not with users.findById — the gate above cannot see
+     * arguments, and RLS bounds the lookup to the tenant and nothing narrower.
+     * Without this a DEPARTMENT-scoped user.manage holder could mint and MAIL an
+     * activation invitation for any user in the tenant, which is a live credential
+     * sent to an address they do not control.
+     *
+     * Nothing flagged it because auth sits outside the two packages
+     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly covers.
+     *
+     * NoSuchElementException rather than InvalidTokenException now: an out-of-scope
+     * user is a 404 like every other out-of-scope record, whereas a 401 would say
+     * "that user exists, you just cannot invite them".
+     */
     @Override
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
     public String issueForUser(UUID userId) {
-        AppUser user = users.findById(userId)
-                .orElseThrow(() -> new InvalidTokenException("No such user"));
+        AppUser user = authorizedQuery.getById(users, AppUser.class,
+                PermissionKeys.USER_MANAGE, userId);
 
         String raw = SecureTokens.generate();
 

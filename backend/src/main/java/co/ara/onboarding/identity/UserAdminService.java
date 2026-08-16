@@ -92,6 +92,12 @@ public class UserAdminService {
      * invitation is accepted — an administrator can create colleagues but never mint
      * a usable credential for one, which would be an account-takeover path rather
      * than an invitation.
+     *
+     * departmentId arrives from the request body and is therefore invisible to
+     * @RequirePermission, which sees no arguments: the gate can only say the actor
+     * may manage SOME users. requireWithinManageScope below is what says they may
+     * manage THIS one — without it a DEPARTMENT-scoped holder could plant a user in
+     * any department in the tenant.
      */
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
@@ -105,6 +111,7 @@ public class UserAdminService {
         user.setStatus(UserStatus.INVITED);
         user.setDepartmentId(request.departmentId());
         repository.saveAndFlush(user);
+        requireWithinManageScope(user.getId());
 
         activations.issueForUser(user.getId());
 
@@ -113,7 +120,15 @@ public class UserAdminService {
         return toView(user);
     }
 
-    /** Fetched with the write permission, never USER_VIEW — see CustomerService.update. */
+    /**
+     * Fetched with the write permission, never USER_VIEW — see CustomerService.update.
+     *
+     * Checked on the way in AND on the way out. The inbound getById proves the actor
+     * may touch this user; the outbound requireWithinManageScope proves the user
+     * they are left with is still one they may touch, because departmentId comes
+     * from the body and moving someone into a department the actor cannot see is a
+     * write whose result they could not have read.
+     */
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
     public UserView update(UUID id, UpdateUserRequest request) {
@@ -121,7 +136,8 @@ public class UserAdminService {
                 PermissionKeys.USER_MANAGE, id);
         user.setFullName(request.fullName());
         user.setDepartmentId(request.departmentId());
-        AppUser saved = repository.save(user);
+        AppUser saved = repository.saveAndFlush(user);
+        requireWithinManageScope(saved.getId());
 
         audit.record(AuditActions.USER_UPDATED, "app_user", saved.getId(),
                 "Updated user " + saved.getEmail(), Map.of());
@@ -161,17 +177,56 @@ public class UserAdminService {
     /**
      * Delegates to the gated RoleService rather than writing user_role here, so role
      * assignment has one implementation and one audit event wherever it is triggered.
+     *
+     * The target is resolved through AuthorizedQuery FIRST, and that is the whole
+     * security of this method. RoleService.assignRole resolves its own target
+     * through ActorDirectory, which is users.findById — tenant-bounded by RLS and
+     * nothing else. So both user.manage gates could pass while the userId named a
+     * user in a department the actor cannot see: "Ops Lead" = {user.view:
+     * DEPARTMENT, user.manage: DEPARTMENT} could assign any role in the tenant to
+     * anyone in the tenant, at any scope. @RequirePermission cannot close that,
+     * because it never sees the argument.
+     *
+     * What this does NOT close, deliberately: the actor can still assign a role
+     * wider than their own to a user they legitimately manage — including
+     * themselves. Refusing a role whose grants exceed the caller's, or requiring
+     * role.manage to assign at all, is a policy decision with real consequences for
+     * delegation, and inventing one here would be guessing. Recorded as a known
+     * limitation in CLAUDE.md and in the sub-project 1 plan; it belongs to
+     * sub-project 2's tenant-administration work.
      */
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
     public void assignRole(UUID userId, UUID roleId) {
-        roles.assignRole(userId, roleId);
+        AppUser target = authorizedQuery.getById(repository, AppUser.class,
+                PermissionKeys.USER_MANAGE, userId);
+        roles.assignRole(target.getId(), roleId);
     }
 
+    /** Same resolution as assignRole, for the same reason — removal is a write too. */
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
     public void unassignRole(UUID userId, UUID roleId) {
-        roles.unassignRole(userId, roleId);
+        AppUser target = authorizedQuery.getById(repository, AppUser.class,
+                PermissionKeys.USER_MANAGE, userId);
+        roles.unassignRole(target.getId(), roleId);
+    }
+
+    /**
+     * The record the actor just wrote must be one they could read back. Reusing the
+     * USER_MANAGE predicate rather than comparing departmentId by hand is what keeps
+     * this honest for every scope the catalog offers: DEPARTMENT resolves through
+     * AppUserDescriptor exactly as a read would, and TEAM and ASSIGNED fail closed
+     * without a special case. A narrow-scoped actor consequently cannot create a
+     * user with no department either — they would not be able to manage them a
+     * moment later, which is the same thing said from the other side.
+     *
+     * NoSuchElementException, so the caller sees a 404 and cannot use the response
+     * to learn which departments exist elsewhere in the tenant. Inside the
+     * transaction, so the refused write rolls back rather than half-applying.
+     */
+    private void requireWithinManageScope(UUID userId) {
+        authorizedQuery.getById(repository, AppUser.class, PermissionKeys.USER_MANAGE, userId);
     }
 
     /** Looks the assignments up for one user; the list path passes them in instead. */

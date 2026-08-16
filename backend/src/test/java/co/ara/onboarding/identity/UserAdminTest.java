@@ -15,6 +15,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.security.access.AccessDeniedException;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -393,6 +395,219 @@ class UserAdminTest extends PostgresTestBase {
                 () -> userAdmin.list(null, Pageable.unpaged())))
                 .as("a deactivated account must hold no authority on the next request")
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    // ---------------------------------------------------------------------------
+    // user.manage at a NARROW scope.
+    //
+    // Every write case above grants USER_MANAGE at Scope.ALL, which is why nothing
+    // caught this: only USER_VIEW was ever exercised at DEPARTMENT. The catalog
+    // offers user.manage at ALL, DEPARTMENT and TEAM, and RoleEditor reads those
+    // options straight from /admin/permissions -- so the narrow scopes are offered
+    // to tenants as a meaningful restriction and must be one.
+    //
+    // The failure they close: @RequirePermission cannot see arguments, so a gate
+    // that passes says only "this actor may manage SOME users". Whether they may
+    // manage THIS user is a record-level question, and the only thing that answers
+    // it is resolving the id through AuthorizedQuery before writing.
+    //
+    // Each of these asserts NoSuchElementException and explicitly not
+    // AccessDeniedException: an out-of-scope record is a 404, never a 403, or the
+    // response becomes a probe for which users exist elsewhere in the tenant.
+    // ---------------------------------------------------------------------------
+
+    /** deptA, deptB, an Ops Lead scoped to deptA, and a wider role to steal. */
+    private record NarrowScopeWorld(UUID deptA, UUID deptB, UUID admin,
+                                    UUID peer, UUID outsider, UUID wideRole) {}
+
+    private NarrowScopeWorld narrowScopeWorld(UUID tenant) {
+        var world = new AtomicReference<NarrowScopeWorld>();
+        fixture.runAs(tenant, () -> {
+            UUID deptA = fixture.createDepartment(tenant, "Dept A");
+            UUID deptB = fixture.createDepartment(tenant, "Dept B");
+            UUID admin = fixture.createUserInDepartment(tenant, "opslead@example.com", deptA);
+            UUID peer = fixture.createUserInDepartment(tenant, "teammate@example.com", deptA);
+            UUID outsider = fixture.createUserInDepartment(tenant, "elsewhere@example.com", deptB);
+
+            // The obvious way to delegate people-management to a department head,
+            // and exactly what the permission catalog advertises.
+            UUID opsLead = roles.createRole("Ops Lead", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.DEPARTMENT,
+                    PermissionKeys.USER_MANAGE, Scope.DEPARTMENT));
+            roles.assignRole(admin, opsLead);
+
+            UUID wide = roles.createRole("Tenant Wide", "",
+                    Map.of(PermissionKeys.CUSTOMER_VIEW, Scope.ALL));
+            world.set(new NarrowScopeWorld(deptA, deptB, admin, peer, outsider, wide));
+        });
+        return world.get();
+    }
+
+    private Set<UUID> rolesHeldBy(UUID tenant, UUID userId) {
+        var held = new AtomicReference<Set<UUID>>();
+        fixture.runAs(tenant, () -> held.set(userAdmin.get(userId).roleIds()));
+        return held.get();
+    }
+
+    @Test
+    void departmentScopedAdminCannotAssignARoleToAUserOutsideTheirDepartment() {
+        UUID tenant = fixture.createTenant("narrow-assign-out");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, w.admin(),
+                () -> userAdmin.assignRole(w.outsider(), w.wideRole())))
+                .as("a department head must not reach users in another department")
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+
+        assertThat(rolesHeldBy(tenant, w.outsider()))
+                .as("and nothing may have been written before the refusal")
+                .isEmpty();
+    }
+
+    /** Positive control: the delegation the catalog advertises still works. */
+    @Test
+    void departmentScopedAdminCanAssignARoleWithinTheirDepartment() {
+        UUID tenant = fixture.createTenant("narrow-assign-in");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+
+        fixture.runAsUser(tenant, w.admin(), () -> userAdmin.assignRole(w.peer(), w.wideRole()));
+
+        assertThat(rolesHeldBy(tenant, w.peer())).containsExactly(w.wideRole());
+    }
+
+    @Test
+    void departmentScopedAdminCannotUnassignARoleFromAUserOutsideTheirDepartment() {
+        UUID tenant = fixture.createTenant("narrow-unassign-out");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+        fixture.runAs(tenant, () -> roles.assignRole(w.outsider(), w.wideRole()));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, w.admin(),
+                () -> userAdmin.unassignRole(w.outsider(), w.wideRole())))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+
+        assertThat(rolesHeldBy(tenant, w.outsider()))
+                .as("the grant must survive the refusal")
+                .containsExactly(w.wideRole());
+    }
+
+    /** Positive control for the removal half. */
+    @Test
+    void departmentScopedAdminCanUnassignARoleWithinTheirDepartment() {
+        UUID tenant = fixture.createTenant("narrow-unassign-in");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+        fixture.runAs(tenant, () -> roles.assignRole(w.peer(), w.wideRole()));
+
+        fixture.runAsUser(tenant, w.admin(), () -> userAdmin.unassignRole(w.peer(), w.wideRole()));
+
+        assertThat(rolesHeldBy(tenant, w.peer())).isEmpty();
+    }
+
+    /**
+     * create() wrote request.departmentId() unchecked, so the same actor could
+     * populate any department in the tenant — and then manage the user they had
+     * just put out of their own reach.
+     */
+    @Test
+    void departmentScopedAdminCannotCreateAUserIntoAnotherDepartment() {
+        UUID tenant = fixture.createTenant("narrow-create-out");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, w.admin(),
+                () -> userAdmin.create(new UserAdminService.CreateUserRequest(
+                        "planted@example.com", "Planted", w.deptB()))))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+
+        var found = new AtomicReference<Boolean>();
+        fixture.runAs(tenant, () -> found.set(users
+                .findByTenantIdAndEmailIgnoreCase(tenant, "planted@example.com").isPresent()));
+        assertThat(found.get()).as("the create must roll back, not half-apply").isFalse();
+    }
+
+    /** Positive control: creating into one's own department is the point of the role. */
+    @Test
+    void departmentScopedAdminCanCreateAUserIntoTheirOwnDepartment() {
+        UUID tenant = fixture.createTenant("narrow-create-in");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+        var created = new AtomicReference<UserAdminService.UserView>();
+
+        fixture.runAsUser(tenant, w.admin(), () -> created.set(userAdmin.create(
+                new UserAdminService.CreateUserRequest(
+                        "recruit@example.com", "A Recruit", w.deptA()))));
+
+        assertThat(created.get().departmentId()).isEqualTo(w.deptA());
+        assertThat(created.get().status()).isEqualTo(UserStatus.INVITED);
+    }
+
+    /**
+     * The same unchecked departmentId on the update path: a user in scope can be
+     * pushed out of it, which is a write to a record the actor could not have read
+     * a moment later.
+     */
+    @Test
+    void departmentScopedAdminCannotMoveAUserIntoAnotherDepartment() {
+        UUID tenant = fixture.createTenant("narrow-update-out");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, w.admin(),
+                () -> userAdmin.update(w.peer(),
+                        new UserAdminService.UpdateUserRequest("Moved Person", w.deptB()))))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+
+        var after = new AtomicReference<UserAdminService.UserView>();
+        fixture.runAs(tenant, () -> after.set(userAdmin.get(w.peer())));
+        assertThat(after.get().departmentId())
+                .as("the move must roll back entirely")
+                .isEqualTo(w.deptA());
+        assertThat(after.get().fullName()).isNotEqualTo("Moved Person");
+    }
+
+    /** Positive control: an in-department rename still works. */
+    @Test
+    void departmentScopedAdminCanUpdateAUserWithinTheirDepartment() {
+        UUID tenant = fixture.createTenant("narrow-update-in");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+
+        fixture.runAsUser(tenant, w.admin(), () -> userAdmin.update(w.peer(),
+                new UserAdminService.UpdateUserRequest("Renamed Teammate", w.deptA())));
+
+        var after = new AtomicReference<UserAdminService.UserView>();
+        fixture.runAs(tenant, () -> after.set(userAdmin.get(w.peer())));
+        assertThat(after.get().fullName()).isEqualTo("Renamed Teammate");
+    }
+
+    /**
+     * The third instance of the same shape, and the one nothing could have flagged:
+     * auth sits outside the two packages
+     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly covers,
+     * so UserInvitationService reading its target with users.findById under a
+     * user.manage gate was invisible to the guard. A DEPARTMENT-scoped holder could
+     * mint and MAIL an activation invitation for any user in the tenant.
+     */
+    @Test
+    void departmentScopedAdminCannotInviteAUserOutsideTheirDepartment() {
+        UUID tenant = fixture.createTenant("narrow-invite-out");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, w.admin(),
+                () -> activations.issueForUser(w.outsider())))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+    }
+
+    /** Positive control: inviting inside the department still issues a usable token. */
+    @Test
+    void departmentScopedAdminCanInviteAUserWithinTheirDepartment() {
+        UUID tenant = fixture.createTenant("narrow-invite-in");
+        NarrowScopeWorld w = narrowScopeWorld(tenant);
+        var token = new AtomicReference<String>();
+
+        fixture.runAsUser(tenant, w.admin(), () -> token.set(activations.issueForUser(w.peer())));
+
+        assertThat(token.get()).isNotBlank();
     }
 
     /**
