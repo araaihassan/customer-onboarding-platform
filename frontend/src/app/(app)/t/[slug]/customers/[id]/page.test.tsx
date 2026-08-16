@@ -62,6 +62,8 @@ const contacts: Contact[] = [
 ];
 
 let customerStatus = 200;
+/** What the nested contacts read answers, independently of the customer itself. */
+let contactsStatus = 200;
 /** What a write answers, so the failure paths are reachable. */
 let mutationStatus = 200;
 
@@ -91,10 +93,13 @@ function bodyOf(call: unknown[]): Record<string, unknown> {
 beforeEach(() => {
   permissions = { "customer.view": ["ALL"], "contact.view": ["ALL"] };
   customerStatus = 200;
+  contactsStatus = 200;
   mutationStatus = 200;
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-    if (url.endsWith("/contacts")) return jsonReply(contacts);
+    if (url.endsWith("/contacts")) {
+      return contactsStatus === 200 ? jsonReply(contacts) : jsonReply({}, contactsStatus);
+    }
     if (url.includes("/deactivate")) {
       return mutationStatus === 200 ? jsonReply(undefined, 204) : jsonReply({}, mutationStatus);
     }
@@ -279,6 +284,21 @@ describe("CustomerDetailPage", () => {
   it("shows the contact list to someone holding contact.view", async () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("Ada Okonjo")).not.toBeNull());
+  });
+
+  /**
+   * The customer loads and its contacts do not. Reporting nothing left the card
+   * reading "No contacts yet" beside an Add contact button, so the reader's next
+   * move was to re-add someone already there and meet the duplicate 409.
+   */
+  it("reports a failed contacts read rather than showing an empty list", async () => {
+    contactsStatus = 500;
+    renderPage();
+
+    // The record itself still renders — only the contact card failed.
+    await waitFor(() => expect(screen.getByText("Northwind Foods Holdings Ltd")).not.toBeNull());
+    await waitFor(() => expect(screen.getByText("Something went wrong")).not.toBeNull());
+    expect(screen.queryByText("No contacts yet")).toBeNull();
   });
 
   it("does not ask for contacts at all without contact.view", async () => {

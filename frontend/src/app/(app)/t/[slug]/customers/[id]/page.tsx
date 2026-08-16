@@ -190,6 +190,10 @@ export default function CustomerDetailPage() {
           customerId={id}
           contacts={contacts.data ?? []}
           isLoading={contacts.isLoading}
+          // A failed contacts read used to render "No contacts yet", which is a
+          // statement about the data rather than about the request.
+          isError={contacts.isError}
+          onRetry={() => void contacts.refetch()}
         />
       )}
 

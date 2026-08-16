@@ -62,6 +62,7 @@
   "contact.list.title": "Contacts",
   "contact.list.empty": "No contacts yet",
   "contact.list.emptyHint": "People at this customer will appear here once they are added.",
+  "contact.list.errorHint": "The contacts for this customer could not be loaded, so this list may be incomplete.",
   "contact.primary": "Primary",
   "contact.create.title": "Add contact",
   "contact.create.submit": "Create contact",

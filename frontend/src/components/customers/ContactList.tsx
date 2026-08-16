@@ -50,10 +50,20 @@ export function ContactList({
   customerId,
   contacts,
   isLoading = false,
+  isError = false,
+  onRetry,
 }: {
   customerId: string;
   contacts: Contact[];
   isLoading?: boolean;
+  /**
+   * A failed read, which is NOT an empty list. Rendering "No contacts yet" over
+   * a fetch that failed is a claim about the data that nothing supports — and
+   * with an Add contact button beside it, it invites the reader to re-add
+   * someone who is already there and collide with the duplicate-address 409.
+   */
+  isError?: boolean;
+  onRetry?: () => void;
 }) {
   const canInvite = useHasPermission("invitation.send");
   const canManage = useHasPermission("contact.manage");
@@ -123,7 +133,9 @@ export function ContactList({
     <Card>
       <CardHeader
         title={t("contact.list.title")}
-        count={isLoading ? undefined : contacts.length}
+        // No count while loading, and none after a failure: "0" beside a list
+        // that never arrived is a number asserted from no data.
+        count={isLoading || isError ? undefined : contacts.length}
         action={
           canManage ? (
             <Button
@@ -154,7 +166,22 @@ export function ContactList({
         {announcement}
       </p>
 
-      {isLoading ? (
+      {isError ? (
+        // An error with no way out of it is a dead end, so it carries the retry
+        // the customer list and detail screens already offer.
+        <EmptyState
+          icon={<UsersIcon size={24} />}
+          title={t("common.error")}
+          description={t("contact.list.errorHint")}
+          action={
+            onRetry ? (
+              <Button type="button" variant="secondary" onClick={onRetry}>
+                {t("common.retry")}
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : isLoading ? (
         // Not the empty state: "No contacts yet" while the request is still in
         // flight is a statement about the data that is not yet true.
         <SkeletonRows rows={3} height={44} />
@@ -220,6 +247,11 @@ export function ContactList({
                       // it: two rows both reading "Edit" are indistinguishable to
                       // anyone navigating by control rather than by eye.
                       aria-label={t("contact.edit.for", { name })}
+                      // ContactView.id is optional in the generated types, and
+                      // `contact.id ?? ""` would PUT to `…/contacts/` — a
+                      // different endpoint entirely. The invitation button beside
+                      // this one already guards the same way.
+                      disabled={!contactId}
                       onClick={() => {
                         update.reset();
                         setEditing(contact);

@@ -32,14 +32,17 @@ const contacts: Contact[] = [
   },
 ];
 
-function renderList(list: Contact[] = contacts) {
+function renderList(
+  list: Contact[] = contacts,
+  extra: { isError?: boolean; onRetry?: () => void } = {},
+) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   }
-  return render(<ContactList customerId="c-1" contacts={list} />, { wrapper: Wrapper });
+  return render(<ContactList customerId="c-1" contacts={list} {...extra} />, { wrapper: Wrapper });
 }
 
 beforeEach(() => {
@@ -422,5 +425,58 @@ describe("ContactList: editing a contact", () => {
       expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toBe("Not found"),
     );
     expect(document.body.textContent).not.toMatch(/access|permission|forbidden|not allowed/i);
+  });
+});
+
+/**
+ * A failed READ, which is the fourth async surface in this project found saying
+ * nothing on failure.
+ *
+ * Pre-existing from Task 27, but Task R2 changed its consequence: the Add contact
+ * button now sits beside a list that renders "No contacts yet" when the fetch
+ * failed, so the user's natural next step is to add someone who is already there
+ * and collide with the duplicate-address 409.
+ */
+describe("ContactList: a failed read", () => {
+  it("reports the failure instead of claiming there are no contacts", () => {
+    renderList([], { isError: true });
+
+    expect(screen.getByText("Something went wrong")).not.toBeNull();
+    // The lie this replaces.
+    expect(screen.queryByText("No contacts yet")).toBeNull();
+  });
+
+  it("offers a way out rather than a dead end", () => {
+    const onRetry = vi.fn();
+    renderList([], { isError: true, onRetry });
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onRetry).toHaveBeenCalled();
+  });
+
+  /** "0" beside a list that failed to load is a count asserted from no data. */
+  it("claims no count when the list did not load", () => {
+    renderList([], { isError: true });
+    expect(screen.queryByText("0")).toBeNull();
+  });
+});
+
+describe("ContactList: a contact with no id", () => {
+  /**
+   * `ContactView.id` is optional in the generated types. The invitation button
+   * already disables itself on a missing id; the edit button used to send
+   * `contact.id ?? ""`, which is a PUT to `…/contacts/` — a different endpoint
+   * entirely.
+   */
+  it("disables the edit action, as the invitation action already does", () => {
+    permissions = { "contact.manage": ["ALL"], "invitation.send": ["ALL"] };
+    renderList([{ ...contacts[0], id: undefined }]);
+
+    expect((screen.getByRole("button", { name: "Edit Ada Okonjo" }) as HTMLButtonElement).disabled)
+      .toBe(true);
+    expect(
+      (screen.getByRole("button", { name: "Send invitation to Ada Okonjo" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 });
