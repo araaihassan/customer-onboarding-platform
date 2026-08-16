@@ -158,7 +158,51 @@ regression to hunt:
   404 rather than making them a user its author could not then manage. Correct, and fails closed,
   but the screen offers no department field to succeed with and the 404 says nothing useful. None
   of the twelve seeded templates is affected: only `Administrator` holds `user.manage`, at `ALL`.
-  A department picker on that form is the fix, with the options scoped to the actor.
+  A department picker on that form is the fix, with the options scoped to the actor. There is no
+  user-edit screen either — `PUT /admin/users/{id}` exists but `lib/api/admin.ts` never calls it —
+  so a department cannot be changed after creation from the UI at all.
+- **TEAM scope is dead in a running system, and four seeded roles therefore confer nothing.**
+  Nothing in the API writes `team_member`: `OrgStructureController` exposes only list and create
+  for departments and teams, and `AppUser.teamIds` is written only by `TenantFixture.addToTeam` in
+  tests. So `ctx.teamIds()` is empty for every real user and every descriptor's `teamScope` —
+  `AppUserDescriptor`, `CustomerDescriptor`, and the two that resolve through them — returns
+  `cb.disjunction()`. Account Manager, Project Manager, Technical and Support grant **only** at
+  TEAM, so all four resolve to no access whatsoever. It fails closed, so this is not a security
+  hole; it is the largest functional gap on the branch. It needs team-membership endpoints and a
+  screen, and until then those four templates should not be handed out.
+- **Ownership foreign keys carry no tenant component, and one is observable.** `CustomerService`
+  writes `ownerUserId`, `owningDepartmentId` and `owningTeamId` straight from the request with no
+  existence or tenancy check. PostgreSQL evaluates referential integrity with row security
+  bypassed, so a UUID belonging to **another tenant's** `app_user` satisfies the FK and answers
+  200, while an invented UUID raises an FK violation and answers 500. That difference is a
+  cross-tenant existence oracle, and it leaves a customer owned by a stranger. Fix shape: resolve
+  all three ids through their repositories and let RLS do the tenancy work. `app_user.department_id
+  REFERENCES department(id)` has the same shape — undiscoverable through the API under RLS, but
+  `UserAdminService.create` and `update` now lean on `departmentId` for authorization decisions.
+- **Deactivation ends the session but not the pending credentials.** `deactivate` revokes every
+  refresh family and `AuthorizationService` zeroes authority for a non-ACTIVE user, but
+  `PasswordResetService` consults `status` nowhere — so a DEACTIVATED account can still request and
+  complete a reset — and outstanding `invitation` rows stay redeemable. No authority is gained
+  (`LoginService` admits only ACTIVE, rotation refuses), but if "deactivation ends the account" is
+  an invariant, invalidating its pending tokens is the missing half.
+- **The tenant slug is unvalidated at provisioning.** `PlatformTenantController` carries no
+  `@Valid` and `ProvisionRequest` no constraints. A slug that does not match
+  `PathPrefixTenantResolver`'s `^[a-z0-9][a-z0-9-]{0,62}$` — `Acme`, `acme_corp` — creates a tenant
+  that is permanently unreachable, since every request resolves no slug and answers 401, with no
+  error at creation time. A duplicate slug is a raw 500 from the unique constraint: nothing maps
+  `DataIntegrityViolationException`.
+- **`DB_APP_PASSWORD` defaults to the committed literal `onboarding_app`.**
+  `V2__app_role_and_tenant.sql` creates the login role with that password and `application.yml`
+  defaults to it, with no guard — the same failure shape `JwtProperties` was just built to prevent
+  for `JWT_SECRET`. Migrations are forward-only, so the role's password must be rotated
+  operationally; the code half is to drop the default and refuse to start without the variable,
+  exactly as `JWT_SECRET` now does.
+- **Contact email drifts from `app_user`, and the two uniqueness rules disagree.**
+  `CustomerContactService.update` rewrites `contact.email` without touching the linked
+  `app_user.email`, so a corrected address leaves the portal login on the old one. And
+  `customer_contact` is unique on `(customer_id, email)` **case-sensitively** while `app_user` is
+  unique on `(tenant_id, lower(email))` — so two contacts differing only in case are accepted, and
+  the second one's activation fails as an "invalid token".
 - **Three write paths are still unaudited**, all in `authz`/`auth` rather than the domain modules:
   `RoleService.deleteRole`; re-enabling a disabled role, because `setEnabled` records only on the
   disable branch; and `PasswordResetService`, which records neither request nor completion.
@@ -170,9 +214,12 @@ regression to hunt:
   the `user.created` action key with only its prose summary dissenting. Fixed, but `audit_event` is
   append-only, so historical rows cannot be corrected — anything querying `user.created` over that
   period is counting deactivations too.
-- **Retiring a contact does not revoke portal access.** `update` sets `status = INACTIVE` on the
-  contact only; the linked `app_user` stays `ACTIVE`, and `LoginService` reads the user. A retired
-  contact can still sign in to the portal.
+- **Retiring a contact does not revoke portal access, and does not stop a new one being granted.**
+  `update` sets `status = INACTIVE` on the contact only; the linked `app_user` stays `ACTIVE`, and
+  `LoginService` reads the user, so a retired contact can still sign in. It can also still be
+  invited and activated: neither `InvitationService.issue` nor `ActivationService.activateContact`
+  reads `ContactStatus`, and nothing revokes outstanding invitations on retirement — so a retired
+  contact holding a live seven-day token still creates an ACTIVE `PORTAL` user.
 - **The 409 on a duplicate contact email is not in the OpenAPI document.** The behaviour is real and
   tested (`DuplicateContactEmailException`, unique `customer_contact_customer_id_email_key`), but
   springdoc advertises only 201 on create and 200 on update, so `generated.ts` has no 409 for a
