@@ -75,7 +75,10 @@ cd backend && SPRING_PROFILES_ACTIVE=dev \
 
 Both platform-admin variables are blank by default and `PlatformAdminBootstrap` does nothing without
 them — but `/api/platform/**` is HTTP Basic behind `hasRole("PLATFORM_ADMIN")`, so without one no
-tenant can ever be created. It is idempotent: an existing address is left untouched, never re-hashed.
+tenant can ever be created. It is idempotent: an existing address is left untouched, never re-hashed —
+so against a database that already has that administrator, changing `APP_PLATFORM_ADMIN_PASSWORD`
+silently does nothing and the provisioning call below answers 401. Startup logs which it did
+("already exists; leaving it unchanged"), and that line is the fastest way to read a puzzling 401.
 Other variables worth knowing: `JWT_SECRET` (dev default is a placeholder, min 32 bytes).
 
 **Frontend** on :3000 — `cd frontend && npm install && npm run dev`. `src/lib/api/client.ts` issues
@@ -119,6 +122,22 @@ the seven-day TTL expires; a tenant provisioned and forgotten for a week needs m
 Also operational: `audit_event` is partitioned by month and `V5` creates only `2026_08`, `2026_09`
 and a DEFAULT partition. The job that rolls partitions forward arrives in sub-project 6.
 
+**Open at the close of sub-project 1**, verified against the running system — none of these is a
+regression to hunt:
+
+- **Contact writes are not audited.** `CustomerContactService.create` and `.update` are
+  `@RequirePermission`-gated but call no `AuditRecorder`, and `AuditActions` has no `contact.*`
+  constant. Customers audit create/update/deactivate; contacts audit nothing, so retiring one leaves
+  no trace. Inviting a contact *is* audited, via `invitation.sent` on `InvitationService`. Closing
+  this means adding the constants and the two call sites, not new infrastructure.
+- **Retiring a contact does not revoke portal access.** `update` sets `status = INACTIVE` on the
+  contact only; the linked `app_user` stays `ACTIVE`, and `LoginService` reads the user. A retired
+  contact can still sign in to the portal.
+- **The 409 on a duplicate contact email is not in the OpenAPI document.** The behaviour is real and
+  tested (`DuplicateContactEmailException`, unique `customer_contact_customer_id_email_key`), but
+  springdoc advertises only 201 on create and 200 on update, so `generated.ts` has no 409 for a
+  client to narrow on.
+
 ### Tests
 
 ```bash
@@ -126,17 +145,20 @@ cd backend && ./gradlew cleanTest test     # needs Docker running
 cd frontend && npx vitest run
 ```
 
-After Task 28 these were 158 backend tests over 42 classes, 139 frontend tests over 18 files, and 27
-Playwright tests over 6 specs, all green.
+All three suites — backend, frontend unit, Playwright — were green at the close of sub-project 1
+(2026-08-16), with nothing skipped and no retries. Counts are deliberately not pinned here: they
+move every time sub-project 2 adds a test, and a number in this file that drifts is a number that
+gets trusted. Read the suite's own summary line, and treat a *failure* as the signal, never a count.
 
 **Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
 prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a green run.
 `org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
 cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
 
-`cd frontend && npx playwright test` is the end-to-end command: 27 tests over six specs — login,
-activation, refresh rotation and reuse, customers with permission gating and the 1024px fallback,
-the administration screens, and accessibility in both themes at four widths. It starts **both** applications itself, so nothing needs to be running first; if 8080 or
+`cd frontend && npx playwright test` is the end-to-end command: six specs — login, activation,
+refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
+1024px fallback, the administration screens, and accessibility in both themes at four widths.
+It starts **both** applications itself, so nothing needs to be running first; if 8080 or
 3000 is already bound it reuses what is there, which is wrong often enough that killing strays
 first is worth it. The backend goes through `e2e/support/backend.mjs`, which tees its output to
 `frontend/e2e/.artifacts/backend.log` — **that log is the only place an activation token exists**,
