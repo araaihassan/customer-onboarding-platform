@@ -317,21 +317,64 @@ class CustomerContactServiceTest extends PostgresTestBase {
     void updatingAContactUnderAnOutOfScopeCustomerIsNotFound() {
         UUID tenant = fixture.createTenant("contact-update-scope");
         var user = new AtomicReference<UUID>();
+        var theirCustomer = new AtomicReference<UUID>();
         var theirContact = new AtomicReference<UUID>();
 
         fixture.runAs(tenant, () -> {
             user.set(fixture.createUser(tenant, "narrow-edit@example.com"));
             UUID someoneElse = fixture.createUser(tenant, "owner-edit@example.com");
-            UUID theirCustomer = fixture.createCustomer(tenant, "Theirs Ltd", someoneElse, null, null);
-            theirContact.set(fixture.createContact(tenant, theirCustomer, "theirs@example.com"));
+            theirCustomer.set(fixture.createCustomer(tenant, "Theirs Ltd", someoneElse, null, null));
+            theirContact.set(fixture.createContact(tenant, theirCustomer.get(), "theirs@example.com"));
             UUID role = roles.createRole("Assigned Contact Manager", "", Map.of(
                     PermissionKeys.CONTACT_MANAGE, Scope.ASSIGNED));
             roles.assignRole(user.get(), role);
         });
 
         assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
-                () -> contacts.update(theirContact.get(), new CustomerContactService.UpdateContactRequest(
-                        "Hijacked", "hijacked@example.com", null, null, false, ContactStatus.ACTIVE))))
+                () -> contacts.update(theirCustomer.get(), theirContact.get(),
+                        new CustomerContactService.UpdateContactRequest(
+                                "Hijacked", "hijacked@example.com", null, null, false, ContactStatus.ACTIVE))))
+                .isInstanceOf(NoSuchElementException.class)
+                .isNotInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
+     * The customerId in the PUT path is verified, not decorative.
+     *
+     * The controller binds it from a URL of the form
+     * /customers/{customerId}/contacts/{contactId}, and nothing used to check that
+     * the contact actually hung off that customer -- so any customer id at all
+     * addressed the same contact. Not a scope bypass, because the contact-level
+     * predicate binds regardless of what the path says, but a path variable that
+     * means nothing invites a future caller to trust it, and the frontend already
+     * keys its cache invalidation off exactly this segment.
+     *
+     * Both customers here belong to the SAME owner and the actor holds ALL scope,
+     * so the contact is genuinely reachable and the mismatch is the only thing
+     * that can reject the call. 404 rather than 403: a contact that is not under
+     * the customer named is, as far as that URL is concerned, not there.
+     */
+    @Test
+    void updatingAContactThroughAnotherCustomersPathIsNotFound() {
+        UUID tenant = fixture.createTenant("contact-path-mismatch");
+        var user = new AtomicReference<UUID>();
+        var otherCustomer = new AtomicReference<UUID>();
+        var contactId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "mismatch@example.com"));
+            UUID owning = fixture.createCustomer(tenant, "Owning Ltd", user.get(), null, null);
+            otherCustomer.set(fixture.createCustomer(tenant, "Other Ltd", user.get(), null, null));
+            contactId.set(fixture.createContact(tenant, owning, "held@example.com"));
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
+                () -> contacts.update(otherCustomer.get(), contactId.get(),
+                        new CustomerContactService.UpdateContactRequest(
+                                "Moved", "moved@example.com", null, null, false, ContactStatus.ACTIVE))))
                 .isInstanceOf(NoSuchElementException.class)
                 .isNotInstanceOf(AccessDeniedException.class);
     }
@@ -379,21 +422,23 @@ class CustomerContactServiceTest extends PostgresTestBase {
     void updateCanCorrectAContactAndRetireIt() {
         UUID tenant = fixture.createTenant("contact-retire");
         var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
         var contactId = new AtomicReference<UUID>();
 
         fixture.runAs(tenant, () -> {
             user.set(fixture.createUser(tenant, "editor@example.com"));
-            UUID customerId = fixture.createCustomer(tenant, "Retire Ltd", user.get(), null, null);
-            contactId.set(fixture.createContact(tenant, customerId, "typo@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Retire Ltd", user.get(), null, null));
+            contactId.set(fixture.createContact(tenant, customerId.get(), "typo@example.com"));
             UUID role = roles.createRole("Contact Manager", "", Map.of(
                     PermissionKeys.CONTACT_MANAGE, Scope.ALL));
             roles.assignRole(user.get(), role);
         });
 
         fixture.runAsUser(tenant, user.get(), () -> {
-            var updated = contacts.update(contactId.get(), new CustomerContactService.UpdateContactRequest(
-                    "Corrected Name", "correct@example.com", "Head of Ops", "+44 20 7946 0000",
-                    true, ContactStatus.INACTIVE));
+            var updated = contacts.update(customerId.get(), contactId.get(),
+                    new CustomerContactService.UpdateContactRequest(
+                            "Corrected Name", "correct@example.com", "Head of Ops", "+44 20 7946 0000",
+                            true, ContactStatus.INACTIVE));
 
             assertThat(updated.email()).isEqualTo("correct@example.com");
             assertThat(updated.fullName()).isEqualTo("Corrected Name");
@@ -440,21 +485,23 @@ class CustomerContactServiceTest extends PostgresTestBase {
     void updatingAContactOntoAnAddressAlreadyUsedOnThatCustomerIsAConflict() {
         UUID tenant = fixture.createTenant("contact-dupe-edit");
         var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
         var second = new AtomicReference<UUID>();
 
         fixture.runAs(tenant, () -> {
             user.set(fixture.createUser(tenant, "dupe-edit@example.com"));
-            UUID customerId = fixture.createCustomer(tenant, "Dupe Edit Ltd", user.get(), null, null);
-            fixture.createContact(tenant, customerId, "first@example.com");
-            second.set(fixture.createContact(tenant, customerId, "second@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Dupe Edit Ltd", user.get(), null, null));
+            fixture.createContact(tenant, customerId.get(), "first@example.com");
+            second.set(fixture.createContact(tenant, customerId.get(), "second@example.com"));
             UUID role = roles.createRole("Contact Manager", "", Map.of(
                     PermissionKeys.CONTACT_MANAGE, Scope.ALL));
             roles.assignRole(user.get(), role);
         });
 
         assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
-                () -> contacts.update(second.get(), new CustomerContactService.UpdateContactRequest(
-                        "Second Person", "first@example.com", null, null, false, ContactStatus.ACTIVE))))
+                () -> contacts.update(customerId.get(), second.get(),
+                        new CustomerContactService.UpdateContactRequest(
+                                "Second Person", "first@example.com", null, null, false, ContactStatus.ACTIVE))))
                 .isInstanceOf(DuplicateContactEmailException.class);
     }
 

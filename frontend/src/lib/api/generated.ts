@@ -619,10 +619,10 @@ export interface components {
             sort?: string[];
         };
         PageCustomerView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
@@ -641,22 +641,22 @@ export interface components {
             offset?: number;
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
-            pageSize?: number;
-            /** Format: int32 */
             pageNumber?: number;
-            unpaged?: boolean;
+            /** Format: int32 */
+            pageSize?: number;
             paged?: boolean;
+            unpaged?: boolean;
         };
         SortObject: {
             empty?: boolean;
-            unsorted?: boolean;
             sorted?: boolean;
+            unsorted?: boolean;
         };
         PageUserView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
@@ -750,6 +750,7 @@ export interface operations {
             query?: never;
             header?: never;
             path: {
+                customerId: string;
                 contactId: string;
             };
             cookie?: never;

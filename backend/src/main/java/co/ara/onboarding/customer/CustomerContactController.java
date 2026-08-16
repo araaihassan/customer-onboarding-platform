@@ -34,11 +34,17 @@ public class CustomerContactController {
         return contacts.create(customerId, request);
     }
 
+    /**
+     * customerId is bound and passed through, not ignored. The service checks the
+     * contact actually hangs off it and answers 404 otherwise — a path variable
+     * nothing verifies is one a later caller will assume means something.
+     */
     @PutMapping("/{contactId}")
     public CustomerContactService.ContactView update(
+            @PathVariable UUID customerId,
             @PathVariable UUID contactId,
             @RequestBody CustomerContactService.UpdateContactRequest request) {
-        return contacts.update(contactId, request);
+        return contacts.update(customerId, contactId, request);
     }
 
     /**

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @Service
@@ -113,8 +114,9 @@ public class CustomerContactService {
     }
 
     /**
-     * No parent lookup here, deliberately, and NOT an omission of the one create
-     * carries.
+     * No parent SCOPE lookup here, deliberately, and NOT an omission of the one
+     * create carries. (The equality check below is a different thing: it verifies
+     * the path is self-consistent, not that the actor may reach the parent.)
      *
      * update reads the contact itself through AuthorizedQuery, and
      * CustomerContactDescriptor resolves every contact scope through a subquery
@@ -129,9 +131,20 @@ public class CustomerContactService {
      */
     @RequirePermission(PermissionKeys.CONTACT_MANAGE)
     @Transactional
-    public ContactView update(UUID contactId, UpdateContactRequest request) {
+    public ContactView update(UUID customerId, UUID contactId, UpdateContactRequest request) {
         CustomerContact c = authorizedQuery.getById(repository, CustomerContact.class,
                 PermissionKeys.CONTACT_MANAGE, contactId);
+
+        // The customerId in the URL means what it says. Without this any customer
+        // id at all addressed the same contact, which is not a scope bypass —
+        // getById above binds regardless of what the path claims — but a path
+        // variable nothing verifies is one a later caller will assume means
+        // something, and the frontend already keys its cache invalidation off
+        // exactly this segment. NoSuchElementException, so a contact that is not
+        // under the customer named is simply absent from that URL.
+        if (!customerId.equals(c.getCustomerId())) {
+            throw new NoSuchElementException("Not found");
+        }
         c.setFullName(request.fullName());
         c.setEmail(request.email());
         c.setTitle(request.title());
