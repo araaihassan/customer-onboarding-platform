@@ -74,6 +74,19 @@ cd backend && SPRING_PROFILES_ACTIVE=dev \
   APP_PLATFORM_ADMIN_EMAIL=ops@example.com APP_PLATFORM_ADMIN_PASSWORD=<pick-one> ./gradlew bootRun
 ```
 
+PowerShell — this repository is developed on Windows, and the bash form above runs on neither
+`cmd` nor PowerShell (`VAR=value cmd` prefixing and `$(…)` are bash). Omitting `JWT_SECRET` is not
+an option: the application refuses to start without it.
+
+```powershell
+cd backend
+$env:SPRING_PROFILES_ACTIVE = "dev"
+$env:JWT_SECRET = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))
+$env:APP_PLATFORM_ADMIN_EMAIL = "ops@example.com"
+$env:APP_PLATFORM_ADMIN_PASSWORD = "<pick-one>"
+.\gradlew.bat bootRun
+```
+
 `JWT_SECRET` is **required, on every profile** — the application refuses to start without at least 32
 bytes of it, and says so naming the variable. There is no dev default: a committed one is a signing
 key every reader of this repository holds, and the deployment that forgets the variable is exactly
@@ -264,11 +277,13 @@ correct response to one failing is to fix the code, never to weaken the guard.
   resolved server-side per request, so a revoked grant takes effect on the next call rather than
   when a token happens to expire.
 - **`JWT_SECRET` is required configuration, not a default with an override.** `JwtProperties`
-  refuses to start the application when it is unset, under 32 bytes, or a placeholder this
-  repository has published (`JwtSecretGuardTest`). The guard is deliberately not keyed on profile —
-  a "unless dev" check misses the deployment that forgot the profile too. `application.yml` ships no
-  fallback; the backend suite supplies its own in `src/test/resources/application-test.yml` and the
-  e2e backend in `e2e/support/backend.mjs`.
+  refuses to start the application when it is unset, under 32 bytes, or one of the three secrets
+  this repository has published (`JwtSecretGuardTest`). The guard is deliberately not keyed on
+  profile — a "unless dev" check misses the deployment that forgot the profile too. **No usable
+  signing secret is written down anywhere in this repository**: `application.yml` ships no fallback,
+  the backend suite generates one per run in `PostgresTestBase`, and the e2e harness does the same
+  in `e2e/support/backend.mjs`. Do not reintroduce a literal — a committed secret is a secret
+  nobody has, and the denylist is what a value becomes once it has been published.
 - **Every resource type registers a `ResourceAuthorizationDescriptor`.** `DescriptorRegistry.validate()`
   refuses to start the application otherwise — an unregistered type would reach scope resolution with
   no predicate to apply. Descriptors must fail closed: no department, no teams ⇒ `cb.disjunction()`.

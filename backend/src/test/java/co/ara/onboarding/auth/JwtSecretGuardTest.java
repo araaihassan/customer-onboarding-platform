@@ -37,7 +37,11 @@ class JwtSecretGuardTest {
     private static final String PUBLISHED_PLACEHOLDER =
             "dev-only-secret-replace-in-production-min-32-bytes";
 
-    /** 32 bytes exactly is the HMAC-SHA256 minimum; this is 46. */
+    /**
+     * 32 bytes exactly is the HMAC-SHA256 minimum; this is 48. A fixture, never
+     * offered as deployable configuration, which is why it is not on
+     * JwtProperties' denylist while the two former defaults are.
+     */
     private static final String USABLE_SECRET =
             "a-perfectly-ordinary-secret-of-sufficient-length";
 
@@ -57,6 +61,37 @@ class JwtSecretGuardTest {
         runner.withPropertyValues("app.jwt.secret=" + PUBLISHED_PLACEHOLDER).run(context -> {
             assertThat(context)
                     .as("a secret readable by anyone who can read the source is not a secret")
+                    .hasFailed();
+            assertThat(rootCauseOf(context.getStartupFailure()))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("JWT_SECRET");
+        });
+    }
+
+    /**
+     * The guard originally listed only application.yml's former default, while the
+     * same change published two more working secrets — the backend suite's and the
+     * e2e harness's — both of which CLAUDE.md pointed readers at. Both are now
+     * generated per run instead of written down, and both old literals are
+     * denylisted for the deployment that copies one out of the history.
+     *
+     * Each is asserted individually rather than in a loop, so a failure names the
+     * value that is no longer refused.
+     */
+    @Test
+    void refusesToStartOnTheFormerBackendSuiteSecret() {
+        assertRefuses("test-only-jwt-signing-secret-of-at-least-32-bytes");
+    }
+
+    @Test
+    void refusesToStartOnTheFormerE2eHarnessSecret() {
+        assertRefuses("e2e-only-secret-at-least-thirty-two-bytes-long");
+    }
+
+    private void assertRefuses(String publishedSecret) {
+        runner.withPropertyValues("app.jwt.secret=" + publishedSecret).run(context -> {
+            assertThat(context)
+                    .as("a secret this repository published is a secret nobody has")
                     .hasFailed();
             assertThat(rootCauseOf(context.getStartupFailure()))
                     .isInstanceOf(IllegalStateException.class)

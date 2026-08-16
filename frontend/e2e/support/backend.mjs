@@ -17,6 +17,7 @@
  * whose database is on 5432 needs no configuration at all.
  */
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { createWriteStream, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -59,7 +60,12 @@ const child = spawn(command, [...leadingArgs, "bootRun", "--console=plain"], {
     APP_PLATFORM_ADMIN_EMAIL: process.env.APP_PLATFORM_ADMIN_EMAIL ?? "ops@example.com",
     APP_PLATFORM_ADMIN_PASSWORD:
       process.env.APP_PLATFORM_ADMIN_PASSWORD ?? "e2e-platform-admin-password",
-    JWT_SECRET: process.env.JWT_SECRET ?? "e2e-only-secret-at-least-thirty-two-bytes-long",
+    // Generated per run, not written down. application.yml ships no fallback and
+    // JwtProperties refuses to start without a usable secret, so this harness has
+    // to supply one — but a literal here is a secret published in the repository,
+    // and this project denylists those. The suite never needs it to be stable: one
+    // backend process serves the whole run, and every token it mints dies with it.
+    JWT_SECRET: process.env.JWT_SECRET ?? randomBytes(48).toString("base64url"),
   },
 });
 

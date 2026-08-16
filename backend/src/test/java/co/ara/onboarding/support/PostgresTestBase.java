@@ -63,6 +63,28 @@ public abstract class PostgresTestBase {
     }
 
     /**
+     * The suite's JWT signing secret, generated per JVM run rather than written
+     * down. application.yml ships no fallback and JwtProperties refuses to start
+     * without a usable secret, so the suite must supply one — but a literal in
+     * src/test/resources is a published secret like any other, and this project
+     * denylists those. Generating it removes the value from the repository instead
+     * of adding it to the denylist, which is the only version of that fix that
+     * does not denylist the very value the suite runs on.
+     *
+     * The guard still runs in full against this: it is well over the 32-byte
+     * minimum and is not a denylisted placeholder, so nothing here is an exemption.
+     * Nothing in the suite depends on the secret being stable across runs — tokens
+     * are minted and verified inside a single run.
+     */
+    @DynamicPropertySource
+    static void jwtSecret(DynamicPropertyRegistry registry) {
+        byte[] secret = new byte[48];
+        new java.security.SecureRandom().nextBytes(secret);
+        String encoded = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
+        registry.add("app.jwt.secret", () -> encoded);
+    }
+
+    /**
      * JdbcTemplate bound to the container's owner role, for DDL and GRANT only.
      * Never assert privilege or RLS behaviour through this — the owner bypasses
      * both, so an assertion made here proves nothing.

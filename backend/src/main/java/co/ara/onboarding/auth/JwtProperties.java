@@ -45,14 +45,26 @@ public class JwtProperties {
     static final int MINIMUM_SECRET_BYTES = 32;
 
     /**
-     * Values that have been committed to this repository as placeholders. Any of
-     * them is public knowledge, so it is a forged token for every account in every
-     * tenant. A denylist entry, not key material — the fallback in application.yml
-     * was removed in the same change, and this exists for the deployment that copies
-     * the old placeholder out of the history or the docs into a real JWT_SECRET.
+     * Values this repository has published as working configuration. Each is public
+     * knowledge, so each is a forged token for every account in every tenant. These
+     * are denylist entries, not key material: none is used anywhere any more — the
+     * application.yml fallback was removed, the backend suite now generates its
+     * secret in PostgresTestBase and the e2e harness in backend.mjs — and they are
+     * listed for the deployment that copies one out of the git history or an older
+     * revision of CLAUDE.md into a real JWT_SECRET.
+     *
+     * The bar for entry is "was presented as configuration that works", not "appears
+     * in the repository". A fixture inside a test — JwtSecretGuardTest's own usable
+     * secret, say — was never offered as something to deploy with, and denylisting it
+     * would break the guard's positive case for no gain.
      */
     private static final Set<String> PUBLISHED_PLACEHOLDERS = Set.of(
-            "dev-only-secret-replace-in-production-min-32-bytes");
+            // application.yml's former default.
+            "dev-only-secret-replace-in-production-min-32-bytes",
+            // src/test/resources/application-test.yml, deleted; CLAUDE.md pointed here.
+            "test-only-jwt-signing-secret-of-at-least-32-bytes",
+            // frontend/e2e/support/backend.mjs's former default; also documented.
+            "e2e-only-secret-at-least-thirty-two-bytes-long");
 
     private static final String REMEDY =
             " Set the JWT_SECRET environment variable to at least " + MINIMUM_SECRET_BYTES
