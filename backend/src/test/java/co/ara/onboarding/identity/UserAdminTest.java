@@ -280,6 +280,91 @@ class UserAdminTest extends PostgresTestBase {
     }
 
     /**
+     * Granting was traceable and revoking was silent — the wrong asymmetry in a
+     * system whose authorization model is the point, because revocation is the half
+     * a reviewer needs. "When did this account stop being able to do that, and who
+     * decided?" had no answer in the audit log at all.
+     *
+     * Asserted as a string key rather than through an AuditActions constant on
+     * purpose: the constant did not exist, and a test that fails to compile proves
+     * nothing about the behaviour. This one compiles and reports the real defect —
+     * the removal wrote no row.
+     */
+    @Test
+    void unassigningARoleIsAudited() {
+        UUID tenant = fixture.createTenant("admin-unassign-audit");
+        var admin = new AtomicReference<UUID>();
+        var target = new AtomicReference<UUID>();
+        var role = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            admin.set(fixture.createUser(tenant, "revoker@example.com"));
+            target.set(fixture.createUser(tenant, "revoked@example.com"));
+            UUID adminRole = roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL));
+            roles.assignRole(admin.get(), adminRole);
+            role.set(roles.createRole("Granted", "",
+                    Map.of(PermissionKeys.CUSTOMER_VIEW, Scope.ALL)));
+            roles.assignRole(target.get(), role.get());
+        });
+
+        fixture.runAsUser(tenant, admin.get(),
+                () -> userAdmin.unassignRole(target.get(), role.get()));
+
+        // The timeline flag is asserted alongside the key rather than left to the
+        // blanket test below, because AuditActions says the side is decided per
+        // action by whose record changed — never copied from a neighbour. A role
+        // revocation changes the tenant's own staff record, so it is
+        // compliance-only, like every other user.* action.
+        var actions = new AtomicReference<java.util.List<String>>();
+        fixture.runAs(tenant, () -> actions.set(auditEvents.findAll().stream()
+                .filter(e -> target.get().equals(e.getResourceId()))
+                .map(e -> e.getAction() + ":" + e.isTimelineVisible())
+                .toList()));
+
+        assertThat(actions.get())
+                .as("a grant added traceably must be removed traceably")
+                .containsExactlyInAnyOrder("user.role_assigned:false", "user.role_unassigned:false");
+    }
+
+    /**
+     * Idempotence must not become a false record. unassignRole is deliberately
+     * silent about a role nobody holds, and recording a revocation that did not
+     * happen would assert something untrue — the same failure as the mislabelled
+     * deactivation above, in the other direction.
+     */
+    @Test
+    void unassigningARoleNobodyHoldsRecordsNothing() {
+        UUID tenant = fixture.createTenant("admin-unassign-noop");
+        var admin = new AtomicReference<UUID>();
+        var target = new AtomicReference<UUID>();
+        var role = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            admin.set(fixture.createUser(tenant, "noopboss@example.com"));
+            target.set(fixture.createUser(tenant, "nooptarget@example.com"));
+            UUID adminRole = roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL));
+            roles.assignRole(admin.get(), adminRole);
+            role.set(roles.createRole("Never Granted", "",
+                    Map.of(PermissionKeys.CUSTOMER_VIEW, Scope.ALL)));
+        });
+
+        fixture.runAsUser(tenant, admin.get(),
+                () -> userAdmin.unassignRole(target.get(), role.get()));
+
+        var actions = new AtomicReference<java.util.List<String>>();
+        fixture.runAs(tenant, () -> actions.set(auditEvents.findAll().stream()
+                .filter(e -> target.get().equals(e.getResourceId()))
+                .map(e -> e.getAction())
+                .toList()));
+
+        assertThat(actions.get()).isEmpty();
+    }
+
+    /**
      * Identity actions stay OFF the customer-visible timeline. The flag is decided
      * by whose record it is, not by how weighty the verb is: customer.deactivated
      * is visible because the customer's own record changed, whereas a vendor's

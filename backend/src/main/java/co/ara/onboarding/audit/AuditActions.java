@@ -31,6 +31,12 @@ public final class AuditActions {
     public static final AuditAction USER_UPDATED              = of("user.updated", false);
     public static final AuditAction USER_DEACTIVATED          = of("user.deactivated", false);
     public static final AuditAction USER_ROLE_ASSIGNED        = of("user.role_assigned", false);
+    // Compliance-only for the same reason as its counterpart: whose record
+    // changed is the tenant's own staff member, not the customer's. Revocation is
+    // the half a reviewer actually needs -- "when did this account stop being
+    // able to do that, and who decided" -- so a grant that could be added
+    // traceably and removed silently was the wrong asymmetry, not a small gap.
+    public static final AuditAction USER_ROLE_UNASSIGNED      = of("user.role_unassigned", false);
     public static final AuditAction DEPARTMENT_CREATED        = of("department.created", false);
     public static final AuditAction TEAM_CREATED              = of("team.created", false);
     public static final AuditAction ROLE_CREATED              = of("role.created", false);

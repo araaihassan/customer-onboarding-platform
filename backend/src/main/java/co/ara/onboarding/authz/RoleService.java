@@ -159,11 +159,20 @@ public class RoleService {
      * Removing an assignment is what makes a role deletable — deleteRole refuses
      * while anyone still holds it. Idempotent: unassigning a role nobody holds is
      * not an error.
+     *
+     * Audited inside the ifPresent, so the record follows the write. Recording
+     * unconditionally would assert a revocation that never happened on every
+     * repeated call, and audit_event is append-only — a wrong row is worse than a
+     * missing one and cannot be corrected afterwards.
      */
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
     public void unassignRole(UUID userId, UUID roleId) {
-        userRoles.findById(new UserRoleId(userId, roleId)).ifPresent(userRoles::delete);
+        userRoles.findById(new UserRoleId(userId, roleId)).ifPresent(assignment -> {
+            userRoles.delete(assignment);
+            audit.record(AuditActions.USER_ROLE_UNASSIGNED, "app_user", userId,
+                    "Unassigned role", Map.of("roleId", roleId.toString()));
+        });
     }
 
     private static RoleView toView(Role role) {
