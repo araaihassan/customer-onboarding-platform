@@ -7877,6 +7877,34 @@ Confirm the definition of done in spec §12: tenant provisioning seeds twelve ro
 
 **Tasks 20 and 21 are the pattern for sub-projects 2–9.** Every later domain module repeats the same shape: entity with `tenant_id`, migration with `enable_tenant_rls`, a `ResourceAuthorizationDescriptor`, a service where every public method is gated and every read goes through `AuthorizedQuery`, and a thin controller.
 
+---
+
+### From the final whole-branch review (2026-08-17)
+
+The review's own report was deleted with the SDD workspace; these are the process findings worth carrying into sub-projects 2–10. The functional and security findings live in `CLAUDE.md`'s *Open at the close of sub-project 1*.
+
+**Every enumeration in this sub-project drifted behind the code, and each was correct when written.** Four hand-written lists are load-bearing guards, and all four were narrower than the thing they claimed to cover by the end of the branch: `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` named `customer..` and `identity..` but not `auth..`, where the third escalation then hid; `DirectApiAccessTest`'s path list is eleven endpoints short; `contrast.py`'s `SHIPPED_PAIRS` is run against one of the two themes that ship, and its first version was all-neutral and reported "0 of 17 fail" while the dark primary button sat at 1.53:1. The lesson is not "be more careful with lists" — it is that **a guard whose scope is typed by hand decays, and one whose scope is derived does not.** Sweep the `RequestMappingHandlerMapping` for every registered path rather than listing them; iterate the themes `build_tokens.py` knows about rather than naming one; match packages by a property of the class rather than by an allowlist where you can.
+
+`DirectApiAccessTest.everyEndpointRefusesAnonymousAndResolvesForAnAdministrator` carries a comment promising that adding an endpoint without adding it there is "a visible gap in the list rather than an invisible one". It is not; these are missing, verified against every `@RestController` on the branch (the `/auth/**` endpoints are deliberately anonymous and correctly absent):
+
+| Missing from the sweep |
+|---|
+| `GET /admin/roles` |
+| `PUT /admin/roles/{id}/grants` |
+| `POST /admin/roles/{id}/disable` |
+| `POST /admin/roles/{id}/enable` |
+| `DELETE /admin/roles/{id}` |
+| `GET /admin/users/{id}` |
+| `PUT /admin/users/{id}` |
+| `DELETE /admin/users/{id}/roles/{roleId}` |
+| `GET /customers/{customerId}/contacts` |
+| `PUT /customers/{customerId}/contacts/{contactId}` |
+| `POST /customers/{customerId}/contacts/{contactId}/invitations` |
+
+**"Measured" is meaningless without "by what, over which inputs".** Two claims on this branch were read as broader than they were. A clean axe run in both themes was taken as "the light theme is measured" — axe's default rule set has no non-text contrast rule, and nine light pairs fail 1.4.11. And `report_shipped` was written precisely to measure the *shipped* tokens, then wired to run against one theme. When recording that something has been verified, record the instrument and the inputs in the same sentence; a bare "measured" is what both of these were.
+
+**A coarse gate plus a fine predicate leaves a seam on every write.** `@RequirePermission` cannot see method arguments, so any service method taking a foreign id from the URL or body and writing without resolving it through `AuthorizedQuery` is a scope bypass. This branch found it three times — contact creation, role assignment, invitation issuance — and fixed each individually before naming the pattern. Sub-projects 2–10 nest resources far more deeply than customer→contact, so treat "which argument did I not resolve?" as a standing review question rather than a bug class that was closed.
+
 
 
 

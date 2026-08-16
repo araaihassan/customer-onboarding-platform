@@ -359,9 +359,14 @@ correct response to one failing is to fix the code, never to weaken the guard.
   skips the scope predicate: a silent, total bypass rather than a visible error. The write half is
   the one that keeps escaping, because `@RequirePermission` cannot see arguments, so a passing gate
   proves only that the actor may touch *some* record of that type. Three separate escalations in
-  sub-project 1 were this exact shape. `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly`
-  covers `customer..`, `identity..` and `auth..`; **add your package to it in the same commit that
-  adds your service.**
+  sub-project 1 were this exact shape — contact creation, role assignment, invitation issuance —
+  and each was fixed individually before the pattern was named. Sub-projects 2–10 nest resources
+  far more deeply than customer→contact, so expect more of them, not fewer.
+  `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` covers `customer..`,
+  `identity..` and `auth..`; **add your package to it in the same commit that adds your service.**
+  Note the rule is **name-shaped**: it binds to classes ending in `Service`, so `IdentityActorDirectory`
+  and `UserRoleDirectory` call finders directly and are invisible to it. Both are correct today, but
+  a future `*Directory` taking a foreign id would be unguarded in exactly the way `auth` was.
 - **Permissions are never embedded in tokens and never cached across requests.** Authority is
   resolved server-side per request, so a revoked grant takes effect on the next call rather than
   when a token happens to expire. **The same applies to a revoked account**, which is why
@@ -418,6 +423,15 @@ correct response to one failing is to fix the code, never to weaken the guard.
 is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
 and its failure mode — silent cross-tenant exposure — is the one this product cannot survive.
 
+**A guard is only as wide as its enumeration, and every enumeration in sub-project 1 drifted
+behind the code.** All three ArchUnit rules, `DirectApiAccessTest`'s endpoint list and
+`contrast.py`'s pair table are hand-written lists, and each was correct when written: the
+`AuthorizedQuery` rule named two of the packages that needed it, the endpoint list is eleven
+endpoints short (detail in the plan's *Notes for the Executor*), the contrast table covered one of
+the two themes that ship. **Prefer a derivable list to a typed one** — sweep every `@RestController`
+mapping rather than naming paths, resolve both themes rather than one — so a guard grows with the
+code instead of being re-widened by hand after each miss.
+
 ---
 
 ## Working conventions
@@ -429,6 +443,10 @@ and its failure mode — silent cross-tenant exposure — is the one this produc
   as the key itself, so gaps are visible rather than silent.
 - **TDD.** Write the failing test first; security tests before the mechanism they verify. A
   structural guard you have never seen fail is a guard you cannot trust — prove new ones red.
+- **Tests that construct their own preconditions converge on the happy scope.** Every write case in
+  `UserAdminTest` granted `USER_MANAGE` at `ALL`, which is precisely why the escalation survived:
+  not one test asked what a *narrow* write scope does. Wherever a permission is catalogued at
+  several scopes, **at least one write test must run at the narrowest one.**
 - **Conventional Commits** (`feat:`, `fix:`, `test:`, `docs:`, `chore:`). Explain *why* in the
   body, especially when deviating from the plan.
 - **Never assert an exception inside a `fixture.runAs(...)` lambda.** Those helpers run in a
@@ -454,6 +472,13 @@ and its failure mode — silent cross-tenant exposure — is the one this produc
   deliberately for each new action rather than copying a neighbour. The split so far: business
   records (`customer.*`, `contact.*`, `invitation.*`) are visible, identity and auth
   (`user.*`, `role.*`, `auth.*`, `tenant.created`) are compliance-only.
+- **"What does deactivation revoke?" is a required design question**, asked alongside "does it have
+  a descriptor?" whenever a sub-project adds a deactivatable entity. "Never delete, deactivate
+  instead" is only half a mechanism: the *storage* half is enforced rigorously (DELETE revoked at
+  the database, proven red), but the *consequence* half is convention only. Nothing revoked
+  sessions, invitations, tokens or grants on deactivation until the final fix wave of sub-project 1,
+  and two gaps remain open above. Enumerate what a status change must invalidate before writing the
+  setter, not after.
 - **Retirement gets its own action**, not a flag on an update — `contact.deactivated` is recorded
   when an update *transitions* status into INACTIVE, never when it merely arrives INACTIVE. Because
   business records are never deleted, that event is the only record the retirement happened, and it
