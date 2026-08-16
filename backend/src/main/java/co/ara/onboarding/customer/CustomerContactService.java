@@ -1,5 +1,7 @@
 package co.ara.onboarding.customer;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
@@ -13,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -34,15 +37,18 @@ public class CustomerContactService {
     private final CustomerRepository customers;
     private final AuthorizedQuery authorizedQuery;
     private final ContactInvitationSender invitations;
+    private final AuditRecorder audit;
 
     public CustomerContactService(CustomerContactRepository repository,
                                   CustomerRepository customers,
                                   AuthorizedQuery authorizedQuery,
-                                  ContactInvitationSender invitations) {
+                                  ContactInvitationSender invitations,
+                                  AuditRecorder audit) {
         this.repository = repository;
         this.customers = customers;
         this.authorizedQuery = authorizedQuery;
         this.invitations = invitations;
+        this.audit = audit;
     }
 
     /**
@@ -110,7 +116,16 @@ public class CustomerContactService {
         // A contact starts ACTIVE with no linked user; userId is set only when the
         // portal invitation is accepted (spec 9.1, QA Q12).
         c.setStatus(ContactStatus.ACTIVE);
-        return toView(save(c));
+        CustomerContact saved = save(c);
+
+        // After save(), not before: save() is where the duplicate-email constraint
+        // surfaces, and an audit event for a create that then threw would be a
+        // record of something that never happened. The recorder is MANDATORY on
+        // this transaction, so the two commit together or not at all.
+        audit.record(AuditActions.CONTACT_CREATED, "contact", saved.getId(),
+                "Added contact " + saved.getFullName(),
+                Map.of("customerId", customerId.toString(), "email", saved.getEmail()));
+        return toView(saved);
     }
 
     /**
@@ -145,13 +160,38 @@ public class CustomerContactService {
         if (!customerId.equals(c.getCustomerId())) {
             throw new NoSuchElementException("Not found");
         }
+
+        // Captured BEFORE the setters: the entity is managed, so after setStatus
+        // the previous value is gone and the transition is unrecoverable.
+        ContactStatus previousStatus = c.getStatus();
+
         c.setFullName(request.fullName());
         c.setEmail(request.email());
         c.setTitle(request.title());
         c.setPhone(request.phone());
         c.setPrimaryContact(request.primaryContact());
         c.setStatus(request.status());
-        return toView(save(c));
+        CustomerContact saved = save(c);
+
+        // A retirement is recorded as its own action, not as an ordinary edit.
+        // There is no separate deactivate endpoint for a contact the way there is
+        // for a customer — retirement arrives through this PUT — but the reason
+        // customer.deactivated exists applies unchanged: business records are never
+        // deleted, so INACTIVE is the only retirement a contact has and this event
+        // is the only record that it happened.
+        //
+        // A TRANSITION, not the resulting status: editing an already-retired
+        // contact is an ordinary update, and logging a second retirement would
+        // claim an event that did not occur. Exactly one event either way, so a
+        // single click never appears twice on the timeline.
+        boolean retired = previousStatus != ContactStatus.INACTIVE
+                && saved.getStatus() == ContactStatus.INACTIVE;
+
+        audit.record(retired ? AuditActions.CONTACT_DEACTIVATED : AuditActions.CONTACT_UPDATED,
+                "contact", saved.getId(),
+                (retired ? "Retired contact " : "Updated contact ") + saved.getFullName(),
+                Map.of("customerId", saved.getCustomerId().toString()));
+        return toView(saved);
     }
 
     /**

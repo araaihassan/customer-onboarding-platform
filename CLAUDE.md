@@ -125,11 +125,6 @@ and a DEFAULT partition. The job that rolls partitions forward arrives in sub-pr
 **Open at the close of sub-project 1**, verified against the running system — none of these is a
 regression to hunt:
 
-- **Contact writes are not audited.** `CustomerContactService.create` and `.update` are
-  `@RequirePermission`-gated but call no `AuditRecorder`, and `AuditActions` has no `contact.*`
-  constant. Customers audit create/update/deactivate; contacts audit nothing, so retiring one leaves
-  no trace. Inviting a contact *is* audited, via `invitation.sent` on `InvitationService`. Closing
-  this means adding the constants and the two call sites, not new infrastructure.
 - **Retiring a contact does not revoke portal access.** `update` sets `status = INACTIVE` on the
   contact only; the linked `app_user` stays `ACTIVE`, and `LoginService` reads the user. A retired
   contact can still sign in to the portal.
@@ -332,7 +327,14 @@ and its failure mode — silent cross-tenant exposure — is the one this produc
   and milestones extend. Extend the enum; do not invent a parallel one.
 - **`audit_event.timeline_visible`** is on every event and is what the Activity Timeline reads: the
   audit trail and the customer-visible timeline are one table, separated only by this flag. Set it
-  deliberately for each new action rather than copying a neighbour.
+  deliberately for each new action rather than copying a neighbour. The split so far: business
+  records (`customer.*`, `contact.*`, `invitation.*`) are visible, identity and auth
+  (`user.*`, `role.*`, `auth.*`, `tenant.created`) are compliance-only.
+- **Retirement gets its own action**, not a flag on an update — `contact.deactivated` is recorded
+  when an update *transitions* status into INACTIVE, never when it merely arrives INACTIVE. Because
+  business records are never deleted, that event is the only record the retirement happened, and it
+  must stay distinguishable from a phone-number correction. Repeat the shape for anything a later
+  sub-project retires.
 
 ## Plan deviations
 

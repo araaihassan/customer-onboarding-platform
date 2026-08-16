@@ -32,6 +32,15 @@ public final class AuditActions {
     public static final AuditAction CUSTOMER_CREATED          = of("customer.created", true);
     public static final AuditAction CUSTOMER_UPDATED          = of("customer.updated", true);
     public static final AuditAction CUSTOMER_DEACTIVATED      = of("customer.deactivated", true);
+    // Timeline-visible for the same reason the customer actions are: a contact is
+    // a customer-facing business record, and who was added to or removed from an
+    // account is precisely what the Activity Timeline exists to show. Contrast the
+    // identity and auth actions above, which are compliance evidence and stay
+    // false. CONTACT_DEACTIVATED is separate from CONTACT_UPDATED because INACTIVE
+    // is the only retirement a contact has — see CustomerContactService.update.
+    public static final AuditAction CONTACT_CREATED           = of("contact.created", true);
+    public static final AuditAction CONTACT_UPDATED           = of("contact.updated", true);
+    public static final AuditAction CONTACT_DEACTIVATED       = of("contact.deactivated", true);
     public static final AuditAction INVITATION_SENT           = of("invitation.sent", true);
     public static final AuditAction INVITATION_ACCEPTED       = of("invitation.accepted", true);
 

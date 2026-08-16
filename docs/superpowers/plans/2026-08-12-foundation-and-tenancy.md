@@ -7725,21 +7725,25 @@ Confirm the definition of done in spec §12: tenant provisioning seeds twelve ro
 
 > **Amended in Task 29 — `cleanTest test`, as in Step 1.**
 >
-> **The definition of done is met with one exception, and the exception is "every action is
-> audited".** Five of its six clauses were verified against the running system, not against this
-> plan: twelve roles (`RoleTemplates` holds exactly twelve; `TenantProvisioningTest` asserts twelve
+> **The definition of done is met in full**, verified against the running system rather than against
+> this plan: twelve roles (`RoleTemplates` holds exactly twelve; `TenantProvisioningTest` asserts twelve
 > exist after a real provision); administration of users, roles, departments and teams (`admin.spec.ts`
 > drives all three screens as a logged-in administrator); customers and contacts created and invited
 > (`customers.spec.ts` creates both through the interface and invites the contact); a contact
 > activating and signing in as `PORTAL` (`activation.spec.ts`); and the eight negative security tests
 > plus all four structural guards, which execute rather than pass vacuously.
 >
-> **The audit clause is partially unmet.** `CustomerContactService.create` and `.update` record no
-> audit event and `AuditActions` has no `contact.*` constant, so contact creation and retirement leave
-> no trace, though inviting a contact is audited via `invitation.sent`. This is a consequence of the
-> contact write surface being added late, in Task R2; the customer equivalents were audited from Task
-> 20. Recorded in CLAUDE.md as an open gap rather than fixed here, because adding audit actions at the
-> close of a sub-project changes the audit vocabulary that sub-project 2's Activity Timeline reads.
+> **"Every action is audited" was the one clause found unmet, and was fixed rather than deferred.**
+> `CustomerContactService.create` and `.update` recorded no audit event and `AuditActions` carried no
+> `contact.*` constant, so contact creation and retirement left no trace — a consequence of the
+> contact write surface arriving last, in Task R2, where the customer equivalents were audited from
+> Task 20. Contacts were the only business entity in this sub-project whose writes went unrecorded,
+> which made it an inconsistency against an established pattern rather than an open design question.
+> Now `contact.created`, `contact.updated` and `contact.deactivated`, all timeline-visible like their
+> `customer.*` counterparts. Retirement is a **distinct** action keyed on the *transition* into
+> INACTIVE, because a contact has no separate deactivate endpoint the way a customer does yet has the
+> same property that makes `customer.deactivated` necessary: nothing is ever deleted, so the event is
+> the only record the retirement happened.
 
 ---
 

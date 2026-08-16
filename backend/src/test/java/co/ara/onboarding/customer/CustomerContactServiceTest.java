@@ -1,5 +1,6 @@
 package co.ara.onboarding.customer;
 
+import co.ara.onboarding.audit.AuditEventRepository;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
 import co.ara.onboarding.authz.Scope;
@@ -27,6 +28,7 @@ class CustomerContactServiceTest extends PostgresTestBase {
     @Autowired CustomerContactService contacts;
     @Autowired RoleService roles;
     @Autowired TenantFixture fixture;
+    @Autowired AuditEventRepository auditEvents;
 
     @Test
     void listReturnsContactsOfTheCustomer() {
@@ -562,5 +564,164 @@ class CustomerContactServiceTest extends PostgresTestBase {
         assertThatThrownBy(() -> fixture.runAsUser(tenant, user.get(),
                 () -> contacts.sendInvitation(contactId.get())))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
+     * Contacts were the only business entity in this sub-project whose writes went
+     * unrecorded: customers audited create, update and deactivate from Task 20,
+     * while the contact write surface arrived last (R2) and audited nothing.
+     * Inviting a contact was always audited, via invitation.sent, which made the
+     * gap easy to miss.
+     */
+    @Test
+    void creatingAContactWritesATimelineVisibleAuditEvent() {
+        UUID tenant = fixture.createTenant("contact-audit-create");
+        var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+        var contactId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "auditcreate@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Audited Ltd", user.get(), null, null));
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () ->
+            contactId.set(contacts.create(customerId.get(),
+                    new CustomerContactService.CreateContactRequest(
+                            "Dana Adeyemi", "dana@example.com", "Ops Lead", null, true)).id()));
+
+        fixture.runAs(tenant, () -> {
+            assertThat(auditEvents.findAll())
+                    .extracting(e -> e.getAction() + ":" + e.getResourceId())
+                    .contains("contact.created:" + contactId.get());
+
+            // The flag, not just the event: timeline_visible is what sub-project 2's
+            // Activity Timeline reads, and a contact appearing on a customer is
+            // exactly the kind of change that timeline exists to show.
+            assertThat(auditEvents.findAll())
+                    .filteredOn(e -> "contact.created".equals(e.getAction()))
+                    .allMatch(e -> e.isTimelineVisible());
+        });
+    }
+
+    @Test
+    void updatingAContactWritesAnAuditEvent() {
+        UUID tenant = fixture.createTenant("contact-audit-update");
+        var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+        var contactId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "auditupdate@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Edited Ltd", user.get(), null, null));
+            contactId.set(fixture.createContact(tenant, customerId.get(), "before@example.com"));
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () ->
+            contacts.update(customerId.get(), contactId.get(),
+                    new CustomerContactService.UpdateContactRequest(
+                            "After Name", "after@example.com", null, null,
+                            false, ContactStatus.ACTIVE)));
+
+        fixture.runAs(tenant, () ->
+            assertThat(auditEvents.findAll())
+                    .extracting(e -> e.getAction() + ":" + e.getResourceId())
+                    .contains("contact.updated:" + contactId.get()));
+    }
+
+    /**
+     * Retirement gets its OWN action rather than riding contact.updated.
+     *
+     * The shapes do not match the customer path and cannot be copied from it:
+     * CustomerService.deactivate is a separate method behind its own
+     * customer.deactivate permission, whereas a contact is retired through the
+     * ordinary update PUT under contact.manage — there is no separate endpoint to
+     * hang an action on. But the reason customer.deactivated exists applies
+     * identically: business records are never deleted, so INACTIVE is the only
+     * retirement a contact has and this event is the only record that it happened.
+     * Logged as "Updated contact" it would be indistinguishable on the timeline
+     * from a phone-number correction.
+     *
+     * Exactly one event per user action — the retirement records the deactivation
+     * INSTEAD of an update, never both, or a single click would appear twice.
+     */
+    @Test
+    void retiringAContactIsRecordedAsADeactivationNotAnUpdate() {
+        UUID tenant = fixture.createTenant("contact-audit-retire");
+        var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+        var contactId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "auditretire@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Retiring Ltd", user.get(), null, null));
+            contactId.set(fixture.createContact(tenant, customerId.get(), "leaving@example.com"));
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () ->
+            contacts.update(customerId.get(), contactId.get(),
+                    new CustomerContactService.UpdateContactRequest(
+                            "Leaving Person", "leaving@example.com", null, null,
+                            false, ContactStatus.INACTIVE)));
+
+        fixture.runAs(tenant, () -> {
+            assertThat(auditEvents.findAll())
+                    .extracting(e -> e.getAction() + ":" + e.getResourceId())
+                    .contains("contact.deactivated:" + contactId.get())
+                    .doesNotContain("contact.updated:" + contactId.get());
+        });
+    }
+
+    /**
+     * The anti-vacuity guard on the test above: it proves the service detects the
+     * TRANSITION into INACTIVE rather than merely reading the resulting status.
+     * Without it, an implementation that logged contact.deactivated whenever the
+     * incoming status was INACTIVE would pass — and correcting a typo on an
+     * already-retired contact would log a second retirement that never happened.
+     */
+    @Test
+    void editingAnAlreadyRetiredContactIsAnUpdateNotAnotherDeactivation() {
+        UUID tenant = fixture.createTenant("contact-audit-reedit");
+        var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+        var contactId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "auditreedit@example.com"));
+            customerId.set(fixture.createCustomer(tenant, "Reedit Ltd", user.get(), null, null));
+            contactId.set(fixture.createContact(tenant, customerId.get(), "gone@example.com"));
+            UUID role = roles.createRole("Contact Manager", "", Map.of(
+                    PermissionKeys.CONTACT_MANAGE, Scope.ALL));
+            roles.assignRole(user.get(), role);
+        });
+
+        // Retire first, then edit the retired record.
+        fixture.runAsUser(tenant, user.get(), () -> {
+            contacts.update(customerId.get(), contactId.get(),
+                    new CustomerContactService.UpdateContactRequest(
+                            "Gone Person", "gone@example.com", null, null,
+                            false, ContactStatus.INACTIVE));
+            contacts.update(customerId.get(), contactId.get(),
+                    new CustomerContactService.UpdateContactRequest(
+                            "Gone Person", "corrected@example.com", null, null,
+                            false, ContactStatus.INACTIVE));
+        });
+
+        fixture.runAs(tenant, () -> {
+            assertThat(auditEvents.findAll())
+                    .filteredOn(e -> contactId.get().equals(e.getResourceId()))
+                    .extracting(e -> e.getAction())
+                    .as("one retirement, one ordinary edit — never two retirements")
+                    .containsExactlyInAnyOrder("contact.deactivated", "contact.updated");
+        });
     }
 }
