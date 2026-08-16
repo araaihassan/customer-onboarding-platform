@@ -130,9 +130,37 @@ class AuthorizationCoverageTest {
      *
      * Covers customer and identity — the two domain packages whose reads are
      * record-scoped. identity joined in Task 21, when UserAdminService made user.view
-     * scoping real. Each later sub-project adds its own domain package here. RoleService and TenantProvisioningService are outside
-     * it and unaffected — they operate on authorization metadata, not scoped
-     * business records.
+     * scoping real. Each later sub-project adds its own domain package here.
+     * TenantProvisioningService is outside it and unaffected — it runs before any
+     * tenant user exists.
+     *
+     * auth joined at the close of sub-project 1, and the reason is the whole point
+     * of this rule. UserInvitationService sat in auth, was gated on user.manage, and
+     * read its target with users.findById — so a DEPARTMENT-scoped holder could mint
+     * and mail an activation invitation for any user in the tenant. Nothing flagged
+     * it, because auth was outside the packages this rule named. That is the third
+     * instance of one seam: any service method that takes a foreign id from the URL
+     * or body and writes without resolving it through AuthorizedQuery is a scope
+     * bypass, because @RequirePermission cannot see arguments. Widening turns that
+     * from a habit into a guard.
+     *
+     * The auth exclusions below are the SAME classes, for the same two reasons,
+     * already excluded from serviceMethodsAreGated above — not a second, looser
+     * list. Each resolves its subject from a bearer credential (a token hash, an
+     * email presented at login) or from the caller's own principal, never from a
+     * caller-supplied id, and each runs with no actor whose scope AuthorizedQuery
+     * could apply. Adding a class here is only legitimate on that showing. What
+     * remains covered in auth is exactly the category that escaped: the gated,
+     * authenticated services — InvitationService and UserInvitationService.
+     *
+     * authz is deliberately NOT included. Its only *Service is RoleService, and
+     * role, role_grant and user_role are authorization metadata rather than scoped
+     * business records: role.view and role.manage are ALL-only in the catalog and
+     * Role has no ResourceAuthorizationDescriptor, so AuthorizedQuery could not be
+     * used there even in principle — DescriptorRegistry.forEntity has nothing to
+     * return. Naming the package and then excluding its only service would leave
+     * the clause binding to nothing, which is a rule that looks like coverage and
+     * is not. If sub-project 2 gives roles a record-level scope, that changes.
      *
      * Live and non-vacuous as of Task 20, which added the first customer services;
      * the allowEmptyShould it carried until then is gone.
@@ -140,12 +168,22 @@ class AuthorizationCoverageTest {
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
             noClasses().that().resideInAnyPackage("co.ara.onboarding.customer..",
-                                                  "co.ara.onboarding.identity..")
+                                                  "co.ara.onboarding.identity..",
+                                                  "co.ara.onboarding.auth..")
                 .and().haveSimpleNameEndingWith("Service")
                 // Same exclusion: authentication runs with no actor and platform_admin
                 // is not tenant-scoped, so there is no scope for AuthorizedQuery to
                 // apply -- it could not be used here even in principle.
                 .and().areNotAssignableTo(UserDetailsService.class)
+                // Runs before there is an actor to scope against, or resolves the
+                // caller's own record only. Identical list and identical reasoning to
+                // serviceMethodsAreGated's exclusions.
+                .and().areNotAssignableTo(LoginService.class)
+                .and().areNotAssignableTo(LoginThrottleService.class)
+                .and().areNotAssignableTo(RefreshTokenService.class)
+                .and().areNotAssignableTo(ActivationService.class)
+                .and().areNotAssignableTo(PasswordResetService.class)
+                .and().areNotAssignableTo(MeService.class)
                 .should().callMethodWhere(
                         (target(name("findAll"))
                          .or(target(name("findOne")))
