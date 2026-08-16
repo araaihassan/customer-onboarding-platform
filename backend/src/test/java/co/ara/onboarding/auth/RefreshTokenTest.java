@@ -1,5 +1,8 @@
 package co.ara.onboarding.auth;
 
+import co.ara.onboarding.identity.AppUser;
+import co.ara.onboarding.identity.AppUserRepository;
+import co.ara.onboarding.identity.UserStatus;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import org.junit.jupiter.api.Test;
@@ -15,6 +18,7 @@ class RefreshTokenTest extends PostgresTestBase {
 
     @Autowired RefreshTokenService refreshTokens;
     @Autowired RefreshTokenRepository repository;
+    @Autowired AppUserRepository users;
     @Autowired TenantFixture fixture;
 
     @Test
@@ -66,6 +70,45 @@ class RefreshTokenTest extends PostgresTestBase {
                 assertThat(refreshTokens.rotate(second.get()))
                         .as("the entire family must be revoked (spec 7.4)")
                         .isEqualTo(new RotationOutcome.Rejected(RotationOutcome.Reason.REVOKED)));
+    }
+
+    /**
+     * rotate() reloaded the user and checked only that the row existed, so a
+     * fourteen-day refresh cookie outlived the account it belonged to — and every
+     * rotation minted another fourteen days.
+     *
+     * The status is written straight to the column here, deliberately NOT through
+     * UserAdminService.deactivate: that path now revokes the family itself, which
+     * would make this pass without rotate() consulting anything. Rotation must
+     * refuse a non-ACTIVE account on its own, because deactivation is not the only
+     * way a status changes and the next writer will not remember.
+     */
+    @Test
+    void rotationIsRefusedOnceTheUserIsNoLongerActive() {
+        UUID tenant = fixture.createTenant("rotate-deactivated");
+        var user = fixture.createUserWithPassword(tenant, "gone@example.com", "password-value");
+        var raw = new AtomicReference<String>();
+
+        fixture.runAs(tenant, () -> raw.set(refreshTokens.issue(user, "127.0.0.1", "test-agent")));
+
+        // Positive control: an ACTIVE account rotates, so the rejection below is
+        // the status and nothing else about this token.
+        var live = new AtomicReference<RotationOutcome>();
+        fixture.runAs(tenant, () -> live.set(refreshTokens.rotate(raw.get())));
+        assertThat(live.get()).isInstanceOf(RotationOutcome.Rotated.class);
+        String renewed = ((RotationOutcome.Rotated) live.get()).newRawToken();
+
+        fixture.runAs(tenant, () -> {
+            AppUser stored = users.findById(user.getId()).orElseThrow();
+            stored.setStatus(UserStatus.DEACTIVATED);
+            users.saveAndFlush(stored);
+        });
+
+        var afterwards = new AtomicReference<RotationOutcome>();
+        fixture.runAs(tenant, () -> afterwards.set(refreshTokens.rotate(renewed)));
+        assertThat(afterwards.get())
+                .as("a session must not outlive the account it belongs to")
+                .isEqualTo(new RotationOutcome.Rejected(RotationOutcome.Reason.REVOKED));
     }
 
     @Test

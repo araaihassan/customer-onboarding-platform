@@ -4,6 +4,8 @@ import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
+import co.ara.onboarding.identity.UserSessionRevoker;
+import co.ara.onboarding.identity.UserStatus;
 import co.ara.onboarding.platform.Uuid7;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -29,7 +31,7 @@ import java.util.UUID;
  * LoginService.
  */
 @Service
-public class RefreshTokenService {
+public class RefreshTokenService implements UserSessionRevoker {
 
     private final RefreshTokenRepository repository;
     private final AppUserRepository users;
@@ -89,6 +91,26 @@ public class RefreshTokenService {
             return new RotationOutcome.Rejected(RotationOutcome.Reason.UNKNOWN);
         }
 
+        // A session must not outlive the account. Without this the only check on
+        // UserStatus in the whole authenticated flow was LoginService's, which a
+        // browser holding a refresh cookie never reaches again: every rotation
+        // minted another full-TTL token, so deactivating a departing employee ended
+        // nothing until they closed the tab.
+        //
+        // Checked here rather than trusting the writer: UserAdminService.deactivate
+        // revokes the family directly, but deactivation is not the only way a status
+        // can change and the next path to change one will not remember. The family
+        // is revoked as well as rejected, so the whole chain dies at once rather
+        // than one link per attempt.
+        //
+        // The reason is REVOKED, which the endpoint never discloses -- every
+        // rejection is an identical 401, or the response becomes an oracle for
+        // which accounts have been deactivated.
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            revokeFamily(stored.getFamilyId());
+            return new RotationOutcome.Rejected(RotationOutcome.Reason.REVOKED);
+        }
+
         String next = issueInFamily(user, stored.getFamilyId(), stored.getIp(), stored.getUserAgent());
         return new RotationOutcome.Rotated(user, next);
     }
@@ -107,8 +129,14 @@ public class RefreshTokenService {
     /**
      * Ends every session for a user, across all families. Called when a password
      * changes: whoever prompted the reset may be the attacker, and leaving their
-     * family alive would let them keep the account the reset just secured.
+     * family alive would let them keep the account the reset just secured. And on
+     * deactivation, for the same reason — a revoked account with a live session is
+     * not revoked.
+     *
+     * Reached from identity through the UserSessionRevoker port; auth already
+     * depends on identity, so identity must not name this class.
      */
+    @Override
     @Transactional
     public void revokeAllForUser(UUID userId) {
         Instant now = Instant.now();

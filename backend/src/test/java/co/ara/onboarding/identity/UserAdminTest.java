@@ -2,6 +2,8 @@ package co.ara.onboarding.identity;
 
 import co.ara.onboarding.audit.AuditEventRepository;
 import co.ara.onboarding.auth.ActivationService;
+import co.ara.onboarding.auth.RefreshTokenService;
+import co.ara.onboarding.auth.RotationOutcome;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
 import co.ara.onboarding.authz.Scope;
@@ -26,6 +28,7 @@ class UserAdminTest extends PostgresTestBase {
     @Autowired AppUserRepository users;
     @Autowired UserActivationSender activations;
     @Autowired ActivationService activation;
+    @Autowired RefreshTokenService refreshTokens;
     @Autowired TenantFixture fixture;
     @Autowired AuditEventRepository auditEvents;
 
@@ -306,6 +309,90 @@ class UserAdminTest extends PostgresTestBase {
             assertThat(auditEvents.findAll())
                     .filteredOn(e -> target.get().equals(e.getResourceId()))
                     .allSatisfy(e -> assertThat(e.isTimelineVisible()).isFalse()));
+    }
+
+    /**
+     * The half of deactivation that was missing. Setting the column stopped nothing:
+     * UserStatus.ACTIVE was consulted in exactly one place in the whole main source
+     * tree — LoginService — and the departing employee's browser never logs in
+     * again. It holds a refresh cookie, client.ts renews silently on every 401, and
+     * each rotation issued a FRESH fourteen-day token, so the account kept its full
+     * role set indefinitely. Only closing the tab stopped it.
+     *
+     * PasswordResetService already revoked every session for exactly this reason.
+     */
+    @Test
+    void deactivatingAUserEndsTheirRefreshSession() {
+        UUID tenant = fixture.createTenant("admin-deact-session");
+        var admin = new AtomicReference<UUID>();
+        AppUser target = fixture.createUserWithPassword(
+                tenant, "departing@example.com", "password-value");
+        var raw = new AtomicReference<String>();
+
+        fixture.runAs(tenant, () -> {
+            admin.set(fixture.createUser(tenant, "sessionboss@example.com"));
+            UUID role = roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL));
+            roles.assignRole(admin.get(), role);
+            raw.set(refreshTokens.issue(target, "127.0.0.1", "test-agent"));
+        });
+
+        // Positive control: the session is live right up until the deactivation, so
+        // the rejection below is the deactivation and not a broken token.
+        var live = new AtomicReference<RotationOutcome>();
+        fixture.runAs(tenant, () -> live.set(refreshTokens.rotate(raw.get())));
+        assertThat(live.get()).isInstanceOf(RotationOutcome.Rotated.class);
+        String renewed = ((RotationOutcome.Rotated) live.get()).newRawToken();
+
+        fixture.runAsUser(tenant, admin.get(), () -> userAdmin.deactivate(target.getId()));
+
+        var afterwards = new AtomicReference<RotationOutcome>();
+        fixture.runAs(tenant, () -> afterwards.set(refreshTokens.rotate(renewed)));
+        assertThat(afterwards.get())
+                .as("deactivation must end the session, not just set a column")
+                .isEqualTo(new RotationOutcome.Rejected(RotationOutcome.Reason.REVOKED));
+    }
+
+    /**
+     * The remaining fifteen minutes of an already-issued access token. Revoking the
+     * refresh family stops renewal but says nothing about the token the browser is
+     * already holding, and nothing on the authenticated request path consulted
+     * status. Authority is resolved server-side per request precisely so a
+     * revocation takes effect on the next call rather than when a token happens to
+     * expire — a deactivated account must resolve to no authority at all.
+     */
+    @Test
+    void aDeactivatedUsersLiveAccessTokenGrantsNoAuthority() {
+        UUID tenant = fixture.createTenant("admin-deact-authority");
+        var admin = new AtomicReference<UUID>();
+        var target = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            admin.set(fixture.createUser(tenant, "authboss@example.com"));
+            target.set(fixture.createUser(tenant, "authleaver@example.com"));
+            UUID adminRole = roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL));
+            roles.assignRole(admin.get(), adminRole);
+            UUID viewerRole = roles.createRole("Viewer", "",
+                    Map.of(PermissionKeys.USER_VIEW, Scope.ALL));
+            roles.assignRole(target.get(), viewerRole);
+        });
+
+        // Positive control: the grant works while the account is ACTIVE, so the
+        // denial below is the deactivation and not a missing role.
+        var before = new AtomicReference<Long>();
+        fixture.runAsUser(tenant, target.get(), () ->
+                before.set(userAdmin.list(null, Pageable.unpaged()).getTotalElements()));
+        assertThat(before.get()).isPositive();
+
+        fixture.runAsUser(tenant, admin.get(), () -> userAdmin.deactivate(target.get()));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, target.get(),
+                () -> userAdmin.list(null, Pageable.unpaged())))
+                .as("a deactivated account must hold no authority on the next request")
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     /**

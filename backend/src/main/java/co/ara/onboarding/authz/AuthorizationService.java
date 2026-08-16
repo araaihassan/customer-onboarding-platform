@@ -40,10 +40,29 @@ public class AuthorizationService {
 
         // r.enabled = true is part of the join, not a post-filter: a disabled role
         // must contribute nothing the moment it is disabled. No tenant predicate is
-        // needed -- RLS constrains all three tables to the bound tenant.
+        // needed -- RLS constrains all four tables to the bound tenant.
+        //
+        // u.status = 'ACTIVE' is the same idea applied to the actor, and it is what
+        // closes the window an already-issued access token would otherwise leave
+        // open. Deactivating a user revokes their refresh family, but the browser is
+        // still holding a signed access token good for up to fifteen more minutes,
+        // and nothing on the authenticated request path consulted status --
+        // LoginService's check was the only one in the codebase, and a live session
+        // never reaches it again. Resolving zero permissions here means every gated
+        // method denies and every AuthorizedQuery predicate collapses to
+        // disjunction, so the deactivated session can neither read nor write on the
+        // very next request. That is the same promise already made for a revoked
+        // grant: authority is resolved server-side per request, never carried in the
+        // token.
+        //
+        // This is a table name in SQL, not a compile-time dependency on identity --
+        // authz must not import identity types, and does not. Deny-by-default falls
+        // out of the join: a missing or non-ACTIVE app_user row yields no rows,
+        // which is no authority rather than all of it.
         jdbc.query("""
             SELECT rg.permission_key AS k, rg.scope AS s
             FROM user_role ur
+            JOIN app_user u ON u.id = ur.user_id AND u.status = 'ACTIVE'
             JOIN role r ON r.id = ur.role_id AND r.enabled = true
             JOIN role_grant rg ON rg.role_id = r.id
             WHERE ur.user_id = ?

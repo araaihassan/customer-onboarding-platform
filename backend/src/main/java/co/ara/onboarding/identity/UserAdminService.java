@@ -39,16 +39,19 @@ public class UserAdminService {
     private final AppUserRepository repository;
     private final AuthorizedQuery authorizedQuery;
     private final UserActivationSender activations;
+    private final UserSessionRevoker sessions;
     private final RoleService roles;
     private final UserRoleDirectory assignments;
     private final AuditRecorder audit;
 
     public UserAdminService(AppUserRepository repository, AuthorizedQuery authorizedQuery,
-                            UserActivationSender activations, RoleService roles,
-                            UserRoleDirectory assignments, AuditRecorder audit) {
+                            UserActivationSender activations, UserSessionRevoker sessions,
+                            RoleService roles, UserRoleDirectory assignments,
+                            AuditRecorder audit) {
         this.repository = repository;
         this.authorizedQuery = authorizedQuery;
         this.activations = activations;
+        this.sessions = sessions;
         this.roles = roles;
         this.assignments = assignments;
         this.audit = audit;
@@ -125,7 +128,20 @@ public class UserAdminService {
         return toView(saved);
     }
 
-    /** Deactivation is how a user is removed; there is no delete (spec 9.4). */
+    /**
+     * Deactivation is how a user is removed; there is no delete (spec 9.4). It must
+     * therefore actually end the account, which means ending its sessions too:
+     * setting the column alone stopped nothing, because the only place UserStatus
+     * was consulted on the way in was LoginService, and a browser holding a refresh
+     * cookie never logs in again. Each rotation issued a fresh full-TTL token, so
+     * the account read and wrote customer records for as long as the tab stayed
+     * open. PasswordResetService already revoked sessions for exactly this reason.
+     *
+     * Roles are deliberately left in place: a deactivated account resolves no
+     * authority (AuthorizationService joins on status), and stripping the grants
+     * would destroy the record of what the departing user could do — which is the
+     * first thing an investigation asks. Reactivation is a sub-project 2 concern.
+     */
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
     public void deactivate(UUID id) {
@@ -133,6 +149,7 @@ public class UserAdminService {
                 PermissionKeys.USER_MANAGE, id);
         user.setStatus(UserStatus.DEACTIVATED);
         repository.save(user);
+        sessions.revokeAllForUser(user.getId());
         // USER_DEACTIVATED, not USER_CREATED. This recorded a creation for years'
         // worth of deactivations with only the prose summary dissenting, and the
         // action key is the field consumers filter on. audit_event is append-only,
