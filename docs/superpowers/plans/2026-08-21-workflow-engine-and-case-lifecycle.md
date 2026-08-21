@@ -2093,6 +2093,47 @@ on a frozen row. The v1-untouched test is Q2's freeze-by-default from the author
 side."
 ```
 
+**Executor's notes, found only by running the above verbatim, not by inspection:**
+
+- The plan never defines the fixture DSL Step 1's test calls (`draftWith`,
+  `threeValidStages`, `lastStageConditionalOn`, `branchFromStage(n).toStage(m)`,
+  `firstMilestoneDependingOnTheSecond`, `conditionOnAttribute`, `anEmptyStage`, and
+  `.and(...)`), and `WorkflowService.getTemplate` (used by the happy-path test) did
+  not exist either. Both were designed and added in the same commit: the DSL as a
+  `PublishScenario` mutation over one fixed three-stage skeleton in
+  `WorkflowFixtures`, each fixture breaking exactly one rule so `.and` can compose
+  two into `allProblemsAreReportedTogether`'s draft; `getTemplate` gated
+  WORKFLOW_VIEW and resolved through AuthorizedQuery like every other read in the
+  module.
+- `validate()`'s five direct repository finder calls
+  (`this.stages.findByVersionIdOrderByOrdinal(...)` etc.) fail
+  `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly`, which
+  Task 6 already widened to cover `co.ara.onboarding.workflow..` — confirmed by
+  running the suite, not a style guess. Fixed by reading all five lists through a
+  small `readByVersion` helper built on `AuthorizedQuery.findAll`, same shape as
+  `WorkflowService.readChildren`.
+- Five of the nine Step 1 tests (`aFinalStageWithAnEntryConditionIsRefused`,
+  `aBranchTargetingAnEarlierStageIsRefused`, `aDependencyPointingForwardIsRefused`,
+  `aConditionNamingAnUndeclaredAttributeIsRefused`, `aStageWithNoMilestonesIsRefused`)
+  plus `allProblemsAreReportedTogether` and `publishingTwiceIsRefused` assert
+  `publisher.publish(...)`'s exception via `assertThatThrownBy` *inside*
+  `fixture.runAs(...)` — the exact pitfall CLAUDE.md and this same plan's Task 6
+  (`WorkflowAuthoringTest.aStaleLockVersionIsRejected`) already name: it leaves the
+  shared transaction rollback-only and surfaces `UnexpectedRollbackException`
+  instead of the exception under test. Running the brief's original shape hit
+  exactly that. Fixed by wrapping the whole `runAs` call in `assertThatThrownBy`,
+  matching `aStaleLockVersionIsRejected`'s shape.
+- `editingAfterPublishCreatesV2AndLeavesV1Intact` called
+  `replaceDraft(v2, twoStages())` with `twoStages()`'s hardcoded `lockVersion` 0, but
+  v2 is not "a fresh (lockVersion 0) draft" — `createDraft`'s deep-copy path writes
+  the copied graph through `replaceDraft` before returning, which bumps it to 1.
+  Fixed by building the request from v2's own current definition's `lockVersion`.
+- A `branchFromStage(...).toStage(...)` fixture needs a real `Condition`, not null:
+  `branch_rule.source` is `NOT NULL` at the database layer, unlike a stage's
+  optional entry condition. `CustomerFactKeys` already declares `status`, so
+  `ConditionSource.CUSTOMER`/`status` is used there, which never trips rule 4 as a
+  side effect.
+
 ---
 
 ## Task 8: Workflow HTTP layer
