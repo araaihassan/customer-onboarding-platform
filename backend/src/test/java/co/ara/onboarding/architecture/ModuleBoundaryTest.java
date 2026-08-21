@@ -48,4 +48,29 @@ class ModuleBoundaryTest {
             noClasses().that().haveSimpleNameEndingWith("Controller")
                 .should().dependOnClassesThat().haveSimpleNameEndingWith("Repository")
                 .because("a repository call outside a @Transactional service has no tenant bound");
+
+    /**
+     * The cycle rule alone would pass a one-way violation, and a one-way violation is
+     * exactly what erodes here: workflow reaching into journey to answer "how many
+     * cases are on v4" would compile, pass every other test, and quietly make a
+     * definition module depend on runtime state.
+     */
+    @ArchTest
+    static final ArchRule noWorkflowDependencyOnJourney =
+            noClasses().that().resideInAPackage("..workflow..")
+                .should().dependOnClassesThat().resideInAPackage("..journey..")
+                .because("a version describes an executable definition; where a case sits is journey's alone")
+                .allowEmptyShould(true);
+
+    /**
+     * journey consumes journey.CustomerDirectory, which customer implements. The arrow
+     * therefore runs customer -> journey, and journey holds no customer entity, no
+     * customer repository, and no CustomerStatus.
+     */
+    @ArchTest
+    static final ArchRule noJourneyDependencyOnCustomer =
+            noClasses().that().resideInAPackage("..journey..")
+                .should().dependOnClassesThat().resideInAPackage("..customer..")
+                .because("journey consumes CustomerDirectory, never customer's entities or repositories")
+                .allowEmptyShould(true);
 }
