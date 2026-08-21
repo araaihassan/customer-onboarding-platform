@@ -2299,6 +2299,52 @@ The exception advice lives in workflow, not platform: platform must never name a
 domain type."
 ```
 
+**Executor's notes, found only by running the above verbatim, not by inspection:**
+
+- `SecurityTestBase` was package-private in `co.ara.onboarding.security`, so
+  `class WorkflowApiTest extends SecurityTestBase` could not even compile from
+  `co.ara.onboarding.workflow` — a package-private type cannot be named outside its
+  package at all, regardless of its members' own visibility. Every prior subclass
+  lived in `security` alongside it. Fixed by widening the class to `public` and its
+  four fields to `protected`; sub-projects 2-10 add one such module-owned `*ApiTest`
+  each, so more cross-package subclasses are coming, not fewer. `WorkflowApiTest`
+  still declares its own `mvc`/`fixture`/`roles`/`mapper` fields rather than reading
+  the parent's directly — only `as()` is actually reused from `SecurityTestBase`.
+- No `ApiError` type exists anywhere in the codebase, and one should not be invented:
+  `customer.CustomerExceptionHandler`, `authz.AuthzExceptionHandler` and
+  `auth.AuthExceptionHandler` already established `org.springframework.http.ProblemDetail`
+  as this codebase's one shared error DTO, returned with no `@ResponseStatus` (Spring
+  resolves the status from the `ProblemDetail` instance itself). `onDuplicateDraft`,
+  `onStale` and `onBadRequest` return `ProblemDetail` for exactly this reason;
+  `onValidation` is the one exception, since its body is the typed `problems` list the
+  builder renders against its own stage rows, not a generic detail string.
+- `WorkflowController.newDraft` combines `createDraft` (returns a bare `UUID`) with
+  `WorkflowService.getDefinitionAs` to answer under WORKFLOW_MANAGE rather than
+  re-authorizing under WORKFLOW_VIEW — the same manage-without-view gap
+  `replaceDraft`'s own return statement already avoids. Running
+  `theDefinitionRoundTripsThroughTheApi` verbatim surfaced a second, sharper bug in
+  that seam: `getDefinitionAs` carried no `@Transactional` of its own. Its one
+  existing caller, `PublishService.publish`, is itself `@Transactional`, so the call
+  always landed inside an already-open transaction and the gap never showed. Called
+  from a controller straight after `createDraft`'s own transaction has already
+  committed and closed, there is no open transaction for `TenantTransactionBinder`'s
+  pointcut (`@Transactional`-shaped, not "some transaction happens to be open") to
+  match, so the tenant is never bound on that call — the generated SQL was missing
+  both the Hibernate `tenantFilter` predicate and the `app.tenant_id` GUC RLS reads,
+  and a read of the row `createDraft` had just inserted a moment earlier threw
+  `NoSuchElementException` instead of finding it. Fixed by adding
+  `@Transactional(readOnly = true)` to `getDefinitionAs` itself, which joins an
+  already-open transaction exactly as before when called from `PublishService` and
+  now correctly opens (and binds) its own when called standalone.
+- Springdoc auto-attaches `onValidation`'s `@ResponseStatus`-annotated 422/`ProblemList`
+  response to *every* operation in the whole document, not just `workflow`'s own —
+  confirmed in the regenerated `generated.ts`, where e.g. `customers.list_1` now
+  carries a 422 it can never actually return. This is springdoc's documented default
+  for an unscoped `@RestControllerAdvice` (every existing domain handler in this
+  codebase is unscoped the same way) and is not specific to anything this task did
+  wrong; noted here so the next reader of a `generated.ts` diff recognises it rather
+  than hunting for a cause.
+
 ---
 
 ## Task 9: `V13` journey schema and entities
