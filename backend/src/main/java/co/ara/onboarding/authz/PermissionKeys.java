@@ -28,6 +28,8 @@ public final class PermissionKeys {
     public static final String CONTACT_MANAGE       = "contact.manage";
     public static final String INVITATION_SEND      = "invitation.send";
     public static final String AUDIT_VIEW           = "audit.view";
+    public static final String WORKFLOW_VIEW        = "workflow.view";
+    public static final String WORKFLOW_MANAGE      = "workflow.manage";
 
     private PermissionKeys() {}
 }

@@ -52,6 +52,13 @@ public final class PermissionCatalog {
         add(CONTACT_MANAGE,       "customer", "customer_contact", "Manage customer contacts",       RECORD);
         add(INVITATION_SEND,      "customer", "customer_contact", "Send portal invitations",        RECORD);
         add(AUDIT_VIEW,           "audit",    "audit_event",      "View the audit log",             ORG_SCOPES);
+        // ALL-only with a null resourceType: a workflow definition is tenant-wide
+        // configuration with no owner, so there is nothing for DEPARTMENT or TEAM to
+        // resolve against. No descriptor is needed and none can break
+        // DescriptorRegistry.validate() -- that is why these two land ahead of Task
+        // 11's thirteen journey keys, which do need descriptors.
+        add(WORKFLOW_VIEW,        "workflow", null,               "View workflow definitions",      ALL_ONLY);
+        add(WORKFLOW_MANAGE,      "workflow", null,               "Create and edit workflows",      ALL_ONLY);
     }
 
     /**

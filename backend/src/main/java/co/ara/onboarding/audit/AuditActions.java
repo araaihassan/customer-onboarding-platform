@@ -61,6 +61,13 @@ public final class AuditActions {
     public static final AuditAction CONTACT_DEACTIVATED       = of("contact.deactivated", true);
     public static final AuditAction INVITATION_SENT           = of("invitation.sent", true);
     public static final AuditAction INVITATION_ACCEPTED       = of("invitation.accepted", true);
+    // Compliance-only: workflow authoring is tenant configuration, not the
+    // customer's business -- contrast customer.* and contact.* above.
+    public static final AuditAction WORKFLOW_TEMPLATE_CREATED     = of("workflow.template_created", false);
+    public static final AuditAction WORKFLOW_TEMPLATE_DEACTIVATED = of("workflow.template_deactivated", false);
+    public static final AuditAction WORKFLOW_DRAFT_SAVED          = of("workflow.draft_saved", false);
+    public static final AuditAction WORKFLOW_DRAFT_DISCARDED      = of("workflow.draft_discarded", false);
+    public static final AuditAction WORKFLOW_PUBLISHED            = of("workflow.published", false);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
