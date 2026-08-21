@@ -59,8 +59,7 @@ class ModuleBoundaryTest {
     static final ArchRule noWorkflowDependencyOnJourney =
             noClasses().that().resideInAPackage("..workflow..")
                 .should().dependOnClassesThat().resideInAPackage("..journey..")
-                .because("a version describes an executable definition; where a case sits is journey's alone")
-                .allowEmptyShould(true);
+                .because("a version describes an executable definition; where a case sits is journey's alone");
 
     /**
      * journey consumes journey.CustomerDirectory, which customer implements. The arrow
@@ -71,6 +70,5 @@ class ModuleBoundaryTest {
     static final ArchRule noJourneyDependencyOnCustomer =
             noClasses().that().resideInAPackage("..journey..")
                 .should().dependOnClassesThat().resideInAPackage("..customer..")
-                .because("journey consumes CustomerDirectory, never customer's entities or repositories")
-                .allowEmptyShould(true);
+                .because("journey consumes CustomerDirectory, never customer's entities or repositories");
 }
