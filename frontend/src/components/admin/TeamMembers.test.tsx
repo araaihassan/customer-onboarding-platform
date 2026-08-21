@@ -34,7 +34,6 @@ describe("TeamMembers", () => {
 
   const mockMembers = [
     { userId: "user-1", fullName: "Alice", email: "alice@example.com" },
-    { userId: "user-2", fullName: "Bob", email: "bob@example.com" },
   ];
 
   const mockUsers = [
@@ -89,7 +88,7 @@ describe("TeamMembers", () => {
     expect(container.textContent).toContain("admin.team.members.empty");
   });
 
-  it("renders members list", () => {
+  it("renders members list with remove buttons", () => {
     vi.mocked(useHasPermission).mockReturnValue(true);
     vi.mocked(useTeamMembers).mockReturnValue({
       data: mockMembers,
@@ -112,37 +111,18 @@ describe("TeamMembers", () => {
 
     const { container } = render(<TeamMembers team={mockTeam} />, { wrapper: createWrapper() });
 
+    // Verify members are rendered
     expect(container.textContent).toContain("Alice");
-    expect(container.textContent).toContain("Bob");
+    expect(container.textContent).toContain("alice@example.com");
+    
+    // Verify remove button exists for the member
+    const removeButtons = screen.getAllByRole("button", {
+      name: "admin.team.members.remove",
+    });
+    expect(removeButtons.length).toBeGreaterThan(0);
   });
 
-  it("renders component without error with permission to manage", () => {
-    const removeMutate = vi.fn();
-    vi.mocked(useHasPermission).mockReturnValue(true);
-    vi.mocked(useTeamMembers).mockReturnValue({
-      data: mockMembers,
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    } as any);
-    vi.mocked(useRemoveTeamMember).mockReturnValue({
-      mutate: removeMutate,
-      isPending: false,
-    } as any);
-    vi.mocked(useAddTeamMember).mockReturnValue({
-      mutate: vi.fn(),
-      isPending: false,
-    } as any);
-    vi.mocked(useUsers).mockReturnValue({
-      data: { content: mockUsers },
-      isLoading: false,
-    } as any);
-
-    const { container } = render(<TeamMembers team={mockTeam} />, { wrapper: createWrapper() });
-    expect(container).toBeDefined();
-  });
-
-  it("renders without add button when lacking permission", () => {
+  it("add control is absent without team.manage permission", () => {
     vi.mocked(useHasPermission).mockReturnValue(false);
     vi.mocked(useTeamMembers).mockReturnValue({
       data: [],
@@ -164,6 +144,10 @@ describe("TeamMembers", () => {
     } as any);
 
     const { container } = render(<TeamMembers team={mockTeam} />, { wrapper: createWrapper() });
+
+    // Verify no-access state is shown
     expect(container.textContent).toContain("admin.org.noAccess");
+    // Verify add button text is not present
+    expect(container.textContent).not.toContain("admin.team.members.add");
   });
 });
