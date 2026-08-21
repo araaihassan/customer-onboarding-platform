@@ -1,5 +1,6 @@
 package co.ara.onboarding.workflow;
 
+import co.ara.onboarding.audit.AuditEventRepository;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
 import co.ara.onboarding.authz.Scope;
@@ -32,6 +33,7 @@ class WorkflowAuthoringTest extends PostgresTestBase {
     @Autowired WorkflowService workflows;
     @Autowired TenantFixture fixture;
     @Autowired RoleService roles;
+    @Autowired AuditEventRepository auditEvents;
 
     @Test
     void creatingATemplateCreatesAnEmptyDraft() {
@@ -47,6 +49,27 @@ class WorkflowAuthoringTest extends PostgresTestBase {
             assertThat(definition.versionNo()).isEqualTo(1);
             assertThat(definition.stages()).isEmpty();
         });
+    }
+
+    /**
+     * createDraft's empty-draft branch never calls replaceDraft (see the comment on
+     * that branch), so without its own audit call this path would create a draft
+     * with no record that it happened at all -- the only sub-project-2 write so far
+     * that would otherwise be silently unaudited.
+     */
+    @Test
+    void creatingAnEmptyDraftWritesAnAuditEvent() {
+        UUID tenant = fixture.createTenant("author-audit");
+        var draftId = new AtomicReference<UUID>();
+        fixture.runAs(tenant, () -> {
+            var template = workflows.createTemplate("Audited", "");
+            draftId.set(workflows.createDraft(template.id()));
+        });
+
+        fixture.runAs(tenant, () ->
+            assertThat(auditEvents.findAll())
+                    .extracting(e -> e.getAction() + ":" + e.getResourceId())
+                    .contains("workflow.draft_saved:" + draftId.get()));
     }
 
     /**

@@ -106,7 +106,10 @@ public class WorkflowService {
 
         audit.record(AuditActions.WORKFLOW_TEMPLATE_CREATED, "workflow_template", t.getId(),
                 "Created workflow template " + t.getName(), Map.of());
-        return toTemplateView(t);
+        // Built from the entity this method's own WORKFLOW_MANAGE gate already
+        // authorized, not re-read under WORKFLOW_VIEW -- see replaceDraft below for
+        // why that distinction matters.
+        return toTemplateView(t, PermissionKeys.WORKFLOW_MANAGE);
     }
 
     @RequirePermission(PermissionKeys.WORKFLOW_VIEW)
@@ -114,7 +117,7 @@ public class WorkflowService {
     public List<WorkflowTemplateView> listTemplates() {
         return authorizedQuery.findAll(templates, WorkflowTemplate.class, PermissionKeys.WORKFLOW_VIEW,
                         null, Pageable.unpaged(Sort.by("name")))
-                .map(this::toTemplateView)
+                .map(t -> toTemplateView(t, PermissionKeys.WORKFLOW_VIEW))
                 .getContent();
     }
 
@@ -175,16 +178,31 @@ public class WorkflowService {
 
         // Only the deep-copy path calls replaceDraft: an empty draft has nothing to
         // write, and going through replaceDraft anyway would bump lockVersion from 0
-        // to 1 before the caller ever sees it.
+        // to 1 before the caller ever sees it. Each branch records its own
+        // creation event -- replaceDraft's own workflow.draft_saved event (fired
+        // below, inside it, for the copy branch) is a true record that the graph
+        // was written, but says nothing about the draft having been *created by
+        // copying* a specific version, and the empty branch never calls
+        // replaceDraft at all, so without a call here that path is silently
+        // unaudited.
         if (template.getCurrentVersionId() != null) {
             WorkflowVersion published = authorizedQuery.getById(versions, WorkflowVersion.class,
                     PermissionKeys.WORKFLOW_MANAGE, template.getCurrentVersionId());
-            WorkflowDefinitionRequest source = toRequest(published);
+            WorkflowDefinitionRequest source = toRequest(published, PermissionKeys.WORKFLOW_MANAGE);
             // The copy targets the brand-new draft, whose lockVersion is 0 regardless
             // of what the published version's own lock version happened to be.
             WorkflowDefinitionRequest copyRequest =
                     new WorkflowDefinitionRequest(source.stages(), source.attributes(), 0L);
+
+            audit.record(AuditActions.WORKFLOW_DRAFT_SAVED, "workflow_version", draft.getId(),
+                    "Created draft v" + draft.getVersionNo() + " of " + template.getName()
+                            + " by copying v" + published.getVersionNo(),
+                    Map.of("copiedFromVersionNo", published.getVersionNo()));
             replaceDraft(draft.getId(), copyRequest);
+        } else {
+            audit.record(AuditActions.WORKFLOW_DRAFT_SAVED, "workflow_version", draft.getId(),
+                    "Created empty draft v" + draft.getVersionNo() + " of " + template.getName(),
+                    Map.of());
         }
         return draft.getId();
     }
@@ -194,7 +212,7 @@ public class WorkflowService {
     public WorkflowDefinitionView getDefinition(UUID versionId) {
         WorkflowVersion version = authorizedQuery.getById(versions, WorkflowVersion.class,
                 PermissionKeys.WORKFLOW_VIEW, versionId);
-        return toView(version);
+        return toView(version, PermissionKeys.WORKFLOW_VIEW);
     }
 
     /**
@@ -288,9 +306,18 @@ public class WorkflowService {
 
         version.setLockVersion(version.getLockVersion() + 1);
         audit.record(AuditActions.WORKFLOW_DRAFT_SAVED, "workflow_version", versionId,
-                "Saved draft v" + version.getVersionNo() + " of " + templateName(version),
+                "Saved draft v" + version.getVersionNo() + " of "
+                        + templateName(version, PermissionKeys.WORKFLOW_MANAGE),
                 Map.of("stages", request.stages().size()));
-        return getDefinition(versionId);
+        // Built from the version this method's own WORKFLOW_MANAGE gate already
+        // fetched and authorized, not re-read via getDefinition's WORKFLOW_VIEW --
+        // the same "fetched with the write permission, not the read one" rule
+        // CustomerService.update follows. RoleService has no "manage implies view"
+        // constraint, so a role holding workflow.manage without workflow.view would
+        // otherwise pass this method's gate, write the whole graph, and then hit a
+        // 404-shaped NoSuchElementException on its own return value -- rolling back
+        // a write it was correctly authorized to make.
+        return toView(version, PermissionKeys.WORKFLOW_MANAGE);
     }
 
     @RequirePermission(PermissionKeys.WORKFLOW_MANAGE)
@@ -474,41 +501,49 @@ public class WorkflowService {
 
     // ---- reading ------------------------------------------------------------
 
-    private String templateName(WorkflowVersion version) {
+    /**
+     * permissionKey is the caller's own gate, not always WORKFLOW_VIEW: a method
+     * gated on WORKFLOW_MANAGE (replaceDraft, createDraft's copy path) must resolve
+     * its own supporting reads under WORKFLOW_MANAGE too, or a role holding manage
+     * without view would pass the method's gate and then fail on its own return
+     * value or audit description.
+     */
+    private String templateName(WorkflowVersion version, String permissionKey) {
         return authorizedQuery.getById(templates, WorkflowTemplate.class,
-                PermissionKeys.WORKFLOW_VIEW, version.getTemplateId()).getName();
+                permissionKey, version.getTemplateId()).getName();
     }
 
-    private WorkflowTemplateView toTemplateView(WorkflowTemplate t) {
+    private WorkflowTemplateView toTemplateView(WorkflowTemplate t, String permissionKey) {
         Integer versionNo = null;
         if (t.getCurrentVersionId() != null) {
             versionNo = authorizedQuery.getById(versions, WorkflowVersion.class,
-                    PermissionKeys.WORKFLOW_VIEW, t.getCurrentVersionId()).getVersionNo();
+                    permissionKey, t.getCurrentVersionId()).getVersionNo();
         }
         return new WorkflowTemplateView(t.getId(), t.getName(), t.getDescription(), t.getStatus(),
                 t.getCurrentVersionId(), versionNo);
     }
 
     private <T> List<T> readChildren(Class<T> type, JpaSpecificationExecutor<T> repo,
-                                     UUID versionId, String sortField) {
+                                     UUID versionId, String sortField, String permissionKey) {
         Specification<T> byVersion = (root, query, cb) -> cb.equal(root.get("versionId"), versionId);
-        return authorizedQuery.findAll(repo, type, PermissionKeys.WORKFLOW_VIEW, byVersion,
+        return authorizedQuery.findAll(repo, type, permissionKey, byVersion,
                         Pageable.unpaged(Sort.by(sortField)))
                 .getContent();
     }
 
-    private WorkflowDefinitionView toView(WorkflowVersion version) {
+    private WorkflowDefinitionView toView(WorkflowVersion version, String permissionKey) {
         UUID versionId = version.getId();
-        List<Stage> stageEntities = readChildren(Stage.class, stages, versionId, "ordinal");
+        List<Stage> stageEntities = readChildren(Stage.class, stages, versionId, "ordinal", permissionKey);
         List<MilestoneDefinition> milestoneEntities =
-                readChildren(MilestoneDefinition.class, milestoneDefinitions, versionId, "ordinal");
+                readChildren(MilestoneDefinition.class, milestoneDefinitions, versionId, "ordinal", permissionKey);
         List<RequirementDefinition> requirementEntities =
-                readChildren(RequirementDefinition.class, requirementDefinitions, versionId, "ordinal");
-        List<BranchRule> branchRuleEntities = readChildren(BranchRule.class, branchRules, versionId, "ordinal");
+                readChildren(RequirementDefinition.class, requirementDefinitions, versionId, "ordinal", permissionKey);
+        List<BranchRule> branchRuleEntities =
+                readChildren(BranchRule.class, branchRules, versionId, "ordinal", permissionKey);
         List<MilestoneDependency> dependencyEntities =
-                readChildren(MilestoneDependency.class, dependencies, versionId, "id");
+                readChildren(MilestoneDependency.class, dependencies, versionId, "id", permissionKey);
         List<AttributeDefinition> attributeEntities =
-                readChildren(AttributeDefinition.class, attributeDefinitions, versionId, "ordinal");
+                readChildren(AttributeDefinition.class, attributeDefinitions, versionId, "ordinal", permissionKey);
 
         Map<UUID, List<RequirementDefinition>> requirementsByMilestone = new LinkedHashMap<>();
         for (var r : requirementEntities) {
@@ -597,8 +632,8 @@ public class WorkflowService {
      * row's own id in string form, which is exactly what a request's client-local
      * keys need to be for replaceDraft to resolve them correctly.
      */
-    private WorkflowDefinitionRequest toRequest(WorkflowVersion version) {
-        WorkflowDefinitionView view = toView(version);
+    private WorkflowDefinitionRequest toRequest(WorkflowVersion version, String permissionKey) {
+        WorkflowDefinitionView view = toView(version, permissionKey);
         return new WorkflowDefinitionRequest(
                 view.stages().stream().map(this::toStageRequest).toList(),
                 view.attributes().stream().map(this::toAttributeRequest).toList(),
