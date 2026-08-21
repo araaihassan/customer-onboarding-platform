@@ -781,6 +781,15 @@ class DelegationGuardTest extends SecurityTestBase {
         fixture.runAs(tenant, () ->
                 assertThat(roles.rolesFor(target.get())).contains(sameRole.get()));
     }
+    // Executor's amendment (Task 4): `RoleService.rolesFor(UUID)` does not exist,
+    // and this task's own "Produces: no new signatures" line rules out adding one.
+    // Verify the assignment through the existing `UserRoleDirectory.roleIdsByUser`
+    // component instead (autowired directly in the test) -- it is exactly what
+    // UserAdminService already uses to answer the same question, so no new
+    // production surface is needed:
+    //   Set<UUID> held = assignments.roleIdsByUser(Set.of(target.get()))
+    //           .getOrDefault(target.get(), Set.of());
+    //   assertThat(held).contains(sameRole.get());
 
     /**
      * DEPARTMENT and TEAM are not comparable, and the guard must not invent an
