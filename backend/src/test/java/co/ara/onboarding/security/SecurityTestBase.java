@@ -11,7 +11,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /**
- * The eight negative security tests (spec 11.3, 12).
+ * The nine negative security tests (spec 11.3, 12; DelegationGuardTest added by
+ * sub-project 2 Task 4).
  *
  * Every one of them goes through MockMvc against real HTTP endpoints rather than
  * calling services. That is the whole point: a service-level test cannot catch a

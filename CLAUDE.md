@@ -144,14 +144,6 @@ and a DEFAULT partition. The job that rolls partitions forward arrives in sub-pr
 **Open at the close of sub-project 1**, verified against the running system — none of these is a
 regression to hunt:
 
-- **`user.manage` at DEPARTMENT or TEAM scope is still a privilege-escalation path.** Its holder
-  can no longer reach users outside their scope — every target is resolved through
-  `AuthorizedQuery` — but nothing checks the *role being granted*, so they can assign a role wider
-  than their own to anyone they legitimately manage, themselves included, and `RoleEditor` shows
-  them the ids. The guard (require `role.manage` to assign, or refuse a role whose grants exceed
-  the caller's) is a policy decision about delegation and belongs to sub-project 2's tenant
-  administration. **Until it exists, `user.manage` at any scope is equivalent to the widest role in
-  the tenant. Grant it accordingly.**
 - **A narrow-scoped `user.manage` holder cannot create a user through the Users screen.** The create
   form sends only `{email, fullName}`, so `departmentId` is null, and a department-less user is
   outside a DEPARTMENT- or TEAM-scoped actor's own scope — `UserAdminService.create` refuses with a
@@ -415,8 +407,8 @@ correct response to one failing is to fix the code, never to weaken the guard.
 - `backend/src/test/java/co/ara/onboarding/architecture/` — `RlsCoverageTest`,
   `AuthorizationCoverageTest`, `ModuleBoundaryTest`, `OpenApiDocumentTest`.
 - `.../authz/DescriptorRegistryTest`, covering `DescriptorRegistry.validate()`.
-- `.../security/` — the eight negative tests: `ChangedPermissionsTest`, `ConflictingGrantsTest`,
-  `CrossTenantAccessTest`, `DirectApiAccessTest`, `InsufficientPermissionTest`,
+- `.../security/` — the nine negative tests: `ChangedPermissionsTest`, `ConflictingGrantsTest`,
+  `CrossTenantAccessTest`, `DelegationGuardTest`, `DirectApiAccessTest`, `InsufficientPermissionTest`,
   `InsufficientScopeTest`, `MultipleRolesTest`, `RoleLifecycleTest`.
 
 **These are not to be weakened to make a change pass.** They exist precisely to fail when something
