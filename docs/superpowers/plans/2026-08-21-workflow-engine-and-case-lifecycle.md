@@ -200,6 +200,13 @@ private org.springframework.web.servlet.mvc.method.annotation.RequestMappingHand
  */
 @Test
 void everyTenantScopedEndpointRejectsAnonymousAccess() throws Exception {
+    // A REAL tenant, not merely a literal slug substituted into the path.
+    // TenantContextFilter 404s an unresolvable tenant slug before authentication is
+    // even evaluated (spec 6.8: an unknown tenant is indistinguishable from one the
+    // caller may not see) -- so probing a slug nobody created tests tenant
+    // resolution, not authorization, and every response would be a 404 regardless
+    // of whether the endpoint is protected.
+    fixture.createTenant("anon-probe");
     var failures = new java.util.ArrayList<String>();
 
     for (var entry : handlerMapping.getHandlerMethods().entrySet()) {
