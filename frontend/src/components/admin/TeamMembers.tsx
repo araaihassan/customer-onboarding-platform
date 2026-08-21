@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PlusIcon, TrashIcon } from "@/components/icons";
+import { PlusIcon, XIcon } from "@/components/icons";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
@@ -220,7 +220,7 @@ function MemberRow({
         style={{ padding: "var(--ob-space-6)" }}
         title={t("admin.team.members.remove")}
       >
-        <TrashIcon size={16} />
+        <XIcon size={16} />
       </Button>
     </li>
   );

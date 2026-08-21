@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { render } from "@testing-library/react";
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { TeamMembers } from "./TeamMembers";
 import { useTeamMembers, useRemoveTeamMember, useAddTeamMember, useUsers } from "@/lib/api/admin";
@@ -32,13 +32,32 @@ describe("TeamMembers", () => {
     departmentId: null,
   };
 
-  const createWrapper = () => {
-    const queryClient = new QueryClient({
+  const mockMembers = [
+    { userId: "user-1", fullName: "Alice", email: "alice@example.com" },
+    { userId: "user-2", fullName: "Bob", email: "bob@example.com" },
+  ];
+
+  const mockUsers = [
+    { id: "user-3", fullName: "Charlie", email: "charlie@example.com" },
+  ];
+
+  let queryClient: QueryClient;
+
+  beforeEach(() => {
+    queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
         mutations: { retry: false },
       },
     });
+    vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const createWrapper = () => {
     return ({ children }: { children: React.ReactNode }) => (
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     );
@@ -61,19 +80,20 @@ describe("TeamMembers", () => {
       isPending: false,
     } as any);
     vi.mocked(useUsers).mockReturnValue({
-      data: { content: [] },
+      data: { content: mockUsers },
       isLoading: false,
     } as any);
 
     const { container } = render(<TeamMembers team={mockTeam} />, { wrapper: createWrapper() });
-    expect(container).toBeDefined();
+
+    expect(container.textContent).toContain("admin.team.members.empty");
   });
 
-  it("shows loading state", () => {
+  it("renders members list", () => {
     vi.mocked(useHasPermission).mockReturnValue(true);
     vi.mocked(useTeamMembers).mockReturnValue({
-      data: undefined,
-      isLoading: true,
+      data: mockMembers,
+      isLoading: false,
       isError: false,
       refetch: vi.fn(),
     } as any);
@@ -86,7 +106,35 @@ describe("TeamMembers", () => {
       isPending: false,
     } as any);
     vi.mocked(useUsers).mockReturnValue({
-      data: { content: [] },
+      data: { content: mockUsers },
+      isLoading: false,
+    } as any);
+
+    const { container } = render(<TeamMembers team={mockTeam} />, { wrapper: createWrapper() });
+
+    expect(container.textContent).toContain("Alice");
+    expect(container.textContent).toContain("Bob");
+  });
+
+  it("renders component without error with permission to manage", () => {
+    const removeMutate = vi.fn();
+    vi.mocked(useHasPermission).mockReturnValue(true);
+    vi.mocked(useTeamMembers).mockReturnValue({
+      data: mockMembers,
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useRemoveTeamMember).mockReturnValue({
+      mutate: removeMutate,
+      isPending: false,
+    } as any);
+    vi.mocked(useAddTeamMember).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as any);
+    vi.mocked(useUsers).mockReturnValue({
+      data: { content: mockUsers },
       isLoading: false,
     } as any);
 
@@ -94,7 +142,7 @@ describe("TeamMembers", () => {
     expect(container).toBeDefined();
   });
 
-  it("hides add button without team.manage permission", () => {
+  it("renders without add button when lacking permission", () => {
     vi.mocked(useHasPermission).mockReturnValue(false);
     vi.mocked(useTeamMembers).mockReturnValue({
       data: [],
@@ -111,36 +159,11 @@ describe("TeamMembers", () => {
       isPending: false,
     } as any);
     vi.mocked(useUsers).mockReturnValue({
-      data: { content: [] },
+      data: { content: mockUsers },
       isLoading: false,
     } as any);
 
     const { container } = render(<TeamMembers team={mockTeam} />, { wrapper: createWrapper() });
-    expect(container).toBeDefined();
-  });
-
-  it("shows no access message without permission", () => {
-    vi.mocked(useHasPermission).mockReturnValue(false);
-    vi.mocked(useTeamMembers).mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      isError: false,
-      refetch: vi.fn(),
-    } as any);
-    vi.mocked(useRemoveTeamMember).mockReturnValue({
-      mutate: vi.fn(),
-      isPending: false,
-    } as any);
-    vi.mocked(useAddTeamMember).mockReturnValue({
-      mutate: vi.fn(),
-      isPending: false,
-    } as any);
-    vi.mocked(useUsers).mockReturnValue({
-      data: { content: [] },
-      isLoading: false,
-    } as any);
-
-    const { container } = render(<TeamMembers team={mockTeam} />, { wrapper: createWrapper() });
-    expect(container).toBeDefined();
+    expect(container.textContent).toContain("admin.org.noAccess");
   });
 });

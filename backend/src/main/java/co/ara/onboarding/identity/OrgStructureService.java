@@ -115,6 +115,8 @@ public class OrgStructureService {
     @Transactional(readOnly = true)
     public List<TeamMemberView> listTeamMembers(UUID teamId) {
         Team team = authorizedQuery.getById(teams, Team.class, PermissionKeys.TEAM_MANAGE, teamId);
+        // List members filtered by USER_VIEW scope to match the scope applied when resolving
+        // the user id in addTeamMember and removeTeamMember, ensuring consistent visibility
         Specification<AppUser> byTeamId = (root, query, cb) ->
                 cb.isMember(team.getId(), root.get("teamIds"));
         return authorizedQuery.findAll(users, AppUser.class,
