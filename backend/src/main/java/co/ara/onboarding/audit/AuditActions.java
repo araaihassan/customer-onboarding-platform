@@ -37,6 +37,8 @@ public final class AuditActions {
     // able to do that, and who decided" -- so a grant that could be added
     // traceably and removed silently was the wrong asymmetry, not a small gap.
     public static final AuditAction USER_ROLE_UNASSIGNED      = of("user.role_unassigned", false);
+    public static final AuditAction TEAM_MEMBER_ADDED         = of("team.member_added", false);
+    public static final AuditAction TEAM_MEMBER_REMOVED       = of("team.member_removed", false);
     public static final AuditAction DEPARTMENT_CREATED        = of("department.created", false);
     public static final AuditAction TEAM_CREATED              = of("team.created", false);
     public static final AuditAction ROLE_CREATED              = of("role.created", false);

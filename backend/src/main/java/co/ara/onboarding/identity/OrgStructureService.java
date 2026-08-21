@@ -35,6 +35,8 @@ public class OrgStructureService {
     public record TeamRequest(String name, String description, UUID departmentId) {}
     public record TeamView(UUID id, String name, String description, UUID departmentId) {}
 
+    public record TeamMemberView(UUID userId, String fullName, String email) {}
+
     private static final Specification<Department> ALL_DEPARTMENTS =
             (root, query, cb) -> cb.conjunction();
     private static final Specification<Team> ALL_TEAMS =
@@ -42,13 +44,15 @@ public class OrgStructureService {
 
     private final DepartmentRepository departments;
     private final TeamRepository teams;
+    private final AppUserRepository users;
     private final AuthorizedQuery authorizedQuery;
     private final AuditRecorder audit;
 
     public OrgStructureService(DepartmentRepository departments, TeamRepository teams,
-                               AuthorizedQuery authorizedQuery, AuditRecorder audit) {
+                               AppUserRepository users, AuthorizedQuery authorizedQuery, AuditRecorder audit) {
         this.departments = departments;
         this.teams = teams;
+        this.users = users;
         this.authorizedQuery = authorizedQuery;
         this.audit = audit;
     }
@@ -105,5 +109,47 @@ public class OrgStructureService {
                 t.getDepartmentId() == null ? Map.of()
                         : Map.of("departmentId", t.getDepartmentId().toString()));
         return new TeamView(t.getId(), t.getName(), t.getDescription(), t.getDepartmentId());
+    }
+
+    @RequirePermission(PermissionKeys.TEAM_MANAGE)
+    @Transactional(readOnly = true)
+    public List<TeamMemberView> listTeamMembers(UUID teamId) {
+        Team team = authorizedQuery.getById(teams, Team.class, PermissionKeys.TEAM_MANAGE, teamId);
+        Specification<AppUser> byTeamId = (root, query, cb) ->
+                cb.isMember(team.getId(), root.get("teamIds"));
+        return authorizedQuery.findAll(users, AppUser.class,
+                        PermissionKeys.USER_VIEW, byTeamId, Pageable.unpaged())
+                .map(u -> new TeamMemberView(u.getId(), u.getFullName(), u.getEmail()))
+                .toList();
+    }
+
+    /**
+     * Both ids are resolved through AuthorizedQuery before anything is written. A
+     * membership row is what TEAM scope resolves against, so writing one from an
+     * unresolved id would let a caller widen someone else's visibility -- the write-path
+     * shape that produced three separate escalations in sub-project 1.
+     */
+    @RequirePermission(PermissionKeys.TEAM_MANAGE)
+    @Transactional
+    public void addTeamMember(UUID teamId, UUID userId) {
+        Team team = authorizedQuery.getById(teams, Team.class, PermissionKeys.TEAM_MANAGE, teamId);
+        AppUser user = authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, userId);
+        if (user.getTeamIds().add(team.getId())) {
+            audit.record(AuditActions.TEAM_MEMBER_ADDED, "team", team.getId(),
+                    "Added " + user.getEmail() + " to team " + team.getName(),
+                    Map.of("userId", user.getId()));
+        }
+    }
+
+    @RequirePermission(PermissionKeys.TEAM_MANAGE)
+    @Transactional
+    public void removeTeamMember(UUID teamId, UUID userId) {
+        Team team = authorizedQuery.getById(teams, Team.class, PermissionKeys.TEAM_MANAGE, teamId);
+        AppUser user = authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, userId);
+        if (user.getTeamIds().remove(team.getId())) {
+            audit.record(AuditActions.TEAM_MEMBER_REMOVED, "team", team.getId(),
+                    "Removed " + user.getEmail() + " from team " + team.getName(),
+                    Map.of("userId", user.getId()));
+        }
     }
 }
