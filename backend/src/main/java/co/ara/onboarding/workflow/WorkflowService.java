@@ -121,6 +121,14 @@ public class WorkflowService {
                 .getContent();
     }
 
+    @RequirePermission(PermissionKeys.WORKFLOW_VIEW)
+    @Transactional(readOnly = true)
+    public WorkflowTemplateView getTemplate(UUID templateId) {
+        WorkflowTemplate t = authorizedQuery.getById(templates, WorkflowTemplate.class,
+                PermissionKeys.WORKFLOW_VIEW, templateId);
+        return toTemplateView(t, PermissionKeys.WORKFLOW_VIEW);
+    }
+
     @RequirePermission(PermissionKeys.WORKFLOW_MANAGE)
     @Transactional
     public void deactivateTemplate(UUID templateId) {
@@ -213,6 +221,19 @@ public class WorkflowService {
         WorkflowVersion version = authorizedQuery.getById(versions, WorkflowVersion.class,
                 PermissionKeys.WORKFLOW_VIEW, versionId);
         return toView(version, PermissionKeys.WORKFLOW_VIEW);
+    }
+
+    /**
+     * Package-private: lets {@link PublishService} build the definition view it
+     * returns from {@code publish} under WORKFLOW_MANAGE -- the permission that
+     * method's own gate already checked -- rather than re-authorizing under
+     * WORKFLOW_VIEW, which is exactly the "manage without view" gap
+     * {@code replaceDraft}'s own return statement avoids above.
+     */
+    WorkflowDefinitionView getDefinitionAs(UUID versionId, String permissionKey) {
+        WorkflowVersion version = authorizedQuery.getById(versions, WorkflowVersion.class,
+                permissionKey, versionId);
+        return toView(version, permissionKey);
     }
 
     /**
