@@ -2409,6 +2409,16 @@ class JourneyPersistenceTest extends PostgresTestBase {
 }
 ```
 
+**Executor's amendment (Task 9):** `noJourneyTableCanBeDeletedFrom`'s
+`.hasMessageContaining("permission denied")` fails as written -- PostgreSQL's SQLState 42501
+(insufficient privilege) falls in SQLState class "42", which Spring's fallback
+`SQLStateSQLExceptionTranslator` maps wholesale to `BadSqlGrammarException`, whose own
+top-level message says only "bad SQL grammar"; "permission denied" lives in the wrapped
+cause. `WorkflowPersistenceTest.aTemplateCannotBeDeleted` and
+`CustomerPersistenceTest.applicationRoleCannotDeleteBusinessRecords` hit the identical shape
+in Tasks 5 and 1 and were amended to `.hasStackTraceContaining("permission denied")` instead;
+the checked-in test does the same.
+
 - [ ] **Step 2: Run, watch it fail, then write `V13__journey.sql`**
 
 ```sql
