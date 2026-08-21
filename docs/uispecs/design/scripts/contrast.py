@@ -255,11 +255,15 @@ def report_shipped(theme):
 
 
 if __name__ == "__main__":
+    import sys
+
     report("LIGHT THEME - the PROTOTYPE AS HANDED OFF, not the shipped tokens.\n"
            "This is the evidence behind ux-design-review.md finding 1, so its failures\n"
            "are the historical record of the problem and are meant to stay red. It says\n"
-           "NOTHING about the light tokens shipping today: those are measured by\n"
-           "report_shipped('light'), which is deliberately not run here. See tokens.md\n"
-           "-- turning it on surfaces the known, deferred light border-default at 1.28:1.",
+           "NOTHING about the light tokens shipping today: those are measured below by\n"
+           "report_shipped('light'), which now runs on every invocation. See tokens.md.",
            PAIRS)
-    report_shipped("dark")
+    light_fails = report_shipped("light")
+    dark_fails = report_shipped("dark")
+    if light_fails or dark_fails:
+        sys.exit(1)

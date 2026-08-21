@@ -111,6 +111,13 @@ AMBER = {
     "200": ok(0.90, 0.05, 70),
     "300": ok(0.86, 0.09, 70),
     "500": ok(0.72, 0.14, 70),
+    # 600 exists only for solid-at-risk, which shares one value across both
+    # themes (SEMANTIC_SOLID has no light/dark split). amber-500 was 2.54:1 on
+    # light bg-surface -- below 1.4.11's 3:1 -- so this is the least darkening
+    # that clears it (3.21:1), and it still clears dark bg-surface comfortably
+    # (4.89:1, down from 500's 6.17:1). amber-700, the at-risk pill ink, is far
+    # past the floor (7.29:1 on light bg-surface) and would read as brown here.
+    "600": ok(0.66, 0.14, 70),
     "700": ok(0.46, 0.14, 70),
 }
 RED = {
@@ -158,16 +165,22 @@ SEMANTIC_COLOR = [
     ("bg-rail",            "slate-950", "slate-950", "navigation rail"),
     ("bg-rail-raised",     "slate-800", "slate-800", "active rail item"),
     ("bg-overlay",         "paper-0",   "slate-800", "popovers, notification panel"),
-    # borders. The three that carry a control's edge resolve to paper-600 in dark:
-    # slate-700 gave 1.30:1 against bg-surface, below 1.4.11's 3:1, and all three
-    # already shared one value there so lifting only border-default would have made
-    # "strong" weaker than "default". The dividers (subtle, panel) stay on slate-800
-    # — a row rule identifies nothing, so 1.4.11 does not reach it.
-    ("border-default",     "paper-400", "paper-600", "card and control borders"),
+    # borders. The three that carry a control's edge resolve to paper-600 in BOTH
+    # themes now, for the same reason in both: nothing lighter on this ramp clears
+    # 3:1 (1.4.11) against the surfaces they sit on. Dark already established this
+    # -- slate-700 gave 1.30:1 against bg-surface -- and light was simply never
+    # measured until report_shipped('light') found paper-400/450/550 at
+    # 1.15-1.28 / 1.44 / 1.68 against bg-surface. paper-600 is the documented
+    # graphics-only floor that clears 3:1 on every light surface and every dark
+    # ground, so it is the minimal fix for all three, in both themes -- exactly
+    # the collapse dark already went through: lifting only border-default would
+    # have made "strong" read weaker than "default". The dividers (subtle, panel)
+    # stay put -- a row rule identifies nothing, so 1.4.11 does not reach it.
+    ("border-default",     "paper-600", "paper-600", "card and control borders"),
     ("border-subtle",      "paper-150", "slate-800", "table row dividers"),
     ("border-panel",       "paper-300", "slate-800", "expanded panel dividers"),
-    ("border-strong",      "paper-450", "paper-600", "open milestone, emphasis"),
-    ("border-dashed",      "paper-550", "paper-600", "dropzones, add affordances"),
+    ("border-strong",      "paper-600", "paper-600", "open milestone, emphasis"),
+    ("border-dashed",      "paper-600", "paper-600", "dropzones, add affordances"),
     # text
     ("text-primary",       "paper-950", "paper-100", "headings, table values"),
     ("text-secondary",     "paper-900", "paper-400", "body, stage labels"),
@@ -187,9 +200,19 @@ SEMANTIC_COLOR = [
     ("accent-tint",        "indigo-100", "slate-800",  "selection ring, rule strips"),
     # paper-600 in dark, not slate-700: slate-700 on slate-800 was 1.15:1, and
     # the same graphics tier already carries the other control-bearing edges.
-    ("accent-tint-border", "indigo-200", "paper-600",  "edge of tinted panels"),
+    # Light can't borrow that trick: paper-600 on indigo-100 (the light tint) is
+    # only 2.96:1, still under 3:1, because the tint itself is warm-neutral
+    # enough that a warm-grey border nearly disappears into it. indigo-200 (the
+    # light value this replaces) was 1.06:1. indigo-400 is the least darkening
+    # inside the indigo ramp that clears 3:1 there (3.51:1) -- it is also
+    # already the dark theme's accent-weak value, so it is not a new primitive.
+    ("accent-tint-border", "indigo-400", "paper-600",  "edge of tinted panels"),
     ("accent-ink",         "indigo-800", "indigo-300", "text on accent tint, links"),
-    ("accent-weak",        "indigo-300", "indigo-400", "earlier periods in charts"),
+    # indigo-300 was 1.53:1 on bg-surface -- under 3:1. indigo-400 clears it
+    # (4.07:1) and is the same value dark already uses for this exact role
+    # ("dimmer than accent, but still >=3:1 ... a chart series is a graphic
+    # required to understand the content"), so light now matches dark here.
+    ("accent-weak",        "indigo-400", "indigo-400", "earlier periods in charts"),
 ]
 
 # status role -> (fill primitive, ink primitive, meaning)
@@ -203,7 +226,12 @@ SEMANTIC_STATUS = [
 
 SEMANTIC_SOLID = [
     ("solid-on-track", "green-500", "completed milestone circle, healthy bar"),
-    ("solid-at-risk",  "amber-500", "bottleneck bar, warning dot"),
+    # amber-500 was 2.54:1 on light bg-surface -- under 1.4.11's 3:1 -- while
+    # green-500/red-500 above and below already cleared it (3.73 / 4.84:1).
+    # amber-600 is the least darkening that clears light (3.21:1) without
+    # touching amber-500 itself, which the dark "at-risk" wash still uses; it
+    # still clears dark bg-surface with room (4.89:1, down from 500's 6.17:1).
+    ("solid-at-risk",  "amber-600", "bottleneck bar, warning dot"),
     ("solid-blocked",  "red-500",   "notification badge, blocked circle"),
 ]
 
