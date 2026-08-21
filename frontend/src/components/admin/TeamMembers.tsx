@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
-import type { Team, User, TeamMember } from "@/lib/api/admin";
+import type { Team, TeamMember } from "@/lib/api/admin";
 import {
   useTeamMembers,
   useAddTeamMember,
@@ -20,7 +20,11 @@ export function TeamMembers({ team }: { team: Team }) {
   const canManageTeams = useHasPermission("team.manage");
   const canViewUsers = useHasPermission("user.view");
 
-  const members = useTeamMembers(team.id, canManageTeams);
+  // springdoc marks every property optional, so the generated `TeamView.id` is
+  // `string | undefined`. Same `?? ""` narrowing RoleEditor and ContactList use.
+  const teamId = team.id ?? "";
+
+  const members = useTeamMembers(teamId, canManageTeams);
   const availableUsers = useUsers("", 0, canManageTeams && canViewUsers);
   const addMember = useAddTeamMember();
   const removeMember = useRemoveTeamMember();
@@ -31,7 +35,7 @@ export function TeamMembers({ team }: { team: Team }) {
   const handleAddMember = () => {
     if (selectedUserId) {
       addMember.mutate(
-        { teamId: team.id, userId: selectedUserId },
+        { teamId, userId: selectedUserId },
         {
           onSuccess: () => {
             setShowAddMember(false);
@@ -91,7 +95,7 @@ export function TeamMembers({ team }: { team: Team }) {
                 key={member.userId}
                 member={member}
                 onRemove={() => {
-                  removeMember.mutate({ teamId: team.id, userId: member.userId });
+                  removeMember.mutate({ teamId, userId: member.userId ?? "" });
                 }}
                 isRemoving={removeMember.isPending}
               />
@@ -214,7 +218,10 @@ function MemberRow({
       </div>
       <Button
         type="button"
-        variant="ghost"
+        // Not "ghost": Button offers primary and secondary only, and the earlier
+        // "ghost" was a type error that already rendered as secondary — esbuild
+        // strips types without checking them, so only `tsc`/`next build` saw it.
+        variant="secondary"
         onClick={onRemove}
         disabled={isRemoving}
         style={{ padding: "var(--ob-space-6)" }}
