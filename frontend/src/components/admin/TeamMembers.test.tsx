@@ -1,5 +1,5 @@
-﻿import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { TeamMembers } from "./TeamMembers";
 import { useTeamMembers, useRemoveTeamMember, useAddTeamMember, useUsers } from "@/lib/api/admin";
@@ -114,7 +114,7 @@ describe("TeamMembers", () => {
     // Verify members are rendered
     expect(container.textContent).toContain("Alice");
     expect(container.textContent).toContain("alice@example.com");
-    
+
     // Verify remove button exists for the member
     const removeButtons = screen.getAllByRole("button", {
       name: "admin.team.members.remove",
@@ -149,5 +149,36 @@ describe("TeamMembers", () => {
     expect(container.textContent).toContain("admin.org.noAccess");
     // Verify add button text is not present
     expect(container.textContent).not.toContain("admin.team.members.add");
+  });
+
+  it("clicking remove invokes the remove mutation with the right ids", () => {
+    const mutate = vi.fn();
+    vi.mocked(useHasPermission).mockReturnValue(true);
+    vi.mocked(useRemoveTeamMember).mockReturnValue({ mutate, isPending: false } as any);
+    vi.mocked(useTeamMembers).mockReturnValue({
+      data: mockMembers,
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as any);
+    vi.mocked(useAddTeamMember).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    } as any);
+    vi.mocked(useUsers).mockReturnValue({
+      data: { content: mockUsers },
+      isLoading: false,
+    } as any);
+
+    render(<TeamMembers team={mockTeam} />, { wrapper: createWrapper() });
+
+    const removeButtons = screen.getAllByRole("button", { name: "admin.team.members.remove" });
+    expect(removeButtons.length).toBeGreaterThan(0);
+
+    // Simulate the click event directly on the button
+    const button = removeButtons[0] as HTMLButtonElement;
+    button.click();
+
+    expect(mutate).toHaveBeenCalledWith({ teamId: mockTeam.id, userId: mockMembers[0].userId });
   });
 });
