@@ -550,11 +550,24 @@ class UserAdminTest extends PostgresTestBase {
                 .isEmpty();
     }
 
-    /** Positive control: the delegation the catalog advertises still works. */
+    /**
+     * Positive control: the delegation the catalog advertises still works.
+     *
+     * Task 4's delegation guard means "within their department" now has two
+     * conditions, not one: the target must be reachable AND the assigner must
+     * already hold everything wideRole grants. The Ops Lead role only carries
+     * user.view/user.manage, so it is topped up here with the exact grant
+     * wideRole hands out -- otherwise this "positive control" would exercise the
+     * escalation guard instead of the department-reachability check it exists to
+     * prove.
+     */
     @Test
     void departmentScopedAdminCanAssignARoleWithinTheirDepartment() {
         UUID tenant = fixture.createTenant("narrow-assign-in");
         NarrowScopeWorld w = narrowScopeWorld(tenant);
+        fixture.runAs(tenant, () -> roles.assignRole(w.admin(), roles.createRole(
+                "Customer Wide (delegation topper)", "",
+                Map.of(PermissionKeys.CUSTOMER_VIEW, Scope.ALL))));
 
         fixture.runAsUser(tenant, w.admin(), () -> userAdmin.assignRole(w.peer(), w.wideRole()));
 
