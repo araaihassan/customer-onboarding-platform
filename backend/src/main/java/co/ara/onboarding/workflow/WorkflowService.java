@@ -224,12 +224,25 @@ public class WorkflowService {
     }
 
     /**
-     * Package-private: lets {@link PublishService} build the definition view it
-     * returns from {@code publish} under WORKFLOW_MANAGE -- the permission that
-     * method's own gate already checked -- rather than re-authorizing under
-     * WORKFLOW_VIEW, which is exactly the "manage without view" gap
-     * {@code replaceDraft}'s own return statement avoids above.
+     * Package-private: lets {@link PublishService} and {@link WorkflowController}
+     * build a definition view under WORKFLOW_MANAGE -- the permission the caller's
+     * own gate already checked -- rather than re-authorizing under WORKFLOW_VIEW,
+     * which is exactly the "manage without view" gap {@code replaceDraft}'s own
+     * return statement avoids above.
+     *
+     * @Transactional in its own right, not merely relying on an already-open one:
+     * PublishService.publish calls this while its own transaction is still open, so
+     * it would work there either way, but WorkflowController.newDraft calls it
+     * AFTER createDraft's transaction has already committed and closed. Without its
+     * own boundary here, TenantTransactionBinder's pointcut (which matches
+     * @Transactional, not "some transaction happens to be open") never fires, the
+     * tenant is never bound on this call, and the read finds nothing under RLS --
+     * confirmed empirically: the generated SQL was missing both the Hibernate
+     * tenantFilter predicate and the app.tenant_id GUC that RLS reads, and the
+     * call that should have found the row it had just inserted a moment earlier
+     * instead threw NoSuchElementException.
      */
+    @Transactional(readOnly = true)
     WorkflowDefinitionView getDefinitionAs(UUID versionId, String permissionKey) {
         WorkflowVersion version = authorizedQuery.getById(versions, WorkflowVersion.class,
                 permissionKey, versionId);

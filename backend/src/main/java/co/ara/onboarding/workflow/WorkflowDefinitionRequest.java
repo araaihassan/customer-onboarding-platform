@@ -1,6 +1,8 @@
 package co.ara.onboarding.workflow;
 
 import co.ara.onboarding.authz.RelationshipType;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
 
 import java.util.List;
 import java.util.UUID;
@@ -17,7 +19,7 @@ import java.util.UUID;
  * three-request transaction. The server assigns UUIDv7s and resolves keys once.
  */
 public record WorkflowDefinitionRequest(
-        List<StageRequest> stages,
+        @Valid List<StageRequest> stages,
         List<AttributeRequest> attributes,
         long lockVersion) {
 
@@ -33,14 +35,14 @@ public record WorkflowDefinitionRequest(
             String notificationTemplateKey,
             ConditionRequest entryCondition,   // null = always enterable
             String fallbackNextStageKey,       // null = next by ordinal
-            List<MilestoneRequest> milestones,
+            @Valid List<MilestoneRequest> milestones,
             List<BranchRuleRequest> branchRules) {}
 
     public record MilestoneRequest(
             String key,
             String name,
             String description,
-            int estimatedDurationDays,
+            @Positive int estimatedDurationDays,
             List<String> dependsOnMilestoneKeys,
             List<RequirementRequest> requirements) {}
 
