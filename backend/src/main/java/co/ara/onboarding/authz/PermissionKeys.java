@@ -30,6 +30,19 @@ public final class PermissionKeys {
     public static final String AUDIT_VIEW           = "audit.view";
     public static final String WORKFLOW_VIEW        = "workflow.view";
     public static final String WORKFLOW_MANAGE      = "workflow.manage";
+    public static final String CASE_VIEW             = "case.view";
+    public static final String CASE_CREATE           = "case.create";
+    public static final String CASE_EDIT             = "case.edit";
+    public static final String CASE_ADVANCE          = "case.advance";
+    public static final String CASE_HOLD             = "case.hold";
+    public static final String CASE_MIGRATE          = "case.migrate";
+    public static final String MILESTONE_EDIT           = "milestone.edit";
+    public static final String MILESTONE_COMPLETE       = "milestone.complete";
+    public static final String MILESTONE_REOPEN         = "milestone.reopen";
+    public static final String MILESTONE_FORCE_COMPLETE = "milestone.force_complete";
+    public static final String MILESTONE_FORCE_APPROVE  = "milestone.force_approve";
+    public static final String REQUIREMENT_WAIVE     = "requirement.waive";
+    public static final String APPROVAL_DECIDE       = "approval.decide";
 
     private PermissionKeys() {}
 }

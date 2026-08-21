@@ -59,12 +59,36 @@ public final class PermissionCatalog {
         // 11's thirteen journey keys, which do need descriptors.
         add(WORKFLOW_VIEW,        "workflow", null,               "View workflow definitions",      ALL_ONLY);
         add(WORKFLOW_MANAGE,      "workflow", null,               "Create and edit workflows",      ALL_ONLY);
+        add(CASE_VIEW,               "journey", "onboarding_case", "View cases",                    RECORD);
+        add(CASE_CREATE,             "journey", null,              "Open a case on a customer",     ALL_ONLY);
+        add(CASE_EDIT,               "journey", "onboarding_case", "Edit case owner, participants and attributes", RECORD);
+        add(CASE_ADVANCE,            "journey", "onboarding_case", "Advance a case to the next stage", RECORD);
+        add(CASE_HOLD,               "journey", "onboarding_case", "Place a case on hold or resume it", RECORD);
+        add(CASE_MIGRATE,            "journey", null,              "Migrate cases to a new workflow version", ALL_ONLY);
+        add(MILESTONE_EDIT,          "journey", "milestone",       "Reassign or reschedule a milestone", RECORD);
+        add(MILESTONE_COMPLETE,      "journey", "milestone",       "Satisfy requirements and complete milestones", RECORD);
+        add(MILESTONE_REOPEN,        "journey", "milestone",       "Reopen a completed milestone",  ORG_SCOPES);
+        add(MILESTONE_FORCE_COMPLETE,"journey", "milestone",       "Request a forced completion",   ORG_SCOPES);
+        add(MILESTONE_FORCE_APPROVE, "journey", null,              "Approve a forced completion",   ALL_ONLY);
+        add(REQUIREMENT_WAIVE,       "journey", "requirement",     "Waive a requirement",           ORG_SCOPES);
+        add(APPROVAL_DECIDE,         "journey", "approval",        "Decide a stage-exit approval",  ORG_SCOPES);
     }
 
     /**
      * CUSTOMER_CREATE is ALL-only on purpose: creation has no existing record to
      * scope against, so a narrower scope would have nothing to evaluate against
      * and would read as a restriction while imposing none.
+     *
+     * CASE_CREATE is ALL-only for the same reason CUSTOMER_CREATE is: there is no
+     * case yet to scope against. It is not a hole -- creation resolves the target
+     * customer through CustomerDirectory under customer.view, so a Sales
+     * Representative holding customer.view at ASSIGNED can only open a case on a
+     * customer they own. Authority to create is bounded by what you can see.
+     *
+     * MILESTONE_FORCE_APPROVE is ALL-only because Q5 puts that authority strictly
+     * above Project Manager. A scoped version would let a TEAM-scoped holder
+     * approve their own team's forcings, which is the single thing the approval
+     * flow exists to prevent.
      */
     private static void add(String key, String category, String resourceType,
                             String description, Set<Scope> scopes) {
