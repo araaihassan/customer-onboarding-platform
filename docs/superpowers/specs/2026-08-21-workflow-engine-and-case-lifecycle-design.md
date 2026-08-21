@@ -148,11 +148,22 @@ at read time. A published version is immutable by database permission, not by se
 
 Fourteen tenant-owned tables across two migrations, `V12__workflow.sql` and `V13__journey.sql`,
 split on the module line. Every one has `tenant_id uuid NOT NULL REFERENCES tenant(id)`, a
-`SELECT enable_tenant_rls(...)` call in the same migration, and `GRANT SELECT, INSERT, UPDATE`
-only — `V5_1` revoked the schema-wide default, so a new table starts with nothing and `DELETE`
-stays denied. UUIDv7 keys via `Uuid7.generate()`, `timestamptz` throughout, enums as `varchar` with
+`SELECT enable_tenant_rls(...)` call in the same migration, and `GRANT SELECT, INSERT, UPDATE` —
+`V5_1` revoked the schema-wide default, so a new table starts with nothing.
+UUIDv7 keys via `Uuid7.generate()`, `timestamptz` throughout, enums as `varchar` with
 `@Enumerated(STRING)`, and every index leading with `tenant_id` because RLS adds a `tenant_id`
 predicate to every query.
+
+**Amended 2026-08-21, while writing the plan.** This section originally said no `DELETE` on any of
+the fourteen. That holds for the six `journey` tables and for `workflow_template`, and fails for the
+seven definition tables: editing a draft must be able to *remove* a stage, and discarding a draft
+must delete it. An unpublished definition row is configuration bookkeeping — the category
+sub-project 1 granted `DELETE` to with a comment (`role`, `role_grant`, `user_role`, `team_member`,
+`login_attempt`) — not a business record. So `V12` grants `DELETE` on `workflow_version`, `stage`,
+`milestone_definition`, `milestone_dependency`, `requirement_definition`, `attribute_definition` and
+`branch_rule`, and §4.3's trigger is what makes that safe: any `UPDATE` or `DELETE` whose version is
+not explicitly `DRAFT` is refused, so deletion is reachable for drafts only. `workflow_template` is
+deactivated rather than deleted, and the six `journey` tables carry no `DELETE` at all.
 
 ### 4.1 `workflow`
 
@@ -750,8 +761,10 @@ Extending the eight specs in `security/`:
   than falling through to the weaker gate.
 - **Escalation guard** — a `user.manage` holder at `DEPARTMENT` cannot assign a role carrying
   `workflow.manage`: the guard proven against a permission written after it.
-- **Database level**, in the `CustomerPersistenceTest` mould — `onboarding_app` cannot `DELETE`
-  from any of the fourteen tables, and the trigger refuses an `UPDATE` to a `PUBLISHED` version.
+- **Database level**, in the `CustomerPersistenceTest` mould — `onboarding_app` cannot `DELETE` from
+  the six `journey` tables or from `workflow_template`; it *can* delete a `DRAFT` definition row, and
+  the trigger refuses every `UPDATE` or `DELETE` once its version is `PUBLISHED`. Both halves are
+  asserted, because a grant proved only in the permitted direction is a grant nobody has bounded.
 - **Timeline** — a case the actor cannot see returns 404 for its timeline, and the carve-out returns
   no other case's events.
 
