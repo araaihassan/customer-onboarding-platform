@@ -152,7 +152,17 @@ public class CaseService {
         c.setOwningDepartmentId(customer.owningDepartmentId());
         c.setOwningTeamId(customer.owningTeamId());
         c.setCreatedBy(contextProvider.principal().userId());
-        cases.save(c);
+        // Reassigned, not discarded: BaseEntity has no @Version and no Persistable,
+        // so Spring Data's isNew() sees this already-non-null Uuid7 id and calls
+        // entityManager.merge() rather than persist(). merge() returns a DIFFERENT
+        // managed instance and leaves the original detached -- every mutation below
+        // (writeParticipant/upsertAttributes/instantiate/engine.reconcile) would be
+        // silently lost from the database, even though the CaseView this method
+        // returns (built from the detached, in-memory-mutated object) looks correct.
+        // Only surfaced once Task 15 added a caller (advance()) that re-reads the
+        // case in a LATER transaction; every read inside this same transaction
+        // happened to resolve back to the same identity-mapped instance regardless.
+        c = cases.save(c);
 
         // The creator is a CREATOR participant, which is recorded but confers no
         // ASSIGNED access (CaseDescriptor excludes it). The customer's owner is the
@@ -292,6 +302,32 @@ public class CaseService {
 
         audit.record(AuditActions.CASE_UPDATED, "onboarding_case", c.getId(),
                 "Updated case", Map.of());
+        return toView(c);
+    }
+
+    /**
+     * Resolves and authorizes the case under CASE_ADVANCE first, exactly as every
+     * other mutating method here does, then re-reads it through the engine's row
+     * lock before mutating -- the same double-resolve shape update()/addParticipant
+     * use. advanceRequested is set on this specific loaded instance only: it is
+     * never persisted (see Case.advanceRequested), so it cannot leak into an
+     * unrelated reconcile.
+     */
+    @RequirePermission(PermissionKeys.CASE_ADVANCE)
+    @Transactional
+    public CaseView advance(UUID caseId) {
+        authorizedQuery.getById(cases, Case.class, PermissionKeys.CASE_ADVANCE, caseId);
+        Case c = engine.lockAndLoad(caseId);
+
+        UUID stageBefore = c.getCurrentStageId();
+        c.setAdvanceRequested(true);
+        engine.reconcile(c);
+
+        boolean advanced = !java.util.Objects.equals(stageBefore, c.getCurrentStageId())
+                || c.getStatus() == CaseStatus.COMPLETED;
+        if (!advanced) {
+            throw new StageNotExitableException(caseId);
+        }
         return toView(c);
     }
 
@@ -569,6 +605,6 @@ public class CaseService {
                 versionNoOf(c.getVersionId()), c.getStatus(), c.getCurrentStageId(), currentStageName,
                 c.getProgressPercent(), c.getTargetCompletionDate(), c.getHeldAt(), c.getTotalHoldDays(),
                 c.getOwnerUserId(), c.getOwningDepartmentId(), c.getOwningTeamId(), attributesOf(c),
-                c.getStartedAt(), c.getCompletedAt(), null);
+                c.getStartedAt(), c.getCompletedAt(), engine.pendingTransition(c));
     }
 }

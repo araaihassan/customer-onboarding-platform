@@ -75,6 +75,12 @@ public final class AuditActions {
     public static final AuditAction CASE_UPDATED               = of("case.updated", true);
     public static final AuditAction CASE_PARTICIPANT_ADDED     = of("case.participant_added", true);
     public static final AuditAction CASE_PARTICIPANT_REMOVED   = of("case.participant_removed", true);
+    // Timeline-visible for the same reason: entering a stage, completing the case and
+    // a stage being skipped by a branch are exactly the progress narrative the
+    // customer's own Activity Timeline exists to show.
+    public static final AuditAction CASE_STAGE_ENTERED         = of("case.stage_entered", true);
+    public static final AuditAction CASE_COMPLETED             = of("case.completed", true);
+    public static final AuditAction MILESTONE_SKIPPED          = of("milestone.skipped", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

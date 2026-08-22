@@ -1,6 +1,7 @@
 package co.ara.onboarding.journey;
 
 import co.ara.onboarding.authz.RelationshipType;
+import co.ara.onboarding.platform.BusinessCalendar;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import org.junit.jupiter.api.Test;
@@ -19,6 +20,7 @@ class CaseCreationTest extends PostgresTestBase {
     @Autowired TenantFixture fixture;
     @Autowired JourneyFixtures journey;
     @Autowired CaseService cases;
+    @Autowired BusinessCalendar calendar;
 
     /**
      * Everything the roadmap needs exists from the first moment. The prototype draws all
@@ -86,12 +88,12 @@ class CaseCreationTest extends PostgresTestBase {
     }
 
     /**
-     * Due dates are computed once, when a stage is entered -- and stage entry is
-     * CaseEngine.advanceIfExitable, still a deliberate no-op stub as of this task
-     * (Task 15 fills it in). So immediately after creation, before any stage has been
-     * entered, no milestone has a due date yet; a case created on any day of the week
-     * is identical on this point. The business-day accumulation this test's name
-     * describes is exercised once Task 15 lands stage entry.
+     * Due dates are computed once, when a stage is entered -- and CaseService.create's
+     * own reconcile() call enters the first stage immediately (Task 15's
+     * CaseEngine.advanceIfExitable), so the first stage's milestones are scheduled
+     * before create() ever returns. publishedThreeStageWorkflow's first stage has
+     * milestones of duration 2 then 3, cumulative within the stage: the first is due
+     * 2 business days out, the second 5.
      */
     @Test
     void dueDatesAccumulateInBusinessDaysWithinAStage() {
@@ -102,7 +104,11 @@ class CaseCreationTest extends PostgresTestBase {
             var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
 
             var firstStageMilestones = cases.roadmap(view.id()).stages().get(0).milestones();
-            assertThat(firstStageMilestones).allSatisfy(m -> assertThat(m.dueDate()).isNull());
+            assertThat(firstStageMilestones).hasSize(2);
+            assertThat(firstStageMilestones.get(0).dueDate())
+                    .isEqualTo(calendar.plusBusinessDays(java.time.LocalDate.now(), 2));
+            assertThat(firstStageMilestones.get(1).dueDate())
+                    .isEqualTo(calendar.plusBusinessDays(java.time.LocalDate.now(), 5));
         });
     }
 

@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -71,6 +72,16 @@ public class Case extends TenantScopedEntity {
     @Column(name = "created_by")
     private UUID createdBy;
 
+    /**
+     * Set by CaseService.advance immediately before it calls CaseEngine.reconcile,
+     * on the specific in-memory instance that call locked -- never persisted, and
+     * never read back on a later request. A persisted flag would let a manual stage
+     * advance itself on the very next unrelated reconcile (e.g. a satisfy call),
+     * which defeats the point of auto_advance=false.
+     */
+    @Transient
+    private boolean advanceRequested;
+
     public UUID getCustomerId() { return customerId; }
     public void setCustomerId(UUID customerId) { this.customerId = customerId; }
 
@@ -115,4 +126,7 @@ public class Case extends TenantScopedEntity {
 
     public UUID getCreatedBy() { return createdBy; }
     public void setCreatedBy(UUID createdBy) { this.createdBy = createdBy; }
+
+    public boolean isAdvanceRequested() { return advanceRequested; }
+    public void setAdvanceRequested(boolean advanceRequested) { this.advanceRequested = advanceRequested; }
 }

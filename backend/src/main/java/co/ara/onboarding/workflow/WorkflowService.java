@@ -293,7 +293,18 @@ public class WorkflowService {
         int stageOrdinal = 1;
         for (var s : request.stages()) {
             Stage stage = newStage(version, s, stageOrdinal++);
-            stages.save(stage);
+            // Reassigned, not discarded: Stage's id is a pre-assigned Uuid7, not
+            // @GeneratedValue, and BaseEntity has no @Version/Persistable, so
+            // Spring Data's isNew() sees a non-null id on this brand-new entity and
+            // calls entityManager.merge() rather than persist(). merge() returns a
+            // DIFFERENT managed instance and leaves the original `stage` detached --
+            // pass 2's setFallbackNextStageId() below was mutating that detached
+            // copy, so no stage's fallback ever actually reached the database. Only
+            // surfaced once CaseEngine (Task 15) read fallbackNextStageId at
+            // runtime; every WorkflowAuthoringTest assertion happened to read the
+            // in-memory WorkflowDefinitionView this same method returns, which is
+            // built from these (detached but correctly mutated) Java objects.
+            stage = stages.save(stage);
             stageIds.put(s.key(), stage.getId());
             stageEntities.put(s.key(), stage);
 

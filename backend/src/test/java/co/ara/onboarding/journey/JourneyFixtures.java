@@ -297,4 +297,33 @@ public class JourneyFixtures {
     public UUID templateOf(UUID versionId) {
         return versions.findById(versionId).orElseThrow().getTemplateId();
     }
+
+    // ---- arbitrary graphs (Task 15, reusable by 18/19) -------------------------
+    //
+    // TransitionTest needs stage shapes (auto_advance=false, requires_approval,
+    // entry conditions, branch rules) publishedThreeStageWorkflow/publishedTemplate
+    // don't cover and that don't recur often enough to earn their own named
+    // method. Building the request is cheap with WorkflowFixtures' builders plus
+    // the StageRequest/BranchRuleRequest/ConditionRequest records' own public
+    // constructors; only the create-draft-replace-publish plumbing is worth
+    // sharing.
+
+    /**
+     * Creates a template, drafts, saves and publishes an arbitrary request. Returns
+     * the versionId.
+     *
+     * There is deliberately no stageByKey lookup here: WorkflowDefinitionView.key is
+     * echoed back as the persisted stage's own id in string form (see that record's
+     * javadoc), not the client-local key the request declared -- "s1" never survives
+     * a round trip. A test that needs a stage's real id reads it from
+     * CaseService.roadmap() once a case exists, which carries genuine Stage ids
+     * ordered by ordinal -- the same order the request declared its stages in.
+     */
+    public UUID publish(WorkflowDefinitionRequest request) {
+        UUID templateId = workflows.createTemplate("Fixture " + Uuid7.generate(), "").id();
+        UUID draftId = workflows.createDraft(templateId);
+        workflows.replaceDraft(draftId, request);
+        publishService.publish(draftId);
+        return draftId;
+    }
 }

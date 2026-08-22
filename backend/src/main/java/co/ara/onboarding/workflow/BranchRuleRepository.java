@@ -15,6 +15,16 @@ public interface BranchRuleRepository
     List<BranchRule> findByVersionIdOrderByOrdinal(UUID versionId);
 
     /**
+     * Called directly from journey.CaseEngine (Task 15) while walking a stage's
+     * branch rules in ordinal order -- first match wins. CaseEngine is exempt from
+     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly (that rule
+     * binds *Service/*Directory, not *Engine), and workflow-definition rows are
+     * ALL-only (WORKFLOW_VIEW) with no descriptor, the same reasoning CaseService's
+     * readDefinition already relies on.
+     */
+    List<BranchRule> findByStageIdOrderByOrdinal(UUID stageId);
+
+    /**
      * Deleted first, before stage: references stage twice (stage_id,
      * target_stage_id). A bulk JPQL delete, executed immediately -- see
      * StageRepository.deleteByVersionId for why.
