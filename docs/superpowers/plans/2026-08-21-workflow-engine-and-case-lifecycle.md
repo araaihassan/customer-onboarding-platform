@@ -4344,6 +4344,32 @@ next unrelated reconcile."
 
 ## Task 16: Requirements and `write_scope`
 
+**Executor's amendment: `WriteScopeTest` cannot extend `SecurityTestBase`, and
+`MILESTONE_COMPLETED` needed a call site the plan never gives it.** Two findings
+from running this verbatim.
+
+1. **`WriteScopeTest extends SecurityTestBase` does not compile against the plan's
+   own conventions.** `SecurityTestBase`'s javadoc is explicit that all nine
+   negative security tests "go through MockMvc against real HTTP endpoints rather
+   than calling services... a service-level test cannot catch a missing security
+   rule" -- but journey has no HTTP layer yet (Task 20 builds it), so there is no
+   `/api/t/{slug}/...` endpoint for `satisfy`/`waive` to drive. Written instead as
+   `extends PostgresTestBase`, calling `RequirementService` directly, in the same
+   style as `CaseCreationTest`/`TransitionTest`. This is a real, documented
+   narrowing of coverage (it cannot catch a controller that forgets to delegate,
+   because there is no controller) that Task 20 should close by adding an
+   HTTP-level counterpart once the endpoints exist.
+2. **`AuditActions.MILESTONE_COMPLETED` is catalogued by this task's own "Audit
+   additions" line but the plan's `satisfy` pseudocode never calls
+   `audit.record` for it.** The only place a milestone ever actually transitions to
+   DONE is `CaseEngine.markDone` (Task 14), not `RequirementService.satisfy` --
+   satisfying the *last* requirement is what triggers it, but `markDone` runs
+   inside `reconcile`, once, regardless of which write triggered the call. The
+   call site is added there, guarded by the same `completedAt == null` check that
+   keeps `reconcile` idempotent, rather than in `RequirementService` where the
+   plan implies it. An audit action declared with no call site is a gap the next
+   reader would have assumed was already covered.
+
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/journey/RequirementService.java`, `StageWriteScopeGuard.java`
 - Test: `backend/src/test/java/co/ara/onboarding/journey/RequirementTest.java`
