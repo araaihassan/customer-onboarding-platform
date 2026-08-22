@@ -5931,6 +5931,39 @@ an ineligible case rather than silently skipping it -- the UI should not build a
 it knows will fail."
 ```
 
+**Amendment (2026-08-22) — what running it verbatim found:**
+
+- **`MigrationController.preview`'s `versionId` query param is the TARGET version, not the
+  source.** `MigrationService.preview(targetVersionId)` counts cases sitting on an *older*
+  version of the same template and evaluates them against the target's stages/attributes.
+  The plan's own example — "31 cases on v4 / 18 eligible to migrate" — reads naturally as
+  "the current version has 31 stragglers," which only makes sense if `PublishPanel` calls
+  `useMigrationPreview` with the *currently viewed published version's own id* as the
+  target, not with some other version. Built that way: the panel appears on any published
+  version's builder page (not only immediately after clicking Publish), which also means an
+  admin can come back later and see newly-eligible cases without republishing anything.
+- **No "list versions" or "customer name" lookup exists**, so two simplifications were
+  necessary and are worth knowing about rather than rediscovering: the migration page's
+  subtitle drops the `v{n}` the prototype's copy included (`CandidateView`/
+  `MigrationPreviewView` carry no version number, only an id, and threading `versionNo`
+  through as a second search-param felt like more surface than the display was worth); and
+  `MigrationTable`'s customer column links to `/customers/{customerId}` by mono id rather
+  than showing a name, the same trade-off `CustomerTable`'s own doc comment already made
+  for a different missing field ("render the columns that exist rather than inventing ones
+  that do not").
+- **Live verification covered the wiring, not a populated table.** There is no
+  case-creation UI yet (Task 26/27) and fabricating one via raw API calls would have needed
+  a hand-extracted bearer token from React's closed-over module state, which was judged
+  disproportionate to what it would prove. What *was* verified live: `PublishPanel` renders
+  correctly on the real published v1 with a genuine `0 cases on v1 / 0 eligible` from an
+  actual `GET .../cases/migration?versionId=...` 200 response (not a mock), the "Review
+  migration" link navigates correctly with both route and query params, and the migration
+  page's empty state renders with no console or network errors. The eligible/ineligible
+  rendering, per-row reason, disabled-selection-on-ineligible, and select-all-skips-
+  ineligible behaviours are covered by `MigrationTable.test.tsx` against realistic mock
+  `CandidateView` data, not by a live populated screen — worth re-verifying with a real case
+  once Task 26/27 makes one creatable.
+
 ---
 
 ## Task 26: Journey workspace shell
