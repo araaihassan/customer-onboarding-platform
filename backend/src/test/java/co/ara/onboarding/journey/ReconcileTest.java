@@ -39,6 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReconcileTest extends PostgresTestBase {
 
     @Autowired CaseEngine engine;
+    @Autowired CaseService cases;
     @Autowired CaseRepository caseRepository;
     @Autowired MilestoneRepository milestones;
     @Autowired RequirementRepository requirements;
@@ -144,6 +145,39 @@ class ReconcileTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID caseId = caseWithDependency(tenant);
             assertThat(milestoneOrdinal(caseId, 2).getStatus()).isEqualTo(MilestoneStatus.BLOCKED);
+        });
+    }
+
+    /**
+     * "Blocked" without naming what it is blocked BY is colour carrying the whole
+     * signal -- review finding 10 -- so the roadmap the journey tab reads must name
+     * it, not just the status CaseEngine already computed for its own internal use.
+     */
+    @Test
+    void roadmapNamesTheMilestoneBlockingAnother() {
+        UUID tenant = fixture.createTenant("rec-blocked-name");
+        fixture.runAs(tenant, () -> {
+            UUID caseId = caseWithDependency(tenant);
+
+            var roadmap = cases.roadmap(caseId);
+            var blocked = roadmap.stages().get(0).milestones().stream()
+                    .filter(m -> m.status() == MilestoneStatus.BLOCKED)
+                    .findFirst().orElseThrow();
+
+            assertThat(blocked.blockedByMilestoneNames()).containsExactly("Milestone 1");
+        });
+    }
+
+    /** The common case -- nothing blocking -- must not carry a phantom reason. */
+    @Test
+    void roadmapLeavesBlockedByEmptyForAnUnblockedMilestone() {
+        UUID tenant = fixture.createTenant("rec-unblocked-name");
+        fixture.runAs(tenant, () -> {
+            UUID caseId = caseWithMilestoneDurations(tenant, 1, 1);
+
+            var roadmap = cases.roadmap(caseId);
+            assertThat(roadmap.stages().get(0).milestones())
+                    .allSatisfy(m -> assertThat(m.blockedByMilestoneNames()).isEmpty());
         });
     }
 

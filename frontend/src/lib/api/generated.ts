@@ -1423,21 +1423,21 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         PageableObject: {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
+            paged?: boolean;
+            unpaged?: boolean;
             /** Format: int32 */
             pageSize?: number;
             /** Format: int32 */
             pageNumber?: number;
-            unpaged?: boolean;
-            paged?: boolean;
         };
         SortObject: {
             empty?: boolean;
@@ -1472,9 +1472,9 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -1489,6 +1489,7 @@ export interface components {
             dueDate?: string;
             /** Format: int32 */
             progressPercent?: number;
+            blockedByMilestoneNames?: string[];
             requirements?: components["schemas"]["RequirementRoadmapView"][];
         };
         RequirementRoadmapView: {
@@ -1552,9 +1553,9 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         TeamMemberView: {

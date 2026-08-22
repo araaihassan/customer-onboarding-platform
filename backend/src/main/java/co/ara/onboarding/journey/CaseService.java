@@ -21,6 +21,8 @@ import co.ara.onboarding.workflow.AttributeDefinitionRepository;
 import co.ara.onboarding.workflow.AttributeType;
 import co.ara.onboarding.workflow.MilestoneDefinition;
 import co.ara.onboarding.workflow.MilestoneDefinitionRepository;
+import co.ara.onboarding.workflow.MilestoneDependency;
+import co.ara.onboarding.workflow.MilestoneDependencyRepository;
 import co.ara.onboarding.workflow.RequirementDefinition;
 import co.ara.onboarding.workflow.RequirementDefinitionRepository;
 import co.ara.onboarding.workflow.Stage;
@@ -79,6 +81,7 @@ public class CaseService {
     private final WorkflowVersionRepository versions;
     private final StageRepository stages;
     private final MilestoneDefinitionRepository milestoneDefinitions;
+    private final MilestoneDependencyRepository milestoneDependencies;
     private final RequirementDefinitionRepository requirementDefinitions;
     private final AttributeDefinitionRepository attributeDefinitions;
     private final AppUserRepository users;
@@ -96,6 +99,7 @@ public class CaseService {
                        CaseAttributeValueRepository attributeValues, CustomerDirectory customers,
                        WorkflowTemplateRepository templates, WorkflowVersionRepository versions,
                        StageRepository stages, MilestoneDefinitionRepository milestoneDefinitions,
+                       MilestoneDependencyRepository milestoneDependencies,
                        RequirementDefinitionRepository requirementDefinitions,
                        AttributeDefinitionRepository attributeDefinitions,
                        AppUserRepository users, DepartmentRepository departments,
@@ -112,6 +116,7 @@ public class CaseService {
         this.versions = versions;
         this.stages = stages;
         this.milestoneDefinitions = milestoneDefinitions;
+        this.milestoneDependencies = milestoneDependencies;
         this.requirementDefinitions = requirementDefinitions;
         this.attributeDefinitions = attributeDefinitions;
         this.users = users;
@@ -216,6 +221,8 @@ public class CaseService {
                 MilestoneDefinition.class, c.getVersionId(), "ordinal");
         List<RequirementDefinition> requirementDefs = readDefinition(requirementDefinitions,
                 RequirementDefinition.class, c.getVersionId(), "ordinal");
+        List<MilestoneDependency> dependencyRows = readDefinition(milestoneDependencies,
+                MilestoneDependency.class, c.getVersionId(), "id");
 
         List<Milestone> milestoneRows = readCaseChild(milestones, Milestone.class, c.getId());
         List<Requirement> requirementRows = readCaseChild(requirements, Requirement.class, c.getId());
@@ -228,6 +235,8 @@ public class CaseService {
                 .collect(groupingBy(MilestoneDefinition::getStageId));
         Map<UUID, RequirementDefinition> requirementDefById = requirementDefs.stream()
                 .collect(toMap(RequirementDefinition::getId, d -> d));
+        Map<UUID, MilestoneDefinition> milestoneDefById = milestoneDefs.stream()
+                .collect(toMap(MilestoneDefinition::getId, d -> d));
 
         List<StageRoadmapView> stageViews = new ArrayList<>();
         for (Stage stage : stageRows) {
@@ -250,12 +259,37 @@ public class CaseService {
                                     d == null ? null : d.getKind(), d != null && d.isMandatory(), r.getStatus());
                         })
                         .toList();
+                List<String> blockedBy = m.getStatus() != MilestoneStatus.BLOCKED ? List.of()
+                        : unmetDependencyNames(def, milestoneByDefinitionId, dependencyRows, milestoneDefById);
                 milestoneViews.add(new MilestoneRoadmapView(m.getId(), def.getName(), m.getStatus(),
-                        m.getOwnerUserId(), m.getDueDate(), m.getProgressPercent(), requirementViews));
+                        m.getOwnerUserId(), m.getDueDate(), m.getProgressPercent(), blockedBy, requirementViews));
             }
             stageViews.add(new StageRoadmapView(stage.getId(), stage.getName(), stage.getOrdinal(), milestoneViews));
         }
         return new RoadmapView(stageViews);
+    }
+
+    /**
+     * Read-only mirror of CaseEngine.hasUnmetDependency, computing names rather
+     * than a boolean -- CaseEngine discards which dependency was unmet once it has
+     * decided BLOCKED, because a transition only needs to know whether to wait,
+     * never why. The roadmap is read for a human, so "blocked" without saying by
+     * what is colour carrying the whole signal (review finding 10).
+     */
+    private List<String> unmetDependencyNames(MilestoneDefinition def, Map<UUID, Milestone> milestoneByDefinitionId,
+                                              List<MilestoneDependency> dependencyRows,
+                                              Map<UUID, MilestoneDefinition> milestoneDefById) {
+        List<String> names = new ArrayList<>();
+        for (MilestoneDependency d : dependencyRows) {
+            if (!def.getId().equals(d.getMilestoneDefinitionId())) continue;
+            Milestone dependsOn = milestoneByDefinitionId.get(d.getDependsOnMilestoneDefinitionId());
+            boolean settled = dependsOn != null
+                    && (dependsOn.getStatus() == MilestoneStatus.DONE || dependsOn.getStatus() == MilestoneStatus.SKIPPED);
+            if (settled) continue;
+            MilestoneDefinition blockingDef = milestoneDefById.get(d.getDependsOnMilestoneDefinitionId());
+            if (blockingDef != null) names.add(blockingDef.getName());
+        }
+        return names;
     }
 
     /**
