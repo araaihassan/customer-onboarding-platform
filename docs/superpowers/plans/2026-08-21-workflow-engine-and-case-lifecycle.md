@@ -3212,6 +3212,20 @@ to a date."
 
 ## Task 13: Case creation
 
+**Executor's amendment (Tasks 13/14): executed out of numeric order.** This task's
+`create()` calls `engine.reconcile(c)`, but `CaseEngine` is only created in Task 14 --
+and Task 14's own intro line says it "is written before the things that call it." So
+Task 14 was executed first, despite the numbering; Task 13 (this task) is done
+afterward and wires `CaseService.create()` to the already-built `CaseEngine`. Task 14
+turned out to have no real dependency on this task's `CaseService`/`CaseView` or on
+Task 16's `RequirementService`, even though its own test snippets (`ReconcileTest`,
+`ReconcileConcurrencyTest`) are written against `cases.get(...)`, `cases.roadmap(...)`
+and an autowired `RequirementService` that don't exist yet at that point -- the
+executed tests build their fixtures and drive `CaseEngine` directly via repositories,
+the same way `JourneyFixtures` already does, and call the package-private engine
+directly since the tests share its package. See the amendment above Task 14's own
+heading for what else this run found.
+
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/journey/CaseService.java`, `CaseView.java`, `CreateCaseRequest.java`, `RoadmapView.java`
 - Test: `backend/src/test/java/co/ara/onboarding/journey/CaseCreationTest.java`
@@ -3570,6 +3584,38 @@ business."
 ## Task 14: `CaseEngine.reconcile` under a row lock
 
 The heart of the sub-project. Everything that changes a case funnels through here, so it is written before the things that call it.
+
+**Executor's amendment (Task 14):** three findings from running this verbatim.
+
+1. **The concurrency test's real failure shape, without the lock, was "stuck at
+   zero," not "double advance."** `lockAndLoad` was temporarily changed to plain
+   `cases.findById` (no `PESSIMISTIC_WRITE`, no artificial delay needed) and the
+   concurrency test run three times: each run failed with the case's
+   `progressPercent` at 0 instead of 100. Neither of the two racing transactions'
+   read of the milestone's requirements ever included both satisfactions, so neither
+   ever called `markDone`, and no third reconcile arrived afterward to fix it up --
+   a lost update, not the plan's "lands two stages on" framing, because Task 15's
+   actual stage-advance logic does not exist yet for anything to double. Reverting
+   `lockAndLoad` to `cases.lockById` made the same test pass 3/3 reruns. The same
+   row lock closes both shapes of the hazard; Task 15's advance logic will rely on
+   the lock this task adds rather than needing its own.
+2. **Step 4's explicit ArchUnit exclusion for `CaseRepository.lockById` was
+   unnecessary and was not added.** `servicesDoNotCallRepositoryFindersDirectly`
+   binds only to classes named `*Service` or `*Directory`; `CaseEngine` is neither.
+   Separately, `lockById`'s own name does not start with `findBy`, which is exactly
+   the reason the method was named that way in the first place (its own javadoc:
+   "a reviewer reading a call site should see that a lock is being taken"). Ran
+   `AuthorizationCoverageTest`, `ModuleBoundaryTest` and `RlsCoverageTest` green
+   with no rule changes to confirm.
+3. **`ReconcileTest` and `ReconcileConcurrencyTest` could not be written exactly as
+   shown below.** Both call `cases.get(...)`/`cases.roadmap(...)` (Task 13's
+   `CaseService`, not built yet at this point) and the concurrency test additionally
+   autowires Task 16's `RequirementService`. The executed tests instead autowire
+   `CaseEngine` and the journey/workflow repositories directly and build their own
+   fixtures the way `JourneyFixtures` already does, calling `engine.reconcile(...)`
+   and `engine.lockAndLoad(...)` directly since the tests share `CaseEngine`'s
+   package. Coverage is equivalent -- every scenario below is still exercised --
+   just not through the not-yet-existing service façades.
 
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/journey/CaseEngine.java` (**package-private class**)
