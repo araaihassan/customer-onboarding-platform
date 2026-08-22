@@ -33,13 +33,16 @@ export function MigrationTable({
   onToggle: (caseId: string) => void;
   onSelectAll: () => void;
 }) {
-  const eligible = candidates.filter((c) => c.eligible);
-
-  if (eligible.length === 0) {
+  // Empty only when there is nothing on an older version at all -- an
+  // ineligible-only list still has to render: its reason column is the whole
+  // point of this table (this doc comment's own second paragraph), and an
+  // admin cannot act on "0 eligible" without knowing why.
+  if (candidates.length === 0) {
     return <EmptyState title={t("workflow.migration.empty.title")} description={t("workflow.migration.empty.description")} />;
   }
 
-  const allEligibleSelected = eligible.every((c) => c.caseId && selected.has(c.caseId));
+  const eligible = candidates.filter((c) => c.eligible);
+  const allEligibleSelected = eligible.length > 0 && eligible.every((c) => c.caseId && selected.has(c.caseId));
 
   return (
     <table className="w-full" style={{ borderCollapse: "collapse" }}>

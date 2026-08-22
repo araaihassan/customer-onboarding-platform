@@ -63,9 +63,18 @@ describe("MigrationTable", () => {
     expect(props.onSelectAll).toHaveBeenCalled();
   });
 
-  it("renders the empty state when nothing is eligible", () => {
-    renderTable([ineligibleCase]);
+  it("renders the empty state only when there are no candidates at all", () => {
+    renderTable([]);
     expect(screen.getByText(/nothing eligible to migrate/i)).not.toBeNull();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+
+  it("still renders the table and the reason when every candidate is ineligible", () => {
+    // The whole point of this table: "0 eligible" without a reason is a
+    // number an admin cannot act on. Migrating the only eligible case must
+    // not blank out the ineligible rows still waiting on a fix.
+    renderTable([ineligibleCase]);
+    expect(screen.getByRole("table")).not.toBeNull();
+    expect(screen.getByText(/no longer exists in the new version/i)).not.toBeNull();
   });
 });

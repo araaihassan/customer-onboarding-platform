@@ -57,29 +57,37 @@ test.beforeAll(async ({ playwright }) => {
   const v1 = await admin.createDraftVersion(templateId);
   v1VersionId = v1.versionId;
   await admin.saveDraft(templateId, v1VersionId, {
+    lockVersion: v1.lockVersion,
     stages: [
       {
         key: "intake",
         name: "Intake",
+        autoAdvance: true,
         milestones: [
-          { key: "provide-details", name: "Provide details", requirements: [{ kind: "MANUAL", label: "Details submitted", mandatory: true }] },
+          { key: "provide-details", name: "Provide details", estimatedDurationDays: 1, dependsOnMilestoneKeys: [], requirements: [{ kind: "MANUAL", label: "Details submitted", mandatory: true }] },
         ],
+        branchRules: [],
       },
       {
         key: "verification",
         name: "Verification",
+        autoAdvance: true,
         milestones: [
-          { key: "verify-identity", name: "Verify identity", requirements: [{ kind: "MANUAL", label: "ID verified", mandatory: true }] },
+          { key: "verify-identity", name: "Verify identity", estimatedDurationDays: 1, dependsOnMilestoneKeys: [], requirements: [{ kind: "MANUAL", label: "ID verified", mandatory: true }] },
         ],
+        branchRules: [],
       },
       {
         key: "go-live",
         name: "Go Live",
+        autoAdvance: true,
         milestones: [
-          { key: "activate-account", name: "Activate account", requirements: [{ kind: "MANUAL", label: "Account activated", mandatory: true }] },
+          { key: "activate-account", name: "Activate account", estimatedDurationDays: 1, dependsOnMilestoneKeys: [], requirements: [{ kind: "MANUAL", label: "Account activated", mandatory: true }] },
         ],
+        branchRules: [],
       },
     ],
+    attributes: [],
   });
   await admin.publishVersion(templateId, v1VersionId);
 
@@ -91,39 +99,49 @@ test.beforeAll(async ({ playwright }) => {
   const v2 = await admin.createDraftVersion(templateId);
   v2VersionId = v2.versionId;
   await admin.saveDraft(templateId, v2VersionId, {
+    lockVersion: v2.lockVersion,
     stages: [
       {
         key: "intake",
         name: "Intake",
+        autoAdvance: true,
         milestones: [
-          { key: "provide-details", name: "Provide details", requirements: [{ kind: "MANUAL", label: "Details submitted", mandatory: true }] },
+          { key: "provide-details", name: "Provide details", estimatedDurationDays: 1, dependsOnMilestoneKeys: [], requirements: [{ kind: "MANUAL", label: "Details submitted", mandatory: true }] },
         ],
+        branchRules: [],
       },
       {
         // Renamed from "Verification" -- the change that disqualifies case B,
         // which has already exited a stage of that name.
         key: "compliance-review",
         name: "Compliance Review",
+        autoAdvance: true,
         milestones: [
-          { key: "compliance-check", name: "Compliance check", requirements: [{ kind: "MANUAL", label: "Compliance confirmed", mandatory: true }] },
+          { key: "compliance-check", name: "Compliance check", estimatedDurationDays: 1, dependsOnMilestoneKeys: [], requirements: [{ kind: "MANUAL", label: "Compliance confirmed", mandatory: true }] },
         ],
+        branchRules: [],
       },
       {
         key: "go-live",
         name: "Go Live",
+        autoAdvance: true,
         milestones: [
-          { key: "activate-account", name: "Activate account", requirements: [{ kind: "MANUAL", label: "Account activated", mandatory: true }] },
+          { key: "activate-account", name: "Activate account", estimatedDurationDays: 1, dependsOnMilestoneKeys: [], requirements: [{ kind: "MANUAL", label: "Account activated", mandatory: true }] },
         ],
+        branchRules: [],
       },
       {
         // The stage v2 actually adds.
         key: "follow-up",
         name: "Follow-up",
+        autoAdvance: true,
         milestones: [
-          { key: "send-welcome-kit", name: "Send welcome kit", requirements: [{ kind: "MANUAL", label: "Kit sent", mandatory: true }] },
+          { key: "send-welcome-kit", name: "Send welcome kit", estimatedDurationDays: 1, dependsOnMilestoneKeys: [], requirements: [{ kind: "MANUAL", label: "Kit sent", mandatory: true }] },
         ],
+        branchRules: [],
       },
     ],
+    attributes: [],
   });
   await admin.publishVersion(templateId, v2VersionId);
 

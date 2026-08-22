@@ -306,18 +306,59 @@ cd backend && ./gradlew cleanTest test     # needs Docker running
 cd frontend && npx vitest run
 ```
 
-Backend and frontend unit were green at the close of sub-project 1 (2026-08-16) and again at the
-close of sub-project 2 (2026-08-23), nothing skipped, no retries — `./gradlew cleanTest test`
-reported `BUILD SUCCESSFUL` and every one of 71 result files had zero failures/errors; `npx vitest
-run` reported 46 files, 334 tests, all passing. **Playwright's three new sub-project-2 specs were
-written and confirmed to parse and register (`npx playwright test --list`), but not run live** —
-this machine had another session's backend and frontend already bound to :8080/:3000 when
-sub-project 2 closed, and `reuseExistingServer: !CI` means a run would have silently exercised
-that session's server rather than this branch. Running them for real is the first thing to do once
-those ports are free; do not read "written" as "verified" for those three. Counts are deliberately
-not pinned in general — they move every time a task adds a test, and a number in this file that
-drifts is a number that gets trusted. Read each suite's own summary line, and treat a *failure* as
-the signal, never a count.
+All three suites were green at the close of sub-project 2 (2026-08-23), nothing skipped, no
+retries — `./gradlew cleanTest test` reported `BUILD SUCCESSFUL`; `npx vitest run` reported 46
+files, 335 tests, all passing; and Playwright's three new specs (workflow authoring, case
+lifecycle, migration) passed live against a scratch database, all four of their test cases green.
+Counts are deliberately not pinned in general — they move every time a task adds a test, and a
+number in this file that drifts is a number that gets trusted. Read each suite's own summary line,
+and treat a *failure* as the signal, never a count.
+
+**Live-running the three new specs for the first time found five real defects, none in the
+product** — every one was in the specs' own seeded payloads or a test-writing habit that happened
+to work elsewhere, not in `co.ara.onboarding` or the frontend:
+
+- **Two `WorkflowDefinitionRequest` fields NPE the server when omitted, rather than defaulting.**
+  `MilestoneRequest.dependsOnMilestoneKeys` and `StageRequest.branchRules` are plain
+  `List<String>`/`List<BranchRuleRequest>` with no `@NotNull`, and downstream code iterates them
+  with no null guard — a seeded stage that leaves either out 500s. `estimatedDurationDays` is the
+  one field that DOES validate (`@Positive int`), so omitting it 400s instead — a real, useful
+  contrast, but easy to miss if only the "it 500s" cases get exercised.
+  `WorkflowDefinitionRequest.attributes` has the same shape at the top level.
+- **A boolean field omitted from JSON is not "the UI's own default."** `StageRequest.autoAdvance`
+  is a primitive `boolean`; Jackson binds a missing key to `false`, not the `true` the builder's
+  own `Switch` shows pre-checked. A workflow seeded through the API without `autoAdvance: true` on
+  every stage never advances past the first one — the requirement still shows DONE, but the case
+  sits exitable forever.
+- **A freshly created draft's `lockVersion` is not reliably `0`.** `createDraftVersion` deep-copies
+  the template's current published version when one exists (empty only for a template's first-ever
+  draft), and that copy is itself a write — so a *second* version's starting `lockVersion` can
+  already be past `0` by the time the caller's own `PUT` reads it. Capture the value the create
+  response actually returns and round-trip it; don't assume the field starts at its type's default.
+- **A checkbox whose `checked` state depends on a server round trip cannot use Playwright's
+  `locator.check()`.** That action clicks and then verifies the box is checked in one synchronous
+  step; `RequirementList`'s checkbox deliberately waits for the mutation before flipping (Task 27's
+  "real and local" departure), so the verification runs before the state has actually changed. A
+  plain `.click()` followed by an auto-retrying `expect(locator).toBeChecked()` is what actually
+  waits for it — the general lesson: never `.check()`/`.fill()`-and-assume against a control whose
+  state depends on an async round trip; separate the action from the (retrying) assertion.
+- **Viewing a case's full representation is gated by more than `case.view`.** `CaseService`'s view
+  resolves `currentStageName` by reading the `Stage` row, a `workflow`-module entity gated by
+  `workflow.view` — so a role holding `case.view` but not `workflow.view` gets a 404 on the *whole*
+  case read, not a blank stage-name field, because the nested lookup's own
+  `NoSuchElementException` propagates up unchanged. Confirmed by direct SQL against the running
+  database (the grant existed, scoped `ALL`, exactly as seeded) before the missing `workflow.view`
+  permission was found by comparing which `forPermission` calls a temporary log line showed for the
+  admin session against the ones for the failing one. A hand-built test role has to declare this
+  dependency explicitly; the twelve seeded templates bundle it because a real Project-Manager-shaped
+  role always holds both.
+
+Also found and fixed as a real product bug, not a test artifact: **`MigrationTable` blanked out
+the entire table, ineligible rows included, whenever nothing remained eligible** — `eligible.length
+=== 0` was the empty-state guard, so migrating the one eligible case in a mixed list made the
+*ineligible* rows (and their reasons — the component's own stated reason for existing) disappear
+too. Fixed to key the guard on `candidates.length === 0` instead; `MigrationTable.test.tsx` gained
+a case proving the ineligible-only table still renders.
 
 **Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
 prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a green run.

@@ -243,7 +243,7 @@ export class Api {
   }
 
   createDraftVersion(templateId: string) {
-    return this.post<{ versionId: string }>(`/workflows/${templateId}/versions`, undefined, 201);
+    return this.post<{ versionId: string; lockVersion: number }>(`/workflows/${templateId}/versions`, undefined, 201);
   }
 
   saveDraft(templateId: string, versionId: string, body: unknown) {
@@ -261,16 +261,35 @@ export class Api {
    */
   async publishMinimalWorkflow(name: string): Promise<{ templateId: string }> {
     const { id: templateId } = await this.createWorkflowTemplate(name);
-    const { versionId } = await this.createDraftVersion(templateId);
+    const { versionId, lockVersion } = await this.createDraftVersion(templateId);
     await this.saveDraft(templateId, versionId, {
-      stages: [{ key: "stage-1", name: "Registration", milestones: [{ key: "milestone-1", name: "Registration" }] }],
+      stages: [{
+        key: "stage-1",
+        name: "Registration",
+        autoAdvance: true,
+        milestones: [{
+          key: "milestone-1",
+          name: "Registration",
+          estimatedDurationDays: 1,
+          dependsOnMilestoneKeys: [],
+          requirements: [],
+        }],
+        branchRules: [],
+      }],
+      attributes: [],
+      lockVersion,
     });
     await this.publishVersion(templateId, versionId);
     return { templateId };
   }
 
-  createCase(customerId: string, templateId: string) {
-    return this.post<{ id: string }>("/cases", { customerId, templateId }, 201);
+  /**
+   * `attributes` defaults to `{}`, never omitted -- CaseService's own attribute
+   * validation reads it with no null guard, so a request that leaves the key out
+   * entirely NPEs server-side rather than answering the empty case cleanly.
+   */
+  createCase(customerId: string, templateId: string, attributes: Record<string, string> = {}) {
+    return this.post<{ id: string }>("/cases", { customerId, templateId, attributes }, 201);
   }
 
   createUser(email: string, fullName: string) {

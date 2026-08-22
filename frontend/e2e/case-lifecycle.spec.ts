@@ -31,19 +31,31 @@ test.beforeAll(async ({ playwright }) => {
 
   const { id } = await admin.createWorkflowTemplate("Client Onboarding");
   templateId = id;
-  const { versionId } = await admin.createDraftVersion(templateId);
+  const { versionId, lockVersion } = await admin.createDraftVersion(templateId);
   await admin.saveDraft(templateId, versionId, {
     stages: [
       {
         key: "registration",
         name: "Registration",
+        // Explicit, not left to the default a component renders for display:
+        // the wire default for an OMITTED boolean is Java's primitive false,
+        // not the "true" the builder's own Switch shows unchecked-but-on.
+        autoAdvance: true,
         milestones: [
-          { key: "sign-up", name: "Sign up", requirements: [{ kind: "MANUAL", label: "ID check", mandatory: true }] },
+          {
+            key: "sign-up",
+            name: "Sign up",
+            estimatedDurationDays: 1,
+            dependsOnMilestoneKeys: [],
+            requirements: [{ kind: "MANUAL", label: "ID check", mandatory: true }],
+          },
         ],
+        branchRules: [],
       },
       {
         key: "legal-review",
         name: "Legal Review",
+        autoAdvance: true,
         // Entered only for an ENTERPRISE case -- an SMB case skips it
         // entirely (spec 5.3 step 3), which is the branch this spec exists
         // to prove reaches the screen.
@@ -52,25 +64,33 @@ test.beforeAll(async ({ playwright }) => {
           {
             key: "review-contract",
             name: "Review contract",
+            estimatedDurationDays: 1,
+            dependsOnMilestoneKeys: [],
             requirements: [{ kind: "MANUAL", label: "Legal sign-off", mandatory: true }],
           },
         ],
+        branchRules: [],
       },
       {
         key: "go-live",
         name: "Go Live",
+        autoAdvance: true,
         milestones: [
           {
             key: "finish-onboarding",
             name: "Finish onboarding",
+            estimatedDurationDays: 1,
+            dependsOnMilestoneKeys: [],
             requirements: [{ kind: "MANUAL", label: "Final review", mandatory: true }],
           },
         ],
+        branchRules: [],
       },
     ],
     attributes: [
       { key: "segment", label: "Segment", dataType: "ENUM", required: true, allowedValues: ["ENTERPRISE", "SMB"] },
     ],
+    lockVersion,
   });
   await admin.publishVersion(templateId, versionId);
 
@@ -78,8 +98,19 @@ test.beforeAll(async ({ playwright }) => {
   // so the only reason the decide attempt below fails is self-approval,
   // never a missing grant. Spec 9.2's own negative test makes the same
   // choice, for the same reason: proving the RIGHT rule refused it.
+  // customer.view is required too: the workspace composes the case response
+  // with a separate useCustomer(customerId) call (§3.2 -- journey carries no
+  // customer display data of its own). workflow.view is required for a
+  // third, less obvious reason -- CaseService.toView resolves
+  // currentStageName by reading the Stage row, a workflow-module entity
+  // gated by workflow.view, not case.view; without it the whole case read
+  // 404s (the stage lookup's own NoSuchElementException bubbles up), not
+  // just the stage name field. A real seeded role bundles these together;
+  // this hand-built one has to declare the dependency explicitly.
   pmEmail = await seedUser(request, admin, tenant, "pm", {
     "case.view": "ALL",
+    "customer.view": "ALL",
+    "workflow.view": "ALL",
     "milestone.force_complete": "ALL",
     "milestone.force_approve": "ALL",
   });
@@ -108,7 +139,12 @@ async function expandAndSatisfy(page: Page, milestoneName: string) {
   const row = milestoneRow(page, milestoneName);
   await row.getByRole("button", { name: new RegExp(milestoneName) }).click();
   const checkbox = row.getByRole("checkbox");
-  await checkbox.check();
+  // Not .check(): that action clicks and verifies the box is now checked in
+  // one shot, but RequirementList's own checkbox waits for the server round
+  // trip before it flips (Task 27's deliberate departure from "real and
+  // local"). A plain click plus an auto-retrying expect is what actually
+  // waits for it.
+  await checkbox.click();
   await expect(checkbox).toBeChecked();
 }
 
@@ -143,6 +179,7 @@ test("an SMB case skips Legal Review, and a force-complete only the administrato
 
   // Sign out and continue as the PM: requests a forced completion, then
   // tries to decide their own request.
+  await page.getByRole("button", { name: /Account menu for/ }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await signIn(page, tenant.slug, pmEmail);
   await page.goto(`/t/${tenant.slug}/customers/${customerId}/cases/${caseId}`);
@@ -164,6 +201,7 @@ test("an SMB case skips Legal Review, and a force-complete only the administrato
   await expect(goLive.getByRole("alert")).toBeVisible();
   await expect(goLive.getByText("Done", { exact: true })).toHaveCount(0);
 
+  await page.getByRole("button", { name: /Account menu for/ }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await signIn(page, tenant.slug, tenant.adminEmail);
   await page.goto(`/t/${tenant.slug}/customers/${customerId}/cases/${caseId}`);
