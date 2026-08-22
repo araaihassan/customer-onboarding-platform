@@ -96,8 +96,9 @@ public class RequirementService {
         requirements.save(r);
 
         engine.reconcile(c);
-        audit.record(AuditActions.REQUIREMENT_SATISFIED, "requirement", r.getId(),
-                "Completed " + labelOf(r), Map.of("milestoneId", m.getId().toString()));
+        audit.record(AuditActions.REQUIREMENT_SATISFIED, "onboarding_case", c.getId(),
+                "Completed " + labelOf(r),
+                Map.of("requirementId", r.getId().toString(), "milestoneId", m.getId().toString()));
         return toView(r);
     }
 
@@ -128,8 +129,9 @@ public class RequirementService {
         requirements.save(r);
 
         engine.reconcile(c);
-        audit.record(AuditActions.REQUIREMENT_WAIVED, "requirement", r.getId(),
-                "Waived " + labelOf(r) + ": " + reason, Map.of("milestoneId", m.getId().toString()));
+        audit.record(AuditActions.REQUIREMENT_WAIVED, "onboarding_case", c.getId(),
+                "Waived " + labelOf(r) + ": " + reason,
+                Map.of("requirementId", r.getId().toString(), "milestoneId", m.getId().toString()));
         return toView(r);
     }
 

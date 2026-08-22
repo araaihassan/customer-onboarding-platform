@@ -177,7 +177,7 @@ class CaseEngine {
         for (Milestone m : instances) {
             if (m.getStatus() == MilestoneStatus.SKIPPED || m.getStatus() == MilestoneStatus.DONE) continue;
             if (mandatorySettled(m, requirementRows, requirementDefs)) {
-                markDone(m);
+                markDone(c, m);
             } else if (hasUnmetDependency(m, instances, dependencies)) {
                 m.setStatus(MilestoneStatus.BLOCKED);
             } else if (isInCurrentStage(m, c, definitions)) {
@@ -300,13 +300,16 @@ class CaseEngine {
      * MILESTONE_COMPLETED but reconcile is the only place that ever transitions a
      * milestone to DONE, so this is its one call site.
      */
-    private void markDone(Milestone m) {
+    private void markDone(Case c, Milestone m) {
         boolean firstTime = m.getCompletedAt() == null;
         m.setStatus(MilestoneStatus.DONE);
         if (firstTime) {
             m.setCompletedAt(Instant.now(clock));
-            audit.record(AuditActions.MILESTONE_COMPLETED, "milestone", m.getId(),
-                    "Completed milestone", Map.of());
+            // Recorded against the CASE, not the milestone -- Task 21's amendment: the
+            // timeline reads per case, and a single-valued (resource_type, resource_id)
+            // index is what keeps AuditQuery from needing a collection parameter.
+            audit.record(AuditActions.MILESTONE_COMPLETED, "onboarding_case", c.getId(),
+                    "Completed milestone", Map.of("milestoneId", m.getId().toString()));
         }
     }
 
@@ -483,9 +486,9 @@ class CaseEngine {
             Milestone m = instanceOf(d, instances);
             if (m == null || m.getStatus() == MilestoneStatus.DONE || m.getStatus() == MilestoneStatus.SKIPPED) continue;
             m.setStatus(MilestoneStatus.SKIPPED);
-            audit.record(AuditActions.MILESTONE_SKIPPED, "milestone", m.getId(),
+            audit.record(AuditActions.MILESTONE_SKIPPED, "onboarding_case", c.getId(),
                     "Skipped milestone \"" + d.getName() + "\"",
-                    Map.of("caseId", c.getId().toString(), "stageId", stage.getId().toString()));
+                    Map.of("milestoneId", m.getId().toString(), "stageId", stage.getId().toString()));
         }
     }
 

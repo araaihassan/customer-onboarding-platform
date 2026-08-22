@@ -232,6 +232,19 @@ class AuthorizationCoverageTest {
                         // as loudly as the bypass it exists to prevent. Excluding it by
                         // owner states the rule's real intent: reach finders THROUGH
                         // AuthorizedQuery, never around it.
-                        .and(not(target(owner(nameEndingWith("AuthorizedQuery"))))))
-                .because("reads must go through AuthorizedQuery so scope cannot be bypassed");
+                        .and(not(target(owner(nameEndingWith("AuthorizedQuery")))))
+                        // Task 21's one documented carve-out from the read invariant
+                        // itself, not merely from this name-shaped rule: journey.
+                        // TimelineService reaches audit_event through
+                        // audit.AuditQuery.findForResource, which resolves the CASE
+                        // through AuthorizedQuery first -- that resolution IS the
+                        // authorization -- then reads by exact (resource_type,
+                        // resource_id) rather than a scope-shaped query.
+                        // AuditEventDescriptor scopes by ACTOR, the wrong axis for a
+                        // case's shared history (see TimelineService's own javadoc),
+                        // which is why this reaches AuditQuery instead of
+                        // AuthorizedQuery like every other read in the codebase.
+                        .and(not(target(owner(nameEndingWith("AuditQuery"))))))
+                .because("reads must go through AuthorizedQuery so scope cannot be bypassed -- "
+                        + "except journey.TimelineService's one documented carve-out through audit.AuditQuery");
 }

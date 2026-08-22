@@ -1,10 +1,13 @@
 package co.ara.onboarding.journey;
 
+import co.ara.onboarding.audit.AuditEventView;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -39,8 +42,12 @@ public class CaseController {
     private static final String NOT_FOUND = "Absent, or out of the caller's scope (spec 6.8: identical response either way)";
 
     private final CaseService cases;
+    private final TimelineService timeline;
 
-    public CaseController(CaseService cases) { this.cases = cases; }
+    public CaseController(CaseService cases, TimelineService timeline) {
+        this.cases = cases;
+        this.timeline = timeline;
+    }
 
     /** The switcher's payload: several cases for one customer, newest first (CaseService.listForCustomer). */
     @GetMapping("/customers/{customerId}/cases")
@@ -188,5 +195,22 @@ public class CaseController {
     })
     public void removeParticipant(@PathVariable UUID id, @PathVariable UUID userId) {
         cases.removeParticipant(id, userId);
+    }
+
+    /**
+     * Gated on case.view, not audit.view -- TimelineService's own javadoc explains
+     * why AUDIT_VIEW's actor-scoped descriptor is the wrong axis for a case's
+     * shared history.
+     */
+    @GetMapping("/cases/{id}/timeline")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Every event recorded against the case, newest first"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public Page<AuditEventView> timeline(@PathVariable UUID id, Pageable pageable) {
+        return timeline.forCase(id, pageable);
     }
 }

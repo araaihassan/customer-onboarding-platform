@@ -146,8 +146,9 @@ public class MilestoneService {
         // precision CLAUDE.md calls out for contact.deactivated vs contact.updated.
         if (ownerChanged) {
             ensureAssigneeParticipant(c, ownerUserId);
-            audit.record(AuditActions.MILESTONE_REASSIGNED, "milestone", m.getId(),
-                    "Reassigned milestone", Map.of("ownerUserId", ownerUserId.toString()));
+            audit.record(AuditActions.MILESTONE_REASSIGNED, "onboarding_case", c.getId(),
+                    "Reassigned milestone",
+                    Map.of("milestoneId", m.getId().toString(), "ownerUserId", ownerUserId.toString()));
         }
 
         engine.reconcile(c);
@@ -211,8 +212,8 @@ public class MilestoneService {
         }
         engine.reconcile(c);
 
-        audit.record(AuditActions.MILESTONE_REOPENED, "milestone", m.getId(),
-                "Reopened milestone: " + reason, Map.of("caseId", c.getId().toString()));
+        audit.record(AuditActions.MILESTONE_REOPENED, "onboarding_case", c.getId(),
+                "Reopened milestone: " + reason, Map.of("milestoneId", m.getId().toString()));
     }
 
     /** The Stage a milestone belongs to, via its definition -- both ALL-only WORKFLOW_VIEW reads. */

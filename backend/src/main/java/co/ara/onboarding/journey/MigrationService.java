@@ -228,9 +228,13 @@ public class MigrationService {
                 if (m.getStatus() != MilestoneStatus.DONE && m.getStatus() != MilestoneStatus.SKIPPED) {
                     m.setStatus(MilestoneStatus.SKIPPED);
                     milestones.save(m);
-                    audit.record(AuditActions.MILESTONE_SKIPPED, "milestone", m.getId(),
+                    // Recorded against the CASE, not the milestone -- Task 21's
+                    // amendment: the timeline reads per case, and a single-valued
+                    // (resource_type, resource_id) index is what keeps AuditQuery
+                    // from needing a collection parameter.
+                    audit.record(AuditActions.MILESTONE_SKIPPED, "onboarding_case", c.getId(),
                             "Skipped milestone \"" + oldDef.getName() + "\" (removed by migration)",
-                            Map.of("caseId", c.getId().toString()));
+                            Map.of("milestoneId", m.getId().toString()));
                 }
                 continue;
             }
@@ -360,7 +364,7 @@ public class MigrationService {
     }
 
     private static String key(String stageName, String milestoneName) {
-        return stageName + " " + milestoneName;
+        return stageName + "::" + milestoneName;
     }
 
     /** Reads a workflow-definition entity by version, always under WORKFLOW_VIEW -- see CaseService's own javadoc. */

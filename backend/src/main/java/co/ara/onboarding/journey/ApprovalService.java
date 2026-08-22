@@ -140,12 +140,14 @@ public class ApprovalService {
             m.setCompletionReason(a.getReason());      // carried from the request, not the decision
             milestones.save(m);
             engine.reconcile(c);
-            audit.record(AuditActions.MILESTONE_FORCE_COMPLETED, "milestone", m.getId(),
+            audit.record(AuditActions.MILESTONE_FORCE_COMPLETED, "onboarding_case", c.getId(),
                     "Forced completion: " + a.getReason(),
-                    Map.of("approvalId", a.getId().toString(), "requestedBy", a.getRequestedBy().toString()));
+                    Map.of("milestoneId", m.getId().toString(), "approvalId", a.getId().toString(),
+                            "requestedBy", a.getRequestedBy().toString()));
         } else {
-            audit.record(AuditActions.MILESTONE_FORCE_REJECTED, "milestone", a.getMilestoneId(),
-                    "Rejected forced completion", Map.of("approvalId", a.getId().toString()));
+            audit.record(AuditActions.MILESTONE_FORCE_REJECTED, "onboarding_case", c.getId(),
+                    "Rejected forced completion",
+                    Map.of("milestoneId", a.getMilestoneId().toString(), "approvalId", a.getId().toString()));
         }
         return MilestoneService.toView(a);
     }
