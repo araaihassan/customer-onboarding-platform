@@ -6196,6 +6196,46 @@ missing tab reads as a missing feature. The copy does not mention sub-project nu
 which are a fact about our plan and not about the customer's onboarding."
 ```
 
+**Amendment (2026-08-22) — what running it verbatim found:**
+
+- **`Roadmap.tsx` is a real file, not just the test block's implicit fixture.** Step 1's
+  own tests drive `<Roadmap stages={...} />` directly, but "Files" never lists it.
+  StageGroupHeader and MilestoneRow are the two halves of the suppression rule; something
+  has to apply that rule between them, and nothing else in the list was positioned to
+  own it. Added as its own component, taking `stages` plus the `participants`/`approvals`
+  arrays threaded down to every row rather than fetched per row.
+- **Two hooks the Interfaces line never named.** `ApprovalPanel` needs a list of pending
+  approvals to decide from -- `GET /cases/{id}/approvals`, gated `case.view` the same as
+  the roadmap -- and a milestone's owner is only a name through the case's own
+  participants (`GET /cases/{id}/participants`). That second one is the seam Task 26's
+  CaseHeader had no equivalent of for a customer's owner/department id: here the id
+  resolves to a name instead of being dropped, because the case's participant list
+  already carries `fullName`.
+- **Force-complete's and hold's reasons are explicitly "a required textarea" (Step 1's
+  own comment), and `Field` only ever rendered a single-line input.** Added
+  `TextareaField` as Field's sibling in `ui/`, same label/error contract, rather than
+  building two one-off textareas or widening `Field` itself to accept either element.
+- **`--ob-keyframe-enter: fadeUp` has named an animation since the tokens were
+  generated, and nothing had ever defined it** -- the prototype has no JS-driven
+  expand/collapse, so nothing needed the keyframes until MilestoneRow's expanded panel.
+  Added `@keyframes fadeUp` to `globals.css`, next to the other semantic roles the
+  generated set is missing.
+- **HoldDialog needs a trigger, and the plan's file list stops at the dialog itself.**
+  Added a Hold/Resume action row to the workspace page, gated on `case.hold`, switching
+  on the case's own status between the two.
+- **Self-approval is not pre-checked client-side.** `ApprovalPanel` renders decide
+  controls to anyone holding the decide permission and lets the server's 403 render as
+  the explanation -- the same shape `RequirementList` already gives a write-scope
+  refusal -- rather than comparing the approval's `requestedBy` to the signed-in user
+  and hiding the buttons, which would be a second, divergent copy of a rule the service
+  already owns.
+- **STAGE_EXIT approvals are reachable through `ApprovalPanel` (it already branches on
+  `kind` via `useDecideApproval`) but nothing surfaces one today.** There is no Advance
+  control yet for a pending stage-exit approval to attach to -- building one is out of
+  this task's five listed files. Left as an open gap rather than an invented one.
+- **Verified:** `npx vitest run` -- 45 files, 328 tests, all green; `npx tsc --noEmit`
+  clean.
+
 ---
 
 ## Task 28: Timeline, responsive and accessibility
