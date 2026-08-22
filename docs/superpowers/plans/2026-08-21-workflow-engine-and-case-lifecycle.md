@@ -5622,6 +5622,19 @@ and this is the test that stops someone implementing them as tiers."
 
 ## Task 23: UI primitives
 
+> **Amendment (executed verbatim, 2026-08-22):** the plan's own Step 1 pseudocode
+> uses `@testing-library/user-event` (`await user.type(tab, "{ArrowRight}")`) and
+> jest-dom matchers (`toBeInTheDocument`, `toBeDisabled`). Neither is wired into
+> this project: `user-event` is not a `package.json` dependency, and no vitest
+> setup file registers jest-dom's matchers (checked before assuming either was
+> just missed by the plan -- `ProgressBar.test.tsx`/`Dialog.test.tsx` already
+> avoid both). Every new test uses `fireEvent` for interaction and reads
+> DOM/style properties directly for assertions, matching those two files' own
+> established convention rather than introducing a project dependency this task
+> did not call for.
+
+
+
 **Read before starting:** `docs/uispecs/design/04-components/component-specs.md` families **8** (Chips), **9** (Tabs), **10** (Milestone row), **11** (Task row & checkbox), **12** (Workflow stage row & Inspector), **15** (Timeline row), and open `docs/uispecs/Onboarding Platform.html` in a browser.
 
 **Files:**
