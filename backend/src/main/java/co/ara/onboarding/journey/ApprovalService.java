@@ -6,11 +6,14 @@ import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,22 +30,38 @@ public class ApprovalService {
 
     private final ApprovalRepository approvals;
     private final MilestoneRepository milestones;
+    private final CaseRepository cases;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
     private final CaseEngine engine;
     private final Clock clock;
 
-    public ApprovalService(ApprovalRepository approvals, MilestoneRepository milestones,
+    public ApprovalService(ApprovalRepository approvals, MilestoneRepository milestones, CaseRepository cases,
                            AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
                            AuditRecorder audit, CaseEngine engine, Clock clock) {
         this.approvals = approvals;
         this.milestones = milestones;
+        this.cases = cases;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.audit = audit;
         this.engine = engine;
         this.clock = clock;
+    }
+
+    /**
+     * Confirms the case itself is visible first, so an out-of-scope caseId is a 404
+     * rather than a silently empty list -- CaseService.participants' own reasoning.
+     */
+    @RequirePermission(PermissionKeys.CASE_VIEW)
+    @Transactional(readOnly = true)
+    public List<ApprovalView> listForCase(UUID caseId) {
+        authorizedQuery.getById(cases, Case.class, PermissionKeys.CASE_VIEW, caseId);
+
+        Specification<Approval> byCase = (root, query, cb) -> cb.equal(root.get("caseId"), caseId);
+        return authorizedQuery.findAll(approvals, Approval.class, PermissionKeys.CASE_VIEW, byCase, Pageable.unpaged())
+                .getContent().stream().map(MilestoneService::toView).toList();
     }
 
     /**
