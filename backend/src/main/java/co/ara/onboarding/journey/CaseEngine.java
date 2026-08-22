@@ -283,12 +283,18 @@ class CaseEngine {
     /**
      * Sets DONE and stamps completedAt only if not already set, so a second reconcile
      * call is indistinguishable from the first -- re-stamping a timestamp on every call
-     * is exactly the kind of write that makes "twice changes nothing" fail.
+     * is exactly the kind of write that makes "twice changes nothing" fail. The audit
+     * record is guarded by the same check, for the same reason: Task 16 catalogues
+     * MILESTONE_COMPLETED but reconcile is the only place that ever transitions a
+     * milestone to DONE, so this is its one call site.
      */
     private void markDone(Milestone m) {
+        boolean firstTime = m.getCompletedAt() == null;
         m.setStatus(MilestoneStatus.DONE);
-        if (m.getCompletedAt() == null) {
+        if (firstTime) {
             m.setCompletedAt(Instant.now(clock));
+            audit.record(AuditActions.MILESTONE_COMPLETED, "milestone", m.getId(),
+                    "Completed milestone", Map.of());
         }
     }
 

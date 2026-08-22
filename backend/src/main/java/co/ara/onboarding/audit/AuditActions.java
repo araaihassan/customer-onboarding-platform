@@ -81,6 +81,12 @@ public final class AuditActions {
     public static final AuditAction CASE_STAGE_ENTERED         = of("case.stage_entered", true);
     public static final AuditAction CASE_COMPLETED             = of("case.completed", true);
     public static final AuditAction MILESTONE_SKIPPED          = of("milestone.skipped", true);
+    // Timeline-visible for the same reason: satisfying or waiving a requirement, and
+    // the milestone that settles because of it, are the customer's own progress --
+    // exactly what Task 15's stage/completion events already are.
+    public static final AuditAction REQUIREMENT_SATISFIED      = of("requirement.satisfied", true);
+    public static final AuditAction REQUIREMENT_WAIVED         = of("requirement.waived", true);
+    public static final AuditAction MILESTONE_COMPLETED        = of("milestone.completed", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
