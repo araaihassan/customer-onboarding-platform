@@ -5300,6 +5300,34 @@ ALL-only gate."
 
 ## Task 21: The audit read path
 
+> **Amendment (executed verbatim, 2026-08-22):** the plan-amendment-within-a-task
+> ("journey events now record resource_type 'onboarding_case'...") turned out to
+> already be true for every CASE-level event (`case.created`, `case.held`,
+> `case.stage_entered`, `case.completed`, `case.stage_exit_approved/rejected`,
+> `case.migrated`, ...) -- Tasks 15-19 already recorded those against
+> `onboarding_case`. Only the MILESTONE/REQUIREMENT-level events needed the
+> amendment: `milestone.completed` (CaseEngine.markDone), `milestone.skipped`
+> (CaseEngine.skipMilestonesOf and, separately, MigrationService.migrateOne's own
+> orphaning branch), `milestone.force_completed`/`milestone.force_rejected`
+> (ApprovalService.decideForceComplete), `milestone.reassigned`
+> (MilestoneService.update), `milestone.reopened` (MilestoneService.reopen), and
+> `requirement.satisfied`/`requirement.waived` (RequirementService). Each now
+> records against `onboarding_case`/the case id, carrying `milestoneId` (and
+> `requirementId`, for the two requirement actions) in the payload instead. No
+> test asserted the old (resource_type, resource_id) pair for any of these --
+> confirmed before changing them -- so nothing needed updating on that side.
+>
+> `MigrationService.key()`'s stage/milestone composite key was also changed from
+> `stageName + " " + milestoneName` to `stageName + "::" + milestoneName`, an
+> unrelated latent bug caught while re-reading that file for the amendment above:
+> a space-joined key cannot distinguish `("Stage", "One Two")` from
+> `("Stage One", "Two")`, silently misrouting a migration if a stage or milestone
+> name ever contained a space next to the boundary. No test exercised that
+> specific collision, so nothing was failing; fixed as found rather than left for
+> whoever hits it.
+
+
+
 `AUDIT_VIEW` is catalogued, seeded to four templates, and has **no endpoint**: the `audit` module holds five classes, none of them a controller. This task builds the first audit read path in the codebase, and it must not reuse `AUDIT_VIEW`.
 
 **Files:**
