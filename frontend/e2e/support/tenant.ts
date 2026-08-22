@@ -205,6 +205,15 @@ export class Api {
     return (await response.json()) as T;
   }
 
+  async put<T>(path: string, data?: unknown, expected = 200): Promise<T> {
+    const response = await this.request.put(`/api/t/${this.slug}${path}`, {
+      headers: this.headers,
+      ...(data === undefined ? {} : { data }),
+    });
+    expect(response.status(), await bodyOf(response)).toBe(expected);
+    return (await response.json()) as T;
+  }
+
   createCustomer(displayName: string) {
     return this.post<{ id: string }>(
       "/customers",
@@ -227,6 +236,41 @@ export class Api {
 
   createRole(name: string, grants: Record<string, string>) {
     return this.post<{ id: string }>("/admin/roles", { name, description: "", grants }, 201);
+  }
+
+  createWorkflowTemplate(name: string) {
+    return this.post<{ id: string }>("/workflows", { name, description: "" }, 201);
+  }
+
+  createDraftVersion(templateId: string) {
+    return this.post<{ versionId: string }>(`/workflows/${templateId}/versions`, undefined, 201);
+  }
+
+  saveDraft(templateId: string, versionId: string, body: unknown) {
+    return this.put<{ versionId: string }>(`/workflows/${templateId}/versions/${versionId}`, body);
+  }
+
+  publishVersion(templateId: string, versionId: string) {
+    return this.post<void>(`/workflows/${templateId}/versions/${versionId}/publish`, undefined, 200);
+  }
+
+  /**
+   * The single-stage, single-milestone workflow every screen sweep needs a
+   * real case against -- published, so the journey workspace has a roadmap
+   * to render rather than the "no cases" empty state.
+   */
+  async publishMinimalWorkflow(name: string): Promise<{ templateId: string }> {
+    const { id: templateId } = await this.createWorkflowTemplate(name);
+    const { versionId } = await this.createDraftVersion(templateId);
+    await this.saveDraft(templateId, versionId, {
+      stages: [{ key: "stage-1", name: "Registration", milestones: [{ key: "milestone-1", name: "Registration" }] }],
+    });
+    await this.publishVersion(templateId, versionId);
+    return { templateId };
+  }
+
+  createCase(customerId: string, templateId: string) {
+    return this.post<{ id: string }>("/cases", { customerId, templateId }, 201);
   }
 
   createUser(email: string, fullName: string) {

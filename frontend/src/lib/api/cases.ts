@@ -23,6 +23,10 @@ export type ApprovalKind = NonNullable<Approval["kind"]>;
 export type RequirementStatus = NonNullable<RequirementRoadmap["status"]>;
 export type MilestoneStatus = NonNullable<MilestoneRoadmap["status"]>;
 export type CaseRequirementView = components["schemas"]["CaseRequirementView"];
+export type TimelineEvent = components["schemas"]["AuditEventView"];
+export type TimelinePage = components["schemas"]["PageAuditEventView"];
+
+export const TIMELINE_PAGE_SIZE = 25;
 
 export const caseKeys = {
   all: ["cases"] as const,
@@ -76,6 +80,22 @@ export function useApprovals(caseId: string) {
     queryKey: [...caseKeys.detail(caseId), "approvals"] as const,
     queryFn: () => apiFetch<Approval[]>(`/cases/${caseId}/approvals`),
     enabled: Boolean(caseId),
+  });
+}
+
+/**
+ * Every event recorded against the case, newest first, paginated -- the
+ * Timeline tab's own source (uispecs §5e). `placeholderData` keeps the
+ * current page on screen while the next one loads, matching useCustomers's
+ * own paging behaviour, so paging never flashes a skeleton over a list the
+ * reader is in the middle of reading.
+ */
+export function useTimeline(caseId: string, page = 0) {
+  return useQuery({
+    queryKey: [...caseKeys.detail(caseId), "timeline", page] as const,
+    queryFn: () => apiFetch<TimelinePage>(`/cases/${caseId}/timeline?page=${page}&size=${TIMELINE_PAGE_SIZE}`),
+    enabled: Boolean(caseId),
+    placeholderData: (previous) => previous,
   });
 }
 

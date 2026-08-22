@@ -8,6 +8,7 @@ import { CaseHeader } from "@/components/journey/CaseHeader";
 import { CaseSwitcher } from "@/components/journey/CaseSwitcher";
 import { HoldDialog } from "@/components/journey/HoldDialog";
 import { Roadmap } from "@/components/journey/Roadmap";
+import { TimelineTab } from "@/components/journey/TimelineTab";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
@@ -117,7 +118,7 @@ export default function CaseWorkspacePage() {
         {tab === "tasks" && <EmptyState title={t("case.tabs.tasks.empty")} />}
         {tab === "documents" && <EmptyState title={t("case.tabs.documents.empty")} />}
         {tab === "agreements" && <EmptyState title={t("case.tabs.agreements.empty")} />}
-        {tab === "timeline" && <EmptyState title={t("case.tabs.timeline.empty")} />}
+        {tab === "timeline" && <TimelineTab caseId={caseId} />}
       </div>
 
       {holding && <HoldDialog caseId={caseId} onClose={() => setHolding(false)} />}

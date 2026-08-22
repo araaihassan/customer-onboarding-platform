@@ -145,12 +145,14 @@ export function MilestoneRow({
       </button>
 
       {expanded && (
+        // Below 1024px the two columns stack -- review finding 11's other
+        // casualty -- rather than staying side by side at a width too narrow
+        // for either to read.
         <div
-          className="grid"
+          className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr]"
           style={{
             borderTop: "1px solid var(--ob-paper-300)",
             padding: "16px 18px 18px 58px",
-            gridTemplateColumns: "1.4fr 1fr",
             gap: "22px",
             animation: "var(--ob-keyframe-enter) var(--ob-duration-instant) ease",
           }}

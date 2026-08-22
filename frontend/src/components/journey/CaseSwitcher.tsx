@@ -40,7 +40,13 @@ export function CaseSwitcher({
       >
         {t("case.switcher.title")}
       </span>
-      <div className="flex flex-wrap items-center" style={{ gap: "var(--ob-space-8)" }}>
+      {/* Below 1024px, chips scroll horizontally in one line rather than
+          wrapping to three -- review finding 11 named this screen as one of
+          the fallback's two casualties. */}
+      <div
+        className="flex flex-nowrap items-center overflow-x-auto lg:flex-wrap lg:overflow-visible"
+        style={{ gap: "var(--ob-space-8)" }}
+      >
         {cases.map((c) => {
           const active = c.id === activeCaseId;
           return (
@@ -48,7 +54,7 @@ export function CaseSwitcher({
               key={c.id}
               href={`/t/${slug}/customers/${customerId}/cases/${c.id}`}
               aria-current={active ? "page" : undefined}
-              className="inline-flex items-center"
+              className="inline-flex items-center flex-shrink-0"
               style={{
                 height: "var(--ob-control-height-sm)",
                 borderRadius: "var(--ob-radius-chip)",
@@ -81,7 +87,7 @@ export function CaseSwitcher({
           <button
             type="button"
             onClick={onCreateNew}
-            className="inline-flex items-center"
+            className="inline-flex items-center flex-shrink-0"
             style={{
               height: "var(--ob-control-height-sm)",
               borderRadius: "var(--ob-radius-chip)",

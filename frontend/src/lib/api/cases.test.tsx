@@ -18,6 +18,7 @@ import {
   useResume,
   useRoadmap,
   useSatisfy,
+  useTimeline,
   useWaive,
 } from "./cases";
 
@@ -120,6 +121,26 @@ describe("useApprovals", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(lastUrl()).toBe("/api/t/acme/cases/c-1/approvals");
+  });
+});
+
+describe("useTimeline", () => {
+  it("reads the case's timeline newest-first, paginated", async () => {
+    fetchMock.mockResolvedValue(reply({ content: [], totalElements: 0, totalPages: 0 }));
+
+    const { result } = renderHook(() => useTimeline("c-1", 1), { wrapper: makeWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(lastUrl()).toBe("/api/t/acme/cases/c-1/timeline?page=1&size=25");
+  });
+
+  it("defaults to the first page", async () => {
+    fetchMock.mockResolvedValue(reply({ content: [], totalElements: 0, totalPages: 0 }));
+
+    const { result } = renderHook(() => useTimeline("c-1"), { wrapper: makeWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(lastUrl()).toBe("/api/t/acme/cases/c-1/timeline?page=0&size=25");
   });
 });
 

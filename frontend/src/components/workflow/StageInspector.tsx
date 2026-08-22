@@ -15,7 +15,11 @@ const WRITE_SCOPES: WriteScope[] = ["ANY", "DEPARTMENT", "TEAM", "OWNER_ONLY"];
 
 /**
  * The stage inspector (component-specs §12). Sticky at top: 76px, per the
- * spec's own geometry.
+ * spec's own geometry -- but only at the width the two-column layout the page
+ * puts it in actually exists (`xl`, ≥1280px). Below that the page's own grid
+ * already stacks it under the stage list; staying sticky there would pin a
+ * panel that no longer has a second column to sit beside, so it unpins
+ * (Task 28, review finding 11).
  *
  * The prototype's fields here were "read-only-styled" because it never saved
  * anything; these are real inputs and selects at the same geometry, with the
@@ -65,7 +69,7 @@ export function StageInspector({
   }
 
   return (
-    <div style={{ position: "sticky", top: 76 }}>
+    <div className="xl:sticky xl:top-[76px]">
       <h3
         className="text-text-faint"
         style={{

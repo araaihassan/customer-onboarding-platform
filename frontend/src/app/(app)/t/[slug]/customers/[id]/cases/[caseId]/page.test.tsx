@@ -89,7 +89,7 @@ describe("CaseWorkspacePage", () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Timeline", selected: true })).not.toBeNull());
-    expect(screen.getByText("The timeline isn't available here yet.")).not.toBeNull();
+    await waitFor(() => expect(screen.getByText("No activity yet")).not.toBeNull());
   });
 
   it("carries the new tab into the URL when the reader switches", async () => {
