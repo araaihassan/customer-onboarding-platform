@@ -6292,6 +6292,40 @@ and have no non-text rule, so a clean run says nothing about borders. That is Ta
 report_shipped('light'), and the two are not substitutes."
 ```
 
+**Amendment (2026-08-23) — what running it verbatim found:**
+
+- **`AuditEventView` has no actor name to show, only `actorUserId`.** The plan's own
+  `TimelineRow` test fixture already shows an `actor` prop ("J. Rivera"), but resolving
+  it would need a general user-lookup this sub-project still doesn't have -- the same
+  gap Task 26 hit for a customer's owner and Task 27 closed for a milestone's owner
+  through the case's participants. A case's audit events are not all raised by its
+  participants, though, so that seam doesn't reach here. `TimelineTab` uses `meta` for
+  the raw action key instead (`milestone.force_completed`, `case.hold`, ...); `summary`
+  is already the human-readable prose the backend records, so nothing is lost, only the
+  separate name column the prototype's static sample data happened to show.
+- **The builder's inspector unpinning needed a CSS change, not a layout one.** The
+  page's own `grid` (no explicit column count below `xl`) already stacked the inspector
+  under the stage list at any narrower width -- that part was already correct. What
+  wasn't: `StageInspector` still set `position: sticky` unconditionally, which pins an
+  element to the viewport regardless of whether anything is beside it to scroll past.
+  Moved to a `xl:sticky` class so the two conditions -- "two columns" and "sticky" --
+  share the same breakpoint instead of drifting apart.
+- **Seeding a case or an open workflow through the API needed five new `Api` helpers**
+  (`createWorkflowTemplate`, `createDraftVersion`, `saveDraft`, `publishVersion`,
+  `createCase`) in `e2e/support/tenant.ts`, absent from the plan's file list because
+  nothing before this task needed to seed a workflow at all -- Tasks 20-27 seeded only
+  customers and contacts.
+- **Not run live.** Ports 3000 and 8080 were already bound by another process on this
+  machine, and `playwright.config.ts`'s `webServer` entries set
+  `reuseExistingServer: !process.env.CI` -- true outside CI -- so a run would have
+  silently exercised whatever was already listening on those ports rather than this
+  branch, and reclaiming them risked another session's in-progress work.
+  `npx playwright test --list --grep accessibility` confirms the 16 new cases (2
+  screens x 2 themes x 4 widths) register and the file parses; `npx vitest run` (46
+  files, 334 tests) and `npx tsc --noEmit` are clean. The live sweep is the first thing
+  to do once the ports are free -- it is the only thing in this task that has not
+  actually been measured against a running application yet.
+
 ---
 
 ## Task 29: Playwright and `CLAUDE.md`
