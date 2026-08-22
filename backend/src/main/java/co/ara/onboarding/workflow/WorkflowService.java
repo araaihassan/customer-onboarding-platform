@@ -337,7 +337,7 @@ public class WorkflowService {
                         resolve(stageIds, rule.targetStageKey())));
             }
             for (var m : s.milestones()) {
-                for (String dependsOn : m.dependsOnMilestoneKeys()) {
+                for (String dependsOn : orEmpty(m.dependsOnMilestoneKeys())) {
                     dependencies.save(newDependency(version,
                             milestoneIds.get(m.key()), resolve(milestoneIds, dependsOn)));
                 }
@@ -426,7 +426,7 @@ public class WorkflowService {
                 }
             }
             for (var m : s.milestones()) {
-                for (String dependsOn : m.dependsOnMilestoneKeys()) {
+                for (String dependsOn : orEmpty(m.dependsOnMilestoneKeys())) {
                     if (!milestoneKeys.contains(dependsOn)) {
                         throw new UnknownReferenceException(dependsOn);
                     }
@@ -506,6 +506,16 @@ public class WorkflowService {
         branchRule.setCondition(toCondition(rule.condition()));
         branchRule.setTargetStageId(targetStageId);
         return branchRule;
+    }
+
+    /**
+     * dependsOnMilestoneKeys is an optional field: a milestone with no
+     * dependencies is the common case, and a client is entitled to omit the
+     * key entirely rather than send an empty array. Both call sites iterate it
+     * directly, so null must be normalised at the boundary, not assumed away.
+     */
+    private static List<String> orEmpty(List<String> keys) {
+        return keys == null ? List.of() : keys;
     }
 
     private MilestoneDependency newDependency(WorkflowVersion version, UUID milestoneId, UUID dependsOnId) {

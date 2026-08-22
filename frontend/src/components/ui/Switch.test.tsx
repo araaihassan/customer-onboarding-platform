@@ -26,4 +26,14 @@ describe("Switch", () => {
 
     expect(onChange).toHaveBeenCalledWith(true);
   });
+
+  /**
+   * A switch with an accessible name but no visible text is a control a
+   * sighted user cannot identify -- caught by actually looking at the
+   * rendered Inspector, not by a unit test that only checked aria-label.
+   */
+  it("renders the label as real, visible text", () => {
+    render(<Switch checked={false} onChange={vi.fn()} label="Auto-advance" />);
+    expect(screen.getByText("Auto-advance")).not.toBeNull();
+  });
 });
