@@ -134,7 +134,13 @@ class CaseEngine {
      */
     @Transactional(propagation = Propagation.MANDATORY)
     void reconcile(Case c) {
-        if (c.getStatus() == CaseStatus.COMPLETED || c.getStatus() == CaseStatus.CANCELLED) return;
+        // ON_HOLD added alongside COMPLETED/CANCELLED in Task 18: hold() itself
+        // never calls reconcile, and resume() sets ACTIVE before it does, so this
+        // guard is defensive rather than load-bearing today -- it only matters if
+        // a future write path (update(), say) is called against a paused case
+        // without going through CaseOnHoldException's check first.
+        if (c.getStatus() == CaseStatus.COMPLETED || c.getStatus() == CaseStatus.CANCELLED
+                || c.getStatus() == CaseStatus.ON_HOLD) return;
 
         var stages = stageRepository.findByVersionIdOrderByOrdinal(c.getVersionId());
         var definitions = milestoneDefinitions.findByVersionIdOrderByOrdinal(c.getVersionId());
@@ -383,7 +389,11 @@ class CaseEngine {
     @Transactional(propagation = Propagation.MANDATORY)
     AvailableTransitionView pendingTransition(Case c) {
         if (c.getCurrentStageId() == null) return null;
-        if (c.getStatus() == CaseStatus.COMPLETED || c.getStatus() == CaseStatus.CANCELLED) return null;
+        // ON_HOLD alongside COMPLETED/CANCELLED: nothing is "pending" on a case
+        // that isn't actively progressing, and showing a stale computed transition
+        // while paused would be misleading.
+        if (c.getStatus() == CaseStatus.COMPLETED || c.getStatus() == CaseStatus.CANCELLED
+                || c.getStatus() == CaseStatus.ON_HOLD) return null;
 
         var stages = stageRepository.findByVersionIdOrderByOrdinal(c.getVersionId());
         var definitions = milestoneDefinitions.findByVersionIdOrderByOrdinal(c.getVersionId());

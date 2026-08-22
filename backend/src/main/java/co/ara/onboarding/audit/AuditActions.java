@@ -99,6 +99,13 @@ public final class AuditActions {
     // one would be the same mistake with a worse consequence.
     public static final AuditAction MILESTONE_FORCE_COMPLETED  = of("milestone.force_completed", true);
     public static final AuditAction MILESTONE_FORCE_REJECTED   = of("milestone.force_rejected", true);
+    // Timeline-visible for the same reason case.stage_entered is: pausing, resuming
+    // and rewinding a milestone for rework are the customer's own progress
+    // narrative, not internal administration.
+    public static final AuditAction CASE_HELD                  = of("case.held", true);
+    public static final AuditAction CASE_RESUMED               = of("case.resumed", true);
+    public static final AuditAction MILESTONE_REOPENED         = of("milestone.reopened", true);
+    public static final AuditAction MILESTONE_REASSIGNED       = of("milestone.reassigned", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

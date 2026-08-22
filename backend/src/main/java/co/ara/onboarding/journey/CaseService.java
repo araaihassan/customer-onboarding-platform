@@ -13,6 +13,7 @@ import co.ara.onboarding.identity.Department;
 import co.ara.onboarding.identity.DepartmentRepository;
 import co.ara.onboarding.identity.Team;
 import co.ara.onboarding.identity.TeamRepository;
+import co.ara.onboarding.platform.BusinessCalendar;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import co.ara.onboarding.workflow.AttributeDefinition;
@@ -36,8 +37,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -85,6 +88,8 @@ public class CaseService {
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
     private final CaseEngine engine;
+    private final BusinessCalendar calendar;
+    private final Clock clock;
 
     public CaseService(CaseRepository cases, CaseParticipantRepository participants,
                        MilestoneRepository milestones, RequirementRepository requirements,
@@ -95,7 +100,8 @@ public class CaseService {
                        AttributeDefinitionRepository attributeDefinitions,
                        AppUserRepository users, DepartmentRepository departments,
                        TeamRepository teams, AuthorizedQuery authorizedQuery,
-                       AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine) {
+                       AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine,
+                       BusinessCalendar calendar, Clock clock) {
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -115,6 +121,8 @@ public class CaseService {
         this.contextProvider = contextProvider;
         this.audit = audit;
         this.engine = engine;
+        this.calendar = calendar;
+        this.clock = clock;
     }
 
     @RequirePermission(PermissionKeys.CASE_CREATE)
@@ -328,6 +336,67 @@ public class CaseService {
         if (!advanced) {
             throw new StageNotExitableException(caseId);
         }
+        return toView(c);
+    }
+
+    /**
+     * Freezes the case. Does not call engine.reconcile -- holding is a state
+     * change, not a recomputation, and CaseEngine.reconcile now early-returns for
+     * ON_HOLD anyway (defensive, see its own comment).
+     */
+    @RequirePermission(PermissionKeys.CASE_HOLD)
+    @Transactional
+    public CaseView hold(UUID caseId, String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("A reason is required to hold a case");
+        }
+        authorizedQuery.getById(cases, Case.class, PermissionKeys.CASE_HOLD, caseId);
+        Case c = engine.lockAndLoad(caseId);
+
+        c.setStatus(CaseStatus.ON_HOLD);
+        c.setHeldAt(Instant.now(clock));
+        cases.save(c);
+
+        audit.record(AuditActions.CASE_HELD, "onboarding_case", c.getId(),
+                "Held case: " + reason, Map.of("reason", reason));
+        return toView(c);
+    }
+
+    /**
+     * Shifts every OPEN milestone's due date and the case's target completion by
+     * the elapsed business days, and accumulates total_hold_days for sub-project 6
+     * to read rather than recompute. Completed/skipped milestones keep their
+     * dates -- shifting them would rewrite when the work was actually promised.
+     */
+    @RequirePermission(PermissionKeys.CASE_HOLD)
+    @Transactional
+    public CaseView resume(UUID caseId) {
+        authorizedQuery.getById(cases, Case.class, PermissionKeys.CASE_HOLD, caseId);
+        Case c = engine.lockAndLoad(caseId);
+        if (c.getStatus() != CaseStatus.ON_HOLD) throw new CaseNotOnHoldException(caseId);
+
+        int heldBusinessDays = calendar.businessDaysBetween(
+                LocalDate.ofInstant(c.getHeldAt(), ZoneOffset.UTC), LocalDate.now(clock));
+
+        for (Milestone m : readCaseChild(milestones, Milestone.class, c.getId())) {
+            if (m.getStatus() == MilestoneStatus.DONE || m.getStatus() == MilestoneStatus.SKIPPED) continue;
+            if (m.getDueDate() != null) {
+                m.setDueDate(calendar.plusBusinessDays(m.getDueDate(), heldBusinessDays));
+                milestones.save(m);
+            }
+        }
+        if (c.getTargetCompletionDate() != null) {
+            c.setTargetCompletionDate(calendar.plusBusinessDays(c.getTargetCompletionDate(), heldBusinessDays));
+        }
+        c.setTotalHoldDays(c.getTotalHoldDays() + heldBusinessDays);
+        c.setHeldAt(null);
+        c.setStatus(CaseStatus.ACTIVE);
+        cases.save(c);
+
+        engine.reconcile(c);
+        audit.record(AuditActions.CASE_RESUMED, "onboarding_case", caseId,
+                "Resumed after " + heldBusinessDays + " business days on hold",
+                Map.of("totalHoldDays", String.valueOf(c.getTotalHoldDays())));
         return toView(c);
     }
 
