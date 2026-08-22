@@ -6041,6 +6041,44 @@ anything a person wrote. Five fact columns reflow to two rows below 1280px, whic
 review finding 11's other casualty."
 ```
 
+**Amendment (2026-08-22) — what running it verbatim found:**
+
+- **The five fact columns are not Stage/Account manager/Primary contact/Teams/Est.
+  completion as `uispecs` draws them.** Three of those need a name resolved from an id
+  `CaseView` doesn't carry (`ownerUserId` → a person, `owningTeamId` → a team) and Task 26's
+  own Interfaces line names no user- or team-lookup hook to get one. Rather than invent an
+  unplanned call or show a raw UUID where the design draws a name, the five columns became
+  Stage, Started, Est. completion, Hold days, Status -- every one a field `CaseView` already
+  returns, the same trade-off `CustomerTable`'s own doc comment made when the design called
+  for a health/progress column the customer API cannot back.
+- **"Shows the empty state and a create action when the customer has no cases" lives on the
+  customer detail page, not the workspace route.** The workspace URL is
+  `/customers/{id}/cases/{caseId}` -- it requires a case id to exist at all, so there is no
+  way to land on it with zero cases to be empty about. The empty state belongs to the
+  customer page's own new "Cases" card, which is also where Task 26's other file-list entry
+  ("Modify: customers/[id]/page.tsx, link into the workspace") already pointed.
+  `CaseSwitcher` is reused there with `activeCaseId=""` (nothing highlighted) rather than
+  building a second, near-identical case list component.
+- **Tasks/Documents/Agreements/Timeline render as inline `EmptyState` placeholders, not
+  their own components.** Task 27's own commit message says it is the one that "renders
+  \[them] as empty states rather than being hidden," and Task 28 explicitly creates
+  `TimelineTab.tsx` as its own file. Building full versions of either now would be
+  redoing work those tasks already plan to do; the placeholders here exist only so the tab
+  strip has something honest under each tab today, and get replaced rather than extended.
+- **Found live, fixed, unrelated to this task:** `CustomerTable`'s `<col>` elements were
+  keyed on their own width string (`COLUMN_WIDTHS`), and two columns share an identical
+  width (both 1fr of the design's fr-share, converted to the same percentage) --
+  `Encountered two children with the same key` in the console the first time a real
+  customer list ever rendered in this session. Harmless in practice (`<col>` has no state
+  to lose), but a real collision; keyed on array index instead.
+- **Verified live end-to-end, closing the gap Task 25's own amendment flagged:** created a
+  real customer and case against the running backend, confirmed the "no cases" empty state
+  and the populated switcher, the workspace header/tabs/reload-preserves-tab behaviour, and
+  the journey preview's stage list -- then published a second workflow version and drove
+  Task 25's migration screen against real (not mocked) data for the first time: one case
+  showed as on-an-older-version and eligible, migrating it moved its meta line from
+  "workflow v1" to "workflow v2" with a clean network/console trail throughout.
+
 ---
 
 ## Task 27: The journey tab
