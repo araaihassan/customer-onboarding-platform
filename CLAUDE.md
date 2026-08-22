@@ -33,13 +33,32 @@ the PRD, QA, specs, plans and the design system. `docker/` arrives in sub-projec
 The backend is a modular monolith organised by domain, one package per module under
 `co.ara.onboarding`: `platform/` (cross-cutting infrastructure), `tenancy/` (tenant records and
 context), `identity/` (users, departments, teams, platform admins), `authz/` (permission catalog,
-roles, grants, enforcement), `audit/`, `customer/` (customers, contacts). `provisioning/` and
-`scoping/` exist only because they orchestrate two or more of the others.
+roles, grants, enforcement), `audit/`, `customer/` (customers, contacts), `workflow/` (template
+authoring and versioning — templates, versions, stages, milestone/requirement/attribute
+definitions, branch rules, publish validation; knows nothing about a running case), `journey/`
+(the runtime — `Case`, `CaseParticipant`, `Milestone`, `Requirement`, `CaseAttributeValue`,
+`Approval`, `CaseEngine`, migration eligibility, the timeline read; `case` is a Java keyword, so
+the package is `journey`, matching what the UI calls the screen). `provisioning/` and `scoping/`
+exist only because they orchestrate two or more of the others.
+
+`journey` depends on `workflow` but never the reverse, and never on `customer` directly — it
+declares `CustomerDirectory` (`Optional<CustomerFacts> findVisible(UUID)`, empty maps to 404) and
+`customer` implements it, the same inversion `authz.ActorDirectory`/`identity.UserSessionRevoker`
+already established. Both boundaries are their own `ModuleBoundaryTest` rule, not just the cycle
+check, because a one-way `workflow → journey` or `journey → customer` import would still pass a
+plain no-cycles test.
 
 **Sub-project 1 delivered:** tenancy with RLS, identity, RBAC with record-level scope and twelve
 seeded role templates, JWT auth with refresh rotation and reuse detection, invitation / activation /
 password reset, login throttling, the audit substrate, customer and contact management, and on the
 frontend the token layer, i18n, API client and public auth pages.
+
+**Sub-project 2 delivered:** workflow authoring and versioning (draft → publish → frozen, publish
+validating the whole graph in one pass), the case-lifecycle engine (branching, entry conditions
+that skip a stage, auto-advance, weighted progress, force-complete with a second person's
+approval, migration between versions), and on the frontend the journey workspace (roadmap,
+requirement checkboxes, approval/hold/force-complete dialogs, timeline) and the workflow builder
+screen (stages, milestones, requirements, branch rules, publish, migration review).
 
 **Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
 `docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
@@ -136,22 +155,51 @@ admits only `ACTIVE`. So the full bootstrap is: provision → read the token fro
 /auth/activate` → `POST /auth/login`. A password reset is **not** a substitute: it sets the hash and
 deliberately leaves `status` alone, so the login still returns 401. There is no re-issue path once
 the seven-day TTL expires; a tenant provisioned and forgotten for a week needs manual intervention
-(sub-project 2).
+still — sub-project 2 did not add one, and no later sub-project has this in scope either.
 
 Also operational: `audit_event` is partitioned by month and `V5` creates only `2026_08`, `2026_09`
 and a DEFAULT partition. The job that rolls partitions forward arrives in sub-project 6.
 
+**Seed a workflow and open a case** — nothing in the product creates either for you; both are curl
+away once a tenant's administrator is activated:
+
+```bash
+curl -u admin@acme.test:<password> -X POST http://localhost:8080/api/t/acme/workflows \
+  -H 'Content-Type: application/json' -d '{"name":"Onboarding"}'
+# → {"id":"<templateId>", ...}
+curl -u admin@acme.test:<password> -X POST http://localhost:8080/api/t/acme/workflows/<templateId>/versions
+# → {"versionId":"<versionId>", ...} — an empty DRAFT, or a copy of the current published version
+
+curl -u admin@acme.test:<password> -X PUT \
+  http://localhost:8080/api/t/acme/workflows/<templateId>/versions/<versionId> \
+  -H 'Content-Type: application/json' -d '{
+    "stages": [{"key":"s1","name":"Onboarding","milestones":[
+      {"key":"m1","name":"Kickoff","estimatedDurationDays":2,"dependsOnMilestoneKeys":[],
+       "requirements":[{"kind":"MANUAL","label":"Sign up","mandatory":true}]}
+    ]}]
+  }'
+# publish rule 5: every stage needs at least one milestone, or this 422s at publish, not here
+
+curl -u admin@acme.test:<password> -X POST \
+  http://localhost:8080/api/t/acme/workflows/<templateId>/versions/<versionId>/publish
+# a case can only be created against a template with a PUBLISHED version
+
+curl -u admin@acme.test:<password> -X POST http://localhost:8080/api/t/acme/cases \
+  -H 'Content-Type: application/json' \
+  -d '{"customerId":"<customerId>","templateId":"<templateId>"}'
+# → CaseView, pinned to the version that was current when this call ran
+```
+
+Basic auth works here the same way it does against `/api/platform/**` — `SecurityConfig` admits it
+tenant-wide, not just for the platform-admin routes. The builder UI can author everything above
+**except** a workflow attribute or a stage's `entryCondition` — see "Open at the close of
+sub-project 2". A workflow with a conditional skip (an `entryCondition` referencing an
+`ATTRIBUTE`-sourced condition) can only be authored this way, through the `PUT`, until that gap is
+closed.
+
 **Open at the close of sub-project 1**, verified against the running system — none of these is a
 regression to hunt:
 
-- **`user.manage` at DEPARTMENT or TEAM scope is still a privilege-escalation path.** Its holder
-  can no longer reach users outside their scope — every target is resolved through
-  `AuthorizedQuery` — but nothing checks the *role being granted*, so they can assign a role wider
-  than their own to anyone they legitimately manage, themselves included, and `RoleEditor` shows
-  them the ids. The guard (require `role.manage` to assign, or refuse a role whose grants exceed
-  the caller's) is a policy decision about delegation and belongs to sub-project 2's tenant
-  administration. **Until it exists, `user.manage` at any scope is equivalent to the widest role in
-  the tenant. Grant it accordingly.**
 - **A narrow-scoped `user.manage` holder cannot create a user through the Users screen.** The create
   form sends only `{email, fullName}`, so `departmentId` is null, and a department-less user is
   outside a DEPARTMENT- or TEAM-scoped actor's own scope — `UserAdminService.create` refuses with a
@@ -161,15 +209,6 @@ regression to hunt:
   A department picker on that form is the fix, with the options scoped to the actor. There is no
   user-edit screen either — `PUT /admin/users/{id}` exists but `lib/api/admin.ts` never calls it —
   so a department cannot be changed after creation from the UI at all.
-- **TEAM scope is dead in a running system, and four seeded roles therefore confer nothing.**
-  Nothing in the API writes `team_member`: `OrgStructureController` exposes only list and create
-  for departments and teams, and `AppUser.teamIds` is written only by `TenantFixture.addToTeam` in
-  tests. So `ctx.teamIds()` is empty for every real user and every descriptor's `teamScope` —
-  `AppUserDescriptor`, `CustomerDescriptor`, and the two that resolve through them — returns
-  `cb.disjunction()`. Account Manager, Project Manager, Technical and Support grant **only** at
-  TEAM, so all four resolve to no access whatsoever. It fails closed, so this is not a security
-  hole; it is the largest functional gap on the branch. It needs team-membership endpoints and a
-  screen, and until then those four templates should not be handed out.
 - **Ownership foreign keys carry no tenant component, and one is observable.** `CustomerService`
   writes `ownerUserId`, `owningDepartmentId` and `owningTeamId` straight from the request with no
   existence or tenancy check. PostgreSQL evaluates referential integrity with row security
@@ -225,6 +264,41 @@ regression to hunt:
   springdoc advertises only 201 on create and 200 on update, so `generated.ts` has no 409 for a
   client to narrow on.
 
+**Closed since sub-project 1, verified against the running system:** TEAM scope (real
+`POST /admin/teams/{teamId}/members` and its `/remove`, both gated `team.manage` and resolving
+through `AuthorizedQuery`) and the light theme's shipped tokens (`contrast.py`'s
+`report_shipped("light")` now runs unconditionally alongside dark and reports 0 of 49 pairs
+failing, same as dark — confirmed by running it, not by reading the script).
+
+**Open at the close of sub-project 2**, verified against the running system:
+
+- **The workflow builder has no UI to declare an attribute or set a stage's entry condition.**
+  `draftState.ts`'s `addAttribute`/`updateAttribute`/`removeAttribute` reducer actions exist and
+  `BranchRuleCard` already reads `attributes` for its condition dropdown, but nothing in the
+  builder page ever dispatches `addAttribute` — there is no "Add attribute" affordance anywhere.
+  `StageInspector` has no field for a stage's own `entryCondition` at all (the prototype drew it as
+  one of several "read-only-styled" fields that were never wired to anything real, the same
+  treatment `notificationTemplateKey` still gets — but unlike that field, `entryCondition` is not
+  inert: it is the mechanism §5.3 uses to skip a stage conditionally, and case-lifecycle.spec.ts's
+  own workflow had to be seeded through the API rather than the builder for exactly this reason.
+  Both are real product gaps, not test-writing conveniences.
+- **`approval.decide` is seeded to `Administrator` only.** The catalog allows it at any of
+  ALL/DEPARTMENT/TEAM, but none of the other eleven templates holds it — deciding a stage-exit
+  approval currently requires the tenant's widest role, unlike `milestone.force_approve`, which is
+  ALL-only in the catalog itself and so cannot be any narrower by construction. Not a bug (absence
+  of a grant is the denial, same as everywhere else), but worth a role review before sub-project 6
+  builds SLA escalation on top of an approval nobody but the administrator can clear.
+- **The audit timeline read is a known, deliberate carve-out, not yet a pattern to repeat.** It
+  bypasses `AuthorizedQuery` by design (spec §7.3) — narrowed to one resource id behind a
+  `case.view` resolution and carries a commented exclusion in `AuthorizationCoverageTest` — but it
+  is the first such exception in the codebase. A second one needs the same explicit argument this
+  one carries, not a copy of the exclusion.
+- **Every remaining sub-project 1 item above is still open** and none is in sub-project 2's own
+  path (spec §11's own cross-check): the `user.manage` create-form gap, the ownership-FK oracle,
+  deactivation's pending-credential gap, the unvalidated tenant slug, `DB_APP_PASSWORD`'s default,
+  contact email drift, the three unaudited `authz`/`auth` write paths, the mislabelled pre-2026-08-16
+  deactivations, and contact retirement not revoking portal access.
+
 ### Tests
 
 ```bash
@@ -232,22 +306,75 @@ cd backend && ./gradlew cleanTest test     # needs Docker running
 cd frontend && npx vitest run
 ```
 
-All three suites — backend, frontend unit, Playwright — were green at the close of sub-project 1
-(2026-08-16), with nothing skipped and no retries. Counts are deliberately not pinned here: they
-move every time sub-project 2 adds a test, and a number in this file that drifts is a number that
-gets trusted. Read the suite's own summary line, and treat a *failure* as the signal, never a count.
+All three suites were green at the close of sub-project 2 (2026-08-23), nothing skipped, no
+retries — `./gradlew cleanTest test` reported `BUILD SUCCESSFUL`; `npx vitest run` reported 46
+files, 335 tests, all passing; and Playwright's three new specs (workflow authoring, case
+lifecycle, migration) passed live against a scratch database, all four of their test cases green.
+Counts are deliberately not pinned in general — they move every time a task adds a test, and a
+number in this file that drifts is a number that gets trusted. Read each suite's own summary line,
+and treat a *failure* as the signal, never a count.
+
+**Live-running the three new specs for the first time found five real defects, none in the
+product** — every one was in the specs' own seeded payloads or a test-writing habit that happened
+to work elsewhere, not in `co.ara.onboarding` or the frontend:
+
+- **Two `WorkflowDefinitionRequest` fields NPE the server when omitted, rather than defaulting.**
+  `MilestoneRequest.dependsOnMilestoneKeys` and `StageRequest.branchRules` are plain
+  `List<String>`/`List<BranchRuleRequest>` with no `@NotNull`, and downstream code iterates them
+  with no null guard — a seeded stage that leaves either out 500s. `estimatedDurationDays` is the
+  one field that DOES validate (`@Positive int`), so omitting it 400s instead — a real, useful
+  contrast, but easy to miss if only the "it 500s" cases get exercised.
+  `WorkflowDefinitionRequest.attributes` has the same shape at the top level.
+- **A boolean field omitted from JSON is not "the UI's own default."** `StageRequest.autoAdvance`
+  is a primitive `boolean`; Jackson binds a missing key to `false`, not the `true` the builder's
+  own `Switch` shows pre-checked. A workflow seeded through the API without `autoAdvance: true` on
+  every stage never advances past the first one — the requirement still shows DONE, but the case
+  sits exitable forever.
+- **A freshly created draft's `lockVersion` is not reliably `0`.** `createDraftVersion` deep-copies
+  the template's current published version when one exists (empty only for a template's first-ever
+  draft), and that copy is itself a write — so a *second* version's starting `lockVersion` can
+  already be past `0` by the time the caller's own `PUT` reads it. Capture the value the create
+  response actually returns and round-trip it; don't assume the field starts at its type's default.
+- **A checkbox whose `checked` state depends on a server round trip cannot use Playwright's
+  `locator.check()`.** That action clicks and then verifies the box is checked in one synchronous
+  step; `RequirementList`'s checkbox deliberately waits for the mutation before flipping (Task 27's
+  "real and local" departure), so the verification runs before the state has actually changed. A
+  plain `.click()` followed by an auto-retrying `expect(locator).toBeChecked()` is what actually
+  waits for it — the general lesson: never `.check()`/`.fill()`-and-assume against a control whose
+  state depends on an async round trip; separate the action from the (retrying) assertion.
+- **Viewing a case's full representation is gated by more than `case.view`.** `CaseService`'s view
+  resolves `currentStageName` by reading the `Stage` row, a `workflow`-module entity gated by
+  `workflow.view` — so a role holding `case.view` but not `workflow.view` gets a 404 on the *whole*
+  case read, not a blank stage-name field, because the nested lookup's own
+  `NoSuchElementException` propagates up unchanged. Confirmed by direct SQL against the running
+  database (the grant existed, scoped `ALL`, exactly as seeded) before the missing `workflow.view`
+  permission was found by comparing which `forPermission` calls a temporary log line showed for the
+  admin session against the ones for the failing one. A hand-built test role has to declare this
+  dependency explicitly; the twelve seeded templates bundle it because a real Project-Manager-shaped
+  role always holds both.
+
+Also found and fixed as a real product bug, not a test artifact: **`MigrationTable` blanked out
+the entire table, ineligible rows included, whenever nothing remained eligible** — `eligible.length
+=== 0` was the empty-state guard, so migrating the one eligible case in a mixed list made the
+*ineligible* rows (and their reasons — the component's own stated reason for existing) disappear
+too. Fixed to key the guard on `candidates.length === 0` instead; `MigrationTable.test.tsx` gained
+a case proving the ineligible-only table still renders.
 
 **Use `cleanTest test`, never a bare `test`** — Gradle marks an unchanged test task UP-TO-DATE and
 prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a green run.
 `org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
 cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
 
-`cd frontend && npx playwright test` is the end-to-end command: six specs — login, activation,
+`cd frontend && npx playwright test` is the end-to-end command: nine specs — login, activation,
 refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
-1024px fallback, the administration screens, and accessibility in both themes at four widths.
+1024px fallback, the administration screens, accessibility in both themes at four widths, workflow
+authoring through publish, a case lifecycle (branch skip, force-complete, completion at 100%), and
+migration between versions.
 It starts **both** applications itself, so nothing needs to be running first; if 8080 or
 3000 is already bound it reuses what is there, which is wrong often enough that killing strays
-first is worth it. The backend goes through `e2e/support/backend.mjs`, which tees its output to
+first is worth it — **unless that port is held by another session on a shared machine**, in which
+case killing it is someone else's work, not a stray. The backend goes through
+`e2e/support/backend.mjs`, which tees its output to
 `frontend/e2e/.artifacts/backend.log` — **that log is the only place an activation token exists**,
 and Playwright gives a test no way to read a `webServer`'s stdout. Override the database the same
 way the backend does: `DB_URL=… npx playwright test`. It provisions a tenant per spec file and
@@ -299,23 +426,24 @@ the *lightest* in dark (`slate-700`); and `paper-600` is a graphics-only tier va
 marks and 1px borders, never for text. Derivation in `05-review/ux-design-review.md` §1 and §1b.
 
 Run `docs/uispecs/design/scripts/contrast.py` if you add any colour, and read its two tables
-differently. `SHIPPED_PAIRS` resolves **token names** through `build_tokens.py` — 49 pairs in the
-**dark** theme covering text, rail, accent, status pills, solids and borders, i.e. every pair a
-component paints — so a FAIL there is live. `PAIRS` is 24 **literals copied from the prototype as
-handed off**: it is the evidence behind review finding 1, its 7 failures are the historical record
-and are meant to stay red, and it says nothing about the light tokens shipping today. **The shipped
-light tokens are measured by nothing, and the deferred `border-default` at 1.28:1 is not the whole
-of it**: `report_shipped("light")` was run at the close of sub-project 1 and **nine of the 49 pairs
-fail** — `accent-tint-border` on tint 1.06, `accent-weak` on surface 1.53, `solid-at-risk` on
-surface 2.54, `border-default` on all four grounds 1.15–1.28, `border-strong` 1.44,
-`border-dashed` 1.68, all against 3:1. **No text pair fails** — every one is a non-text graphic
-(WCAG 1.4.11), and **axe's default rule set evaluates `color-contrast` for text and has no non-text
-rule**, so Task 28's clean axe run in both themes measured a different thing from the one that
-fails. Light is the **default** theme (`ThemeProvider` sets `defaultTheme="system"`), so every card
-and control border in the default rendering sits near 1.2:1. The fix is the one R1 applied to dark:
-fix the tokens in `build_tokens.py`, regenerate, copy both files across, and turn
-`report_shipped("light")` on. `contrast.py`'s own `__main__` banner still carries the understated
-"the known, deferred `border-default` at 1.28:1" wording.
+differently. `SHIPPED_PAIRS` resolves **token names** through `build_tokens.py` — 49 pairs in each
+theme covering text, rail, accent, status pills, solids and borders, i.e. every pair a component
+paints — so a FAIL there is live. `PAIRS` is 24 **literals copied from the prototype as handed
+off**: it is the evidence behind review finding 1, its 7 failures are the historical record and
+are meant to stay red by design, and it says nothing about the shipped tokens.
+
+**Closed since sub-project 1: both themes' shipped tokens now measure clean.**
+`report_shipped("light")` runs unconditionally alongside `report_shipped("dark")` on every
+invocation (previously light was skipped, and nine of its 49 pairs failed, `border-default` worst
+at 1.15–1.28 against a 3:1 floor) — as of this sub-project's close, running the script reports
+**0 of 49 pairs failing in either theme**, confirmed by actually running it rather than reading
+the script. Light is still the **default** theme (`ThemeProvider` sets `defaultTheme="system"`),
+so this was the rendering most readers see first. Remember why a clean axe run was never proof of
+this on its own: axe's default rule set evaluates `color-contrast` for TEXT and has no non-text
+rule, and every one of the nine (now-fixed) failures was a non-text graphic (WCAG 1.4.11) — a
+border or a status circle's fill — which is exactly what a text-only checker cannot see. Keep
+adding a pair to `SHIPPED_PAIRS` for every new role; the day this script goes green by having
+nothing left to check is the day it stops proving anything.
 
 Dark theme is keyed on `[data-theme="dark"]`, **not a class** — configure `next-themes` with
 `attribute="data-theme"` or the dark tokens never apply. Generated assets come from the scripts in
@@ -408,6 +536,26 @@ correct response to one failing is to fix the code, never to weaken the guard.
   directly and never a UUID.
 - **All timestamps** are `timestamptz`, stored in UTC.
 
+**Sub-project 2's own ten** (design spec §10's cross-check; a change breaking one of these is a
+change to the design, not an implementation detail):
+
+- A published workflow version never mutates — publish is the last legal `UPDATE`; a trigger
+  refuses every write to a `PUBLISHED` row.
+- A case always has exactly one pinned version, `NOT NULL` from creation; migration repins, never
+  unpins.
+- `journey` never depends on `customer` entities or repositories — only `CustomerDirectory`.
+- Every runtime mutation goes through `CaseEngine.reconcile`, under the row lock
+  `CaseRepository.lockById` takes — nothing else calls it.
+- Progress is derived and stored by the engine every reconcile; no request type accepts one.
+- Authorization narrows at a stage's `write_scope`; there is no branch that widens it.
+- Nobody delegates a permission they do not hold at an equal or broader scope
+  (`RoleService.refuseEscalation`).
+- A cross-tenant id is consistently a 404 — never the 200 a bypassed-RLS FK check would produce,
+  nor the 500 an invented id does.
+- Branch rules run forward and dependencies point backward, both enforced structurally at
+  publish, never detected at runtime.
+- Skipped milestones contribute to neither progress numerator nor denominator.
+
 ---
 
 ## Where the guards live
@@ -415,9 +563,14 @@ correct response to one failing is to fix the code, never to weaken the guard.
 - `backend/src/test/java/co/ara/onboarding/architecture/` — `RlsCoverageTest`,
   `AuthorizationCoverageTest`, `ModuleBoundaryTest`, `OpenApiDocumentTest`.
 - `.../authz/DescriptorRegistryTest`, covering `DescriptorRegistry.validate()`.
-- `.../security/` — the eight negative tests: `ChangedPermissionsTest`, `ConflictingGrantsTest`,
-  `CrossTenantAccessTest`, `DirectApiAccessTest`, `InsufficientPermissionTest`,
-  `InsufficientScopeTest`, `MultipleRolesTest`, `RoleLifecycleTest`.
+- `.../security/` — the nine negative tests: `ChangedPermissionsTest`, `ConflictingGrantsTest`,
+  `CrossTenantAccessTest`, `DelegationGuardTest`, `DirectApiAccessTest`, `InsufficientPermissionTest`,
+  `InsufficientScopeTest`, `MultipleRolesTest`, `RoleLifecycleTest`. Sub-project 2's own negatives
+  live in-package instead: `journey.CaseIsolationTest` (cross-tenant), `journey.WriteScopeTest`
+  (a wider-scoped holder still refused inside an `OWNER_ONLY` stage), `journey.ForceCompleteTest`
+  (self-approval refused; deciding a `FORCE_COMPLETE` through the stage-approval endpoint refused,
+  not weakly gated), `journey.JourneyScopingTest` and `identity.TeamMembershipTest` (TEAM resolves
+  through real team membership, not a column).
 
 **These are not to be weakened to make a change pass.** They exist precisely to fail when something
 is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
@@ -431,6 +584,39 @@ endpoints short (detail in the plan's *Notes for the Executor*), the contrast ta
 the two themes that ship. **Prefer a derivable list to a typed one** — sweep every `@RestController`
 mapping rather than naming paths, resolve both themes rather than one — so a guard grows with the
 code instead of being re-widened by hand after each miss.
+
+**What sub-project 2 actually did with that advice, verified against the code rather than the
+plan's intentions for it:**
+
+- **`ModuleBoundaryTest`** gained the two rules of spec §3.3, each its own named method rather
+  than folded into the cycle check — `noWorkflowDependencyOnJourney`,
+  `noJourneyDependencyOnCustomer` — because a one-way import in either direction would still pass
+  a plain no-cycles rule.
+- **`AuthorizationCoverageTest`**'s permission-gate rule gained `*Engine` alongside `*Service`, so
+  `CaseEngine` itself must carry `@RequirePermission`. Its finder rule widened from `*Service` to
+  `*Service`-or-`*Directory` over `workflow..`/`journey..` — `CustomerDirectory` is exactly the
+  shape the rule exists to catch, since it takes a customer id straight from a request body. The
+  exclusions are **by call-target owner name, not by naming individual methods**: a call whose
+  target owner ends in `AuthorizedQuery` (the sanctioned wrapper) or `AuditQuery` (journey's
+  timeline carve-out, below) is allowed, plus `IdentityActorDirectory` and `UserRoleDirectory`
+  excluded per-class (both run before there is an actor to authorize). `CaseRepository.lockById`
+  needs no exclusion at all here — it is never called from a `*Service` or `*Directory`, only from
+  `CaseEngine` itself, so the finder rule never sees it. (The design spec describes `lockById` as
+  "a per-method exclusion"; that names the intent, not a literal clause in this test.)
+- **`DirectApiAccessTest`** gained one new test, `everyTenantScopedEndpointRejectsAnonymousAccess`,
+  which derives its list by sweeping `RequestMappingHandlerMapping` rather than naming paths — but
+  the original hand-typed `everyEndpointRefusesAnonymousAndResolvesForAnAdministrator` (the one
+  eleven endpoints short) is still there, unconverted, alongside it. "Rewritten to derive"
+  describes the new test, not the file; the old one is still a list someone has to remember to
+  widen by hand.
+- **Six descriptors exist in `scoping/`, not the catalog's four.** `DescriptorRegistry.validate()`
+  only requires one per record-scoped permission's own resource type (`onboarding_case`,
+  `milestone`, `requirement`, `approval`), but `AuthorizedQuery.findAll`/`getById` dispatch by
+  **entity type** for any read through that path — and `CaseService` reads `CaseParticipant` and
+  `CaseAttributeValue` rows under `case.view`/`case.edit` with no permission of their own catalogued
+  against either. `CaseParticipantDescriptor` and `CaseAttributeValueDescriptor` exist to satisfy
+  `AuthorizedQuery`, not `validate()` — a future entity read the same way needs the same second
+  descriptor, and `validate()` alone will not remind anyone to add it.
 
 ---
 
@@ -484,6 +670,29 @@ code instead of being re-widened by hand after each miss.
   business records are never deleted, that event is the only record the retirement happened, and it
   must stay distinguishable from a phone-number correction. Repeat the shape for anything a later
   sub-project retires.
+
+## What sub-project 3 inherits
+
+- **The requirement seam.** `RequirementRoadmapView`'s `kind`, and `CaseRequirementView`'s
+  `satisfiedRef`/`satisfiedRefType`, exist precisely so a task, a document or an agreement can
+  satisfy a requirement by reference instead of the plain manual check-off this sub-project's UI
+  ever sends. `SatisfyRequest`'s own doc comment names this; both fields are already nullable and
+  already round-trip, so satisfying one from a real record is a caller populating them, not a
+  schema change.
+- **`CaseEngine.reconcile`, under `CaseRepository.lockById`'s row lock, is the only path to a
+  runtime mutation** (invariant 4 above). Any new write against a case — a task completing, a
+  document approving, an agreement signing — calls the same gated `reconcile`, inside the same
+  lock, rather than recomputing status or progress independently. Two connections racing the last
+  requirement of a milestone is exactly the shape `journey.ReconcileConcurrencyTest` proves the
+  lock closes; a second write path that skips it reopens that race for its own resource type.
+- **The `write_scope` guard.** A stage's `write_scope` (`ANY`/`DEPARTMENT`/`TEAM`/`OWNER_ONLY`)
+  narrows who may write inside it, on top of — never instead of — the record-level scope a
+  permission is held at. `StageWriteScopeGuard` is the one place that checks it; a new mutation
+  against a case's stage calls through it rather than re-deriving the check.
+- **"What does this new entity's deactivation revoke?" is still the required design question**
+  sub-project 1 made it (above), now asked of whatever sub-project 3 can retire or cancel: a task,
+  a document request, an agreement. Enumerate what a status change must invalidate before writing
+  the setter.
 
 ## Plan deviations
 

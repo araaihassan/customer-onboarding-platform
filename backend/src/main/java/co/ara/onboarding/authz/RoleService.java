@@ -8,10 +8,12 @@ import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -38,13 +40,16 @@ public class RoleService {
     private final UserRoleRepository userRoles;
     private final ActorDirectory actors;
     private final AuditRecorder audit;
+    private final AuthorizationService authorization;
 
     public RoleService(RoleRepository roles, UserRoleRepository userRoles,
-                       ActorDirectory actors, AuditRecorder audit) {
+                       ActorDirectory actors, AuditRecorder audit,
+                       AuthorizationService authorization) {
         this.roles = roles;
         this.userRoles = userRoles;
         this.actors = actors;
         this.audit = audit;
+        this.authorization = authorization;
     }
 
     /**
@@ -69,6 +74,14 @@ public class RoleService {
                 .toList();
     }
 
+    /**
+     * Not guarded by refuseEscalation the way assignRole is: role.manage is
+     * ALL-only in the catalog (PermissionCatalog.ALL_ONLY) and seeded to
+     * Administrator alone, so creating a role of any breadth already requires the
+     * widest authority in the tenant. There is no narrower holder to escalate
+     * from — the asymmetry with assignRole is deliberate, not a gap this task
+     * missed.
+     */
     @RequirePermission(PermissionKeys.ROLE_MANAGE)
     @Transactional
     public UUID createRole(String name, String description, Map<String, Scope> grants) {
@@ -150,9 +163,37 @@ public class RoleService {
             throw new InvalidGrantException(
                     "Portal users cannot hold internal roles");
         }
+        Role role = roles.findById(roleId).orElseThrow();
+        refuseEscalation(role);
         userRoles.save(new UserRole(TenantContext.getRequired(), userId, roleId));
         audit.record(AuditActions.USER_ROLE_ASSIGNED, "app_user", userId,
                 "Assigned role", Map.of("roleId", roleId.toString()));
+    }
+
+    /**
+     * A caller may only hand out authority they already hold, at a breadth they
+     * already have. Comparison, not hierarchy: ALL covers every scope, and
+     * anything else must match exactly, because DEPARTMENT and TEAM are sets
+     * rather than tiers and ranking them would silently widen one of the two.
+     *
+     * Every grant is checked and the role is refused whole rather than assigned
+     * partially: a partially assigned role is a role whose name no longer
+     * describes what it grants.
+     */
+    private void refuseEscalation(Role role) {
+        EffectivePermissions mine = authorization.effectivePermissions();
+        List<String> exceeded = new ArrayList<>();
+
+        for (RoleGrant grant : role.getGrants()) {
+            Set<Scope> held = mine.scopesFor(grant.getPermissionKey());
+            boolean covered = held.contains(Scope.ALL) || held.contains(grant.getScope());
+            if (!covered) exceeded.add(grant.getPermissionKey() + " at " + grant.getScope());
+        }
+
+        if (!exceeded.isEmpty()) {
+            throw new InvalidGrantException(
+                    "Cannot assign a role granting authority you do not hold: " + exceeded);
+        }
     }
 
     /**

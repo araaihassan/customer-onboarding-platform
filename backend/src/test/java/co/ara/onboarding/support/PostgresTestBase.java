@@ -1,6 +1,12 @@
 package co.ara.onboarding.support;
 
+import org.junit.jupiter.api.BeforeEach;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.context.TestConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.SingleConnectionDataSource;
@@ -20,7 +26,39 @@ import java.util.function.Consumer;
  */
 @SpringBootTest
 @ActiveProfiles("test")
+@Import(PostgresTestBase.MutableClockConfig.class)
 public abstract class PostgresTestBase {
+
+    /**
+     * Overrides PlatformBeansConfig.clock() (Clock.systemUTC(), unqualified) with
+     * a @Primary, advanceable one, so HoldTest-style tests can assert on elapsed
+     * business days without sleeping for real. The bean name is deliberately NOT
+     * "clock" -- two @Bean methods named clock() in different @Configuration
+     * classes would collide, since Spring Boot disables bean-definition
+     * overriding by default.
+     */
+    @TestConfiguration
+    static class MutableClockConfig {
+        @Bean
+        @Primary
+        MutableClock mutableClock() {
+            return new MutableClock();
+        }
+    }
+
+    @Autowired
+    protected MutableClock clock;
+
+    /**
+     * Every test starts with a clean clock. This bean is a Spring singleton,
+     * shared and cached across the entire suite (@SpringBootTest's context
+     * caching), so an advance() left over from one test would otherwise leak
+     * into the next one to run.
+     */
+    @BeforeEach
+    void resetMutableClock() {
+        clock.reset();
+    }
 
     // Deliberately NOT @ServiceConnection: that annotation registers a
     // JdbcConnectionDetails bean that Spring Boot's DataSourceAutoConfiguration

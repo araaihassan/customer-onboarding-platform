@@ -16,7 +16,11 @@ import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
 import org.springframework.security.core.userdetails.UserDetailsService;
 
+import com.tngtech.archunit.base.DescribedPredicate;
+import com.tngtech.archunit.core.domain.JavaClass;
+
 import static com.tngtech.archunit.base.DescribedPredicate.not;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith;
 import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
 import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
 import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.nameEndingWith;
@@ -97,10 +101,21 @@ class AuthorizationCoverageTest {
      * Platform-admin endpoints are secured at the HTTP layer instead
      * (Task 22 Step 9).
      */
+    /**
+     * *Engine joins *Service because sub-project 2's CaseEngine is the first class
+     * that orchestrates writes without being named Service. @RequirePermission binds
+     * to public service methods, so a public engine outside this pattern would be an
+     * ungated entry point -- the same name-shaped-guard hole CLAUDE.md records for
+     * *Directory. CaseEngine is additionally package-private, so this rule is the
+     * second line, not the only one.
+     */
+    private static final DescribedPredicate<JavaClass> GATED_CLASS_NAMES =
+            simpleNameEndingWith("Service").or(simpleNameEndingWith("Engine"));
+
     @ArchTest
     static final ArchRule serviceMethodsAreGated =
             methods().that().arePublic()
-                     .and().areDeclaredInClassesThat().haveSimpleNameEndingWith("Service")
+                     .and().areDeclaredInClassesThat(GATED_CLASS_NAMES)
                      .and().areDeclaredInClassesThat().resideInAPackage("co.ara.onboarding..")
                      .and().areNotDeclaredIn(TenantProvisioningService.class)
                      .and().areNotDeclaredIn(AuthorizationService.class)
@@ -164,13 +179,28 @@ class AuthorizationCoverageTest {
      *
      * Live and non-vacuous as of Task 20, which added the first customer services;
      * the allowEmptyShould it carried until then is gone.
+     *
+     * The rule was name-shaped and bound only to *Service, so *Directory classes were
+     * invisible to it. CLAUDE.md flagged the consequence: "a future *Directory taking
+     * a foreign id would be unguarded in exactly the way auth was." Task 10 writes
+     * exactly such a class (CustomerDirectory's implementation, taking a customer id
+     * from a request body), so the rule widens before that class exists.
+     *
+     * Two exclusions, both category one -- runs before there is an actor to
+     * authorize:
+     *   - IdentityActorDirectory: supplies the department and teams that scope
+     *     resolution itself needs. Gating it would require resolving the gate.
+     *   - UserRoleDirectory: reads a user's role rows for the same resolution.
      */
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
-            noClasses().that().resideInAnyPackage("co.ara.onboarding.customer..",
-                                                  "co.ara.onboarding.identity..",
-                                                  "co.ara.onboarding.auth..")
-                .and().haveSimpleNameEndingWith("Service")
+            noClasses().that()
+                .haveSimpleNameEndingWith("Service").or().haveSimpleNameEndingWith("Directory")
+                .and().resideInAnyPackage("co.ara.onboarding.customer..",
+                                          "co.ara.onboarding.identity..",
+                                          "co.ara.onboarding.auth..",
+                                          "co.ara.onboarding.workflow..",
+                                          "co.ara.onboarding.journey..")
                 // Same exclusion: authentication runs with no actor and platform_admin
                 // is not tenant-scoped, so there is no scope for AuthorizedQuery to
                 // apply -- it could not be used here even in principle.
@@ -184,6 +214,14 @@ class AuthorizationCoverageTest {
                 .and().areNotAssignableTo(ActivationService.class)
                 .and().areNotAssignableTo(PasswordResetService.class)
                 .and().areNotAssignableTo(MeService.class)
+                // Two exclusions, both category one -- runs before there is an actor
+                // to authorize. Excluded by class rather than by name pattern, same
+                // as the exclusions above: a second class that happens to end in
+                // "Directory" would not inherit the exemption.
+                .and().doNotHaveFullyQualifiedName(
+                        "co.ara.onboarding.identity.IdentityActorDirectory")
+                .and().doNotHaveFullyQualifiedName(
+                        "co.ara.onboarding.authz.UserRoleDirectory")
                 .should().callMethodWhere(
                         (target(name("findAll"))
                          .or(target(name("findOne")))
@@ -194,6 +232,19 @@ class AuthorizationCoverageTest {
                         // as loudly as the bypass it exists to prevent. Excluding it by
                         // owner states the rule's real intent: reach finders THROUGH
                         // AuthorizedQuery, never around it.
-                        .and(not(target(owner(nameEndingWith("AuthorizedQuery"))))))
-                .because("reads must go through AuthorizedQuery so scope cannot be bypassed");
+                        .and(not(target(owner(nameEndingWith("AuthorizedQuery")))))
+                        // Task 21's one documented carve-out from the read invariant
+                        // itself, not merely from this name-shaped rule: journey.
+                        // TimelineService reaches audit_event through
+                        // audit.AuditQuery.findForResource, which resolves the CASE
+                        // through AuthorizedQuery first -- that resolution IS the
+                        // authorization -- then reads by exact (resource_type,
+                        // resource_id) rather than a scope-shaped query.
+                        // AuditEventDescriptor scopes by ACTOR, the wrong axis for a
+                        // case's shared history (see TimelineService's own javadoc),
+                        // which is why this reaches AuditQuery instead of
+                        // AuthorizedQuery like every other read in the codebase.
+                        .and(not(target(owner(nameEndingWith("AuditQuery"))))))
+                .because("reads must go through AuthorizedQuery so scope cannot be bypassed -- "
+                        + "except journey.TimelineService's one documented carve-out through audit.AuditQuery");
 }

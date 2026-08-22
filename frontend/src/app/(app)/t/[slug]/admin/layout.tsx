@@ -29,6 +29,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const canViewRoles = useHasPermission("role.view");
   const canManageDepartments = useHasPermission("department.manage");
   const canManageTeams = useHasPermission("team.manage");
+  const canViewWorkflows = useHasPermission("workflow.view");
 
   const tabs: { label: string; href: string }[] = [];
   if (canViewUsers) tabs.push({ label: t("admin.users.title"), href: `/t/${slug}/admin/users` });
@@ -36,6 +37,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   if (canManageDepartments || canManageTeams) {
     tabs.push({ label: t("admin.org.title"), href: `/t/${slug}/admin/org` });
   }
+  if (canViewWorkflows) tabs.push({ label: t("workflow.list.title"), href: `/t/${slug}/admin/workflows` });
 
   return (
     <>

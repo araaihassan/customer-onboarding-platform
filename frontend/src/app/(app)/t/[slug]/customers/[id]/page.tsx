@@ -2,11 +2,13 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { ContactList } from "@/components/customers/ContactList";
 import { CustomerForm } from "@/components/customers/CustomerForm";
 import type { CustomerFormValues } from "@/components/customers/CustomerForm";
-import { ArrowRightIcon, UsersIcon } from "@/components/icons";
+import { ArrowRightIcon, PlusIcon, UsersIcon } from "@/components/icons";
+import { CaseSwitcher } from "@/components/journey/CaseSwitcher";
+import { CreateCaseDialog } from "@/components/journey/CreateCaseDialog";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
@@ -15,6 +17,7 @@ import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ApiError } from "@/lib/api/client";
+import { useCases } from "@/lib/api/cases";
 import {
   shortId,
   useContacts,
@@ -33,18 +36,23 @@ import { t } from "@/lib/i18n";
  */
 export default function CustomerDetailPage() {
   const { slug, id } = useParams<{ slug: string; id: string }>();
+  const router = useRouter();
 
   const canEdit = useHasPermission("customer.edit");
   const canDeactivate = useHasPermission("customer.deactivate");
   const canViewContacts = useHasPermission("contact.view");
+  const canViewCases = useHasPermission("case.view");
+  const canCreateCase = useHasPermission("case.create");
 
   const { data: customer, isLoading, error, refetch } = useCustomer(id);
   const contacts = useContacts(id, canViewContacts);
+  const cases = useCases(id, canViewCases);
   const update = useUpdateCustomer();
   const deactivate = useDeactivateCustomer();
 
   const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [creatingCase, setCreatingCase] = useState(false);
 
   const notFound = error instanceof ApiError && error.status === 404;
 
@@ -184,6 +192,63 @@ export default function CustomerDetailPage() {
           </div>
         </div>
       </Card>
+
+      {canViewCases && (
+        <Card>
+          <h2
+            className="text-text-faint"
+            style={{
+              font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              marginBottom: "var(--ob-space-13)",
+            }}
+          >
+            {t("case.switcher.title")}
+          </h2>
+
+          {cases.isLoading ? (
+            <SkeletonRows rows={1} height={32} />
+          ) : cases.isError ? (
+            <p className="text-text-muted" style={{ font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}>
+              {t("common.error")}
+            </p>
+          ) : (cases.data ?? []).length === 0 ? (
+            <EmptyState
+              title={t("customer.cases.empty")}
+              description={t("customer.cases.emptyHint")}
+              action={
+                canCreateCase && (
+                  <Button type="button" variant="secondary" onClick={() => setCreatingCase(true)} style={{ gap: "var(--ob-space-6)" }}>
+                    <PlusIcon size={14} />
+                    {t("case.switcher.newCase")}
+                  </Button>
+                )
+              }
+            />
+          ) : (
+            <CaseSwitcher
+              cases={cases.data ?? []}
+              activeCaseId=""
+              slug={slug}
+              customerId={id}
+              canCreate={canCreateCase}
+              onCreateNew={() => setCreatingCase(true)}
+            />
+          )}
+        </Card>
+      )}
+
+      {creatingCase && (
+        <CreateCaseDialog
+          customerId={id}
+          onCancel={() => setCreatingCase(false)}
+          onCreated={(caseId) => {
+            setCreatingCase(false);
+            router.push(`/t/${slug}/customers/${id}/cases/${caseId}`);
+          }}
+        />
+      )}
 
       {canViewContacts && (
         <ContactList

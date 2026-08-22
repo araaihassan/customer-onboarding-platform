@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { BuildingIcon, LayersIcon, PlusIcon } from "@/components/icons";
+import { TeamMembers } from "@/components/admin/TeamMembers";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -14,7 +15,7 @@ import {
   useDepartments,
   useTeams,
 } from "@/lib/api/admin";
-import type { Department } from "@/lib/api/admin";
+import type { Department, Team } from "@/lib/api/admin";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
@@ -44,6 +45,7 @@ export default function OrgPage() {
   const createTeam = useCreateTeam();
 
   const [creating, setCreating] = useState<"department" | "team" | null>(null);
+  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
 
   useSetPageHeader(t("admin.org.title"));
 
@@ -148,20 +150,37 @@ export default function OrgPage() {
           ) : (
             <ul className="flex flex-col">
               {teams.data?.map((team) => (
-                <Row
+                <li
                   key={team.id}
-                  name={team.name ?? ""}
-                  detail={
-                    // The owning department, resolved to its name — a raw uuid in
-                    // a list of teams is an identifier nobody can act on.
-                    [
+                  onClick={() => setSelectedTeam(team)}
+                  className="border-t border-border-subtle first:border-t-0 cursor-pointer hover:bg-bg-hover"
+                  style={{ padding: "var(--ob-space-10) 0" }}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <p
+                    className="truncate text-text-primary"
+                    style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+                  >
+                    {team.name}
+                  </p>
+                  {(() => {
+                    const detail = [
                       team.description,
                       departments.data?.find((d) => d.id === team.departmentId)?.name,
                     ]
                       .filter(Boolean)
-                      .join(" · ")
-                  }
-                />
+                      .join(" · ");
+                    return detail ? (
+                      <p
+                        className="truncate text-text-muted"
+                        style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+                      >
+                        {detail}
+                      </p>
+                    ) : null;
+                  })()}
+                </li>
               ))}
             </ul>
           )}
@@ -184,6 +203,12 @@ export default function OrgPage() {
           )}
         </Card>
       </div>
+
+      {selectedTeam && (
+        <div style={{ marginTop: "var(--ob-space-20)" }}>
+          <TeamMembers team={selectedTeam} />
+        </div>
+      )}
 
       {creating === "department" && (
         <Dialog title={t("admin.departments.create")} onClose={() => setCreating(null)}>

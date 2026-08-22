@@ -240,6 +240,15 @@ public class TenantFixture {
         return customers.saveAndFlush(c).getId();
     }
 
+    /**
+     * A customer owned by exactly one user, for exercising ASSIGNED scope without
+     * naming a department or team. Equivalent to {@link #createCustomer} with only
+     * ownerUserId set. Must be called inside {@link #runAs}.
+     */
+    public UUID createCustomerOwnedBy(UUID tenantId, String displayName, UUID ownerUserId) {
+        return createCustomer(tenantId, displayName, ownerUserId, null, null);
+    }
+
     /** An ACTIVE contact with no linked portal user yet. Must be called inside {@link #runAs}. */
     public UUID createContact(UUID tenantId, UUID customerId, String email) {
         CustomerContact c = new CustomerContact();

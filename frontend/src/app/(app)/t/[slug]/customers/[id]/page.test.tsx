@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setTenantSlug } from "@/lib/api/client";
+import type { Case } from "@/lib/api/cases";
 import type { Contact, Customer } from "@/lib/api/customers";
 
 let permissions: Record<string, string[]> = {};
@@ -66,6 +67,8 @@ let customerStatus = 200;
 let contactsStatus = 200;
 /** What a write answers, so the failure paths are reachable. */
 let mutationStatus = 200;
+/** The customer's cases, independently of contacts and the customer record itself. */
+let cases: Case[] = [];
 
 function jsonReply(body: unknown, status = 200) {
   return {
@@ -96,9 +99,16 @@ beforeEach(() => {
   contactsStatus = 200;
   mutationStatus = 200;
   fetchMock.mockReset();
+  cases = [];
   fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
     if (url.endsWith("/contacts")) {
       return contactsStatus === 200 ? jsonReply(contacts) : jsonReply({}, contactsStatus);
+    }
+    if (url.endsWith("/cases")) {
+      return jsonReply(cases);
+    }
+    if (url.endsWith("/workflows")) {
+      return jsonReply([]);
     }
     if (url.includes("/deactivate")) {
       return mutationStatus === 200 ? jsonReply(undefined, 204) : jsonReply({}, mutationStatus);
@@ -306,5 +316,30 @@ describe("CustomerDetailPage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByText("Northwind Foods Holdings Ltd")).not.toBeNull());
     expect(fetchMock.mock.calls.some((c) => (c[0] as string).endsWith("/contacts"))).toBe(false);
+  });
+
+  it("shows the empty state and a create action when the customer has no cases", async () => {
+    permissions = { "customer.view": ["ALL"], "case.view": ["ALL"], "case.create": ["ALL"] };
+    cases = [];
+    renderPage();
+
+    await waitFor(() => expect(screen.getByText("No cases yet")).not.toBeNull());
+    expect(screen.getByRole("button", { name: /new case/i })).not.toBeNull();
+  });
+
+  it("lists the customer's existing cases instead of the empty state", async () => {
+    permissions = { "customer.view": ["ALL"], "case.view": ["ALL"] };
+    cases = [{ id: "case-1", currentStageName: "Registration", status: "ACTIVE" }];
+    renderPage();
+
+    await waitFor(() => expect(screen.getByRole("link", { name: /Registration/ })).not.toBeNull());
+    expect(screen.queryByText("No cases yet")).toBeNull();
+  });
+
+  it("does not ask for cases at all without case.view", async () => {
+    permissions = { "customer.view": ["ALL"] };
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Northwind Foods Holdings Ltd")).not.toBeNull());
+    expect(fetchMock.mock.calls.some((c) => (c[0] as string).endsWith("/cases"))).toBe(false);
   });
 });

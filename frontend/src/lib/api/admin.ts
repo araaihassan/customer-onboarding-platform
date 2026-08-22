@@ -19,6 +19,7 @@ export type User = components["schemas"]["UserView"];
 export type UserPage = components["schemas"]["PageUserView"];
 export type Department = components["schemas"]["DepartmentView"];
 export type Team = components["schemas"]["TeamView"];
+export type TeamMember = components["schemas"]["TeamMemberView"];
 export type CreateUserRequest = components["schemas"]["CreateUserRequest"];
 export type RoleRequest = components["schemas"]["RoleRequest"];
 
@@ -36,6 +37,7 @@ export const adminKeys = {
     [...adminKeys.all, "users", search.trim(), page] as const,
   departments: () => [...adminKeys.all, "departments"] as const,
   teams: () => [...adminKeys.all, "teams"] as const,
+  teamMembers: (teamId: string) => [...adminKeys.all, "teams", teamId, "members"] as const,
 };
 
 /**
@@ -222,6 +224,39 @@ export function useCreateTeam() {
       apiFetch<Team>("/admin/teams", { method: "POST", body: JSON.stringify(body) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: adminKeys.teams() });
+    },
+  });
+}
+
+export function useTeamMembers(teamId: string, enabled = true) {
+  return useQuery({
+    queryKey: adminKeys.teamMembers(teamId),
+    queryFn: () => apiFetch<TeamMember[]>(`/admin/teams/${teamId}/members`),
+    enabled,
+  });
+}
+
+export function useAddTeamMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
+      apiFetch<void>(`/admin/teams/${teamId}/members`, {
+        method: "POST",
+        body: JSON.stringify({ userId }),
+      }),
+    onSuccess: (_data, { teamId }) => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.teamMembers(teamId) });
+    },
+  });
+}
+
+export function useRemoveTeamMember() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ teamId, userId }: { teamId: string; userId: string }) =>
+      apiFetch<void>(`/admin/teams/${teamId}/members/${userId}/remove`, { method: "POST" }),
+    onSuccess: (_data, { teamId }) => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.teamMembers(teamId) });
     },
   });
 }

@@ -4,6 +4,7 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.identity.AppUser;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -27,6 +28,60 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * here is a request the interface would never have offered.
  */
 class DirectApiAccessTest extends SecurityTestBase {
+
+    @Autowired
+    private org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping handlerMapping;
+
+    /**
+     * Derived, not typed. Sub-project 1's hand-written list of this test's endpoints
+     * was eleven endpoints short of the controllers that existed, which is the exact
+     * failure mode CLAUDE.md warns about: a guard is only as wide as its enumeration.
+     *
+     * Every mapping under /api/t/{tenantSlug}/ that is not a public auth endpoint must
+     * refuse an unauthenticated caller. A new controller is covered the moment it is
+     * written, with nothing to remember.
+     */
+    @Test
+    void everyTenantScopedEndpointRejectsAnonymousAccess() throws Exception {
+        // Must exist and be ACTIVE: TenantContextFilter resolves {tenantSlug} to a
+        // tenant row before Spring Security's chain runs at all, and an unresolvable
+        // slug 404s right there (spec 6.8 -- unknown tenant is indistinguishable from
+        // one the caller may not see). Probing a slug nobody created would test tenant
+        // resolution, not authorization: every request would 404 regardless of auth.
+        fixture.createTenant("anon-probe");
+
+        var failures = new java.util.ArrayList<String>();
+
+        for (var entry : handlerMapping.getHandlerMethods().entrySet()) {
+            var patterns = entry.getKey().getPathPatternsCondition();
+            if (patterns == null) continue;
+            for (var pattern : patterns.getPatterns()) {
+                String path = pattern.getPatternString();
+                if (!path.startsWith("/api/t/{tenantSlug}/")) continue;
+                if (path.startsWith("/api/t/{tenantSlug}/auth/")) continue;   // public by design
+
+                var methods = entry.getKey().getMethodsCondition().getMethods();
+                var httpMethod = methods.isEmpty()
+                        ? org.springframework.http.HttpMethod.GET
+                        : org.springframework.http.HttpMethod.valueOf(methods.iterator().next().name());
+
+                String concrete = path.replace("{tenantSlug}", "anon-probe")
+                                      .replaceAll("\\{[^}]+}", UUID.randomUUID().toString());
+
+                int status = mvc.perform(MockMvcRequestBuilders.request(httpMethod, concrete)
+                                .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                        .andReturn().getResponse().getStatus();
+
+                if (status != 401 && status != 403) {
+                    failures.add(httpMethod + " " + path + " answered " + status);
+                }
+            }
+        }
+
+        assertThat(failures)
+                .as("every tenant-scoped endpoint must refuse an anonymous caller")
+                .isEmpty();
+    }
 
     @Test
     void portalUserIsForbiddenFromInternalSurfaces() throws Exception {

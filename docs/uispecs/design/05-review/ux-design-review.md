@@ -17,6 +17,7 @@ The original files are preserved as `Onboarding Platform.dc.html.orig` and
 | 1 | 7 of 24 colour pairs fail WCAG AA; the worst is the most-used colour in the UI | High | **Fixed** |
 | 1b | Dark theme never measured: 13 of 17 pairs fail, incl. the rail invisible against the page | High | **Fixed** (Task R1) |
 | 1c | That audit was all-neutral: 10 more fail, incl. the dark primary button at 1.53:1 | High | **Fixed** (R1 fix round 1) |
+| 1d | Light theme never run through `report_shipped`: 9 of 49 pairs fail, all non-text borders | High | **Fixed** (sub-project 2, Task 2) |
 | 2 | No focus indicator anywhere — the whole UI is keyboard-invisible | High | **Fixed** |
 | 3 | Icon-only controls have no accessible name | High | **Fixed** |
 | 4 | 50 colour literals with unintended near-duplicates, no token layer | Medium | **Fixed** |
@@ -162,28 +163,44 @@ role means adding a line to it.
   now draws `border-right: 1px solid var(--ob-graphic-muted)`, which is one value in both themes
   as the rail is, and clears 3:1 against everything it touches: 5.17:1 on the rail, 5.70:1 on the
   dark page, 3.17:1 on the light page.
-- **`border-default` is now much louder in dark (4.57:1) than in light (1.28:1).** The light
-  value has the same 1.4.11 exposure and was never flagged; parity and 3:1 cannot both hold. The
-  complete fix is a separate `border-control` token in both themes, and it is **feasible with the
-  palette as it stands** — `paper-600` measures 3.43:1 on white and 3.52:1 on the worst dark
-  ground, so one value clears 3:1 in both. Deferred, not blocked. `accent-weak` fails in light for
-  the same reason (`indigo-300` on white, 1.35:1) and belongs with it, as does enabling
-  `report_shipped("light")` in `contrast.py`.
-- **The light theme's exposure was under-counted here, and `report_shipped("light")` has since been
-  run: 9 of 49 pairs fail, not two.** Beyond `border-default` (which fails on *all four* grounds,
-  1.15–1.28) and `accent-weak` (1.53), the failures are `accent-tint-border` on tint 1.06,
-  `solid-at-risk` on surface 2.54, `border-strong` 1.44 and `border-dashed` 1.68. **No text pair
-  fails** — every one is non-text under 1.4.11, which is why the frontend's axe sweep in both
-  themes came back clean and proved nothing about them: axe's default rule set has a
+- **Fixed (sub-project 2, Task 2): the light theme is now measured, and every failure it had is
+  fixed.** `report_shipped("light")` was never run through R1/R1 fix round 1 — this section
+  originally flagged only two suspected failures by inspection (`border-default`, `accent-weak`).
+  Actually running it at the close of sub-project 1 found **9 of 49 pairs failing**, not two:
+
+  | Pair | Ground(s) | Before | After |
+  |------|-----------|-------:|------:|
+  | `accent-tint-border` on tint | `accent-tint` | 1.06 | 3.51 |
+  | `accent-weak` on surface | `bg-surface` | 1.53 | 4.07 |
+  | `solid-at-risk` on surface | `bg-surface` | 2.54 | 3.21 |
+  | `border-default` on all 4 grounds | page/surface/subtle/inset | 1.15–1.28 | 3.07–3.43 |
+  | `border-strong` on surface | `bg-surface` | 1.44 | 3.43 |
+  | `border-dashed` on surface | `bg-surface` | 1.68 | 3.43 |
+
+  **No text pair failed** — every one is non-text under 1.4.11, which is why the frontend's axe
+  sweep in both themes came back clean and proved nothing about them: axe's default rule set has a
   `color-contrast` rule for text and no non-text contrast rule at all. Light is also the *default*
-  theme in the application (`defaultTheme="system"`), so this is the shipped default rendering.
-  Fix all nine in one pass with the `border-control` work above.
+  theme in the application (`defaultTheme="system"`), so this was the shipped default rendering.
+
+  The fix, in `build_tokens.py`: `border-default`, `border-strong` and `border-dashed` now all
+  resolve to `paper-600` in **both** themes — the same collapse dark went through in 1c, for the
+  same reason (nothing lighter on the ramp clears 3:1 against the surfaces they sit on).
+  `accent-tint-border` and `accent-weak` move to `indigo-400`, which dark already used for
+  `accent-weak` for the identical reason ("a chart series is a graphic required to understand the
+  content"). `solid-at-risk` moves to a new `amber-600` primitive (`amber-500` stays untouched,
+  since the dark theme's `at-risk` wash still reads it) — the least darkening that clears light's
+  3:1 while still clearing dark's with room to spare (4.89:1, down from 6.17:1).
+  `text-faint`/`text-disabled` and `paper-600` itself were left alone, per the standing note above
+  §1's derivation. `report_shipped("light")` now runs unconditionally alongside `report_shipped
+  ("dark")` in `contrast.py`'s `__main__`, and a non-zero failure count in either exits non-zero —
+  this can no longer regress silently.
 - **`text-secondary` (`paper-400`) sits at 12.24:1 on `bg-surface`**, much closer to
   `text-primary` (14.51) than the light theme's equivalent (8.81 vs 17.39). It passes, so it was
   left alone, but the dark ramp is compressed at the top and a visual review should revisit it.
 
-Still open: the dark theme has never been reviewed *visually* at screen level. Contrast is now
-proven; composition, weight and hierarchy are not.
+Still open: neither theme has been reviewed *visually* at screen level. Contrast is now proven —
+`report_shipped` runs unconditionally for both themes and fails the build on any regression —
+composition, weight and hierarchy are not.
 
 ## 2. No focus indicator
 

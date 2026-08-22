@@ -52,6 +52,7 @@
   --ob-amber-200: oklch(0.9 0.05 70);  /* #f4d9bb */
   --ob-amber-300: oklch(0.86 0.09 70);  /* #f7c790 */
   --ob-amber-500: oklch(0.72 0.14 70);  /* #dc932e */
+  --ob-amber-600: oklch(0.66 0.14 70);  /* #c8800d */
   --ob-amber-700: oklch(0.46 0.14 70);  /* #874500 */
 
   --ob-red-100: oklch(0.96 0.04 25);  /* #ffe8e4 */
@@ -200,11 +201,11 @@
   --ob-bg-rail: var(--ob-slate-950);  /* navigation rail */
   --ob-bg-rail-raised: var(--ob-slate-800);  /* active rail item */
   --ob-bg-overlay: var(--ob-paper-0);  /* popovers, notification panel */
-  --ob-border-default: var(--ob-paper-400);  /* card and control borders */
+  --ob-border-default: var(--ob-paper-600);  /* card and control borders */
   --ob-border-subtle: var(--ob-paper-150);  /* table row dividers */
   --ob-border-panel: var(--ob-paper-300);  /* expanded panel dividers */
-  --ob-border-strong: var(--ob-paper-450);  /* open milestone, emphasis */
-  --ob-border-dashed: var(--ob-paper-550);  /* dropzones, add affordances */
+  --ob-border-strong: var(--ob-paper-600);  /* open milestone, emphasis */
+  --ob-border-dashed: var(--ob-paper-600);  /* dropzones, add affordances */
   --ob-text-primary: var(--ob-paper-950);  /* headings, table values */
   --ob-text-secondary: var(--ob-paper-900);  /* body, stage labels */
   --ob-text-muted: var(--ob-paper-800);  /* supporting copy, meta */
@@ -216,9 +217,9 @@
   --ob-accent: var(--ob-indigo-600);  /* primary action, active state */
   --ob-accent-hover: var(--ob-indigo-700);  /* primary action hover */
   --ob-accent-tint: var(--ob-indigo-100);  /* selection ring, rule strips */
-  --ob-accent-tint-border: var(--ob-indigo-200);  /* edge of tinted panels */
+  --ob-accent-tint-border: var(--ob-indigo-400);  /* edge of tinted panels */
   --ob-accent-ink: var(--ob-indigo-800);  /* text on accent tint, links */
-  --ob-accent-weak: var(--ob-indigo-300);  /* earlier periods in charts */
+  --ob-accent-weak: var(--ob-indigo-400);  /* earlier periods in charts */
 
   --ob-status-on-track-bg: var(--ob-green-100);
   --ob-status-on-track-fg: var(--ob-green-700);  /* Designed, On track, Signed, Completed */
@@ -232,7 +233,7 @@
   --ob-status-neutral-fg: var(--ob-paper-800);  /* Pending, Waiting, Draft, low priority */
 
   --ob-solid-on-track: var(--ob-green-500);  /* completed milestone circle, healthy bar */
-  --ob-solid-at-risk: var(--ob-amber-500);  /* bottleneck bar, warning dot */
+  --ob-solid-at-risk: var(--ob-amber-600);  /* bottleneck bar, warning dot */
   --ob-solid-blocked: var(--ob-red-500);  /* notification badge, blocked circle */
 
   /* ==================================================== component layer */

@@ -83,9 +83,13 @@ such in `tokens.css`:
   round 1 at the same `L=0.86`, with the most chroma the sRGB gamut allows per hue. A `500` is a
   mid-tone, and over a low-alpha wash of its own hue on a dark surface it measured 3.33 / 4.38 /
   2.65:1 — so the dark status pills used to fail on three of five roles.
-- **`indigo-400` (`#6777d3`)** is the dark theme's `accent-weak`. A chart series is a graphic
-  required to understand the content, so it owes 3:1 against `bg-surface`; `indigo-800` gave
-  1.77:1.
+- **`indigo-400` (`#6777d3`)** is `accent-weak` in **both** themes now, and light's
+  `accent-tint-border` too. A chart series is a graphic required to understand the content, so it
+  owes 3:1 against `bg-surface`; dark's `indigo-800` gave 1.77:1, light's `indigo-300` gave 1.53:1.
+- **`amber-600` (`#c8800d`)** exists only for `solid-at-risk`, which shares one value across both
+  themes. `amber-500` was 2.54:1 on light `bg-surface` — under 1.4.11's 3:1 — so this is the least
+  darkening that clears it (3.21:1) without touching `amber-500` itself, which the dark `at-risk`
+  status wash still reads.
 
 `text-faint` and `text-disabled` resolve to the same value in **both** themes — `paper-700` in
 light, `paper-580` in dark. That is not an oversight: neither palette has room for a third
@@ -128,21 +132,23 @@ knowing:
   `slate-950`, so the rail dissolved into the canvas at 1.00:1. Honest ceiling — even a pure
   black page is only 1.17:1 against `slate-950`, so this edge is 1.10:1 and can never be strong.
   A rail that needs a hard edge needs a border on the component, which is not a token decision.
-- `border-default`, `border-strong` and `border-dashed` resolve to `paper-600` in dark, not
-  `slate-700`. `slate-700` gave 1.30:1 against `bg-surface`, below 1.4.11's 3:1 for anything
-  required to identify a control, and all three already shared one value there — so lifting only
-  `border-default` would have made "strong" weaker than "default". The row dividers
-  (`border-subtle`, `border-panel`) stay on `slate-800`: a row rule identifies nothing.
-  **Known asymmetry:** the *light* `border-default` (`paper-400` on `paper-0`) is 1.28:1, the
-  same design decision, and was never flagged. The complete fix is a separate `border-control`
-  token applied in both themes; that is a design change beyond this pass and is not done.
+- `border-default`, `border-strong` and `border-dashed` resolve to `paper-600` in **both** themes
+  now, not `slate-700` / the lighter paper steps they used to carry. `slate-700` gave 1.30:1
+  against dark `bg-surface`, below 1.4.11's 3:1 for anything required to identify a control, and
+  all three already shared one value there in dark — so lifting only `border-default` would have
+  made "strong" weaker than "default". Light was fixed the same way in sub-project 2 Task 2, once
+  `report_shipped("light")` found the same shape of failure there (see "Measuring it" below). The
+  row dividers (`border-subtle`, `border-panel`) stay on `slate-800` / their light values: a row
+  rule identifies nothing, so 1.4.11 does not reach it.
 
 - `text-on-accent` **inverts**: `paper-0` in light, `paper-950` in dark. The dark accent is a pale
   `indigo-300` fill, so white on it measured 1.53:1 — the standard dark-theme pattern is a bright
   fill with a dark label. `text-on-solid` was split out from it at the same time: both are white
   in light, so one token served both, but the *solid* status fills do not invert, and riding on
   `text-on-accent` would have put near-black on `solid-blocked` at 3.43:1.
-- `accent-tint-border` is `paper-600` in dark, not `slate-700`, which was 1.15:1 on the tint.
+- `accent-tint-border` is `paper-600` in dark (not `slate-700`, which was 1.15:1 on the tint) and
+  `indigo-400` in light (not `indigo-200`, which was 1.06:1 on the light tint — `paper-600` doesn't
+  clear 3:1 there either, at 2.96:1, so light stays in the indigo family instead).
 
 ### Measuring it
 
@@ -154,14 +160,16 @@ knowing:
 | `SHIPPED_PAIRS` | Token **names**, resolved through `build_tokens.py` | Live. Fix it. |
 
 `SHIPPED_PAIRS` resolves names rather than repeating hex values, so the audit cannot drift from the
-generator it audits. Run for **dark** by default: 49 pairs covering body text on all four grounds,
-the rail (including its `.72` and `.5` opacities), the accent roles, all five status pills on both
-the card and the hovered row, the solids, and the borders. Translucent dark status fills are
-composited onto the surface beneath them first, the way a browser — and axe — does.
+generator it audits. `report_shipped` runs unconditionally for **both** themes on every invocation
+of `contrast.py`, and a non-zero failure count in either exits the process non-zero: 49 pairs
+covering body text on all four grounds, the rail (including its `.72` and `.5` opacities), the
+accent roles, all five status pills on both the card and the hovered row, the solids, and the
+borders. Translucent dark status fills are composited onto the surface beneath them first, the way
+a browser — and axe — does.
 
-**The shipped *light* tokens are measured by nothing**, and the cost of that is larger than the two
-failures this paragraph used to name. `report_shipped("light")` was run at the close of
-sub-project 1 and reports **9 of 49 pairs failing**, not one:
+**The shipped *light* tokens were measured by nothing until sub-project 2 Task 2.**
+`report_shipped("light")` was run at the close of sub-project 1 and found **9 of 49 pairs failing**,
+not one:
 
 ```
 accent-tint-border on tint  1.06    border-default on page     1.19
@@ -171,17 +179,18 @@ border-strong on surface    1.44    border-default on inset    1.15
 border-dashed on surface    1.68                        (all need 3.0:1)
 ```
 
-**No text pair fails.** All nine are non-text graphics under 1.4.11 — which is exactly why nothing
-caught them: axe's default rule set evaluates `color-contrast` for *text* and carries no non-text
-contrast rule, so the frontend's clean axe run in both themes measured a different property from
-the one failing here. And light is the **default** theme (`ThemeProvider` uses
-`defaultTheme="system"`), so this is the default rendering, not an alternate one.
+**No text pair failed.** All nine were non-text graphics under 1.4.11 — which is exactly why
+nothing caught them: axe's default rule set evaluates `color-contrast` for *text* and carries no
+non-text contrast rule, so the frontend's clean axe run in both themes measured a different
+property from the one failing here. And light is the **default** theme (`ThemeProvider` uses
+`defaultTheme="system"`), so this was the default rendering, not an alternate one.
 
-The fix is the one applied to dark in §1b: move the tokens in `build_tokens.py`, regenerate, copy
-`tokens.css` and `tailwind.css` across to `frontend/src/app/`, and enable `report_shipped("light")`
-in the same change. `paper-600` clears 3:1 on every light ground, so the palette does not block it.
-Note `contrast.py`'s `__main__` banner still says "the known, deferred `border-default` at 1.28:1";
-that wording predates the run above.
+**Fixed, the same way dark was in §1b/§1c:** `border-default`, `border-strong` and `border-dashed`
+now resolve to `paper-600` in light too (it clears 3:1 on every light ground: 3.07–3.43);
+`accent-tint-border` and `accent-weak` move to `indigo-400` (3.51 / 4.07, the same value dark
+already used for `accent-weak`); `solid-at-risk` moves to a new `amber-600` (3.21), leaving
+`amber-500` untouched since dark's `at-risk` wash still reads it. `report_shipped("light")` is no
+longer optional — see `05-review/ux-design-review.md` §1d for the full before/after table.
 
 `PRD.md` §16 asks for light/dark theming; the prototype only ever showed light plus a rail
 variant. **Task R1 was the dark theme's first review, and it was measured rather than eyeballed.**

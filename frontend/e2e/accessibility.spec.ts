@@ -22,6 +22,9 @@ import type { Tenant } from "./support/tenant";
  */
 let tenant: Tenant;
 let customerId: string;
+let caseId: string;
+let builderTemplateId: string;
+let builderVersionId: string;
 
 test.beforeAll(async ({ playwright }) => {
   const request = await apiContext(playwright);
@@ -30,6 +33,24 @@ test.beforeAll(async ({ playwright }) => {
   const customer = await admin.createCustomer("Tailspin Toys");
   customerId = customer.id;
   await admin.createContact(customerId, "Robin Ash", `robin@${tenant.slug}.test`);
+
+  // A published workflow with a real case against it, so the journey
+  // workspace sweep hits the roadmap's milestone rows rather than the "no
+  // cases" empty state.
+  const { templateId } = await admin.publishMinimalWorkflow("Onboarding");
+  const openCase = await admin.createCase(customerId, templateId);
+  caseId = openCase.id;
+
+  // A second template, left as a draft, so the builder sweep hits the real
+  // editor -- inspector, switches, branch-rule affordance -- rather than a
+  // frozen, read-only version.
+  builderTemplateId = (await admin.createWorkflowTemplate("Onboarding Draft")).id;
+  const draft = await admin.createDraftVersion(builderTemplateId);
+  builderVersionId = draft.versionId;
+  await admin.saveDraft(builderTemplateId, builderVersionId, {
+    stages: [{ key: "stage-1", name: "Registration", milestones: [{ key: "milestone-1", name: "Registration" }] }],
+  });
+
   await request.dispose();
 });
 
@@ -127,6 +148,50 @@ for (const theme of THEMES) {
       expect(describeViolations(violations)).toBe("");
     });
   });
+}
+
+/**
+ * Task 28's own widths: 1440 (design canon), 1280 and 1024 (the two
+ * breakpoints this task adds), 768 (below both, to prove nothing collapses
+ * further down). Axe's default rule set evaluates `color-contrast` for TEXT
+ * and has no non-text rule -- so a clean run here says nothing about a
+ * border or a status circle's fill; that is `contrast.py`'s
+ * `report_shipped` job, not this one's, and the two are not substitutes.
+ */
+const RESPONSIVE_WIDTHS = [1440, 1280, 1024, 768] as const;
+
+for (const width of RESPONSIVE_WIDTHS) {
+  for (const theme of THEMES) {
+    test.describe(`${theme} theme at ${width}px`, () => {
+      test("journey workspace has no axe violations", async ({ page }) => {
+        await useTheme(page, theme);
+        await page.setViewportSize({ width, height: 900 });
+        await signIn(page, tenant.slug, tenant.adminEmail);
+        await page.goto(`/t/${tenant.slug}/customers/${customerId}/cases/${caseId}`);
+        await expect(page.getByRole("heading", { name: "Tailspin Toys" })).toBeVisible();
+        await expect(page.getByTestId("milestone-row").first()).toBeVisible();
+        await assertTheme(page, theme);
+
+        const violations = await scan(page);
+        expect(describeViolations(violations)).toBe("");
+      });
+
+      test("workflow builder has no axe violations", async ({ page }) => {
+        await useTheme(page, theme);
+        await page.setViewportSize({ width, height: 900 });
+        await signIn(page, tenant.slug, tenant.adminEmail);
+        await page.goto(`/t/${tenant.slug}/admin/workflows/${builderTemplateId}/versions/${builderVersionId}`);
+        await expect(page.getByText("Registration").first()).toBeVisible();
+        // The editor, not merely the list of stages: opens the inspector so
+        // its fields and switches are part of what gets swept.
+        await page.getByText("Registration").first().click();
+        await assertTheme(page, theme);
+
+        const violations = await scan(page);
+        expect(describeViolations(violations)).toBe("");
+      });
+    });
+  }
 }
 
 /**

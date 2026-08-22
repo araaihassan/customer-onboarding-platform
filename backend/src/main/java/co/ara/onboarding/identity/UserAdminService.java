@@ -187,13 +187,14 @@ public class UserAdminService {
      * anyone in the tenant, at any scope. @RequirePermission cannot close that,
      * because it never sees the argument.
      *
-     * What this does NOT close, deliberately: the actor can still assign a role
-     * wider than their own to a user they legitimately manage — including
-     * themselves. Refusing a role whose grants exceed the caller's, or requiring
-     * role.manage to assign at all, is a policy decision with real consequences for
-     * delegation, and inventing one here would be guessing. Recorded as a known
-     * limitation in CLAUDE.md and in the sub-project 1 plan; it belongs to
-     * sub-project 2's tenant-administration work.
+     * The escalation this method could not close on its own -- the actor assigning
+     * a role wider than their own, to a user they legitimately manage, including
+     * themselves -- is refused one layer down: RoleService.assignRole's
+     * refuseEscalation compares every grant on the target role against the
+     * caller's own effective permissions and rejects the whole role rather than
+     * assigning it partially. That was the known limitation recorded here, in
+     * CLAUDE.md and in the sub-project 1 plan; sub-project 2's Task 4 is the
+     * tenant-administration work that closed it.
      */
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
