@@ -3,8 +3,10 @@ package co.ara.onboarding.journey;
 import co.ara.onboarding.authz.RelationshipType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.TenantFixture;
+import co.ara.onboarding.workflow.AttributeType;
 import co.ara.onboarding.workflow.MilestoneDefinition;
 import co.ara.onboarding.workflow.MilestoneDefinitionRepository;
+import co.ara.onboarding.workflow.PublishService;
 import co.ara.onboarding.workflow.RequirementDefinition;
 import co.ara.onboarding.workflow.RequirementDefinitionRepository;
 import co.ara.onboarding.workflow.RequirementKind;
@@ -12,6 +14,9 @@ import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
 import co.ara.onboarding.workflow.TemplateStatus;
 import co.ara.onboarding.workflow.VersionStatus;
+import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
+import co.ara.onboarding.workflow.WorkflowDefinitionRequest.AttributeRequest;
+import co.ara.onboarding.workflow.WorkflowService;
 import co.ara.onboarding.workflow.WorkflowTemplate;
 import co.ara.onboarding.workflow.WorkflowTemplateRepository;
 import co.ara.onboarding.workflow.WorkflowVersion;
@@ -19,8 +24,13 @@ import co.ara.onboarding.workflow.WorkflowVersionRepository;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
+import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
+import static co.ara.onboarding.workflow.WorkflowFixtures.stage;
 
 /**
  * Case-creation boilerplate shared by JourneyScopingTest's five descriptor tests
@@ -44,6 +54,8 @@ public class JourneyFixtures {
     private final MilestoneDefinitionRepository milestoneDefinitions;
     private final RequirementDefinitionRepository requirementDefinitions;
     private final TenantFixture tenantFixture;
+    private final WorkflowService workflows;
+    private final PublishService publishService;
     private final AtomicInteger stageOrdinal = new AtomicInteger();
 
     public JourneyFixtures(CaseRepository cases, CaseParticipantRepository participants,
@@ -52,7 +64,8 @@ public class JourneyFixtures {
                            WorkflowVersionRepository versions, StageRepository stages,
                            MilestoneDefinitionRepository milestoneDefinitions,
                            RequirementDefinitionRepository requirementDefinitions,
-                           TenantFixture tenantFixture) {
+                           TenantFixture tenantFixture, WorkflowService workflows,
+                           PublishService publishService) {
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -64,6 +77,8 @@ public class JourneyFixtures {
         this.milestoneDefinitions = milestoneDefinitions;
         this.requirementDefinitions = requirementDefinitions;
         this.tenantFixture = tenantFixture;
+        this.workflows = workflows;
+        this.publishService = publishService;
     }
 
     /** A minimal, validly-pinned case with no ownership set. */
@@ -200,5 +215,86 @@ public class JourneyFixtures {
         p.setRelationship(relationship);
         p.setStatus(status);
         return participants.saveAndFlush(p).getId();
+    }
+
+    // ---- published-workflow builders (Task 13, reusable by Tasks 15/18/19/26/27) ----
+    //
+    // These call the live WorkflowService/PublishService rather than writing
+    // Stage/MilestoneDefinition/RequirementDefinition rows directly, so every
+    // fixture case is pinned to a version that genuinely passed PublishService's
+    // five validations -- the same graphs CaseEngine will actually be asked to run.
+
+    /**
+     * Three stages of two milestones each (durations 2 then 3 business days), one
+     * MANUAL requirement per milestone, no declared attributes. What
+     * CaseCreationTest.creatingACaseInstantiatesEveryMilestoneAndRequirement pins a
+     * case to. Returns the published version id.
+     */
+    public UUID publishedThreeStageWorkflow() {
+        UUID templateId = workflows.createTemplate("Fixture Three-Stage " + Uuid7.generate(), "").id();
+        UUID draftId = workflows.createDraft(templateId);
+
+        List<WorkflowDefinitionRequest.StageRequest> stageRequests = List.of(
+                threeStageEntry("s1", "Stage One"),
+                threeStageEntry("s2", "Stage Two"),
+                threeStageEntry("s3", "Stage Three"));
+        workflows.replaceDraft(draftId, new WorkflowDefinitionRequest(stageRequests, List.of(), 0L));
+        publishService.publish(draftId);
+        return draftId;
+    }
+
+    private WorkflowDefinitionRequest.StageRequest threeStageEntry(String key, String name) {
+        return stage(key, name, List.of(
+                milestone(key + "-m1", name + " Milestone One", 2, List.of(), List.of(manual("Do it"))),
+                milestone(key + "-m2", name + " Milestone Two", 3, List.of(), List.of(manual("Do it")))));
+    }
+
+    /** A single stage, single milestone, single requirement, no declared attributes. Already published. */
+    public UUID publishedTemplate() {
+        UUID templateId = workflows.createTemplate("Fixture Simple " + Uuid7.generate(), "").id();
+        UUID draftId = workflows.createDraft(templateId);
+        workflows.replaceDraft(draftId, new WorkflowDefinitionRequest(
+                List.of(stage("s1", "Stage One", List.of(
+                        milestone("m1", "Milestone One", 1, List.of(), List.of(manual("Do it")))))),
+                List.of(), 0L));
+        publishService.publish(draftId);
+        return templateId;
+    }
+
+    /**
+     * A single stage/milestone/requirement, plus a required ENUM "segment"
+     * attribute (allowed values ENTERPRISE, SMB) and an optional NUMBER
+     * "employeeCount" attribute -- for CaseCreationTest's attribute-validation
+     * scenarios. Already published. Returns the template id.
+     */
+    public UUID publishedTemplateWithSegmentAttribute() {
+        UUID templateId = workflows.createTemplate("Fixture Attributed " + Uuid7.generate(), "").id();
+        UUID draftId = workflows.createDraft(templateId);
+        List<AttributeRequest> attributes = List.of(
+                new AttributeRequest("segment", "Segment", AttributeType.ENUM, true,
+                        List.of("ENTERPRISE", "SMB")),
+                new AttributeRequest("employeeCount", "Employee Count", AttributeType.NUMBER, false, null));
+        workflows.replaceDraft(draftId, new WorkflowDefinitionRequest(
+                List.of(stage("s1", "Stage One", List.of(
+                        milestone("m1", "Milestone One", 1, List.of(), List.of(manual("Do it")))))),
+                attributes, 0L));
+        publishService.publish(draftId);
+        return templateId;
+    }
+
+    /** A template with a draft that is never published, for the "cannot start a case" path. */
+    public UUID draftOnlyTemplate() {
+        UUID templateId = workflows.createTemplate("Fixture Draft Only " + Uuid7.generate(), "").id();
+        UUID draftId = workflows.createDraft(templateId);
+        workflows.replaceDraft(draftId, new WorkflowDefinitionRequest(
+                List.of(stage("s1", "Stage One", List.of(
+                        milestone("m1", "Milestone One", 1, List.of(), List.of(manual("Do it")))))),
+                List.of(), 0L));
+        return templateId;
+    }
+
+    /** The template a published version belongs to. */
+    public UUID templateOf(UUID versionId) {
+        return versions.findById(versionId).orElseThrow().getTemplateId();
     }
 }

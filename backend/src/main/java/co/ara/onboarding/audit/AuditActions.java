@@ -68,6 +68,13 @@ public final class AuditActions {
     public static final AuditAction WORKFLOW_DRAFT_SAVED          = of("workflow.draft_saved", false);
     public static final AuditAction WORKFLOW_DRAFT_DISCARDED      = of("workflow.draft_discarded", false);
     public static final AuditAction WORKFLOW_PUBLISHED            = of("workflow.published", false);
+    // Timeline-visible for the same reason customer.* is: a case is the customer's
+    // own record, so opening one, changing its ownership/participants/attributes is
+    // exactly what the Activity Timeline exists to show.
+    public static final AuditAction CASE_CREATED               = of("case.created", true);
+    public static final AuditAction CASE_UPDATED               = of("case.updated", true);
+    public static final AuditAction CASE_PARTICIPANT_ADDED     = of("case.participant_added", true);
+    public static final AuditAction CASE_PARTICIPANT_REMOVED   = of("case.participant_removed", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
