@@ -5493,6 +5493,35 @@ nobody 'fixes' the internal query later."
 
 ## Task 22: Security negatives
 
+> **Amendment (executed verbatim, 2026-08-22):** three findings running this task.
+>
+> First, every new test that expected a 200 from `GET`/`POST .../advance` and
+> granted only the permission under test (`case.advance`, `case.view` at
+> `TEAM`/`ASSIGNED`) 404'd instead: `CaseView`'s `toView` reads the case's pinned
+> `Stage` under `WORKFLOW_VIEW`, not the permission the endpoint itself is gated
+> on. Same invariant `CaseEditTest`/`MilestoneEditTest` already document, hit
+> four more times here (`ChangedPermissionsTest` x2, `InsufficientScopeTest`,
+> `MultipleRolesTest`) -- every narrow role built for these tests now also grants
+> `WORKFLOW_VIEW` at `ALL`.
+>
+> Second, `.../milestones/{mid}/complete` is not in `CaseIsolationTest`'s probe
+> list -- Task 20 found no service method backs it and never built it; probing a
+> nonexistent endpoint would 404 for the wrong reason and prove nothing.
+>
+> Third, `CrossTenantAccessTest.java` was left unmodified. The Files list named it
+> alongside the four specs Step 2 actually describes changes for, but Step 2's own
+> text has no bullet for it, and `CaseIsolationTest.everyForeignIdAnswers404`
+> already covers the identical ground for every journey/workflow id -- the same
+> shape `CrossTenantAccessTest.customerOfAnotherTenantIsNotReachableByDirectId`
+> covers for customers. Adding a redundant case-flavoured probe to
+> `CrossTenantAccessTest` would duplicate `CaseIsolationTest` rather than add
+> coverage. `theTableIsInvisibleWithoutABoundTenant` (Step 1's third test) was
+> likewise left out: `RlsCoverageTest` already sweeps every tenant-owned table,
+> `onboarding_case`/`milestone`/`requirement` included, deny-by-default -- a
+> case-specific duplicate of that generic guard was not worth the added test.
+
+
+
 The eight specs in `security/` gain the cases this sub-project makes possible. Several were written earlier where they belonged (Task 11's narrow-scope write, Task 16's `write_scope`, Task 17's force-complete); this task covers what is left and is the review gate before any UI work.
 
 **Files:**
