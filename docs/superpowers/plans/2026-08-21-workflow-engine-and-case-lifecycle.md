@@ -4981,6 +4981,45 @@ under test."
 
 ## Task 19: Version migration
 
+> **Amendment (executed verbatim, 2026-08-22):** the plan gives `evaluate`'s
+> pseudocode but leaves `migrate` and its supporting helpers as prose
+> ("maps surviving milestones by (stage name, milestone name)... instantiates
+> anything new... marks orphaned future milestones SKIPPED... then reconciles").
+> Filling that in surfaced three things worth recording.
+>
+> First, `Milestone.milestoneDefinitionId` and `Requirement.requirementDefinitionId`
+> must be REMAPPED in place onto the target version's matching definition ids, not
+> merely left alone. `CaseEngine`'s progress and status computation (`progressOf`,
+> `weightedPercent`, `mandatorySettled`) all join through `c.getVersionId()`-scoped
+> definition lists; a milestone whose id still pointed at the OLD version's
+> definition would vanish from the roadmap and from progress entirely (silently
+> excluded, not merely mis-scored), and a not-yet-done milestone whose requirements
+> weren't remapped would read `mandatorySettled() == true` by vacuous default (every
+> requirement's definition lookup returns null and is skipped), completing itself on
+> the very next `reconcile()`. Requirements are matched to their new definition by
+> `label` within the milestone (there is no separate stable key on
+> `RequirementDefinition`); an unmatched old requirement is left un-remapped rather
+> than deleted, which is functionally identical to Task 17/18's "orphaned, not
+> deleted" rule since it is then silently ignored by the same lookups.
+>
+> Second, the CURRENT stage's due dates need explicit recomputation.
+> `CaseEngine.reconcile`'s `enterStage` -- the only place due dates are ever set --
+> only runs on an actual stage *transition*; a case's current stage was already
+> entered under the old version, so migrating never re-triggers it. `migrateOne`
+> duplicates `enterStage`'s cumulative-business-days rule for exactly that one
+> stage's still-open milestones (using the target version's durations), which is
+> what `migratingRecomputesDatesAndProgressAgainstTheNewDurations` needed to pass.
+>
+> Third, an unrelated fixture bug in `JourneyFixtures.publishNewVersion` (new in
+> this task): `WorkflowService.createDraft` already calls `replaceDraft` once
+> internally when copying an existing published version, bumping the fresh draft's
+> `lockVersion` from 0 to 1 before this fixture's own `replaceDraft` call ever runs.
+> Passing the caller's request through with a hardcoded `lockVersion` of 0 (as every
+> other fixture request literal in this file does) failed every test in this task
+> with `OptimisticLockingFailureException: Draft ... was modified by someone else`.
+> Fixed by reading the draft's actual current `lockVersion` before the second
+> `replaceDraft` call rather than trusting the request literal to know it.
+
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/journey/MigrationService.java`, `MigrationPreviewView.java`
 - Test: `backend/src/test/java/co/ara/onboarding/journey/MigrationTest.java`
