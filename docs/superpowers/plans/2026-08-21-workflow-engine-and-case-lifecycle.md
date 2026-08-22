@@ -3226,6 +3226,54 @@ the same way `JourneyFixtures` already does, and call the package-private engine
 directly since the tests share its package. See the amendment above Task 14's own
 heading for what else this run found.
 
+**Executor's amendment (Task 13): what running it verbatim found.**
+
+- **`CaseView`'s printed record shape omits `attributes()`.** The surrounding prose
+  says "CaseView carries every field UpdateCaseRequest accepts... which is why the
+  ownership triple and attributes appear on both", but the record literally printed
+  has no `attributes` component. Added it (right after the ownership triple, `Map<String,
+  String>`) rather than shipping a view a client's PUT round-trip could not actually
+  reconstruct.
+- **`CaseParticipant` and `CaseAttributeValue` have no `ResourceAuthorizationDescriptor`.**
+  Task 11 registered four (Case, Milestone, Requirement, Approval), and both
+  `CASE_VIEW` and `CASE_EDIT` are RECORD-scoped (not ALL-only), so the moment
+  `participants()`/`roadmap()`/`toView()` read either type for an actor without ALL
+  scope, `DescriptorRegistry.forEntity` would throw with nothing registered --
+  invisible under the fixture administrator's full authority, which is exactly why
+  a guard like this stays quiet until a narrow-scope test exercises it. Added
+  `CaseParticipantDescriptor` and `CaseAttributeValueDescriptor`, the same viaCase
+  shape as `MilestoneDescriptor`/`RequirementDescriptor`.
+- **Every workflow-definition read inside `CaseService` goes through `AuthorizedQuery`
+  under `WORKFLOW_VIEW`, never a repository finder called directly** -- `CaseService`
+  is bound by `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly`
+  the same as every other `*Service`, and the plan's own pseudocode calls
+  `attributeDefinitions.findByVersionIdOrderByOrdinal(versionId)` etc. directly,
+  which does not compile past that guard. `PublishService.readByVersion` already
+  established the fix: read via `authorizedQuery.findAll(repo, type, WORKFLOW_VIEW,
+  byVersion, ...)`. `WORKFLOW_VIEW` being ALL-only does not mean the check is
+  skipped -- the actor still needs the grant, and `RoleTemplates` already couples
+  `WORKFLOW_VIEW` ALL onto every real operational template alongside `CASE_VIEW`
+  ("anyone working a [case] needs it"), which is what makes this safe rather than a
+  second permission an actual case-viewing role would lack. `CaseEditTest`'s
+  narrow-scope fixture needed the same pairing once it exercised a case read from a
+  participant rather than the fixture administrator -- granting `CASE_VIEW` alone
+  404'd on `versionNoOf`.
+- **`case_attribute_value` carries no `GRANT DELETE`**, correctly, per CLAUDE.md's
+  DELETE-deny-by-default invariant -- `V13__journey.sql` never grants it. The
+  plan's `update()` implies a full replace by clearing and reinserting; run
+  verbatim (delete-by-case-id, then insert), it failed at the database with
+  "permission denied for table case_attribute_value" against the real
+  `onboarding_app` role, not a mocked one. `update()` upserts existing rows in
+  place instead: an attribute's row is updated to carry the new value (or nulled
+  out if the attribute is now unsupplied and not required), so the full-replace
+  invariant holds without ever deleting a row.
+- The plan's own `dueDatesAccumulateInBusinessDaysWithinAStage` test cannot exercise
+  business-day accumulation yet: due dates are computed at stage entry
+  (`CaseEngine.advanceIfExitable`), which is Task 15's no-op stub as of Task 14.
+  Rewritten to assert what is actually true today -- every milestone's `dueDate` is
+  null immediately after creation -- with a comment pointing at Task 15 for the
+  real assertion.
+
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/journey/CaseService.java`, `CaseView.java`, `CreateCaseRequest.java`, `RoadmapView.java`
 - Test: `backend/src/test/java/co/ara/onboarding/journey/CaseCreationTest.java`
