@@ -6,6 +6,9 @@ import { setTenantSlug } from "@/lib/api/client";
 import type { Case } from "@/lib/api/cases";
 import type { Customer } from "@/lib/api/customers";
 
+let permissions: Record<string, string[]> = {};
+vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions }) }));
+
 let searchParams = new URLSearchParams();
 const replace = vi.fn((url: string) => {
   searchParams = new URLSearchParams(url.split("?")[1] ?? "");
@@ -57,6 +60,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  permissions = {};
   searchParams = new URLSearchParams();
   replace.mockClear();
   fetchMock.mockReset();
@@ -102,5 +106,51 @@ describe("CaseWorkspacePage", () => {
     await waitFor(() => expect(screen.getByText("Northwind Foods")).not.toBeNull());
     // Appears twice -- the header's Stage fact and the switcher's active chip.
     expect(screen.getAllByText("Registration").length).toBeGreaterThan(0);
+  });
+
+  it("hides the hold action without case.hold", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Northwind Foods")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Put on hold" })).toBeNull();
+  });
+
+  it("offers to put an active case on hold for a holder of case.hold", async () => {
+    permissions = { "case.hold": ["ALL"] };
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Put on hold" })).not.toBeNull());
+  });
+
+  it("offers to resume an on-hold case instead", async () => {
+    permissions = { "case.hold": ["ALL"] };
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/roadmap")) return jsonReply({ stages: [] });
+      if (url.endsWith("/cases")) return jsonReply([caseData]);
+      if (url.endsWith("/cases/case-1")) return jsonReply({ ...caseData, status: "ON_HOLD" });
+      if (url.endsWith("/customers/cust-1")) return jsonReply(customer);
+      return jsonReply({});
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Resume" })).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Put on hold" })).toBeNull();
+  });
+
+  it("renders the roadmap's milestone rows on the journey tab", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.endsWith("/roadmap")) {
+        return jsonReply({
+          stages: [{ id: "s-1", name: "Registration", ordinal: 0, milestones: [{ id: "m-1", name: "Registration", status: "ACTIVE", requirements: [] }] }],
+        });
+      }
+      if (url.endsWith("/cases")) return jsonReply([caseData]);
+      if (url.endsWith("/cases/case-1")) return jsonReply(caseData);
+      if (url.endsWith("/customers/cust-1")) return jsonReply(customer);
+      if (url.endsWith("/participants")) return jsonReply([]);
+      if (url.endsWith("/approvals")) return jsonReply([]);
+      return jsonReply({});
+    });
+
+    renderPage();
+    await waitFor(() => expect(screen.getAllByTestId("milestone-row")).toHaveLength(1));
   });
 });

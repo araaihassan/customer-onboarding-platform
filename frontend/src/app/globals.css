@@ -93,3 +93,20 @@ body {
   outline-offset: 2px;
   border-radius: 5px;
 }
+
+/* `--ob-keyframe-enter` names this animation but the generated set ships no
+ * keyframes for it -- the prototype has no JS-driven expand/collapse, so
+ * nothing there ever needed one. MilestoneRow's expanded panel is the first
+ * real consumer. Respects prefers-reduced-motion the same way tokens.css
+ * already collapses --ob-duration-instant to near-zero: the keyframe still
+ * runs, just over an imperceptible span. */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

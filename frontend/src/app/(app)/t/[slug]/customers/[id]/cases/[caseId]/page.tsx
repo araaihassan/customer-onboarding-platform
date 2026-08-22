@@ -1,17 +1,21 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { ArrowRightIcon, WorkflowIcon } from "@/components/icons";
 import { CaseHeader } from "@/components/journey/CaseHeader";
 import { CaseSwitcher } from "@/components/journey/CaseSwitcher";
+import { HoldDialog } from "@/components/journey/HoldDialog";
+import { Roadmap } from "@/components/journey/Roadmap";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { Tabs, panelId, type TabItem } from "@/components/ui/Tabs";
 import { ApiError } from "@/lib/api/client";
-import { useCase, useCases, useRoadmap } from "@/lib/api/cases";
+import { useApprovals, useCase, useCases, useParticipants, useResume, useRoadmap } from "@/lib/api/cases";
 import { useCustomer } from "@/lib/api/customers";
+import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
 /**
@@ -31,6 +35,9 @@ export default function CaseWorkspacePage() {
   const customer = useCustomer(customerId);
   const caseQuery = useCase(caseId);
   const cases = useCases(customerId);
+  const resume = useResume();
+  const canHold = useHasPermission("case.hold");
+  const [holding, setHolding] = useState(false);
 
   const TABS: TabItem[] = [
     { id: "journey", label: t("case.tabs.journey") },
@@ -89,6 +96,20 @@ export default function CaseWorkspacePage() {
         onCreateNew={() => {}}
       />
 
+      {canHold && (caseQuery.data.status === "ACTIVE" || caseQuery.data.status === "ON_HOLD") && (
+        <div className="flex justify-end">
+          {caseQuery.data.status === "ACTIVE" ? (
+            <Button type="button" variant="secondary" onClick={() => setHolding(true)}>
+              {t("case.hold.action")}
+            </Button>
+          ) : (
+            <Button type="button" variant="secondary" disabled={resume.isPending} onClick={() => resume.mutate(caseId)}>
+              {t("case.resume.action")}
+            </Button>
+          )}
+        </div>
+      )}
+
       <Tabs items={TABS} value={tab} onChange={setTab} />
 
       <div role="tabpanel" id={panelId(tab)} aria-labelledby={`tab-${tab}`}>
@@ -98,46 +119,33 @@ export default function CaseWorkspacePage() {
         {tab === "agreements" && <EmptyState title={t("case.tabs.agreements.empty")} />}
         {tab === "timeline" && <EmptyState title={t("case.tabs.timeline.empty")} />}
       </div>
+
+      {holding && <HoldDialog caseId={caseId} onClose={() => setHolding(false)} />}
     </section>
   );
 }
 
 /**
- * A minimal preview of the stage graph -- names and milestone counts, no
- * expand/collapse or requirement detail yet. The interactive milestone rows
- * that replace this are the next task's own job.
+ * The journey tab's real content (Task 27): the roadmap's stage headers and
+ * expandable milestone rows. `participants` and `approvals` are fetched
+ * once here and threaded down rather than once per row -- the roadmap can
+ * hold dozens of milestones across nine stages.
  */
 function JourneyPreview({ caseId }: { caseId: string }) {
   const roadmap = useRoadmap(caseId);
+  const participants = useParticipants(caseId);
+  const approvals = useApprovals(caseId);
 
   if (roadmap.isLoading) return <SkeletonRows rows={5} height={48} />;
   if (roadmap.isError) return <EmptyState title={t("common.error")} />;
 
-  const stages = roadmap.data?.stages ?? [];
-
   return (
-    <ul className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
-      {stages.map((stage) => (
-        <li
-          key={stage.id}
-          className="bg-bg-surface border border-border-default"
-          style={{ borderRadius: "var(--ob-radius-row)", padding: "var(--ob-space-13) var(--ob-space-16)" }}
-        >
-          <p
-            className="text-text-primary"
-            style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
-          >
-            {stage.name}
-          </p>
-          <p
-            className="text-text-muted"
-            style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)" }}
-          >
-            {t("case.journey.milestoneCount", { count: String(stage.milestones?.length ?? 0) })}
-          </p>
-        </li>
-      ))}
-    </ul>
+    <Roadmap
+      caseId={caseId}
+      stages={roadmap.data?.stages ?? []}
+      participants={participants.data ?? []}
+      approvals={approvals.data ?? []}
+    />
   );
 }
 

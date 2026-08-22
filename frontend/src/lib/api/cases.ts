@@ -18,6 +18,11 @@ export type MilestoneRoadmap = components["schemas"]["MilestoneRoadmapView"];
 export type RequirementRoadmap = components["schemas"]["RequirementRoadmapView"];
 export type Participant = components["schemas"]["ParticipantView"];
 export type CaseStatus = NonNullable<Case["status"]>;
+export type Approval = components["schemas"]["ApprovalView"];
+export type ApprovalKind = NonNullable<Approval["kind"]>;
+export type RequirementStatus = NonNullable<RequirementRoadmap["status"]>;
+export type MilestoneStatus = NonNullable<MilestoneRoadmap["status"]>;
+export type CaseRequirementView = components["schemas"]["CaseRequirementView"];
 
 export const caseKeys = {
   all: ["cases"] as const,
@@ -52,6 +57,24 @@ export function useRoadmap(caseId: string) {
   return useQuery({
     queryKey: caseKeys.roadmap(caseId),
     queryFn: () => apiFetch<Roadmap>(`/cases/${caseId}/roadmap`),
+    enabled: Boolean(caseId),
+  });
+}
+
+/** Resolves a milestone or case owner id to a name -- the seam Task 26's CaseHeader/CustomerTable had no equivalent of for a customer's owner. */
+export function useParticipants(caseId: string) {
+  return useQuery({
+    queryKey: [...caseKeys.detail(caseId), "participants"] as const,
+    queryFn: () => apiFetch<Participant[]>(`/cases/${caseId}/participants`),
+    enabled: Boolean(caseId),
+  });
+}
+
+/** Every approval recorded against the case, of both kinds -- gated `case.view`, same as the roadmap. */
+export function useApprovals(caseId: string) {
+  return useQuery({
+    queryKey: [...caseKeys.detail(caseId), "approvals"] as const,
+    queryFn: () => apiFetch<Approval[]>(`/cases/${caseId}/approvals`),
     enabled: Boolean(caseId),
   });
 }
@@ -96,4 +119,112 @@ export function useHold() {
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(id) });
     },
   });
+}
+
+function invalidateRoadmap(queryClient: ReturnType<typeof useQueryClient>, caseId: string) {
+  void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(caseId) });
+  void queryClient.invalidateQueries({ queryKey: caseKeys.detail(caseId) });
+}
+
+/**
+ * ref/refType are the seam sub-projects 3-5 fill (SatisfyRequest's own
+ * comment); both omitted is a plain manual check-off, the only kind this
+ * sub-project's UI ever sends.
+ */
+export function useSatisfy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ caseId, requirementId, ref, refType }: {
+      caseId: string;
+      requirementId: string;
+      ref?: string;
+      refType?: string;
+    }) =>
+      apiFetch<CaseRequirementView>(
+        `/cases/${caseId}/requirements/${requirementId}/satisfy`,
+        { method: "POST", body: JSON.stringify(ref || refType ? { ref, refType } : {}) },
+      ),
+    onSuccess: (_result, { caseId }) => invalidateRoadmap(queryClient, caseId),
+  });
+}
+
+export function useWaive() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ caseId, requirementId, reason }: { caseId: string; requirementId: string; reason: string }) =>
+      apiFetch<CaseRequirementView>(
+        `/cases/${caseId}/requirements/${requirementId}/waive`,
+        { method: "POST", body: JSON.stringify({ reason }) },
+      ),
+    onSuccess: (_result, { caseId }) => invalidateRoadmap(queryClient, caseId),
+  });
+}
+
+/** Requests Q5's forced completion -- returns the PENDING approval a decider (never the requester) later decides. */
+export function useForceComplete() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ caseId, milestoneId, reason }: { caseId: string; milestoneId: string; reason: string }) =>
+      apiFetch<Approval>(`/cases/${caseId}/milestones/${milestoneId}/force-complete`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: (_result, { caseId }) => invalidateRoadmap(queryClient, caseId),
+  });
+}
+
+/** The rework path -- backward branches are refused, so reopening is this explicit action instead. */
+export function useReopen() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ caseId, milestoneId, reason }: { caseId: string; milestoneId: string; reason: string }) =>
+      apiFetch<void>(`/cases/${caseId}/milestones/${milestoneId}/reopen`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }),
+    onSuccess: (_result, { caseId }) => invalidateRoadmap(queryClient, caseId),
+  });
+}
+
+/**
+ * Two endpoints, not one -- ApprovalController's own javadoc: @RequirePermission
+ * is static, so a single path could not carry approval.decide for a stage exit
+ * and milestone.force_approve for a forcing without hiding the choice inside a
+ * method body no coverage test can see. This hook is the one place that picks
+ * between them, by the approval's own kind.
+ */
+export function useDecideApproval() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ caseId, approvalId, kind, approve, note }: {
+      caseId: string;
+      approvalId: string;
+      kind: ApprovalKind;
+      approve: boolean;
+      note?: string;
+    }) => {
+      const segment = kind === "STAGE_EXIT" ? "stage-approvals" : "force-requests";
+      return apiFetch<Approval>(`/cases/${caseId}/${segment}/${approvalId}/decide`, {
+        method: "POST",
+        body: JSON.stringify({ approve, note }),
+      });
+    },
+    onSuccess: (_result, { caseId }) => invalidateRoadmap(queryClient, caseId),
+  });
+}
+
+/**
+ * Parses a ProblemDetail body's `detail` field -- the shape WriteScopeException
+ * and SelfApprovalException are mapped to (RFC 7807), distinct from the
+ * ProblemList shape validation errors use. Falls back to the raw message when
+ * the body is not that shape, so a network failure still renders something.
+ */
+export function parseProblemDetail(message: string): string {
+  try {
+    const body = JSON.parse(message) as { detail?: string };
+    if (body.detail) return body.detail;
+  } catch {
+    // fall through
+  }
+  return message;
 }
