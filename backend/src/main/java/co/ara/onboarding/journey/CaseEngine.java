@@ -162,8 +162,14 @@ class CaseEngine {
 
         // 2. Statuses. Order matters: a milestone can only be DONE once its requirements
         // are settled, and only BLOCKED once its dependencies are known.
+        //
+        // DONE is sticky, same as SKIPPED -- Task 17's forced completion (ApprovalService.
+        // decideForceComplete) sets a milestone DONE without settling its requirements, so
+        // without this guard the very reconcile() call it makes to pick up the change would
+        // immediately recompute mandatorySettled() as false and demote it back to ACTIVE,
+        // silently undoing the force-complete it was supposed to record.
         for (Milestone m : instances) {
-            if (m.getStatus() == MilestoneStatus.SKIPPED) continue;
+            if (m.getStatus() == MilestoneStatus.SKIPPED || m.getStatus() == MilestoneStatus.DONE) continue;
             if (mandatorySettled(m, requirementRows, requirementDefs)) {
                 markDone(m);
             } else if (hasUnmetDependency(m, instances, dependencies)) {

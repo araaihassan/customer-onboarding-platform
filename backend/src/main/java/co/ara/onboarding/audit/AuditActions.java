@@ -87,6 +87,18 @@ public final class AuditActions {
     public static final AuditAction REQUIREMENT_SATISFIED      = of("requirement.satisfied", true);
     public static final AuditAction REQUIREMENT_WAIVED         = of("requirement.waived", true);
     public static final AuditAction MILESTONE_COMPLETED        = of("milestone.completed", true);
+    // Timeline-visible for the same reason case.stage_entered is: who let the case
+    // leave a gated stage is exactly the progress narrative the customer's own
+    // Activity Timeline exists to show.
+    public static final AuditAction CASE_STAGE_EXIT_APPROVED   = of("case.stage_exit_approved", true);
+    public static final AuditAction CASE_STAGE_EXIT_REJECTED   = of("case.stage_exit_rejected", true);
+    // milestone.force_completed is deliberately a DIFFERENT key from
+    // milestone.completed (Q5). Sub-project 1 shipped UserAdminService.deactivate
+    // writing the user.created key, and because audit_event is append-only those
+    // rows can never be corrected -- a forced completion recorded as an ordinary
+    // one would be the same mistake with a worse consequence.
+    public static final AuditAction MILESTONE_FORCE_COMPLETED  = of("milestone.force_completed", true);
+    public static final AuditAction MILESTONE_FORCE_REJECTED   = of("milestone.force_rejected", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
