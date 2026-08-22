@@ -4759,6 +4759,35 @@ completions nobody earned."
 
 ## Task 18: Hold, resume, reopen and reassign
 
+> **Amendment (executed verbatim, 2026-08-22):** two findings running this task.
+>
+> First, and load-bearing: Task 17's fix made `DONE` sticky in
+> `CaseEngine.recomputeStatusesAndProgress` -- once a milestone reads `DONE`, the
+> status loop skips it entirely, on every future `reconcile()` call, forever. The
+> plan's own pseudocode for `reopen` clears `completedAt`/`completedBy`/
+> `completionReason` and expects the `engine.reconcile(c)` call it makes afterward to
+> recompute the milestone back to `ACTIVE` via `isInCurrentStage` -- exactly what
+> happened before Task 17. After it, clearing the completion fields does nothing to
+> the status the sticky guard reads, so the milestone stayed `DONE` forever and
+> `reopeningAMilestoneMakesItActiveAgainAndReducesProgress` failed with `progressPercent`
+> stuck at 100. Fixed by having `reopen` move the milestone to `PENDING` itself before
+> calling `reconcile` -- a transient value, since the cascade (`mandatorySettled` /
+> `hasUnmetDependency` / `isInCurrentStage`) decides the real one milliseconds later
+> in the same transaction, but enough to get the milestone off the sticky value so the
+> cascade runs at all. Nothing before this task ever needed to move a milestone off
+> `DONE`, which is why Task 17's stickiness fix didn't need to consider it.
+>
+> Second: `MilestoneEditTest`'s two narrowly-scoped actors (Step 0's outsider, and the
+> non-owner in `reassignmentIsRefusedByAnOwnerOnlyStageForANonOwner`) were granted
+> `CASE_VIEW`/`MILESTONE_EDIT` at `ASSIGNED`/`ALL` but not `WORKFLOW_VIEW` at `ALL`.
+> `CaseService.get()`'s `toView` reads the case's pinned `Stage` under `WORKFLOW_VIEW`,
+> and `MilestoneService.update()`'s own `stageOf(m)` does the same before `write_scope`
+> is ever consulted -- both 404 instead of the outsider seeing the case (Step 0) or
+> `WriteScopeException` being reached (the write-scope test) without it. This is the
+> exact invariant `CaseEditTest` already documents ("WORKFLOW_VIEW ALL joins every real
+> operational role template alongside CASE_VIEW"); the plan's Step 0 pseudocode for
+> this task simply didn't carry it over. Fixed by adding the grant to both actors.
+
 **Files:**
 - Modify: `CaseService.java` (`hold`, `resume`), `MilestoneService.java` (`reopen`, `update`)
 - Test: `backend/src/test/java/co/ara/onboarding/journey/HoldTest.java`
