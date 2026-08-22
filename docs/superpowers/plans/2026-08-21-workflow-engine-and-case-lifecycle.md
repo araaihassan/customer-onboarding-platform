@@ -4567,6 +4567,31 @@ row security bypassed would."
 
 ## Task 17: Approvals and force-complete
 
+> **Amendment (executed verbatim, 2026-08-22):** two findings running this task.
+>
+> First, the plan gives full pseudocode for `decideForceComplete` but none for
+> `decideStageExit` despite listing it under Interfaces. Built it to the same shape
+> (kind check, already-decided check, lock, decide, reconcile-on-approve) but without
+> the self-approval check -- Q5's self-approval requirement is specific to forced
+> completions; nothing in the spec asks a stage-exit approver to differ from whoever
+> the engine parked the PENDING row under (`contextProvider.principal()` at the time
+> `CaseEngine.ensureStageExitApproval` ran, not a human "requester" in the Q5 sense).
+>
+> Second, and more load-bearing: `CaseEngine.recomputeStatusesAndProgress` (Task 14)
+> recomputed every non-SKIPPED milestone's status from requirement settlement on
+> *every* call. A forced completion sets a milestone `DONE` without touching its
+> `Requirement` rows, so the `engine.reconcile(c)` call `decideForceComplete` itself
+> makes to pick up the change immediately recomputed `mandatorySettled()` as false and
+> demoted the milestone straight back to `ACTIVE` -- silently undoing the force-complete
+> in the same method call that recorded it. Caught by
+> `anApprovedForceCompletionIsAuditedAsForcedWithItsReason` failing with `expected: DONE
+> but was: ACTIVE`. This was invisible through Tasks 14-16 because nothing else in the
+> codebase can make a `DONE` milestone's requirements read as unsettled again (`satisfy`/
+> `waive` never revert a requirement's status) -- force-complete is the first path that
+> marks a milestone `DONE` while its requirements stay open. Fixed by making `DONE`
+> sticky in the status loop, the same way `SKIPPED` already is (`CaseEngine.java`,
+> `recomputeStatusesAndProgress`).
+
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/journey/ApprovalService.java`, `MilestoneService.java`
 - Test: `backend/src/test/java/co/ara/onboarding/journey/ApprovalTest.java`
