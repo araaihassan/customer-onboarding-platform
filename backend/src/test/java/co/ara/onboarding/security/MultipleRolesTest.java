@@ -3,7 +3,11 @@ package co.ara.onboarding.security;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.identity.AppUser;
+import co.ara.onboarding.journey.CaseService;
+import co.ara.onboarding.journey.CreateCaseRequest;
+import co.ara.onboarding.journey.JourneyFixtures;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
 import java.util.UUID;
@@ -23,6 +27,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * record it does not cover.
  */
 class MultipleRolesTest extends SecurityTestBase {
+
+    @Autowired JourneyFixtures journey;
+    @Autowired CaseService cases;
 
     @Test
     void scopesFromSeparateRolesUnion() throws Exception {
@@ -56,5 +63,54 @@ class MultipleRolesTest extends SecurityTestBase {
            .andExpect(jsonPath("$.content.length()").value(2))
            .andExpect(jsonPath("$.content[*].displayName",
                    containsInAnyOrder("ByTeam", "ByOwner")));
+    }
+
+    /**
+     * The journey side of the same claim, through CaseDescriptor's assignedScope
+     * (case_participant, not a bare ownerUserId column) -- a case reachable only
+     * through TEAM, one only through ASSIGNED (CaseService.create makes the
+     * customer's owner an OWNER participant), and one through neither.
+     */
+    @Test
+    void caseScopesFromSeparateRolesUnion() throws Exception {
+        UUID tenant = fixture.createTenant("case-multi-role");
+        var user = new AtomicReference<AppUser>();
+        var byTeam = new AtomicReference<UUID>();
+        var byAssigned = new AtomicReference<UUID>();
+        var unreachable = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            AppUser viewer = fixture.createUserWithPassword(tenant, "casemulti@example.com", "long-enough-password");
+            user.set(viewer);
+
+            UUID myTeam = fixture.createTeam(tenant, "Case Union Team");
+            fixture.addToTeam(tenant, viewer.getId(), myTeam);
+            UUID templateId = journey.publishedTemplate();
+
+            UUID teamCustomer = fixture.createCustomer(tenant, "ByTeam", null, null, myTeam);
+            byTeam.set(cases.create(new CreateCaseRequest(teamCustomer, templateId, Map.of())).id());
+
+            UUID assignedCustomer = fixture.createCustomer(tenant, "ByOwner", viewer.getId(), null, null);
+            byAssigned.set(cases.create(new CreateCaseRequest(assignedCustomer, templateId, Map.of())).id());
+
+            UUID unreachableCustomer = fixture.createCustomer(tenant, "Unreachable", null, null, null);
+            unreachable.set(cases.create(new CreateCaseRequest(unreachableCustomer, templateId, Map.of())).id());
+
+            UUID teamRole = roles.createRole("Case Team Grant", "", Map.of(PermissionKeys.CASE_VIEW, Scope.TEAM));
+            UUID assignedRole = roles.createRole("Case Assigned Grant", "",
+                    Map.of(PermissionKeys.CASE_VIEW, Scope.ASSIGNED));
+            UUID workflowViewRole = roles.createRole("Case Workflow View", "",
+                    Map.of(PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+            roles.assignRole(viewer.getId(), teamRole);
+            roles.assignRole(viewer.getId(), assignedRole);
+            roles.assignRole(viewer.getId(), workflowViewRole);
+        });
+
+        mvc.perform(as(get("/api/t/case-multi-role/cases/" + byTeam.get()), user.get()))
+           .andExpect(status().isOk());
+        mvc.perform(as(get("/api/t/case-multi-role/cases/" + byAssigned.get()), user.get()))
+           .andExpect(status().isOk());
+        mvc.perform(as(get("/api/t/case-multi-role/cases/" + unreachable.get()), user.get()))
+           .andExpect(status().isNotFound());
     }
 }
