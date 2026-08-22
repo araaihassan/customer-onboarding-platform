@@ -3993,6 +3993,63 @@ exempting the engine."
 
 ## Task 15: Transitions, branching and completion
 
+**Executor's amendment: two Spring Data JPA gotchas, a skip-loop gap, and a
+manual-stage read-path design that isn't in the plan text.** Running this verbatim
+surfaced two real, previously-invisible defects, plus one gap in the plan's own
+transition-loop pseudocode.
+
+1. **`CaseService.create()` (Task 13) never persisted `currentStageId`,
+   `progressPercent` or `targetCompletionDate`.** `Case`'s id is a pre-assigned
+   Uuid7, not `@GeneratedValue`, and `BaseEntity` implements neither `@Version` nor
+   `Persistable` -- so Spring Data's `isNew()` heuristic sees a non-null id on a
+   brand-new entity and calls `entityManager.merge()` rather than `persist()`.
+   `merge()` returns a *different* managed instance; the original `c` that
+   `create()` kept mutating (`writeParticipant`, `upsertAttributes`, `instantiate`,
+   `engine.reconcile(c)`) was silently detached from that point on, so none of
+   those mutations ever reached the database. Every one of Task 13's own tests
+   still passed, because they all read the *in-memory* `CaseView` `create()`
+   returns (or milestone/requirement data unaffected by this bug) inside the same
+   transaction; nothing exercised a case's persisted `current_stage_id` from a
+   *separate* transaction until this task's `advance()` did. Fixed by reassigning
+   `c = cases.save(c)`.
+2. **`WorkflowService.replaceDraft` (Task 6) has had the identical bug since it was
+   written, and no workflow's `fallback_next_stage_id` has ever actually
+   persisted.** Its two-pass structure saves each `Stage` once in pass 1, then pass
+   2 mutates that same reference again (`setFallbackNextStageId`) without
+   capturing `stages.save(stage)`'s return value -- same merge/detach shape as
+   above, one task earlier. Invisible until `CaseEngine.branchTargetOf` read
+   `Stage.getFallbackNextStageId()` at runtime and always got `null`; every
+   `WorkflowAuthoringTest` assertion reads the same in-memory
+   `WorkflowDefinitionView` `replaceDraft` returns, which reflects the
+   (also-detached-but-correctly-mutated) Java object, not the database row. Fixed
+   the same way: reassign `stage = stages.save(stage)` in pass 1. Any future task
+   that saves a new entity and then keeps mutating the same reference before the
+   transaction ends should check for this shape specifically -- it is silent by
+   construction, since every same-transaction read resolves back to the identity
+   map's (stale) tracked instance regardless of what the database actually holds.
+3. **The plan's `nextStage` walk only calls `skipMilestonesOf` on a stage it
+   visited and rejected (a false entry condition), never on one a branch rule or
+   fallback jumped past entirely without visiting.** A branch rule may legally
+   target any stage of higher ordinal, not only the next one (rule 2 requires
+   "higher," not "next"), so a stage skipped by a multi-ordinal jump would sit
+   PENDING forever -- still in `progressOf`'s denominator, with no way to ever
+   reach DONE, making 100% permanently unreachable for any case that took such a
+   branch. This directly contradicts Q7's own example ("segment=SMB: Legal
+   Review's milestones become SKIPPED"). Fixed by skipping every stage strictly
+   between one cursor position and the next on every hop, not only the final
+   rejected one -- see `CaseEngine.nextStage`/`skipStagesBetween`.
+4. **`CaseView.availableTransition` needed a read path the plan's text never
+   describes.** `aManualStageWaitsForSomeoneWithCaseAdvance` calls plain
+   `cases.get(...)`, which never calls `reconcile`, yet must still show the
+   computed-but-not-taken transition for a manual (`auto_advance=false`) stage.
+   Added `CaseEngine.pendingTransition(Case)`, a non-mutating mirror of
+   `advanceIfExitable`'s exitability/branch-target logic that `CaseService.toView`
+   calls inside its own (possibly read-only) transaction. It shares
+   `nextStage`/`branchTargetOf` with the mutating path via a `mutate` boolean
+   rather than duplicating the branch/skip logic, specifically so a plain `get()`
+   can never skip a milestone as a side effect of a read.
+
+
 **Files:**
 - Modify: `backend/src/main/java/co/ara/onboarding/journey/CaseEngine.java`
 - Create: `backend/src/main/java/co/ara/onboarding/journey/ConditionEvaluator.java`
