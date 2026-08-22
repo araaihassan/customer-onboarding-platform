@@ -49,7 +49,7 @@ public class MilestoneController {
             @ApiResponse(responseCode = "404", description = NOT_FOUND,
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public MilestoneView update(@PathVariable UUID caseId, @PathVariable UUID mid,
+    public CaseMilestoneView update(@PathVariable UUID caseId, @PathVariable UUID mid,
                                 @RequestBody UpdateMilestoneRequest request) {
         return milestones.update(mid, request);
     }
@@ -97,7 +97,7 @@ public class MilestoneController {
             @ApiResponse(responseCode = "409", description = "The case is on hold",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public RequirementView satisfy(@PathVariable UUID caseId, @PathVariable UUID rid,
+    public CaseRequirementView satisfy(@PathVariable UUID caseId, @PathVariable UUID rid,
                                    @RequestBody SatisfyRequest request) {
         return requirements.satisfy(rid, request.ref(), request.refType());
     }
@@ -114,7 +114,7 @@ public class MilestoneController {
             @ApiResponse(responseCode = "409", description = "The case is on hold",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public RequirementView waive(@PathVariable UUID caseId, @PathVariable UUID rid,
+    public CaseRequirementView waive(@PathVariable UUID caseId, @PathVariable UUID rid,
                                  @Valid @RequestBody ReasonRequest request) {
         return requirements.waive(rid, request.reason());
     }

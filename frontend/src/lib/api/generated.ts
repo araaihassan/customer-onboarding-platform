@@ -1175,6 +1175,25 @@ export interface components {
             /** Format: date */
             dueDate?: string;
         };
+        CaseMilestoneView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** @enum {string} */
+            status?: "PENDING" | "ACTIVE" | "BLOCKED" | "DONE" | "SKIPPED";
+            /** Format: uuid */
+            ownerUserId?: string;
+            /** Format: date */
+            dueDate?: string;
+            /** Format: int32 */
+            progressPercent?: number;
+            /** Format: date-time */
+            completedAt?: string;
+            /** Format: uuid */
+            completedBy?: string;
+            completionReason?: string;
+        };
         UpdateUserRequest: {
             fullName?: string;
             /** Format: uuid */
@@ -1271,6 +1290,20 @@ export interface components {
             /** Format: date-time */
             decidedAt?: string;
             decisionNote?: string;
+        };
+        CaseRequirementView: {
+            /** Format: uuid */
+            id?: string;
+            /** @enum {string} */
+            status?: "OPEN" | "SATISFIED" | "WAIVED";
+            /** Format: date-time */
+            satisfiedAt?: string;
+            /** Format: uuid */
+            satisfiedBy?: string;
+            /** Format: uuid */
+            satisfiedRef?: string;
+            satisfiedRefType?: string;
+            waiverReason?: string;
         };
         SatisfyRequest: {
             /** Format: uuid */
@@ -1399,12 +1432,12 @@ export interface components {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            paged?: boolean;
-            unpaged?: boolean;
             /** Format: int32 */
             pageSize?: number;
             /** Format: int32 */
             pageNumber?: number;
+            unpaged?: boolean;
+            paged?: boolean;
         };
         SortObject: {
             empty?: boolean;
@@ -1903,7 +1936,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["MilestoneView"];
+                    "*/*": components["schemas"]["CaseMilestoneView"];
                 };
             };
             /** @description write_scope refused this stage to a non-owner */
@@ -3011,7 +3044,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["RequirementView"];
+                    "*/*": components["schemas"]["CaseRequirementView"];
                 };
             };
             /** @description A blank waiver reason failed validation */
@@ -3083,7 +3116,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["RequirementView"];
+                    "*/*": components["schemas"]["CaseRequirementView"];
                 };
             };
             /** @description Caller holds no sufficient grant, or write_scope refused this stage */

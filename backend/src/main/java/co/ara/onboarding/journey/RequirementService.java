@@ -75,7 +75,7 @@ public class RequirementService {
      */
     @RequirePermission(PermissionKeys.MILESTONE_COMPLETE)
     @Transactional
-    public RequirementView satisfy(UUID requirementId, UUID ref, String refType) {
+    public CaseRequirementView satisfy(UUID requirementId, UUID ref, String refType) {
         Requirement r = authorizedQuery.getById(
                 requirements, Requirement.class, PermissionKeys.MILESTONE_COMPLETE, requirementId);
 
@@ -105,7 +105,7 @@ public class RequirementService {
     /** Waiving requires a non-blank reason -- there is no way to waive silently. */
     @RequirePermission(PermissionKeys.REQUIREMENT_WAIVE)
     @Transactional
-    public RequirementView waive(UUID requirementId, String reason) {
+    public CaseRequirementView waive(UUID requirementId, String reason) {
         if (reason == null || reason.isBlank()) {
             throw new IllegalArgumentException("A waiver reason is required");
         }
@@ -148,8 +148,8 @@ public class RequirementService {
         return d.getLabel();
     }
 
-    private RequirementView toView(Requirement r) {
-        return new RequirementView(r.getId(), r.getStatus(), r.getSatisfiedAt(), r.getSatisfiedBy(),
+    private CaseRequirementView toView(Requirement r) {
+        return new CaseRequirementView(r.getId(), r.getStatus(), r.getSatisfiedAt(), r.getSatisfiedBy(),
                 r.getSatisfiedRef(), r.getSatisfiedRefType(), r.getWaiverReason());
     }
 }

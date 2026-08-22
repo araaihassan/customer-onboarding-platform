@@ -124,7 +124,7 @@ public class MilestoneService {
      */
     @RequirePermission(PermissionKeys.MILESTONE_EDIT)
     @Transactional
-    public MilestoneView update(UUID milestoneId, UpdateMilestoneRequest request) {
+    public CaseMilestoneView update(UUID milestoneId, UpdateMilestoneRequest request) {
         Milestone m = authorizedQuery.getById(
                 milestones, Milestone.class, PermissionKeys.MILESTONE_EDIT, milestoneId);
         Case c = engine.lockAndLoad(m.getCaseId());
@@ -245,8 +245,8 @@ public class MilestoneService {
         participants.save(p);
     }
 
-    private MilestoneView toView(Milestone m) {
-        return new MilestoneView(m.getId(), m.getCaseId(), m.getStatus(), m.getOwnerUserId(),
+    private CaseMilestoneView toView(Milestone m) {
+        return new CaseMilestoneView(m.getId(), m.getCaseId(), m.getStatus(), m.getOwnerUserId(),
                 m.getDueDate(), m.getProgressPercent(), m.getCompletedAt(), m.getCompletedBy(),
                 m.getCompletionReason());
     }
