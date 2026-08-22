@@ -5816,6 +5816,64 @@ column is authored and nothing acts on it until sub-project 6, and a field that 
 does nothing is worse than one that says so."
 ```
 
+**Amendment (2026-08-22) — what running it verbatim, and then driving it in a real browser, found:**
+
+Every scenario below only surfaced by actually clicking through the builder against a live
+backend, per CLAUDE.md's "start the dev server and use the feature in a browser" rule — the
+unit suite alone (which was green throughout) caught none of them:
+
+- **`WorkflowService.save()` NPE'd on a milestone with no `dependsOnMilestoneKeys`.** The
+  field is optional and omitting it is the common case, but both the write loop (~line 340)
+  and the validation loop (~line 429) iterated it directly. Fixed with a private `orEmpty()`
+  helper on both call sites; the frontend now also always sends `[]` explicitly from
+  `MilestoneEditor.addMilestone()` rather than relying on the server to tolerate an absent
+  key.
+- **`ConditionEditor`'s operator `<select>` showed "equals" as its unselected default, but
+  that value was never written into draft state unless the admin touched the dropdown** —
+  the single most common path (accept the default) submitted a condition with `operator`
+  literally absent, and `branch_rule.operator` is `NOT NULL`. The database rejected the
+  insert with a raw `DataIntegrityViolationException`, surfaced to the admin as an opaque
+  "The draft could not be saved." Fixed two ways: `StageInspector.addBranchRule()` now seeds
+  `{ source: "ATTRIBUTE", operator: "EQ" }` on creation, matching the milestone fix's shape
+  (a value only a control *displays* must also be a value the object *holds*); and
+  `computeProblems` now flags a branch rule missing a field or target stage before Save, so
+  an incomplete rule reads as an actionable banner rather than a database error. `key` and
+  `target_stage_id` carry the same `NOT NULL` constraint and are equally reachable by an
+  admin who adds a rule and picks nothing — the problem check covers both.
+- **`StageRow`'s branch-rule chip rendered the raw target stage UUID**
+  (`01a02a38-d249-...`) instead of resolving it to the stage's name, because it read
+  `rule.targetStageKey` directly with no lookup against the sibling stages. Fixed by passing
+  the full `stages` array down and resolving the name at render time.
+- **`Switch` only ever set `aria-label`, never rendered visible text** — caught from a user
+  screenshot showing three unlabelled toggles, not from the unit suite, which had asserted
+  the accessible name and stopped there. A control with an accessible name but no visible
+  text is one a sighted user cannot identify. Fixed via `aria-labelledby` pointing at a real
+  `<span>`, with a new test asserting `getByText` finds the label.
+- **A published (frozen) version's inspector accepted edits with nowhere to send them.**
+  `isPublished` gated the Save/Publish/Add-stage buttons but nothing downstream — every
+  field, switch, and the per-stage reorder/delete controls stayed live, so an admin could
+  type into a frozen stage's name and see it change with no error and no way to persist or
+  discover the change was discarded. Fixed with a native `<fieldset disabled>` wrapping
+  `StageInspector`'s body: the HTML disabled-cascade reaches every descendant form control
+  (input, select, button) however deeply nested through `MilestoneEditor`, `BranchRuleCard`,
+  and `Switch`, with no prop-threading through any of them. `StageRow`'s reorder/delete
+  buttons got an explicit `readOnly` prop instead, since selecting a stage to browse its
+  frozen configuration must keep working. **jsdom does not implement the fieldset cascade**
+  (verified directly: a bare `<fieldset disabled><input /></fieldset>` fails
+  `.disabled === true` under vitest/jsdom) — the unit test asserts the fieldset element
+  itself carries `disabled`, and the actual cascade onto descendants is verified live in
+  Chrome, not by the unit suite.
+- **A version's Save round-trip reassigns every stage, milestone, and branch rule a fresh
+  id on every single call**, not just the first: `WorkflowService.save()` deletes and
+  recreates the whole graph rather than upserting it (a deliberate, already-commented
+  decision — see the `merge()` vs `persist()` note ~line 296). This means the "keeps the
+  selection across a reset when the selected stage survives" fix from Task 24's own test
+  suite can only ever help a no-op reset or a remount; a real Save-then-continue-editing
+  round trip always drops the inspector's selection, because the "same" stage never
+  actually keeps the same key twice. Safe in isolation (nothing outside a `DRAFT` version's
+  own rows can reference these ids yet), but worth knowing before chasing the selection-loss
+  symptom again as a frontend bug.
+
 ---
 
 ## Task 25: Publish and migration screens
