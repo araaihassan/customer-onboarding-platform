@@ -5159,6 +5159,30 @@ vendor's configuration, not the customer's business."
 
 ## Task 20: Journey HTTP layer
 
+> **Amendment (executed verbatim, 2026-08-22):** two findings running this task.
+>
+> First, `GET /cases/{id}/approvals` (spec §7.2) had no backing service method --
+> `ApprovalService` carried only the two decide methods. Added
+> `ApprovalService.listForCase(caseId)`, gated on `CASE_VIEW` (matching
+> `CaseService.participants`' own "confirm the case is visible first" shape) and
+> reading `Approval` under that same permission -- `ApprovalDescriptor` already
+> resolves DEPARTMENT/TEAM/ASSIGNED by walking up to the parent case, so no new
+> descriptor was needed.
+>
+> Second, spec §7.2's row `POST /cases/{id}/milestones/{mid}/complete · /reopen`
+> pairs a `complete` action with `milestone.complete` -- but no service method
+> completes a milestone directly: milestones only ever become `DONE` through
+> `CaseEngine.markDone`, called from `reconcile()` once `mandatorySettled()` is
+> true, which is what `RequirementService.satisfy`/`waive` trigger. There is
+> deliberately no direct "mark this milestone done" write path in Tasks 14-18 --
+> forcing one through without settling requirements is exactly what
+> `MILESTONE_FORCE_COMPLETE`'s own approval flow (Task 17) exists to gate instead.
+> Built `/milestones/{mid}/reopen` (backed by `MilestoneService.reopen`) and left
+> `/milestones/{mid}/complete` out rather than inventing a service method with no
+> task behind it; the reference to `milestone.complete` in that endpoint is
+> otherwise used correctly on `/requirements/{rid}/satisfy` in the row below it,
+> which is very likely what the table's `complete` action actually referred to.
+
 **Files:**
 - Create: `CaseController.java`, `MilestoneController.java`, `ApprovalController.java`, `MigrationController.java`, `JourneyExceptionHandler.java`
 - Test: `backend/src/test/java/co/ara/onboarding/journey/JourneyApiTest.java`
