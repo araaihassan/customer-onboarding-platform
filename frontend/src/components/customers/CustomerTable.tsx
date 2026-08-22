@@ -40,8 +40,11 @@ export function CustomerTable({ customers, slug }: { customers: Customer[]; slug
       >
         <table className="w-full" style={{ borderCollapse: "collapse", tableLayout: "fixed" }}>
           <colgroup>
-            {COLUMN_WIDTHS.map((width) => (
-              <col key={width} style={{ width }} />
+            {COLUMN_WIDTHS.map((width, index) => (
+              // Two columns share the same width (both 1fr), so the width
+              // string itself is not a unique key -- position is stable and
+              // this list never reorders.
+              <col key={index} style={{ width }} />
             ))}
           </colgroup>
           <thead>
