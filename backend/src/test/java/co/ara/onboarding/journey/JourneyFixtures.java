@@ -326,4 +326,24 @@ public class JourneyFixtures {
         publishService.publish(draftId);
         return draftId;
     }
+
+    /**
+     * A second (or later) published version on an EXISTING template, for
+     * MigrationTest -- createDraft(templateId) on a template that already has a
+     * published version deep-copies it, and replaceDraft then overwrites that copy
+     * wholesale with the given request, so the two versions can differ freely.
+     *
+     * The deep-copy path inside createDraft already calls replaceDraft once,
+     * bumping the fresh draft's lockVersion from 0 to 1 -- request.lockVersion() is
+     * therefore ignored and the draft's actual current value substituted, or this
+     * fixture's own replaceDraft call would fail as a stale write.
+     */
+    public UUID publishNewVersion(UUID templateId, WorkflowDefinitionRequest request) {
+        UUID draftId = workflows.createDraft(templateId);
+        long currentLockVersion = versions.findById(draftId).orElseThrow().getLockVersion();
+        workflows.replaceDraft(draftId, new WorkflowDefinitionRequest(
+                request.stages(), request.attributes(), currentLockVersion));
+        publishService.publish(draftId);
+        return draftId;
+    }
 }

@@ -106,6 +106,10 @@ public final class AuditActions {
     public static final AuditAction CASE_RESUMED               = of("case.resumed", true);
     public static final AuditAction MILESTONE_REOPENED         = of("milestone.reopened", true);
     public static final AuditAction MILESTONE_REASSIGNED       = of("milestone.reassigned", true);
+    // NOT timeline-visible: which internal workflow version a case follows is the
+    // vendor's own configuration, not the customer's business -- the same reasoning
+    // user.created carries.
+    public static final AuditAction CASE_MIGRATED              = of("case.migrated", false);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
