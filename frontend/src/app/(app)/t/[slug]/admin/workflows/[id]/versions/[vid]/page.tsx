@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api/client";
 import {
   parseProblems,
   useDefinition,
+  useMigrationPreview,
   usePublish,
   useSaveDraft,
   type Attribute,
@@ -19,6 +20,7 @@ import {
   type Stage,
   type WorkflowDefinition,
 } from "@/lib/api/workflows";
+import { PublishPanel } from "@/components/workflow/PublishPanel";
 import { StageInspector } from "@/components/workflow/StageInspector";
 import { StageRow } from "@/components/workflow/StageRow";
 import { newDraftKey, useDraftState, type AttributeDraft, type StageDraft } from "@/components/workflow/draftState";
@@ -31,7 +33,7 @@ import { t } from "@/lib/i18n";
  * never an in-memory draft the publish click never persisted.
  */
 export default function VersionPage() {
-  const { id: templateId, vid: versionId } = useParams<{ id: string; vid: string }>();
+  const { slug, id: templateId, vid: versionId } = useParams<{ slug: string; id: string; vid: string }>();
   const definition = useDefinition(templateId, versionId);
 
   useSetPageHeader(t("workflow.builder.title"));
@@ -54,7 +56,7 @@ export default function VersionPage() {
   // Keyed on the version: navigating to a different version remounts this
   // subtree, so useDraftState's initial value is always the fresh one it was
   // seeded with, not a stale first-render snapshot React would otherwise keep.
-  return <Builder key={versionId} templateId={templateId} initial={definition.data} />;
+  return <Builder key={versionId} slug={slug} templateId={templateId} initial={definition.data} />;
 }
 
 function toStageDraft(stage: Stage): StageDraft {
@@ -111,7 +113,15 @@ function toAttributeDraft(attribute: Attribute): AttributeDraft {
   };
 }
 
-function Builder({ templateId, initial }: { templateId: string; initial: WorkflowDefinition }) {
+function Builder({
+  slug,
+  templateId,
+  initial,
+}: {
+  slug: string;
+  templateId: string;
+  initial: WorkflowDefinition;
+}) {
   const versionId = initial.versionId!;
   const isPublished = initial.status === "PUBLISHED";
 
@@ -125,6 +135,7 @@ function Builder({ templateId, initial }: { templateId: string; initial: Workflo
   );
   const saveDraft = useSaveDraft();
   const publish = usePublish();
+  const migrationPreview = useMigrationPreview(isPublished ? versionId : undefined);
 
   // A half-edited graph must never be what publish validates against a
   // reload wiping it out silently is a smaller harm than that, so this warns
@@ -230,6 +241,19 @@ function Builder({ templateId, initial }: { templateId: string; initial: Workflo
           </>
         )}
       </div>
+
+      {isPublished && (
+        <div style={{ marginBottom: "var(--ob-space-16)" }}>
+          <PublishPanel
+            versionNo={initial.versionNo ?? 0}
+            slug={slug}
+            templateId={templateId}
+            versionId={versionId}
+            preview={migrationPreview.data}
+            isLoading={migrationPreview.isLoading}
+          />
+        </div>
+      )}
 
       {saveDraft.isError && (
         <p role="alert" style={alertStyle}>

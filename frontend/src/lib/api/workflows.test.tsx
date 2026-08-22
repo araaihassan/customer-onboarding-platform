@@ -9,6 +9,8 @@ import {
   useCreateDraft,
   useCreateTemplate,
   useDefinition,
+  useMigrate,
+  useMigrationPreview,
   usePublish,
   useSaveDraft,
   useWorkflows,
@@ -131,6 +133,46 @@ describe("mutations", () => {
 
     const { result } = renderHook(() => usePublish(), { wrapper: makeWrapper() });
     await expect(result.current.mutateAsync({ templateId: "t-1", versionId: "v-1" }))
+      .rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("useMigrationPreview", () => {
+  it("previews a target version by query param", async () => {
+    fetchMock.mockResolvedValue(reply({ versionId: "v-5", onVersion: 31, eligible: 18, candidates: [] }));
+
+    const { result } = renderHook(() => useMigrationPreview("v-5"), { wrapper: makeWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(lastUrl()).toBe("/api/t/acme/cases/migration?versionId=v-5");
+    expect(result.current.data).toEqual({ versionId: "v-5", onVersion: 31, eligible: 18, candidates: [] });
+  });
+
+  it("does not fire without a version id", () => {
+    const { result } = renderHook(() => useMigrationPreview(undefined), { wrapper: makeWrapper() });
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("useMigrate", () => {
+  it("migrates the chosen cases onto a target version with POST", async () => {
+    fetchMock.mockResolvedValue(reply({ migrated: 2 }));
+
+    const { result } = renderHook(() => useMigrate(), { wrapper: makeWrapper() });
+    await result.current.mutateAsync({ versionId: "v-5", caseIds: ["c-1", "c-2"] });
+
+    expect(lastUrl()).toBe("/api/t/acme/cases/migration");
+    expect(lastInit().method).toBe("POST");
+    expect(JSON.parse(lastInit().body as string)).toEqual({ versionId: "v-5", caseIds: ["c-1", "c-2"] });
+  });
+
+  /** migrate() refuses an ineligible case rather than silently skipping it -- the panel must surface that as an error. */
+  it("surfaces a 409 as an ApiError when a requested case is not eligible", async () => {
+    fetchMock.mockResolvedValue(reply("Case is not eligible: stage no longer exists", 409));
+
+    const { result } = renderHook(() => useMigrate(), { wrapper: makeWrapper() });
+    await expect(result.current.mutateAsync({ versionId: "v-5", caseIds: ["c-1"] }))
       .rejects.toBeInstanceOf(ApiError);
   });
 });

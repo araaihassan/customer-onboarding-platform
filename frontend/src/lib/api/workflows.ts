@@ -26,11 +26,19 @@ export type ConditionRequest = components["schemas"]["ConditionRequest"];
 export type Attribute = components["schemas"]["AttributeView"];
 export type AttributeRequest = components["schemas"]["AttributeRequest"];
 export type ProblemList = components["schemas"]["ProblemList"];
+export type MigrationPreview = components["schemas"]["MigrationPreviewView"];
+export type Candidate = components["schemas"]["CandidateView"];
+export type MigrateRequest = components["schemas"]["MigrateRequest"];
+export type MigrateResult = components["schemas"]["MigrateResultView"];
 
 export const workflowKeys = {
   all: ["workflows"] as const,
   templates: () => [...workflowKeys.all, "templates"] as const,
   definition: (versionId: string) => [...workflowKeys.all, "definition", versionId] as const,
+};
+
+export const migrationKeys = {
+  preview: (versionId: string) => ["migration", "preview", versionId] as const,
 };
 
 export function useWorkflows() {
@@ -119,6 +127,34 @@ export function usePublish() {
     onSuccess: (definition, { versionId }) => {
       queryClient.setQueryData(workflowKeys.definition(versionId), definition);
       void queryClient.invalidateQueries({ queryKey: workflowKeys.templates() });
+    },
+  });
+}
+
+/**
+ * versionId is the TARGET a case would move onto -- MigrationService.preview
+ * counts every running case sitting on an OLDER version of the same
+ * template, and how many of those are eligible to land here.
+ */
+export function useMigrationPreview(versionId: string | undefined) {
+  return useQuery({
+    queryKey: migrationKeys.preview(versionId ?? ""),
+    queryFn: () => apiFetch<MigrationPreview>(`/cases/migration?versionId=${versionId}`),
+    enabled: Boolean(versionId),
+  });
+}
+
+/**
+ * migrate() refuses the whole request rather than partially applying it, so a
+ * 409 here means none of the requested cases moved -- never "some did."
+ */
+export function useMigrate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: MigrateRequest) =>
+      apiFetch<MigrateResult>("/cases/migration", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: (_result, { versionId }) => {
+      void queryClient.invalidateQueries({ queryKey: migrationKeys.preview(versionId) });
     },
   });
 }
