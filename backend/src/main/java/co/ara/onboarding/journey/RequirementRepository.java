@@ -10,4 +10,7 @@ public interface RequirementRepository
         extends JpaRepository<Requirement, UUID>, JpaSpecificationExecutor<Requirement> {
 
     List<Requirement> findByMilestoneId(UUID milestoneId);
+
+    /** Every requirement across a case's milestones, for CaseEngine.reconcile. */
+    List<Requirement> findByCaseId(UUID caseId);
 }
