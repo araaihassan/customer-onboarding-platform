@@ -35,6 +35,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -159,15 +160,15 @@ public class WorkflowService {
         WorkflowTemplate template = authorizedQuery.getById(templates, WorkflowTemplate.class,
                 PermissionKeys.WORKFLOW_MANAGE, templateId);
 
-        boolean draftExists = authorizedQuery.findAll(versions, WorkflowVersion.class,
+        Optional<WorkflowVersion> openDraft = authorizedQuery.findAll(versions, WorkflowVersion.class,
                         PermissionKeys.WORKFLOW_MANAGE,
                         (root, query, cb) -> cb.and(
                                 cb.equal(root.get("templateId"), templateId),
                                 cb.equal(root.get("status"), VersionStatus.DRAFT)),
                         Pageable.ofSize(1))
-                .hasContent();
-        if (draftExists) {
-            throw new DraftAlreadyExistsException(templateId);
+                .stream().findFirst();
+        if (openDraft.isPresent()) {
+            throw new DraftAlreadyExistsException(templateId, openDraft.get().getId());
         }
 
         int nextVersionNo = authorizedQuery.findAll(versions, WorkflowVersion.class,

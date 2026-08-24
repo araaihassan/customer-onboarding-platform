@@ -90,6 +90,38 @@ export function useCreateDraft() {
 }
 
 /**
+ * Pulls the blocking draft's versionId out of a 409's body -- the same
+ * best-effort JSON.parse shape parseProblems already uses for error bodies,
+ * which are not generated types. Undefined if the body doesn't carry one (an
+ * older backend, or a differently-shaped error).
+ */
+export function parseDraftVersionId(message: string): string | undefined {
+  try {
+    const body = JSON.parse(message) as { versionId?: string };
+    return body.versionId;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Deletes an unpublished draft and its whole graph -- WorkflowService.discardDraft.
+ * The only way to unblock a template whose draft was abandoned without publishing:
+ * WorkflowService.createDraft refuses a second draft outright, and nothing else
+ * frees the slot.
+ */
+export function useDiscardDraft() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ templateId, versionId }: { templateId: string; versionId: string }) =>
+      apiFetch<void>(`/workflows/${templateId}/versions/${versionId}/discard`, { method: "POST" }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workflowKeys.templates() });
+    },
+  });
+}
+
+/**
  * The atomic whole-draft write: one PUT carries every stage, milestone,
  * requirement and attribute, matching WorkflowService.replaceDraft's own
  * full-replace contract. lockVersion is round-tripped from the last read so a

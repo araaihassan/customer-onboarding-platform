@@ -4,14 +4,21 @@ import co.ara.onboarding.authz.RelationshipType;
 import co.ara.onboarding.platform.BusinessCalendar;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
+import co.ara.onboarding.workflow.RequirementKind;
+import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
+import co.ara.onboarding.workflow.WorkflowDefinitionRequest.RequirementRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
+import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
+import static co.ara.onboarding.workflow.WorkflowFixtures.stage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -43,6 +50,37 @@ class CaseCreationTest extends PostgresTestBase {
             assertThat(roadmap.stages().get(0).milestones().get(0).requirements()).hasSize(1);
             assertThat(view.status()).isEqualTo(CaseStatus.ACTIVE);
             assertThat(view.progressPercent()).isZero();
+        });
+    }
+
+    /**
+     * A milestone with no mandatory requirement must not complete merely by
+     * existing. Reproduced live: CaseEngine.recomputeStatusesAndProgress checked
+     * mandatorySettled() before reachability, so a milestone in a stage the case
+     * has never entered -- here, stage two, while the case sits in stage one --
+     * was markDone()'d on the very first reconcile create() triggers, purely
+     * because it has nothing mandatory to block it.
+     */
+    @Test
+    void aMilestoneWithNoMandatoryRequirementDoesNotCompleteBeforeItsStageIsReached() {
+        UUID tenant = fixture.createTenant("case-premature-done");
+        fixture.runAs(tenant, () -> {
+            UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(
+                    stage("s1", "Stage One", List.of(
+                            milestone("m1", "Milestone One", 1, List.of(), List.of(manual("Do it"))))),
+                    stage("s2", "Stage Two", List.of(
+                            milestone("m2", "Optional-only Milestone", 1, List.of(),
+                                    List.of(new RequirementRequest(
+                                            RequirementKind.MANUAL, "Nice to have", 1, false, null, null)))))),
+                    List.of(), 0L));
+            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+
+            var roadmap = cases.roadmap(view.id());
+            assertThat(roadmap.stages().get(0).milestones().get(0).status()).isEqualTo(MilestoneStatus.ACTIVE);
+            assertThat(roadmap.stages().get(1).milestones().get(0).status())
+                    .isNotEqualTo(MilestoneStatus.DONE);
         });
     }
 

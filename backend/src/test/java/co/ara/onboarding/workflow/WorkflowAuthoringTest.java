@@ -184,6 +184,25 @@ class WorkflowAuthoringTest extends PostgresTestBase {
         })).isInstanceOf(DraftAlreadyExistsException.class);
     }
 
+    /**
+     * The rejection names the open draft's versionId, not just the templateId --
+     * without it, a caller has no way to resume or discard the draft that is
+     * blocking it, which is exactly what left an abandoned draft unrecoverable
+     * from the product UI.
+     */
+    @Test
+    void theRejectionNamesTheOpenDraftsVersionId() {
+        UUID tenant = fixture.createTenant("author-two-drafts-named");
+        var openDraftId = new AtomicReference<UUID>();
+        assertThatThrownBy(() -> fixture.runAs(tenant, () -> {
+            var template = workflows.createTemplate("Once", "");
+            openDraftId.set(workflows.createDraft(template.id()));
+            workflows.createDraft(template.id());
+        })).isInstanceOf(DraftAlreadyExistsException.class)
+           .satisfies(e -> assertThat(((DraftAlreadyExistsException) e).versionId())
+                   .isEqualTo(openDraftId.get()));
+    }
+
     /** No such fixture helper exists yet; local exactly as the equivalent in DelegationGuardTest. */
     private void grantRole(UUID tenantId, UUID userId, Map<String, Scope> grants) {
         UUID roleId = roles.createRole("Grant-" + userId, "", grants);

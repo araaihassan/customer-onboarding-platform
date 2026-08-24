@@ -40,10 +40,16 @@ class WorkflowExceptionHandler {
         return new ProblemList(e.problems());
     }
 
-    /** A second open draft on the same template (V12's partial unique index), not a raw 500. */
+    /**
+     * A second open draft on the same template (V12's partial unique index), not a
+     * raw 500. Carries versionId so the caller can resume or discard the draft that
+     * is actually blocking it, rather than dead-ending on the message.
+     */
     @ExceptionHandler(DraftAlreadyExistsException.class)
     ProblemDetail onDuplicateDraft(DraftAlreadyExistsException e) {
-        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+        problem.setProperty("versionId", e.versionId());
+        return problem;
     }
 
     /** Someone else saved this draft first; the builder should say so, not silently overwrite it. */

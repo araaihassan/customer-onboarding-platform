@@ -9,7 +9,13 @@ import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { Field } from "@/components/ui/Field";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { ApiError } from "@/lib/api/client";
-import { useCreateDraft, useCreateTemplate, useWorkflows } from "@/lib/api/workflows";
+import {
+  parseDraftVersionId,
+  useCreateDraft,
+  useCreateTemplate,
+  useDiscardDraft,
+  useWorkflows,
+} from "@/lib/api/workflows";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
@@ -25,34 +31,49 @@ export default function WorkflowsPage() {
   const router = useRouter();
 
   const [creating, setCreating] = useState(false);
-  const [draftError, setDraftError] = useState<string>();
+  const [draftIssue, setDraftIssue] = useState<{
+    message: string;
+    conflict?: { templateId: string; versionId?: string };
+  }>();
   const [openingId, setOpeningId] = useState<string>();
 
   const canManage = useHasPermission("workflow.manage");
   const { data, isLoading, isError, refetch } = useWorkflows();
   const createTemplate = useCreateTemplate();
   const createDraft = useCreateDraft();
+  const discardDraft = useDiscardDraft();
 
   useSetPageHeader(t("workflow.list.title"));
 
   const templates = data ?? [];
 
   function openEditor(templateId: string) {
-    setDraftError(undefined);
+    setDraftIssue(undefined);
     setOpeningId(templateId);
     createDraft.mutate(templateId, {
       onSuccess: (definition) => {
         router.push(`/t/${slug}/admin/workflows/${templateId}/versions/${definition.versionId}`);
       },
       onError: (error) => {
-        setDraftError(
-          error instanceof ApiError && error.status === 409
-            ? t("workflow.list.draftExists")
-            : t("common.error"),
-        );
+        if (error instanceof ApiError && error.status === 409) {
+          setDraftIssue({
+            message: t("workflow.list.draftExists"),
+            conflict: { templateId, versionId: parseDraftVersionId(error.message) },
+          });
+        } else {
+          setDraftIssue({ message: t("common.error") });
+        }
       },
       onSettled: () => setOpeningId(undefined),
     });
+  }
+
+  /** Frees the template's one-draft slot, then opens a fresh draft in its place. */
+  function discardAndRetry(templateId: string, versionId: string) {
+    discardDraft.mutate(
+      { templateId, versionId },
+      { onSuccess: () => openEditor(templateId) },
+    );
   }
 
   return (
@@ -79,17 +100,52 @@ export default function WorkflowsPage() {
         )}
       </div>
 
-      {draftError && (
-        <p
+      {draftIssue && (
+        <div
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
             marginBottom: "var(--ob-space-13)",
-            font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
           }}
         >
-          {draftError}
-        </p>
+          <p
+            style={{
+              color: "var(--ob-status-blocked-fg)",
+              font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+            }}
+          >
+            {draftIssue.message}
+          </p>
+          {draftIssue.conflict && (
+            <div
+              className="flex flex-wrap"
+              style={{ gap: "var(--ob-space-8)", marginTop: "var(--ob-space-8)" }}
+            >
+              {draftIssue.conflict.versionId && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() =>
+                    router.push(
+                      `/t/${slug}/admin/workflows/${draftIssue.conflict!.templateId}/versions/${draftIssue.conflict!.versionId}`,
+                    )
+                  }
+                >
+                  {t("workflow.list.resumeDraft")}
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={!draftIssue.conflict.versionId || discardDraft.isPending}
+                onClick={() =>
+                  discardAndRetry(draftIssue.conflict!.templateId, draftIssue.conflict!.versionId!)
+                }
+              >
+                {t("workflow.list.discardDraft")}
+              </Button>
+            </div>
+          )}
+        </div>
       )}
 
       {isLoading ? (

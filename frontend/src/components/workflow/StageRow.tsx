@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowRightIcon, ChevronDownIcon, ChevronUpIcon, XIcon } from "@/components/icons";
+import { useState } from "react";
+import { ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, XIcon } from "@/components/icons";
 import type { StageDraft } from "./draftState";
 import { t } from "@/lib/i18n";
 
@@ -36,94 +37,160 @@ export function StageRow({
   /** A published version is frozen: browsing stages must stay possible, reordering or deleting them must not. */
   readOnly?: boolean;
 }) {
-  const milestoneCount = stage.milestones?.length ?? 0;
+  const milestones = stage.milestones ?? [];
+  const milestoneCount = milestones.length;
   const branchRules = stage.branchRules ?? [];
   const stageName = (key: string) => stages.find((s) => s.key === key)?.name || t("workflow.stage.unnamed");
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <div
-      className="flex items-start bg-bg-surface"
-      style={{
-        borderRadius: "var(--ob-radius-row)",
-        padding: "12px 16px",
-        gap: "var(--ob-space-11)",
-        border: `1px solid var(${selected ? "--ob-accent" : "--ob-border-default"})`,
-        boxShadow: selected ? "var(--ob-elevation-ring-accent)" : undefined,
-      }}
-    >
-      <span
-        className="text-text-faint"
-        style={{ font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)", paddingTop: 2 }}
+    <div className="flex flex-col bg-bg-surface" style={{ borderRadius: "var(--ob-radius-row)" }}>
+      <div
+        className="flex items-start"
+        style={{
+          padding: "12px 16px",
+          gap: "var(--ob-space-11)",
+          border: `1px solid var(${selected ? "--ob-accent" : "--ob-border-default"})`,
+          borderBottom: expanded ? "none" : undefined,
+          borderRadius: expanded
+            ? "var(--ob-radius-row) var(--ob-radius-row) 0 0"
+            : "var(--ob-radius-row)",
+          boxShadow: selected ? "var(--ob-elevation-ring-accent)" : undefined,
+        }}
       >
-        {String(index + 1).padStart(2, "0")}
-      </span>
-
-      {/* The select affordance is its own button, a sibling of the reorder/delete
-          controls rather than a wrapper around them -- a <button> cannot nest
-          another <button>, and a div[role=button] wrapping real buttons has the
-          same problem for assistive tech even though the DOM allows it. */}
-      <button
-        type="button"
-        aria-pressed={selected}
-        onClick={onSelect}
-        className="flex-1 min-w-0 text-left bg-transparent border-none cursor-pointer"
-      >
-        <div className="flex items-center flex-wrap" style={{ gap: "var(--ob-space-8)" }}>
-          <span
-            className="text-text-primary truncate"
-            style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+        {/* A stage with no milestones has nothing to expand into, so no toggle is
+            drawn -- an affordance that always opens onto an empty list is worse
+            than no affordance at all. */}
+        {milestoneCount > 0 ? (
+          <RowButton
+            label={t(expanded ? "workflow.stage.collapse" : "workflow.stage.expand")}
+            onClick={() => setExpanded((prev) => !prev)}
           >
-            {stage.name || t("workflow.stage.unnamed")}
-          </span>
-          {stage.requiresApproval && <Badge>{t("workflow.stage.approval")}</Badge>}
-          {stage.autoAdvance && <Badge>{t("workflow.stage.auto")}</Badge>}
-        </div>
+            {expanded ? <ChevronDownIcon size={13} /> : <ChevronRightIcon size={13} />}
+          </RowButton>
+        ) : (
+          <span style={{ width: 26, height: 26, flexShrink: 0 }} />
+        )}
 
-        <p
-          className="text-text-muted truncate"
-          style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)" }}
+        <span
+          className="text-text-faint"
+          style={{ font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)", paddingTop: 2 }}
         >
-          {t("workflow.stage.subline", {
-            milestones: String(milestoneCount),
-            sla: stage.slaDays ? t("workflow.stage.slaDays", { days: String(stage.slaDays) }) : t("workflow.stage.noSla"),
-            writeScope: t(`workflow.writeScope.${stage.writeScope ?? "ANY"}`),
-          })}
-        </p>
+          {String(index + 1).padStart(2, "0")}
+        </span>
 
-        {branchRules.map((rule, i) => (
-          <div
-            key={i}
-            className="flex items-center flex-wrap"
-            style={{
-              marginTop: "var(--ob-space-6)",
-              padding: "var(--ob-space-5) var(--ob-space-8)",
-              borderRadius: "var(--ob-radius-inner)",
-              background: "var(--ob-accent-tint)",
-              border: "1px solid var(--ob-accent-tint-border)",
-              gap: "var(--ob-space-5)",
-              font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
-              color: "var(--ob-accent-ink)",
-            }}
-          >
-            <span>{t("workflow.branch.ifLabel")}</span>
-            <ArrowRightIcon size={13} />
-            <span>{rule.targetStageKey ? stageName(rule.targetStageKey) : t("workflow.branch.noTarget")}</span>
+        {/* The select affordance is its own button, a sibling of the reorder/delete
+            controls rather than a wrapper around them -- a <button> cannot nest
+            another <button>, and a div[role=button] wrapping real buttons has the
+            same problem for assistive tech even though the DOM allows it. */}
+        <button
+          type="button"
+          aria-pressed={selected}
+          onClick={onSelect}
+          className="flex-1 min-w-0 text-left bg-transparent border-none cursor-pointer"
+        >
+          <div className="flex items-center flex-wrap" style={{ gap: "var(--ob-space-8)" }}>
+            <span
+              className="text-text-primary truncate"
+              style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+            >
+              {stage.name || t("workflow.stage.unnamed")}
+            </span>
+            {stage.requiresApproval && <Badge>{t("workflow.stage.approval")}</Badge>}
+            {stage.autoAdvance && <Badge>{t("workflow.stage.auto")}</Badge>}
           </div>
-        ))}
-      </button>
 
-      {!readOnly && (
-        <div className="flex" style={{ gap: "var(--ob-space-5)", flexShrink: 0 }}>
-          <RowButton label={t("workflow.stage.moveUp")} disabled={isFirst} onClick={onMoveUp}>
-            <ChevronUpIcon size={13} />
-          </RowButton>
-          <RowButton label={t("workflow.stage.moveDown")} disabled={isLast} onClick={onMoveDown}>
-            <ChevronDownIcon size={13} />
-          </RowButton>
-          <RowButton label={t("workflow.stage.delete")} danger onClick={onDelete}>
-            <XIcon size={13} />
-          </RowButton>
-        </div>
+          <p
+            className="text-text-muted truncate"
+            style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)" }}
+          >
+            {t("workflow.stage.subline", {
+              milestones: String(milestoneCount),
+              sla: stage.slaDays ? t("workflow.stage.slaDays", { days: String(stage.slaDays) }) : t("workflow.stage.noSla"),
+              writeScope: t(`workflow.writeScope.${stage.writeScope ?? "ANY"}`),
+            })}
+          </p>
+
+          {branchRules.map((rule, i) => (
+            <div
+              key={i}
+              className="flex items-center flex-wrap"
+              style={{
+                marginTop: "var(--ob-space-6)",
+                padding: "var(--ob-space-5) var(--ob-space-8)",
+                borderRadius: "var(--ob-radius-inner)",
+                background: "var(--ob-accent-tint)",
+                border: "1px solid var(--ob-accent-tint-border)",
+                gap: "var(--ob-space-5)",
+                font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+                color: "var(--ob-accent-ink)",
+              }}
+            >
+              <span>{t("workflow.branch.ifLabel")}</span>
+              <ArrowRightIcon size={13} />
+              <span>{rule.targetStageKey ? stageName(rule.targetStageKey) : t("workflow.branch.noTarget")}</span>
+            </div>
+          ))}
+        </button>
+
+        {!readOnly && (
+          <div className="flex" style={{ gap: "var(--ob-space-5)", flexShrink: 0 }}>
+            <RowButton label={t("workflow.stage.moveUp")} disabled={isFirst} onClick={onMoveUp}>
+              <ChevronUpIcon size={13} />
+            </RowButton>
+            <RowButton label={t("workflow.stage.moveDown")} disabled={isLast} onClick={onMoveDown}>
+              <ChevronDownIcon size={13} />
+            </RowButton>
+            <RowButton label={t("workflow.stage.delete")} danger onClick={onDelete}>
+              <XIcon size={13} />
+            </RowButton>
+          </div>
+        )}
+      </div>
+
+      {expanded && milestoneCount > 0 && (
+        <ul
+          className="flex flex-col"
+          style={{
+            gap: "var(--ob-space-6)",
+            padding: "var(--ob-space-11) 16px",
+            border: `1px solid var(${selected ? "--ob-accent" : "--ob-border-default"})`,
+            borderTop: "1px solid var(--ob-border-subtle)",
+            borderRadius: "0 0 var(--ob-radius-row) var(--ob-radius-row)",
+          }}
+        >
+          {milestones.map((milestone, i) => {
+            const requirements = milestone.requirements ?? [];
+            const mandatoryCount = requirements.filter((r) => r.mandatory).length;
+            return (
+              <li
+                key={milestone.key ?? i}
+                className="flex items-center justify-between"
+                style={{ gap: "var(--ob-space-8)" }}
+              >
+                <span
+                  className="text-text-secondary truncate"
+                  style={{ font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}
+                >
+                  {milestone.name || t("workflow.stage.unnamed")}
+                </span>
+                <span
+                  className="text-text-faint flex-shrink-0"
+                  style={{ font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)" }}
+                >
+                  {t("workflow.milestone.durationSummary", { days: String(milestone.estimatedDurationDays ?? 0) })}
+                  {" · "}
+                  {requirements.length > 0
+                    ? t("workflow.milestone.requirementCount", {
+                        count: String(requirements.length),
+                        mandatory: String(mandatoryCount),
+                      })
+                    : t("workflow.milestone.noRequirements")}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

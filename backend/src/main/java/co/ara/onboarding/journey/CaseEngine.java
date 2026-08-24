@@ -174,9 +174,15 @@ class CaseEngine {
         // without this guard the very reconcile() call it makes to pick up the change would
         // immediately recompute mandatorySettled() as false and demote it back to ACTIVE,
         // silently undoing the force-complete it was supposed to record.
+        //
+        // mandatorySettled() is vacuously true for a milestone with no mandatory
+        // requirement -- gated on isInCurrentStage too, or such a milestone completes
+        // the instant it's instantiated, regardless of whether its stage (or any stage
+        // before it) has ever been entered. Reachability already gates ACTIVE below;
+        // DONE needs the same gate, not just "nothing mandatory is outstanding".
         for (Milestone m : instances) {
             if (m.getStatus() == MilestoneStatus.SKIPPED || m.getStatus() == MilestoneStatus.DONE) continue;
-            if (mandatorySettled(m, requirementRows, requirementDefs)) {
+            if (mandatorySettled(m, requirementRows, requirementDefs) && isInCurrentStage(m, c, definitions)) {
                 markDone(c, m);
             } else if (hasUnmetDependency(m, instances, dependencies)) {
                 m.setStatus(MilestoneStatus.BLOCKED);

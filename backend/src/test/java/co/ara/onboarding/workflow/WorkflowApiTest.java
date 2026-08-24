@@ -71,7 +71,11 @@ class WorkflowApiTest extends SecurityTestBase {
            .andExpect(jsonPath("$.status").value("DRAFT"));
     }
 
-    /** A second draft is a 409, not a 500 from the partial unique index. */
+    /**
+     * A second draft is a 409, not a 500 from the partial unique index -- and the
+     * body names the open draft's versionId, which is what lets a caller resume or
+     * discard it instead of being stuck behind a message with nothing to act on.
+     */
     @Test
     void aSecondDraftAnswers409() throws Exception {
         UUID tenant = fixture.createTenant("wf-dup-draft");
@@ -84,11 +88,14 @@ class WorkflowApiTest extends SecurityTestBase {
                 .andReturn().getResponse().getContentAsString();
         UUID templateId = UUID.fromString(JsonPath.read(created, "$.id"));
 
-        mvc.perform(as(post("/api/t/wf-dup-draft/workflows/" + templateId + "/versions"), admin))
-           .andExpect(status().isCreated());
+        String draft = mvc.perform(as(post("/api/t/wf-dup-draft/workflows/" + templateId + "/versions"), admin))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID versionId = UUID.fromString(JsonPath.read(draft, "$.versionId"));
 
         mvc.perform(as(post("/api/t/wf-dup-draft/workflows/" + templateId + "/versions"), admin))
-           .andExpect(status().isConflict());
+           .andExpect(status().isConflict())
+           .andExpect(jsonPath("$.versionId").value(versionId.toString()));
     }
 
     /** Publish failures are a 422 carrying every problem, so the builder can list them. */

@@ -139,4 +139,83 @@ describe("StageRow", () => {
     expect(screen.queryByRole("button", { name: "Move stage up" })).toBeNull();
     expect(screen.getByRole("button", { name: /Legal Review/ })).not.toBeNull();
   });
+
+  // ---- expand/collapse: the stage list previously showed only a milestone
+  // count, never the milestones themselves -- seeing them meant selecting the
+  // stage and reading the side inspector. These cover the inline preview.
+
+  const withMilestones: StageDraft = {
+    key: "s1",
+    name: "Kickoff",
+    milestones: [
+      {
+        key: "m1",
+        name: "Sign the agreement",
+        estimatedDurationDays: 2,
+        dependsOnMilestoneKeys: [],
+        requirements: [
+          { kind: "MANUAL", label: "Do it", weight: 1, mandatory: true, documentCategory: null, approverRelationship: null },
+        ],
+      },
+      {
+        key: "m2",
+        name: "Kickoff call",
+        estimatedDurationDays: 1,
+        dependsOnMilestoneKeys: [],
+        requirements: [],
+      },
+    ],
+    branchRules: [],
+  };
+
+  function renderRow(s: StageDraft, overrides: Partial<Parameters<typeof StageRow>[0]> = {}) {
+    const props = {
+      stage: s,
+      stages: [s],
+      index: 0,
+      isFirst: true,
+      isLast: true,
+      selected: false,
+      onSelect: vi.fn(),
+      onMoveUp: vi.fn(),
+      onMoveDown: vi.fn(),
+      onDelete: vi.fn(),
+      ...overrides,
+    };
+    render(<StageRow {...props} />);
+    return props;
+  }
+
+  it("does not show a milestone's name until expanded", () => {
+    renderRow(withMilestones);
+    expect(screen.queryByText("Sign the agreement")).toBeNull();
+  });
+
+  it("expands to show every milestone's name when the expand toggle is clicked", () => {
+    renderRow(withMilestones);
+    fireEvent.click(screen.getByRole("button", { name: "Expand stage" }));
+
+    expect(screen.getByText("Sign the agreement")).not.toBeNull();
+    expect(screen.getByText("Kickoff call")).not.toBeNull();
+  });
+
+  it("collapses again on a second click", () => {
+    renderRow(withMilestones);
+    const toggle = screen.getByRole("button", { name: "Expand stage" });
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Collapse stage" }));
+
+    expect(screen.queryByText("Sign the agreement")).toBeNull();
+  });
+
+  it("expanding a stage does not select it", () => {
+    const props = renderRow(withMilestones);
+    fireEvent.click(screen.getByRole("button", { name: "Expand stage" }));
+    expect(props.onSelect).not.toHaveBeenCalled();
+  });
+
+  it("offers no expand toggle for a stage with no milestones", () => {
+    renderRow(stage());
+    expect(screen.queryByRole("button", { name: "Expand stage" })).toBeNull();
+  });
 });
