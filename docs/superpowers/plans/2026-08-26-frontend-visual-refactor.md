@@ -1798,3 +1798,883 @@ git commit -m "feat(frontend): restyle TimelineRow to the new line-faint/surface
 ```
 
 ---
+
+### Task 17: Checkbox — restyle only
+
+**Files:** Modify `frontend/src/components/ui/Checkbox.tsx:38-50`.
+
+**The server-round-trip-before-flip behaviour (the `busy` prop disabling input during a mutation)
+is untouched — this task only changes colour/size.**
+
+- [ ] **Step 1–4:**
+
+Checked fill `--ob-solid-on-track` → `--ob-ok-fg` (per the rename map's solid-tier collapse). Size:
+`COMPONENTS.md` doesn't give checkboxes their own entry, but the migration table's checkbox is
+specified at 17px radius 5 (`SCREENS.md` §10) — align the shared `Checkbox` to that (17px, radius
+`--ob-radius-5`) since it's the more specific of the two callers (requirement checkboxes have no
+explicit size in either doc; keep them consistent with this one rather than inventing a second
+size). `Checkbox.test.tsx`'s one style assertion (`checked.textDecoration === "line-through"`) is
+unrelated to colour/size — leave it, confirm it still passes. Commit:
+
+```bash
+git add frontend/src/components/ui/Checkbox.tsx
+git commit -m "feat(frontend): restyle Checkbox to ok-fg fill, 17px/radius-5"
+```
+
+---
+
+### Task 18: Avatar — restyle, keep the company/person shape distinction
+
+**Files:** Modify `frontend/src/components/ui/Avatar.tsx` (full restyle).
+
+`COMPONENTS.md` doesn't distinguish avatar shapes, but the current `kind: "company"|"person"` prop
+carries real product meaning (confirmed used by `ContactList.test.tsx` and `CustomerTable.test.tsx`
+asserting on `borderRadius`) — keep the prop and the distinction, only remap which radius token
+each shape uses and add the avatar colour-cycle behaviour `DESIGN_TOKENS.md`'s Colour section
+specifies.
+
+- [ ] **Step 1: Update the two style-coupled tests first**
+
+In `ContactList.test.tsx` and `CustomerTable.test.tsx`, change the asserted radius tokens:
+`"var(--ob-radius-full)"` (person, circular) stays `"var(--ob-radius-full)"` — unchanged, since
+`--ob-radius-full` still resolves (Task 1 kept it, just as `50%` instead of `9999px`; the token
+*name* is identical so this assertion needs no edit). `"var(--ob-radius-chip)"` (company, square)
+becomes `"var(--ob-radius-5)"` (the rename map has no `--ob-radius-chip` in the new set — the
+closest new radius for a small rounded-square avatar tile is `5px`, matching `COMPONENTS.md`'s
+"file-type tiles" role, the closest documented rounded-square small element).
+
+- [ ] **Step 2: Run to confirm the (now-expected) failure against the still-old `Avatar.tsx`**
+
+- [ ] **Step 3: Implement**
+
+```tsx
+import type { CSSProperties } from "react";
+
+const AVATAR_PALETTE = ["#10736b", "#b4392f", "#6a4fb0", "#2b5fb0", "#9a6410", "#2f7d4f", "#4b4842"];
+
+function paletteColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length];
+}
+
+export function Avatar({
+  name,
+  kind = "person",
+  size = 30,
+}: {
+  name: string;
+  kind?: "company" | "person";
+  size?: number;
+}) {
+  const style: CSSProperties = {
+    width: size,
+    height: size,
+    borderRadius: kind === "person" ? "var(--ob-radius-full)" : "var(--ob-radius-5)",
+    background: paletteColor(name),
+    color: "var(--ob-canvas)",
+    font: `600 ${Math.round(size * 0.37)}px/1 var(--ob-font-family-ui)`,
+    display: "grid",
+    placeItems: "center",
+  };
+  return (
+    <span style={style} aria-hidden="true">
+      {initials(name)}
+    </span>
+  );
+}
+
+export function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  if (!first || !last) return "";
+  return (first.slice(0, 1) + (parts.length > 1 ? last.slice(0, 1) : "")).toUpperCase();
+}
+```
+
+Keep every other existing prop (read the current file for the full signature before this rewrite —
+the fork's summary covered `kind`/`size` but the actual file may carry more, e.g. an `online`
+presence-dot flag used by the case workspace's participant list; preserve anything found).
+
+**Cross-cutting note carried over from the domain-survey fork**: `Avatar`'s `initials()` and
+`TopBar.tsx`'s (now `Rail.tsx`'s, since Task 3 moved it) inline `initials()` are duplicate
+implementations. Rail's Task 3 code already inlines its own copy rather than importing this one,
+which was necessary at the time since `Avatar.tsx` hadn't been restyled yet. **This task exports
+`initials` — as a follow-up inside this same task**, update `Rail.tsx` to import
+`{ initials } from "@/components/ui/Avatar"` and delete its local copy, closing the duplication
+this refactor would otherwise leave behind.
+
+- [ ] **Step 4: Run all four affected test files, confirm PASS**
+
+Run: `cd frontend && npx vitest run Avatar ContactList CustomerTable Rail`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/components/ui/Avatar.tsx frontend/src/components/customers/ContactList.test.tsx frontend/src/components/customers/CustomerTable.test.tsx frontend/src/components/shell/Rail.tsx
+git commit -m "feat(frontend): restyle Avatar, add the palette colour-cycle, dedupe initials()
+
+Keeps the company/person shape distinction (real product meaning, no
+design-spec equivalent to fall back on) with remapped radius tokens.
+Adds DESIGN_TOKENS.md's 7-colour avatar palette, hashed by name. Rail.tsx
+now imports initials() from here instead of carrying its own copy."
+```
+
+---
+
+### Task 19: Pagination — restyle (cascades from Button)
+
+**Files:** Modify `frontend/src/components/ui/Pagination.tsx` (the mono page-position text only —
+its two buttons already restyle for free once Task 8 lands, since `Pagination` composes `Button`
+rather than styling its own).
+
+- [ ] **Step 1–4:** Update the mono text's font token to `--ob-type-mono-data-*`, colour
+  `--ob-text-muted`. No test file. Commit:
+
+```bash
+git add frontend/src/components/ui/Pagination.tsx
+git commit -m "feat(frontend): restyle Pagination's mono page-position text"
+```
+
+---
+
+### Task 20: Field / TextareaField
+
+**Files:** Modify `frontend/src/components/ui/Field.tsx` (both exports, ~117 lines).
+
+- [ ] **Step 1–4:**
+
+Apply `COMPONENTS.md` §18's field styling exactly (it's the only place the new spec gives field
+dimensions): label `11.5px text-subtle margin-bottom:5px`, control
+`border:1px solid var(--ob-line); border-radius:var(--ob-radius-9); padding:9px 11px; font-size:13px;
+background:var(--ob-surface)`. Error state: border/text → `--ob-risk-fg`, keeping the existing
+`aria-describedby`/`aria-invalid` wiring untouched (behavioural, not visual). No test file exists.
+Commit:
+
+```bash
+git add frontend/src/components/ui/Field.tsx
+git commit -m "feat(frontend): restyle Field/TextareaField to COMPONENTS.md §18's field spec"
+```
+
+---
+
+### Task 21: States — empty/loading, add an ErrorState
+
+**Files:** Modify `frontend/src/components/ui/States.tsx` (restyle `EmptyState`/`SkeletonRows`,
+add a new `ErrorState` export — the new spec's §22 explicitly hands this off as a gap to fill, and
+the current file has no error renderer at all, confirmed by the fork).
+
+- [ ] **Step 1: Write the failing test** (new `States.test.tsx` if none exists — confirm first;
+  the fork found none)
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { ErrorState } from "./States";
+
+describe("ErrorState", () => {
+  it("announces the message via role=alert and renders a retry button", async () => {
+    const onRetry = vi.fn();
+    render(<ErrorState message="Couldn't load customers." onRetry={onRetry} />);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Couldn't load customers.");
+    screen.getByRole("button", { name: /retry|try again/i }).click();
+    expect(onRetry).toHaveBeenCalledOnce();
+  });
+});
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+- [ ] **Step 3: Implement**
+
+```tsx
+export function ErrorState({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      style={{
+        border: "1px solid var(--ob-risk-border)",
+        background: "var(--ob-risk-bg)",
+        borderRadius: "var(--ob-radius-10)",
+        padding: "11px 12px",
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--ob-space-11)",
+        font: "12px/1.4 var(--ob-font-family-ui)",
+        color: "#5c2a24",
+      }}
+    >
+      <span style={{ flex: 1 }}>{message}</span>
+      <Button variant="small-secondary" onClick={onRetry}>
+        {t("common.retry")}
+      </Button>
+    </div>
+  );
+}
+```
+
+(Import `Button` from `./Button` and `t` from `@/lib/i18n`; add the `common.retry` key.) Restyle
+`EmptyState`'s icon colour from `--ob-graphic-muted` to `--ob-line-strong` (rename map), and
+`SkeletonRows`' skeleton fill from whatever it currently reads to `--ob-line-faint` per
+`COMPONENTS.md` §22 ("skeleton blocks at line-faint"). Keep `SkeletonRows`' `aria-busy`/
+`aria-live="polite"` wiring untouched.
+
+- [ ] **Step 4: Run to confirm pass, Step 5: Commit**
+
+```bash
+git add frontend/src/components/ui/States.tsx frontend/src/components/ui/States.test.tsx frontend/src/lib/i18n
+git commit -m "feat(frontend): add ErrorState (role=alert + retry), restyle Empty/SkeletonRows
+
+Design spec §6's addition from the ui-ux-pro-max accessibility check:
+error text needs role=alert so assistive tech announces it, not just a
+coloured border. This is the gap COMPONENTS.md §22 explicitly hands off."
+```
+
+---
+
+### Task 22: DataTable (net-new primitive)
+
+**Files:** Create `frontend/src/components/ui/DataTable.tsx`, `DataTable.test.tsx`.
+
+Generalises the ad hoc table markup `CustomerTable` (its own `Cell`/`ColumnHeader` helpers, per
+the domain-survey fork) and `MigrationTable` (same shape) each currently build themselves. This
+task builds the shared primitive only; Phase C's Task 27 (customers) and Task 32 (migration) are
+where each existing table is *converted* to use it — do not touch `CustomerTable.tsx` or
+`MigrationTable.tsx` in this task.
+
+**Interfaces:**
+- Produces: `export function DataTable<T>({ columns, rows, getRowKey, onRowClick, footer }: {
+  columns: { key: string; label: string; align?: "left" | "right"; width?: string }[]; rows: T[];
+  getRowKey: (row: T) => string; onRowClick?: (row: T) => void; footer?: ReactNode; })`. Also
+  `export function StackedCard<T>({ rows, render }: { rows: T[]; render: (row: T) => ReactNode })`
+  — the `<900px` fallback per the design spec §6's responsive correction; `DataTable` itself
+  renders the stacked-card fallback automatically below 900px via CSS (`hidden`/responsive
+  classes), rather than requiring the caller to pick.
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { DataTable } from "./DataTable";
+
+type Row = { id: string; name: string };
+const rows: Row[] = [{ id: "1", name: "Acme" }, { id: "2", name: "Orbit" }];
+const columns = [{ key: "name", label: "Name" }];
+
+describe("DataTable", () => {
+  it("renders a header row and one row per item, wrapped in a horizontal-scroll container", () => {
+    render(<DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} />);
+    expect(screen.getByText("Name")).toBeInTheDocument();
+    expect(screen.getByText("Acme")).toBeInTheDocument();
+    expect(screen.getByText("Orbit")).toBeInTheDocument();
+  });
+
+  it("renders each row as a button when onRowClick is provided, and calls it with the row", () => {
+    const onRowClick = vi.fn();
+    render(<DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} onRowClick={onRowClick} />);
+    screen.getByRole("button", { name: /acme/i }).click();
+    expect(onRowClick).toHaveBeenCalledWith(rows[0]);
+  });
+
+  it("does not render rows as buttons when onRowClick is omitted", () => {
+    render(<DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} />);
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+- [ ] **Step 3: Implement**
+
+```tsx
+import type { ReactNode } from "react";
+
+type Column<T> = {
+  key: string;
+  label: string;
+  align?: "left" | "right";
+  width?: string;
+  render?: (row: T) => ReactNode;
+};
+
+export function DataTable<T>({
+  columns,
+  rows,
+  getRowKey,
+  onRowClick,
+  footer,
+}: {
+  columns: Column<T>[];
+  rows: T[];
+  getRowKey: (row: T) => string;
+  onRowClick?: (row: T) => void;
+  footer?: ReactNode;
+}) {
+  const gridTemplate = columns.map((c) => c.width ?? "1fr").join(" ");
+
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <div style={{ minWidth: "fit-content" }}>
+        <div
+          role="row"
+          style={{
+            display: "grid",
+            gridTemplateColumns: gridTemplate,
+            gap: "var(--ob-space-12)",
+            padding: "9px 15px",
+            background: "var(--ob-surface-sunken)",
+            borderBottom: "1px solid var(--ob-line)",
+          }}
+        >
+          {columns.map((col) => (
+            <span
+              key={col.key}
+              style={{
+                font: `500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)`,
+                letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
+                textTransform: "uppercase",
+                color: "var(--ob-text-subtle)",
+                textAlign: col.align ?? "left",
+              }}
+            >
+              {col.label}
+            </span>
+          ))}
+        </div>
+        {rows.map((row) => {
+          const cells = columns.map((col) => (
+            <span key={col.key} style={{ textAlign: col.align ?? "left" }}>
+              {col.render ? col.render(row) : String((row as Record<string, unknown>)[col.key] ?? "")}
+            </span>
+          ));
+          const rowStyle = {
+            display: "grid",
+            gridTemplateColumns: gridTemplate,
+            gap: "var(--ob-space-12)",
+            padding: "10px 15px",
+            borderBottom: "1px solid var(--ob-line-faint)",
+            alignItems: "center",
+            width: "100%",
+            textAlign: "left" as const,
+            font: `13px/1.4 var(--ob-font-family-ui)`,
+            color: "var(--ob-ink)",
+          };
+          return onRowClick ? (
+            <button
+              key={getRowKey(row)}
+              type="button"
+              onClick={() => onRowClick(row)}
+              className="hover:bg-surface-sunken"
+              style={rowStyle}
+            >
+              {cells}
+            </button>
+          ) : (
+            <div key={getRowKey(row)} style={rowStyle}>
+              {cells}
+            </div>
+          );
+        })}
+        {footer && (
+          <div
+            style={{
+              padding: "10px 15px",
+              background: "var(--ob-surface-sunken)",
+              font: `var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)`,
+            }}
+          >
+            {footer}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+The `<900px` stacked-card fallback (`SCREENS.md`'s RESPONSIVE table) is deliberately **not** built
+into this version — it needs a per-column "identifying column" concept the generic `columns` prop
+above doesn't yet carry, and no caller in Phase C actually needs it until Task 27 (customers list)
+converts `CustomerTable`, which *already has* its own `<1024px` card fallback today (confirmed by
+the fork). Task 27 decides then whether to fold that existing fallback into `DataTable` as a
+`stackedColumn` prop or keep it as `CustomerTable`'s own concern — flagging here rather than
+guessing now, per this plan's "no silent caps" rule.
+
+- [ ] **Step 4: Run to confirm pass, Step 5: Commit**
+
+```bash
+git add frontend/src/components/ui/DataTable.tsx frontend/src/components/ui/DataTable.test.tsx
+git commit -m "feat(frontend): add the DataTable primitive (COMPONENTS.md §12)
+
+Generic grid-based table with an optional onRowClick (renders real
+<button> rows only when clickable). The <900px stacked-card fallback is
+deferred to Task 27, which converts the one caller that already has one."
+```
+
+---
+
+### Task 23: StageAccordion (net-new primitive)
+
+**Files:** Create `frontend/src/components/ui/StageAccordion.tsx`, `StageAccordion.test.tsx`.
+
+This is the case roadmap's core primitive (`COMPONENTS.md` §14) — built here as a standalone
+primitive; Task 29 (journey roadmap) converts `Roadmap.tsx`/`StageGroupHeader.tsx`/`MilestoneRow.tsx`
+to use it.
+
+**Interfaces:**
+- Produces: `export function StageAccordion({ number, title, meta, progressPercent, statusChip,
+  isOpen, onToggle, children }: { number: number; title: string; meta: string; progressPercent:
+  number; statusChip: ReactNode; isOpen: boolean; onToggle: () => void; children: ReactNode })` —
+  `children` is the expanded panel's content (the milestone rows), left to the caller so this
+  primitive doesn't need to know `Milestone`'s shape.
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { StageAccordion } from "./StageAccordion";
+
+describe("StageAccordion", () => {
+  it("renders the header and toggles the panel via a button click", () => {
+    const onToggle = vi.fn();
+    render(
+      <StageAccordion number={4} title="Document collection" meta="2/3 milestones · Operations · 5d estimated" progressPercent={20} statusChip={<span>IN PROGRESS</span>} isOpen={false} onToggle={onToggle}>
+        <div>Milestone content</div>
+      </StageAccordion>,
+    );
+    expect(screen.getByText("Document collection")).toBeInTheDocument();
+    expect(screen.queryByText("Milestone content")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /document collection/i }));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
+
+  it("renders the expanded panel when isOpen", () => {
+    render(
+      <StageAccordion number={1} title="Registration" meta="" progressPercent={100} statusChip={<span>COMPLETE</span>} isOpen onToggle={vi.fn()}>
+        <div>Milestone content</div>
+      </StageAccordion>,
+    );
+    expect(screen.getByText("Milestone content")).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+- [ ] **Step 3: Implement**
+
+```tsx
+import type { ReactNode } from "react";
+import { ProgressBar } from "./ProgressBar";
+
+export function StageAccordion({
+  number,
+  title,
+  meta,
+  progressPercent,
+  statusChip,
+  isOpen,
+  onToggle,
+  children,
+  status = "upcoming",
+}: {
+  number: number;
+  title: string;
+  meta: string;
+  progressPercent: number;
+  statusChip: ReactNode;
+  isOpen: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+  status?: "complete" | "active" | "upcoming";
+}) {
+  const railFill = status === "complete" ? "var(--ob-ok-fg)" : status === "active" ? "var(--ob-warn-fg)" : "var(--ob-line-soft)";
+  return (
+    <div style={{ display: "flex", gap: "var(--ob-space-11)" }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 26 }}>
+        <span
+          style={{
+            width: 24, height: 24, borderRadius: "var(--ob-radius-full)",
+            background: railFill,
+            color: status === "upcoming" ? "var(--ob-text-subtle)" : "var(--ob-canvas)",
+            display: "grid", placeItems: "center",
+            font: "600 11px/1 var(--ob-font-family-ui)",
+          }}
+        >
+          {status === "complete" ? "✓" : number}
+        </span>
+        <span style={{ flex: 1, width: 2, margin: "4px 0", background: railFill }} />
+      </div>
+      <div style={{ flex: 1 }}>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isOpen}
+          className="w-full text-left hover:bg-surface-sunken"
+          style={{
+            background: "var(--ob-surface)",
+            border: "1px solid var(--ob-line)",
+            borderRadius: "var(--ob-radius-10)",
+            padding: "12px 14px",
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--ob-space-12)",
+          }}
+        >
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ font: `600 14px/1.3 var(--ob-font-family-ui)`, letterSpacing: "-0.015em", color: "var(--ob-ink)" }}>
+              {title}
+            </div>
+            {meta && (
+              <div style={{ font: "11.5px/1.3 var(--ob-font-family-ui)", color: "var(--ob-text-subtle)" }}>
+                {meta}
+              </div>
+            )}
+          </div>
+          <div style={{ width: 80 }}>
+            <ProgressBar value={progressPercent} label={title} context="stage-summary" />
+          </div>
+          {statusChip}
+          <span aria-hidden="true" style={{ transform: isOpen ? "rotate(180deg)" : "none" }}>▾</span>
+        </button>
+        {isOpen && (
+          <div
+            style={{
+              marginTop: "var(--ob-space-7)",
+              border: "1px solid var(--ob-line)",
+              borderRadius: "var(--ob-radius-10)",
+              background: "var(--ob-surface-sunken)",
+              animation: `om-pop var(--ob-duration-pop) var(--ob-ease-default)`,
+            }}
+          >
+            <div
+              style={{
+                padding: "10px 14px",
+                font: `500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)`,
+                letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
+                textTransform: "uppercase",
+                color: "var(--ob-text-faint)",
+              }}
+            >
+              Milestones in this stage
+            </div>
+            {children}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 4: Run to confirm pass, Step 5: Commit**
+
+```bash
+git add frontend/src/components/ui/StageAccordion.tsx frontend/src/components/ui/StageAccordion.test.tsx
+git commit -m "feat(frontend): add the StageAccordion primitive (COMPONENTS.md §14)
+
+The case roadmap's core primitive. Task 29 converts Roadmap.tsx/
+StageGroupHeader.tsx/MilestoneRow.tsx to compose it."
+```
+
+---
+
+### Task 24: BuilderNode (net-new primitive, aligns with `StageRow`)
+
+**Files:** Create `frontend/src/components/ui/BuilderNode.tsx`, `BuilderNode.test.tsx`.
+
+`StageRow.tsx` (workflow builder, ~258 lines per the fork) is the existing analogue — its own
+`RowButton`/`Badge` helpers and hover-via-`onMouseEnter`/`onMouseLeave` pattern are the thing this
+primitive replaces, but **not in this task**: Task 31 (workflow builder) does that conversion.
+This task builds the shared shape only.
+
+**Interfaces:**
+- Produces: `export function BuilderNode({ name, teamMeta, milestonePills, isBranch, isSelected,
+  isDragging, conditionalChip, onClick, dragHandleProps }: { name: string; teamMeta: string;
+  milestonePills: string[]; isBranch?: boolean; isSelected?: boolean; isDragging?: boolean;
+  conditionalChip?: boolean; onClick: () => void; dragHandleProps?: React.HTMLAttributes<HTMLSpanElement> })`.
+  Drag-and-drop wiring (`draggable`, `onDragStart`/`onDragOver`/`onDrop`) stays the caller's
+  responsibility — `StageRow.tsx` already implements it, and `COMPONENTS.md` §21 itself says a
+  keyboard-accessible reorder affordance (move-up/move-down buttons) is needed in production since
+  native HTML drag-and-drop needs a non-button element; that affordance is `dragHandleProps`'
+  slot, populated by Task 31's conversion, not invented here without the real reorder logic to
+  attach it to.
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { BuilderNode } from "./BuilderNode";
+
+describe("BuilderNode", () => {
+  it("renders the name, meta and milestone pills, and calls onClick", () => {
+    const onClick = vi.fn();
+    render(
+      <BuilderNode name="Agreement" teamMeta="Legal · 8d" milestonePills={["MSA drafted", "Legal review"]} onClick={onClick} />,
+    );
+    expect(screen.getByText("Agreement")).toBeInTheDocument();
+    expect(screen.getByText("MSA drafted")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /agreement/i }));
+    expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("renders a CONDITIONAL chip and the branch number-tile fill when isBranch", () => {
+    render(<BuilderNode name="Segment is ENTERPRISE?" teamMeta="" milestonePills={[]} isBranch conditionalChip onClick={vi.fn()} />);
+    expect(screen.getByText("CONDITIONAL")).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+- [ ] **Step 3: Implement**
+
+```tsx
+export function BuilderNode({
+  name,
+  teamMeta,
+  milestonePills,
+  isBranch = false,
+  isSelected = false,
+  isDragging = false,
+  conditionalChip = false,
+  onClick,
+}: {
+  name: string;
+  teamMeta: string;
+  milestonePills: string[];
+  isBranch?: boolean;
+  isSelected?: boolean;
+  isDragging?: boolean;
+  conditionalChip?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: "100%",
+        display: "flex",
+        alignItems: "center",
+        gap: "var(--ob-space-12)",
+        borderRadius: "var(--ob-radius-10)",
+        padding: "11px 13px",
+        background: isBranch ? "#faf7ff" : "var(--ob-surface)",
+        border: `1px solid ${isSelected ? "var(--ob-ink)" : isBranch ? "var(--ob-automation-border)" : "var(--ob-line)"}`,
+        boxShadow: isSelected ? "var(--ob-shadow-ring-selected)" : "var(--ob-shadow-card)",
+        opacity: isDragging ? 0.4 : 1,
+        cursor: "grab",
+        textAlign: "left",
+      }}
+    >
+      <span aria-hidden="true" style={{ color: "var(--ob-text-ghost)" }}>⋮⋮</span>
+      <span
+        aria-hidden="true"
+        style={{
+          width: 24, height: 24, borderRadius: "var(--ob-radius-7)",
+          display: "grid", placeItems: "center",
+          background: isBranch ? "var(--ob-automation-fg)" : isSelected ? "var(--ob-ink)" : "var(--ob-surface-active)",
+          color: isBranch || isSelected ? "var(--ob-canvas)" : "var(--ob-text-muted)",
+          font: "600 11px/1 var(--ob-font-family-ui)",
+        }}
+      >
+        {isBranch ? "⑃" : ""}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--ob-space-8)" }}>
+          <span style={{ font: "600 13.5px/1.3 var(--ob-font-family-ui)", color: "var(--ob-ink)" }}>{name}</span>
+          {conditionalChip && (
+            <span
+              style={{
+                font: `400 var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)`,
+                textTransform: "uppercase",
+                background: "var(--ob-automation-bg)",
+                color: "var(--ob-automation-fg)",
+                borderRadius: "var(--ob-radius-5)",
+                padding: "2px 6px",
+              }}
+            >
+              CONDITIONAL
+            </span>
+          )}
+        </div>
+        {teamMeta && (
+          <div style={{ font: "11.5px/1.3 var(--ob-font-family-ui)", color: "var(--ob-text-subtle)" }}>{teamMeta}</div>
+        )}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--ob-space-6)", maxWidth: "44%", justifyContent: "flex-end" }}>
+        {milestonePills.map((pill) => (
+          <span
+            key={pill}
+            style={{
+              font: "10.5px/1.3 var(--ob-font-family-ui)",
+              background: "var(--ob-surface-active)",
+              border: "1px solid var(--ob-line)",
+              borderRadius: "var(--ob-radius-5)",
+              padding: "2px 6px",
+            }}
+          >
+            {pill}
+          </span>
+        ))}
+      </div>
+    </button>
+  );
+}
+```
+
+- [ ] **Step 4: Run to confirm pass, Step 5: Commit**
+
+```bash
+git add frontend/src/components/ui/BuilderNode.tsx frontend/src/components/ui/BuilderNode.test.tsx
+git commit -m "feat(frontend): add the BuilderNode primitive (COMPONENTS.md §21)
+
+The workflow builder's draggable stage node. Task 31 converts StageRow.tsx
+(the current analogue) to compose it; drag-and-drop wiring stays there."
+```
+
+---
+
+### Task 25: Toast (net-new primitive)
+
+**Files:** Create `frontend/src/components/ui/Toast.tsx`, `Toast.test.tsx`.
+
+**Before implementing, check whether any ad hoc toast/notification mechanism already exists** —
+`grep -rn 'toast' frontend/src/components frontend/src/lib` (case-insensitive). Neither research
+fork found one in the files it read, but neither read every file in the repo — if one turns up,
+replace it with this rather than adding a second toast system, per the design spec §4's rule
+against parallel components.
+
+**Interfaces:**
+- Produces: `export function ToastProvider({ children }): JSX.Element`, `export function useToast():
+  { show: (message: string) => void }` (context-based, matching `PageHeaderProvider`'s existing
+  pattern in this codebase — `frontend/src/components/shell/PageHeader.tsx` — rather than
+  inventing a different state-sharing mechanism).
+
+- [ ] **Step 1: Write the failing test**
+
+```tsx
+import { render, screen, act } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { ToastProvider, useToast } from "./Toast";
+
+function TestButton() {
+  const { show } = useToast();
+  return <button onClick={() => show("Case migrated")}>Trigger</button>;
+}
+
+describe("Toast", () => {
+  it("shows a message on demand and auto-dismisses after 2600ms", () => {
+    vi.useFakeTimers();
+    render(
+      <ToastProvider>
+        <TestButton />
+      </ToastProvider>,
+    );
+    screen.getByText("Trigger").click();
+    expect(screen.getByText("Case migrated")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(2600));
+    expect(screen.queryByText("Case migrated")).not.toBeInTheDocument();
+    vi.useRealTimers();
+  });
+});
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+- [ ] **Step 3: Implement**
+
+```tsx
+"use client";
+
+import { createContext, useCallback, useContext, useState } from "react";
+import type { ReactNode } from "react";
+
+type ToastContextValue = { show: (message: string) => void };
+const ToastContext = createContext<ToastContextValue | null>(null);
+
+export function ToastProvider({ children }: { children: ReactNode }) {
+  const [message, setMessage] = useState<string | null>(null);
+
+  const show = useCallback((next: string) => {
+    setMessage(next);
+    window.setTimeout(() => setMessage(null), 2600);
+  }, []);
+
+  return (
+    <ToastContext.Provider value={{ show }}>
+      {children}
+      {message && (
+        <div
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            bottom: 20,
+            left: "50%",
+            transform: "translateX(-50%)",
+            background: "var(--ob-ink)",
+            color: "var(--ob-canvas)",
+            borderRadius: "var(--ob-radius-9)",
+            padding: "10px 15px",
+            font: "12.5px/1.3 var(--ob-font-family-ui)",
+            boxShadow: "var(--ob-shadow-toast)",
+            display: "flex",
+            alignItems: "center",
+            gap: "var(--ob-space-8)",
+            animation: `om-pop var(--ob-duration-pop) var(--ob-ease-default)`,
+          }}
+        >
+          <span aria-hidden="true" style={{ width: 6, height: 6, borderRadius: "50%", background: "#5fd0a8" }} />
+          {message}
+        </div>
+      )}
+    </ToastContext.Provider>
+  );
+}
+
+export function useToast(): ToastContextValue {
+  const context = useContext(ToastContext);
+  if (!context) throw new Error("useToast must be used within a ToastProvider");
+  return context;
+}
+```
+
+Note per the design spec §8: "the prototype fires a Toast immediately. In production, show the
+toast on server confirmation and roll back visibly on failure — these are audited actions." This
+primitive only renders on demand; *when* `show()` is called (on mutation success, not on click) is
+each Phase C caller's responsibility, not this task's.
+
+- [ ] **Step 4: Run to confirm pass**
+
+- [ ] **Step 5: Wire `ToastProvider` into the tenant layout**
+
+Add `<ToastProvider>` inside `frontend/src/app/(app)/t/[slug]/layout.tsx`'s provider stack (from
+Task 6), wrapping `{children}` alongside `PageHeaderProvider` — innermost is fine, order relative
+to `PageHeaderProvider` doesn't matter since neither depends on the other.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add frontend/src/components/ui/Toast.tsx frontend/src/components/ui/Toast.test.tsx frontend/src/app/\(app\)/t/\[slug\]/layout.tsx
+git commit -m "feat(frontend): add the Toast primitive (COMPONENTS.md §19), wire ToastProvider
+
+Context-based, matching PageHeaderProvider's existing pattern. Auto-
+dismisses after 2600ms. Checked first for an existing toast mechanism to
+replace rather than duplicate -- see this task's own note if one turns up."
+```
+
+---
