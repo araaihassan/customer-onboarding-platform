@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-12-foundation-and-tenancy-design.md`
 
+> **Design system superseded (2026-08-25).** Every `docs/uispecs/` reference below describes the
+> design system this plan's frontend tasks were actually built against, now at
+> `docs/uispecs_legacy/`. It is accurate history and is left as written — these tasks are already
+> complete. Any new frontend work, including the sub-project 1–2 visual refactor, follows
+> `docs/uispecs_latest/design_handoff_onboarding_platform/` instead; see CLAUDE.md's "UI/UX"
+> section, and invoke the `frontend-design` and `ui-ux-pro-max` skills before starting it.
+
 ---
 
 ## Global Constraints

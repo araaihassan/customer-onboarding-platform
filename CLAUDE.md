@@ -21,7 +21,17 @@ Read the relevant one before starting work. Where they disagree, the more specif
 | `docs/QA.md` | Resolved product questions (referenced as Q1…Qn) |
 | `docs/superpowers/specs/*-design.md` | Architecture and security design per sub-project |
 | `docs/superpowers/plans/*.md` | Task-by-task implementation plan per sub-project |
-| **`docs/uispecs/`** | **Every visual and interaction decision — see below** |
+| **`docs/uispecs_latest/design_handoff_onboarding_platform/`** | **Every visual and interaction decision — see below** |
+
+`docs/uispecs_legacy/` (formerly `docs/uispecs/`) is the design system sub-projects 1–2 were
+originally built against. It is superseded as of 2026-08-25 and kept only for its build scripts
+(`contrast.py`, `build_tokens.py`, etc.) and as the historical record behind the plan/spec files'
+already-completed frontend tasks — do not read it for current token values, copy or layout, and
+do not use it as a reference for any new frontend work.
+
+**Before starting any frontend task, invoke the `frontend-design` and `ui-ux-pro-max` skills.**
+This holds regardless of which sub-project the task is in — building a new screen, restyling an
+existing one, or adding a component all count.
 
 ---
 
@@ -393,70 +403,66 @@ back-to-back regenerations produce reordering-only diffs; that is noise, not a c
 
 ## UI/UX: the design system is an input, not a deliverable
 
-`docs/uispecs/` is a complete design system for the whole platform. **Frontend work implements it;
-it does not invent a visual language.** This applies to every sub-project, not just the one that
-first builds the shell.
+`docs/uispecs_latest/design_handoff_onboarding_platform/` is the complete design system for the
+whole platform — 19 screens across the operator app and the customer portal, covering every
+sub-project, not just the one that first builds the shell. **Frontend work implements it; it does
+not invent a visual language.** As of 2026-08-25 this bundle supersedes `docs/uispecs_legacy/`
+(formerly `docs/uispecs/`), against which sub-projects 1–2's frontend was originally built — see
+"Superseded design system" below for what that means for already-shipped screens.
+
+**Before starting any frontend task, invoke the `frontend-design` and `ui-ux-pro-max` skills.**
+Do this whether the task is a new screen, a restyle, or a single component — it is how this
+bundle's visual language gets implemented consistently instead of reinvented per screen.
 
 | Read | For |
 |---|---|
-| `docs/uispecs/design/README.md` | Build order, and what to preserve |
-| `docs/uispecs/design/02-tokens/` | Three-layer tokens (`tokens.md`, `tokens.css`, `tailwind.css`) |
-| `docs/uispecs/design/04-components/component-specs.md` | All 17 component families, with states and ARIA |
-| `docs/uispecs/design/05-review/ux-design-review.md` | 14 accessibility findings; 4 still open |
-| `docs/uispecs/design/03-icons/` | 56 icons + JSON registry |
-| `docs/uispecs/README.md` | Screen-by-screen layout, and product decisions worth preserving |
-| `docs/uispecs/Onboarding Platform.html` | The working prototype — open it before building a screen |
+| `.../README.md` | Overview, fidelity notes, suggested implementation order, non-negotiables |
+| `.../DESIGN_TOKENS.md` | Every colour, type, spacing, radius, shadow and motion value |
+| `.../COMPONENTS.md` | The ~20 recurring components, exact specs and states |
+| `.../SCREENS.md` | Screen-by-screen layout, content and behaviour |
+| `.../DOMAIN_RULES.md` | The PRD/QA business rules the UI encodes, and where each surfaces |
+| `.../STATE_AND_DATA.md` | State model, TypeScript data shapes, API surface the design implies |
+| `.../Onboarding Platform.dc.html` | The interactive design reference — open it before building a screen |
 
-**Order matters:** tokens, then icons, then components, then screens. Each step is far cheaper
-before the next than retrofitted after it.
+**Order matters:** tokens + shell, then primitives (`COMPONENTS.md`), then screens. Each step is
+far cheaper before the next than retrofitted after it. **Do not port the prototype's inline
+styles or its single-class state container** — extract the tokens, rebuild each screen against the
+codebase's existing component primitives (restyle in place where one already exists, rather than
+adding a parallel one), and wire real data. Charts in the reference are hand-built bars; use the
+codebase's charting library in production and match colours and the "clock running vs. clock
+paused" split-bar semantics instead of copying markup.
 
 Four decisions erode quietly and must be held:
 
 1. **Colour always means status, never decoration.** If you cannot name the state a colour
    represents, use a neutral.
-2. **IBM Plex Mono for machine-generated values, Archivo for human text.** IDs, dates, counts and
-   metrics are mono; anything a person wrote is not.
+2. **Instrument Sans for human text, Spline Sans Mono for machine-generated values.** IDs, dates,
+   counts and metrics are mono; anything a person wrote is not.
 3. **Cards are flat.** Elevation is only for what genuinely floats — popovers, device frames.
 4. **Colour is never the only signal.** Every status colour is paired with a word or an icon.
 
-Two token constraints are **not re-derivable by eye — do not "fix" them**: `text-faint` and
-`text-disabled` resolve to the same value *in both themes* because neither palette has room for a
-third quiet grey clearing WCAG AA on the ground that binds it — the *darkest* in light (`#f2f0ec`),
-the *lightest* in dark (`slate-700`); and `paper-600` is a graphics-only tier valid at 3:1 for 20px+
-marks and 1px borders, never for text. Derivation in `05-review/ux-design-review.md` §1 and §1b.
-
-Run `docs/uispecs/design/scripts/contrast.py` if you add any colour, and read its two tables
-differently. `SHIPPED_PAIRS` resolves **token names** through `build_tokens.py` — 49 pairs in each
-theme covering text, rail, accent, status pills, solids and borders, i.e. every pair a component
-paints — so a FAIL there is live. `PAIRS` is 24 **literals copied from the prototype as handed
-off**: it is the evidence behind review finding 1, its 7 failures are the historical record and
-are meant to stay red by design, and it says nothing about the shipped tokens.
-
-**Closed since sub-project 1: both themes' shipped tokens now measure clean.**
-`report_shipped("light")` runs unconditionally alongside `report_shipped("dark")` on every
-invocation (previously light was skipped, and nine of its 49 pairs failed, `border-default` worst
-at 1.15–1.28 against a 3:1 floor) — as of this sub-project's close, running the script reports
-**0 of 49 pairs failing in either theme**, confirmed by actually running it rather than reading
-the script. Light is still the **default** theme (`ThemeProvider` sets `defaultTheme="system"`),
-so this was the rendering most readers see first. Remember why a clean axe run was never proof of
-this on its own: axe's default rule set evaluates `color-contrast` for TEXT and has no non-text
-rule, and every one of the nine (now-fixed) failures was a non-text graphic (WCAG 1.4.11) — a
-border or a status circle's fill — which is exactly what a text-only checker cannot see. Keep
-adding a pair to `SHIPPED_PAIRS` for every new role; the day this script goes green by having
-nothing left to check is the day it stops proving anything.
-
-Dark theme is keyed on `[data-theme="dark"]`, **not a class** — configure `next-themes` with
-`attribute="data-theme"` or the dark tokens never apply. Generated assets come from the scripts in
-`design/scripts/`; never hand-edit them. `frontend/src/app/tokens.css` and `tailwind-theme.css` are
-verbatim copies of `02-tokens/tokens.css` and `tailwind.css` — regenerate, then copy both across.
+**Light theme only — this design system has no dark theme.** Dropping dark-mode support is a
+deliberate decision, not an oversight: the bundle defines no dark palette anywhere, and the prior
+dark-theme invariant below (`[data-theme="dark"]`, the 49-pair `contrast.py` check run in both
+themes) is retired along with `docs/uispecs_legacy/`. The frontend refactor for sub-projects 1–2
+removes dark-theme support from the app itself (theming mechanism, `next-themes` config, the
+`ThemeProvider`/theme-toggle UI) rather than leaving it half-wired against tokens that no longer
+exist. Do not reintroduce a dark palette without a design decision to do so first.
 
 **Gaps the design does not cover, which implementations must supply:** empty states, loading
-skeletons, error states, and any layout below 1440px. Task R1 measured the dark theme's **contrast**
-for the 49 pairs listed above and fixed every failure (§1b). That is a claim about those pairs and
-nothing else: it is **not** a visual review, which has still never happened, so composition, weight
-and hierarchy are unproven. Add a pair to `SHIPPED_PAIRS` whenever you add a role — the first
-version of that table was all-neutral and reported "0 of 17 fail" while the dark primary button sat
-at 1.53:1.
+skeletons, error states, and any layout below 1440px.
+
+### Superseded design system
+
+`docs/uispecs_legacy/` is retained for two reasons only: its build scripts (`contrast.py`,
+`build_tokens.py`, `build_icons.py`, etc.) may still be useful during the refactor, and it is the
+document sub-projects 1–2's original frontend implementation (and the plan/spec files describing
+that work, task by task) was actually built against — rewriting those historical references would
+misrepresent what was built and why. **Do not read it for current token values, copy, layout, or
+component behaviour.** Its three-layer token system (primitive → semantic → component), its 56
+icons, its `IBM Plex Mono`/`Archivo` type pairing and its light/dark theming are all superseded by
+the bundle above. Frontend tasks touching sub-project 1 or 2 screens for the first time since
+2026-08-25 restyle against the new bundle, not this one.
 
 ---
 
