@@ -118,6 +118,15 @@ need something the current `ui/` folder has no counterpart for.
 | `Field.tsx` | §18 Modal → Field styling | Label/control spec (`border:1px solid line; radius:9; padding:9px 11px`) |
 | `States.tsx` | §22 Empty/loading/error | See §6 below — this is where the handoff explicitly hands off the decision |
 
+**Icons stay put.** `DESIGN_TOKENS.md`'s Iconography section recommends substituting a real icon
+library (Lucide) for the prototype's typographic glyphs. `frontend/src/components/icons/index.tsx`
+already is that substitution — a generated, tested, `currentColor`-based 24px/1.5-stroke SVG set
+(the same visual weight Lucide uses), just generated from `docs/uispecs_legacy/`'s icon registry
+instead. Introducing Lucide as a new dependency and rewiring every call site would be a library
+swap, not a restyle, and buys nothing the existing set doesn't already provide. Keep it; only its
+generator's source-path comment needs updating to note the registry it was actually generated
+from is now historical.
+
 **Net-new primitives** needed because sub-project 1–2 screens use them but nothing in `ui/` covers
 them yet:
 
@@ -177,14 +186,29 @@ one addition from the `ui-ux-pro-max` accessibility cross-check:
   visual-only error indication (colour/border alone) doesn't announce to assistive tech, and nothing
   in `COMPONENTS.md` §22 specifies this because the handoff is a visual reference, not an
   accessibility spec.
-- **Sub-1440px**: the handoff has no opinion below 1440px. For `DataTable` specifically — the
-  component most likely to overflow — wrap it in its own horizontal-scroll container
-  (`overflow-x: auto`) rather than letting the page itself scroll horizontally or collapsing to a
-  card layout (a card-per-row fallback would be a structural change, out of scope for a restyle).
-  Everything else (forms, the case workspace, the builder) uses relative units and existing
-  responsive behaviour from the current implementation; this refactor changes their skin, not
-  their breakpoints, except where a fixed pixel value came from the old token system's component
-  tier and needs a replacement.
+- **Responsive** (correction: `SCREENS.md`'s own `# RESPONSIVE` table, read after the design
+  section above was first drafted, is more specific than "no opinion below 1440px" — this replaces
+  that draft). The design targets ≥1280px; required behaviour below that, scoped to what's actually
+  built in sub-project 1–2:
+  - `<1280px` — the dashboard grid goes 4→2 columns. N/A here: `dashboard/page.tsx` stays a
+    placeholder, nothing to reflow.
+  - `<1100px` — the case workspace aside wraps beneath the content, and the case header row wraps
+    (`SCREENS.md` §3 flags this was a real bug in an earlier revision — keep the wrap; the
+    `case`/`CaseHeader` restyle task must verify it, not just carry over whatever the current
+    implementation does today).
+  - `<1024px` — the sidebar collapses to a drawer over the content, toggled from the rail. This is
+    a structural behaviour, not just a style — check whether `shell/Sidebar.tsx` already does this
+    today (it may, since the current app already targets down to 1024px per its own Playwright
+    accessibility spec) and restyle it in place; if it doesn't exist yet, that's a real gap this
+    refactor must close, not skip as "structural."
+  - `<900px` — tables switch to stacked cards keyed by the identifying column. This applies to
+    `DataTable` wherever it's used in sub-project 1–2 (customers list, admin lists) — build the
+    stacked-card fallback as part of the `DataTable` primitive task (§4), not deferred.
+  - **44px minimum touch targets** apply to the customer portal, which is explicitly the only
+    surface expected to go down to 390px ("customers will open on a phone"). The operator app's
+    26–30px controls are stated as desktop-only sizes on purpose. No portal screens exist in
+    sub-project 1–2 scope, so touch-target scaling is **not applicable here** — it becomes a real
+    requirement whenever sub-project 7 (Customer Portal) is built.
 
 ---
 
