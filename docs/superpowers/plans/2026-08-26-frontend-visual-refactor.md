@@ -1329,5 +1329,472 @@ are already flat and single-theme."
 ---
 
 **Phase A is now complete and independently shippable**: the app renders in the new palette/type
-with the new shell, no dark theme, and a working contrast check. Phase B (primitives) and Phase C
-(screens) continue in this same file — see the task list below once appended.
+with the new shell, no dark theme, and a working contrast check.
+
+---
+
+## Phase B — Primitives
+
+Every task in this phase applies the Global Constraints token rename map. Steps below cite exact
+current line ranges (from a full read of each file) and give only the non-mechanical changes.
+
+### Task 8: Button — 9 variants
+
+**Files:** Modify `frontend/src/components/ui/Button.tsx` (full rewrite — currently 37 lines,
+2 variants only).
+
+**Interfaces:** `export function Button({ variant, className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "small-primary" | "small-secondary" | "danger-outline" | "filter-active" | "filter-idle" | "portal-primary" | "text-link" })`.
+Widening the `variant` union is a breaking-in-theory, safe-in-practice change: the only current
+callers pass `"primary"` or nothing (default), per the domain-component survey — grep confirms no
+caller passes `variant="secondary"` today that would need remapping, but check
+`grep -rn 'variant=' frontend/src/components frontend/src/app` before assuming so and fix any
+found.
+
+- [ ] **Step 1: Write the failing tests** (new `Button.test.tsx` — none exists today)
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { Button } from "./Button";
+
+describe("Button", () => {
+  it.each([
+    ["primary", "var(--ob-ink)", "var(--ob-canvas)"],
+    ["secondary", "var(--ob-surface)", "var(--ob-ink)"],
+    ["small-primary", "var(--ob-ink)", "var(--ob-canvas)"],
+    ["small-secondary", "var(--ob-surface)", "var(--ob-ink)"],
+    ["portal-primary", "var(--ob-ink)", "var(--ob-canvas)"],
+  ] as const)("variant=%s sets the documented background/text tokens", (variant, bg, color) => {
+    render(<Button variant={variant}>Go</Button>);
+    const el = screen.getByRole("button", { name: "Go" });
+    expect(el.style.background).toBe(bg);
+    expect(el.style.color).toBe(color);
+  });
+
+  it("danger-outline is transparent-on-surface with a risk border and risk text", () => {
+    render(<Button variant="danger-outline">Force-complete</Button>);
+    const el = screen.getByRole("button", { name: "Force-complete" });
+    expect(el.style.background).toBe("var(--ob-surface)");
+    expect(el.style.color).toBe("var(--ob-risk-fg)");
+    expect(el.style.border).toContain("var(--ob-risk-border)");
+  });
+
+  it("text-link has no background or border", () => {
+    render(<Button variant="text-link">Mark all read</Button>);
+    const el = screen.getByRole("button", { name: "Mark all read" });
+    expect(el.style.background).toBe("transparent");
+    expect(el.style.border).toBe("");
+  });
+
+  it("disabled state uses the documented line/text-faint pair regardless of variant", () => {
+    render(<Button variant="primary" disabled>Migrate</Button>);
+    const el = screen.getByRole("button", { name: "Migrate" });
+    expect(el.style.background).toBe("var(--ob-line)");
+    expect(el.style.color).toBe("var(--ob-text-faint)");
+  });
+});
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+Run: `cd frontend && npx vitest run Button.test.tsx`
+Expected: FAIL — `Button.tsx` doesn't have a `variant` prop with these values yet.
+
+- [ ] **Step 3: Implement**
+
+```tsx
+import type { ButtonHTMLAttributes } from "react";
+
+type Variant =
+  | "primary" | "secondary" | "small-primary" | "small-secondary"
+  | "danger-outline" | "filter-active" | "filter-idle" | "portal-primary" | "text-link";
+
+const VARIANTS: Record<Variant, {
+  height: string; padding: string; background: string; color: string;
+  border: string; radius: string; font: string; hoverBg?: string;
+}> = {
+  primary: { height: "var(--ob-control-height)", padding: "0 13px", background: "var(--ob-ink)", color: "var(--ob-canvas)", border: "none", radius: "var(--ob-radius-8)", font: "600 12.5px/1.2", hoverBg: "var(--ob-ink-hover)" },
+  secondary: { height: "var(--ob-control-height)", padding: "0 12px", background: "var(--ob-surface)", color: "var(--ob-ink)", border: "1px solid var(--ob-line)", radius: "var(--ob-radius-8)", font: "500 12.5px/1.2", hoverBg: "var(--ob-surface-active)" },
+  "small-primary": { height: "var(--ob-control-height-sm)", padding: "0 11px", background: "var(--ob-ink)", color: "var(--ob-canvas)", border: "none", radius: "var(--ob-radius-7)", font: "600 11.5px/1.2", hoverBg: "var(--ob-ink-hover)" },
+  "small-secondary": { height: "var(--ob-control-height-sm)", padding: "0 10px", background: "var(--ob-surface)", color: "var(--ob-ink)", border: "1px solid var(--ob-line)", radius: "var(--ob-radius-7)", font: "500 11.5px/1.2", hoverBg: "var(--ob-surface-active)" },
+  "danger-outline": { height: "27px", padding: "0 10px", background: "var(--ob-surface)", color: "var(--ob-risk-fg)", border: "1px solid var(--ob-risk-border)", radius: "var(--ob-radius-7)", font: "600 12px/1.2", hoverBg: "var(--ob-risk-bg)" },
+  "filter-active": { height: "30px", padding: "0 11px", background: "var(--ob-ink)", color: "var(--ob-canvas)", border: "1px solid var(--ob-line)", radius: "var(--ob-radius-8)", font: "500 12.5px/1.2" },
+  "filter-idle": { height: "30px", padding: "0 11px", background: "var(--ob-surface)", color: "var(--ob-ink)", border: "1px solid var(--ob-line)", radius: "var(--ob-radius-8)", font: "500 12.5px/1.2", hoverBg: "var(--ob-surface-active)" },
+  "portal-primary": { height: "36px", padding: "0 16px", background: "var(--ob-ink)", color: "var(--ob-canvas)", border: "none", radius: "var(--ob-radius-9)", font: "600 13px/1.2", hoverBg: "var(--ob-ink-hover)" },
+  "text-link": { height: "auto", padding: "0", background: "transparent", color: "var(--ob-accent-fg)", border: "none", radius: "0", font: "600 12.5px/1.2" },
+};
+
+export function Button({
+  variant = "primary",
+  className = "",
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: Variant }) {
+  const v = VARIANTS[variant];
+  return (
+    <button
+      {...props}
+      className={`inline-flex items-center justify-center ${variant === "text-link" ? "hover:underline" : ""} ${className}`}
+      style={{
+        height: v.height,
+        padding: v.padding,
+        borderRadius: v.radius,
+        background: props.disabled ? "var(--ob-line)" : v.background,
+        color: props.disabled ? "var(--ob-text-faint)" : v.color,
+        border: v.border,
+        font: `${v.font} var(--ob-font-family-ui)`,
+        cursor: props.disabled ? "not-allowed" : "pointer",
+        ...props.style,
+      }}
+    />
+  );
+}
+```
+
+(Hover states are handled by callers already relying on browser `:hover` today — the old `Button`
+had no hover styling either, since inline styles can't express `:hover`; if a caller needs a real
+hover effect, that's a pre-existing gap this task doesn't newly introduce. Note `hoverBg` values
+above are documented for a future CSS-module/class-based hover pass, not wired up here — flag this
+explicitly rather than silently dropping the hover requirement `COMPONENTS.md` §4 lists for every
+variant.)
+
+- [ ] **Step 4: Run to confirm pass**
+
+Run: `cd frontend && npx vitest run Button.test.tsx`
+Expected: PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/components/ui/Button.tsx frontend/src/components/ui/Button.test.tsx
+git commit -m "feat(frontend): restyle Button to the 9-variant spec (COMPONENTS.md §4)
+
+Primary is now ink/canvas, not accent -- colour is reserved for meaning
+per the new design's own stated principle. New variants: small-primary/
+-secondary, danger-outline, filter-active/-idle, portal-primary, text-link."
+```
+
+---
+
+### Task 9: Card
+
+**Files:** Modify `frontend/src/components/ui/Card.tsx:10-25` (the `Card` export only —
+`CardHeader`, L35-65, gets its type-token references updated but no structural change).
+
+- [ ] **Step 1–4 (test/implement/verify/commit cycle):**
+
+Replace the token references per the rename map:
+`bg-bg-surface border-border-default rounded-card` → `bg-surface border-line rounded-11` (Tailwind
+utility classes now resolve through Task 1's `tailwind-theme.css`), and the inline padding to
+`padding: 14px 15px 14px 15px` (`COMPONENTS.md`'s `SectionCard`/general card body range,
+14–18px — pick 14/15 as the tighter, table-adjacent end since this `Card` wraps dense content
+like `TeamMembers`'s member list) plus `boxShadow: var(--ob-shadow-card)` (new — the old `Card` had
+no shadow at all, and `card` shadow is "every card, subtle by design" per `DESIGN_TOKENS.md`).
+`CardHeader`'s title `<h2>` repoints `--ob-type-13-5-*` → `--ob-type-card-title-*` (Task 1). No
+existing test file to update. Run `npx vitest run` (nothing regresses — `Card` has no dedicated
+test) and `npm run build`, then commit:
+
+```bash
+git add frontend/src/components/ui/Card.tsx
+git commit -m "feat(frontend): restyle Card to the new surface/line/card-shadow tokens"
+```
+
+---
+
+### Task 10: Chip
+
+**Files:** Modify `frontend/src/components/ui/Chip.tsx:26-57`.
+
+The existing `active` prop's ink/surface ternary already matches the new spec's active-filter
+pattern conceptually (per the domain-survey fork's finding) — only token names, size and radius
+change; no test update needed (`Chip.test.tsx` has zero style assertions, confirmed by the fork).
+
+- [ ] **Step 1: Update the failing case in a small addition to `Chip.test.tsx`**
+
+```tsx
+it("uses the standard mono chip sizing", () => {
+  render(<Chip>COMPLETE</Chip>);
+  const el = screen.getByRole("button");
+  expect(el.style.font).toContain("var(--ob-type-mono-chip-size)");
+  expect(el.style.borderRadius).toBe("var(--ob-radius-5)");
+});
+```
+
+- [ ] **Step 2: Run to confirm failure, then implement**
+
+Rewrite the style block (was L26-57) to:
+
+```tsx
+style={{
+  height: "auto",
+  padding: "2px 6px",
+  borderRadius: "var(--ob-radius-5)",
+  border: "none",
+  font: `400 var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)`,
+  letterSpacing: "var(--ob-type-mono-chip-tracking)",
+  textTransform: "uppercase",
+  background: active ? "var(--ob-ink)" : "var(--ob-neutral-bg)",
+  color: active ? "var(--ob-canvas)" : "var(--ob-neutral-fg)",
+  cursor: props.onClick ? "pointer" : "default",
+  ...props.style,
+}}
+```
+
+(`Chip` had no `textTransform`/mono treatment before — the new spec's Chip is "always uppercase
+mono," which the old `StatusPill`-adjacent `Chip` wasn't. This is the one real behavioural-looking
+change in this task, and it's visual only: the text content passed in is unchanged, only its
+rendered casing/face.)
+
+- [ ] **Step 3: Run to confirm pass, Step 4: Commit**
+
+```bash
+git add frontend/src/components/ui/Chip.tsx frontend/src/components/ui/Chip.test.tsx
+git commit -m "feat(frontend): restyle Chip to the always-uppercase-mono spec (COMPONENTS.md §3)"
+```
+
+---
+
+### Task 11: StatusPill — rename roles, keep the 5 in use
+
+**Files:** Modify `frontend/src/components/ui/StatusPill.tsx:14-24,51-66`.
+
+- [ ] **Step 1–4:**
+
+Rename `StatusRole` from `"on-track" | "progress" | "at-risk" | "blocked" | "neutral"` to
+`"ok" | "accent" | "warn" | "risk" | "neutral"` (per the rename map's status-role row), updating
+`ROLE_BY_STATUS`'s five existing mappings (`ACTIVE→ok`, etc. — read the current file to get each
+domain-status string right, only the target role name changes) and the render's token references
+(`--ob-status-{role}-bg/fg` → `--ob-{role}-bg/fg`). No test file exists to update. Leave `info` and
+`automation` off the `StatusRole` union for now — nothing in sub-project 1–2 needs them yet, and
+adding unused union members ahead of a real caller is exactly the "not speculatively" pattern the
+design spec's Global Constraints warn against. Run `npx vitest run && npm run build`, commit:
+
+```bash
+git add frontend/src/components/ui/StatusPill.tsx
+git commit -m "feat(frontend): rename StatusPill's roles to the new 7-role semantic set
+
+Only the 5 roles StatusPill actually uses are renamed (on-track/progress/
+at-risk/blocked/neutral -> ok/accent/warn/risk/neutral); info and
+automation are available on the token layer but unused until a caller
+needs them."
+```
+
+---
+
+### Task 12: ProgressBar — 5 context-specific heights
+
+**Files:** Modify `frontend/src/components/ui/ProgressBar.tsx:26-40` and its
+`size: "inline" | "large"` prop.
+
+- [ ] **Step 1: Extend the test file**
+
+```tsx
+it.each([
+  ["table-cell", "5px", "var(--ob-radius-4)"],
+  ["stage-summary", "5px", "var(--ob-radius-4)"],
+  ["case-hero", "7px", "var(--ob-radius-4)"],
+  ["portal-sidebar", "5px", "var(--ob-radius-4)"],
+  ["portal-card", "6px", "var(--ob-radius-4)"],
+] as const)("context=%s sets the documented track height", (context, height) => {
+  render(<ProgressBar value={50} label="Progress" context={context} />);
+  expect(screen.getByRole("progressbar").style.height).toBe(height);
+});
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+- [ ] **Step 3: Implement**
+
+Widen the existing `size: "inline" | "large"` prop to `context: "table-cell" | "stage-summary" |
+"case-hero" | "portal-sidebar" | "portal-card"` (a rename, not an addition — five contexts replace
+two sizes 1:1 in spirit but the values differ, so check every current caller of `size=` and update
+it to the matching `context=` value: `size="inline"` callers most likely want `"table-cell"` or
+`"stage-summary"`; `size="large"` callers want `"case-hero"`. Grep
+`grep -rn 'ProgressBar' frontend/src/components frontend/src/app` to find and update each call
+site in the same commit — don't leave a caller passing the now-removed `size` prop). Track
+`background` moves from `bg-bg-inset` to `bg-line-faint` per the rename map's `--ob-bg-inset`
+resolution (progress-bar tracks → `line-faint`), fill colour becomes conditional on the *value*
+per `COMPONENTS.md` §13's fill-by-state rule (`>70% → accent-fg`, `41–70% → warn-fg`, `≤40% →
+info-fg`, complete → `ok-fg`) rather than always `bg-accent`:
+
+```tsx
+function fillColor(value: number): string {
+  if (value >= 100) return "var(--ob-ok-fg)";
+  if (value > 70) return "var(--ob-accent-fg)";
+  if (value > 40) return "var(--ob-warn-fg)";
+  return "var(--ob-info-fg)";
+}
+```
+
+Apply `fillColor(value)` as the fill's `background`. Note: `COMPONENTS.md` §13 also says
+"Case-level and stage-level bars use `ok.fg` when complete and `warn.fg` while in progress" — a
+narrower, two-state rule for those two specific contexts that overrides the four-tier rule above.
+Implement `fillColor` to accept the `context` and branch:
+
+```tsx
+function fillColor(value: number, context: Context): string {
+  if (context === "case-hero" || context === "stage-summary") {
+    return value >= 100 ? "var(--ob-ok-fg)" : "var(--ob-warn-fg)";
+  }
+  if (value >= 100) return "var(--ob-ok-fg)";
+  if (value > 70) return "var(--ob-accent-fg)";
+  if (value > 40) return "var(--ob-warn-fg)";
+  return "var(--ob-info-fg)";
+}
+```
+
+- [ ] **Step 4: Run to confirm pass, Step 5: Commit**
+
+```bash
+git add frontend/src/components/ui/ProgressBar.tsx frontend/src/components/ui/ProgressBar.test.tsx
+git commit -m "feat(frontend): restyle ProgressBar to 5 contexts with fill-by-state colour
+
+size (inline|large) becomes context (table-cell|stage-summary|case-hero|
+portal-sidebar|portal-card); fill colour now depends on the value per
+COMPONENTS.md §13's rule, not a fixed accent fill. Updates every call
+site's size= to context=."
+```
+
+---
+
+### Task 13: Switch → Toggle spec
+
+**Files:** Modify `frontend/src/components/ui/Switch.tsx:43-64`.
+
+- [ ] **Step 1–4:**
+
+Track colours: on `background: var(--ob-accent-fg)`, off `background: var(--ob-line-strong)` (was
+`--ob-accent`/`--ob-bg-inset`). Dimensions already match (`COMPONENTS.md` §17: 34×19, knob 15×15 —
+confirm the current 34×20/16×16 is close enough to leave as a one-pixel adjustment: track height
+19 not 20, knob 15 not 16, translateX distance becomes 13px not 14px to keep the knob's 2px inset
+on both sides at the new track height). Update `Switch.test.tsx`'s `role`/`aria-checked` assertions
+— none reference colour, so only re-run to confirm no regression, no rewrite needed. Commit:
+
+```bash
+git add frontend/src/components/ui/Switch.tsx
+git commit -m "feat(frontend): restyle Switch (Toggle, COMPONENTS.md §17) to accent-fg/line-strong"
+```
+
+---
+
+### Task 14: Tabs → SegmentedControl visual
+
+**Files:** Modify `frontend/src/components/ui/Tabs.tsx:62-70` and its wrapping container.
+
+This is the one primitive with a real **visual shape change**, not just a recolour: the current
+`Tabs` renders an underline-tab treatment (`boxShadow: inset 0 -2px 0 var(--ob-accent)` on the
+selected tab); `SCREENS.md` §3 explicitly names the case workspace's five tabs as a
+"SegmentedControl" — a pill-track control (`COMPONENTS.md` §5: `background:surface-active;
+border:1px solid line; border-radius:9px; padding:3px`, each segment `height:26–27px; padding:0
+11–12px; border-radius:6px`, selected segment `background:surface`). The `role="tablist"`/
+`role="tab"` semantics and the existing arrow-key automatic-activation behaviour (proven by
+`Tabs.test.tsx`, zero style assertions) are unchanged — only the container and per-tab styling.
+
+- [ ] **Step 1: Update `Tabs.test.tsx`'s existing style-agnostic tests to still pass** (no new
+  cases needed — the fork confirmed zero style assertions in this file; run it after Step 2 to
+  confirm nothing behavioural broke).
+
+- [ ] **Step 2: Rewrite the container and tab styling**
+
+Wrap the `role="tablist"` element in the track styling (`background: var(--ob-surface-active);
+border: 1px solid var(--ob-line); border-radius: var(--ob-radius-9); padding: 3px; display: flex;
+gap: 4px`), and change each tab's style block from the underline treatment to:
+
+```tsx
+style={{
+  height: "27px",
+  padding: "0 12px",
+  border: "0",
+  borderRadius: "var(--ob-radius-6)",
+  font: `500 12.5px/1.2 var(--ob-font-family-ui)`,
+  background: selected ? "var(--ob-surface)" : "transparent",
+  color: selected ? "var(--ob-ink)" : "var(--ob-text-muted)",
+}}
+```
+
+- [ ] **Step 3: Run `npx vitest run Tabs.test.tsx`, confirm PASS (behavioural tests untouched)**
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add frontend/src/components/ui/Tabs.tsx
+git commit -m "feat(frontend): restyle Tabs from underline to SegmentedControl (COMPONENTS.md §5)
+
+SCREENS.md names the case workspace's five tabs a SegmentedControl, a
+pill-track shape, not the underline-tab treatment this had before.
+role=tablist/tab and arrow-key activation are unchanged."
+```
+
+---
+
+### Task 15: Dialog → Modal spec
+
+**Files:** Modify `frontend/src/components/ui/Dialog.tsx:77-111` (styling only — all focus-trap
+logic at L1-75, 118-154 is untouched, confirmed by the fork's line-range read).
+
+`COMPONENTS.md` §18's Modal is specifically the force-complete modal's own spec (520px max-width,
+a `PRIVILEGED ACTION · APPROVAL REQUIRED` eyebrow header, a bordered footer). Every *other* current
+`Dialog` caller (`CreateCaseDialog`, `HoldDialog`, `ForceCompleteDialog`, `TeamMembers`'s dialog,
+`ContactList`'s dialog, `RequirementList`'s `WaiveDialog`) uses the same shell at its current
+460px width for a plainer header. Rather than hardcoding 520px into `Dialog` itself (which would
+widen every dialog, not just the one §18 actually describes), add an optional `maxWidth` prop
+defaulting to the current 460:
+
+- [ ] **Step 1: Add a test case to `Dialog.test.tsx`**
+
+```tsx
+it("defaults to 460px and accepts a wider maxWidth", () => {
+  const { rerender } = render(<Dialog isOpen title="t" onClose={vi.fn()}>x</Dialog>);
+  expect(screen.getByRole("dialog").style.maxWidth).toBe("460px");
+  rerender(<Dialog isOpen title="t" onClose={vi.fn()} maxWidth={520}>x</Dialog>);
+  expect(screen.getByRole("dialog").style.maxWidth).toBe("520px");
+});
+```
+
+- [ ] **Step 2: Run to confirm failure**
+
+- [ ] **Step 3: Implement**
+
+Add `maxWidth?: number` to `Dialog`'s props (default `460`), use it in place of the hardcoded
+`maxWidth: 460` at L~95. Restyle the scrim to `var(--ob-scrim-modal)`, the panel to
+`background: var(--ob-surface); border-radius: var(--ob-radius-13); box-shadow: var(--ob-shadow-modal)`,
+title per `--ob-type-section-heading-*`. Task 21 (journey dialogs) is where `ForceCompleteDialog`
+itself gets the `PRIVILEGED ACTION` eyebrow header and bordered footer §18 describes, composed
+around `Dialog`/`DialogActions` rather than built into the shared primitive — those two pieces of
+chrome are specific to that one modal, not every `Dialog` caller.
+
+- [ ] **Step 4: Run to confirm pass, Step 5: Commit**
+
+```bash
+git add frontend/src/components/ui/Dialog.tsx frontend/src/components/ui/Dialog.test.tsx
+git commit -m "feat(frontend): restyle Dialog to the new scrim/panel tokens, add maxWidth prop
+
+Default stays 460px (every non-force-complete dialog); maxWidth=520 is
+available for the one caller that needs COMPONENTS.md §18's width."
+```
+
+---
+
+### Task 16: TimelineRow → ListRow spec
+
+**Files:** Modify `frontend/src/components/ui/TimelineRow.tsx` (full restyle — inline styles
+throughout, no Tailwind classes, confirmed by the fork).
+
+- [ ] **Step 1–4:**
+
+`COMPONENTS.md` §8's ListRow is the closest analogue: full-width `<button>` (confirm `TimelineRow`
+already renders one — the fork noted it's an `<li>`, not a `<button>`; check whether the timeline
+row is itself clickable/navigates anywhere before deciding — if it's purely informational (a static
+activity-log entry, not a link to a record), keep it as `<li>` and do NOT force it into a `<button>`
+per §8's own rule ("Never a `<div>` with a click handler" — this is about avoiding a *fake*
+interactive element, not mandating every row become a real button when nothing happens on click).
+Restyle: `padding: 11px 15px`, `border-bottom: 1px solid var(--ob-line-faint)`, hover
+`background: var(--ob-surface-sunken)` only if it is in fact clickable. Update
+`TimelineRow.test.tsx` only if any assertion touches removed inline styles (the fork found none —
+confirm by running first). Commit:
+
+```bash
+git add frontend/src/components/ui/TimelineRow.tsx
+git commit -m "feat(frontend): restyle TimelineRow to the new line-faint/surface-sunken tokens"
+```
+
+---
