@@ -2678,3 +2678,447 @@ replace rather than duplicate -- see this task's own note if one turns up."
 ```
 
 ---
+
+## Phase C — Screens
+
+Every task applies the Global Constraints token rename map. Each task's "Files" list was read in
+full by the domain-survey research pass before this plan was written — line numbers below are
+approximate section markers, not guesses; re-read the file at the start of the task regardless,
+since intervening Phase B commits may have touched shared code it imports.
+
+### Task 26: Auth — `AuthCard` + public routes
+
+**Files:**
+- Modify: `frontend/src/components/auth/AuthCard.tsx` (~59 lines)
+- Modify: `frontend/src/app/(public)/t/[slug]/login/page.tsx`, `activate/page.tsx`,
+  `reset-password/page.tsx`
+
+`AuthCard` is explicitly **not** attempting to match `SCREENS.md` §13's 3-step invitation flow —
+that screen has a progress rail and three distinct steps this app's simpler login/activate/reset
+pattern doesn't have, and building that structure is out of scope for a restyle (design spec §2).
+Apply the token rename map only: card background `--ob-surface`, border `--ob-line`, radius
+`--ob-radius-13` (`COMPONENTS.md` says modals/portal cards use 13px; a centred auth card is the
+closest analogue), the brand mark restyled to match `Rail.tsx`'s (Task 3) — reuse the same SVG
+markup rather than a third copy. Each route page underneath uses only `Field`+`Button` (Task 20/8
+restyle these for free) plus the page's own heading/copy tokens (`--ob-type-page-title-*` for the
+h1, `--ob-type-body-*` for the lede).
+
+- [ ] **Step 1–4:** Read each file, apply the rename map and the notes above, run
+  `cd frontend && npx vitest run && npm run build`, then manually check all three routes render
+  correctly (`npm run dev`, visit `/t/acme/login` etc.). Commit:
+
+```bash
+git add frontend/src/components/auth/AuthCard.tsx "frontend/src/app/(public)"
+git commit -m "feat(frontend): restyle AuthCard and the public auth routes"
+```
+
+---
+
+### Task 27: Customers list — convert `CustomerTable` to `DataTable`
+
+**Files:**
+- Modify: `frontend/src/components/customers/CustomerTable.tsx` (full rewrite, converting to
+  `DataTable` from Task 22)
+- Modify: `frontend/src/components/customers/CustomerTable.test.tsx`
+- Modify: `frontend/src/app/(app)/t/[slug]/customers/page.tsx` (`FilterChip`/`SearchBox` restyle)
+
+`CustomerTable` today renders two presentations gated by Tailwind `lg:` classes (a real `<table>`
+≥1024px, a card list below) — per Task 22's note, this is the caller `DataTable` deferred its
+`<900px` stacked-card fallback to. Two options, pick based on what's simpler once both files are
+open side by side: (a) extend `DataTable` with a `stackedColumn` prop that renders the existing
+card-list markup below 900px (moving that markup into the shared primitive, benefiting `MigrationTable`
+too in Task 34), or (b) keep `CustomerTable`'s own responsive split as-is structurally, converting
+only its ≥1024px table half to compose `DataTable`'s header/row rendering. **Prefer (a)** — it's
+the one that actually closes the gap Task 22 flagged rather than leaving a second one-off fallback
+for Task 34 to duplicate. If (a) turns out to need `DataTable` changes broader than a single prop,
+stop and do (b) instead rather than scope-creeping this task into rewriting Task 22.
+
+- [ ] **Step 1: Update `CustomerTable.test.tsx`'s style assertions** (avatar radius token — already
+  updated in Task 18; confirm, don't re-touch) and add a case proving the `<900px` fallback still
+  renders every row (this is the same shape as the `MigrationTable` empty-state guard fix already
+  in `CLAUDE.md` — a fallback that silently drops rows is a regression, prove it doesn't).
+
+- [ ] **Step 2: Run to confirm failure**
+
+- [ ] **Step 3: Implement** the `DataTable` conversion per whichever option (a)/(b) above, columns
+  matching the existing `CustomerTable` columns (name, status, owner, etc. — read the current file
+  for the exact set, this plan doesn't invent new columns).
+
+- [ ] **Step 4: Run to confirm pass**
+
+- [ ] **Step 5: Restyle `customers/page.tsx`'s `FilterChip`/`SearchBox`** to the rename map plus
+  `Button` variant `filter-active`/`filter-idle` (Task 8) if `FilterChip` is materially the same
+  shape as `Button`'s filter variants — if so, replace it with `Button` rather than keeping a
+  parallel component (design spec §4's "restyle in place where one already exists" rule).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add frontend/src/components/customers/CustomerTable.tsx frontend/src/components/customers/CustomerTable.test.tsx "frontend/src/app/(app)/t/[slug]/customers/page.tsx"
+git commit -m "feat(frontend): convert CustomerTable to the DataTable primitive"
+```
+
+---
+
+### Task 28: Customer detail + contacts
+
+**Files:**
+- Modify: `frontend/src/app/(app)/t/[slug]/customers/[id]/page.tsx` (its own `Fact` helper)
+- Modify: `frontend/src/components/customers/ContactList.tsx` (~358 lines — uses `Avatar`,
+  `Button`, `Card`/`CardHeader`, `Dialog`, `EmptyState`/`SkeletonRows`, `StatusPill`, all restyled
+  by Phase B already)
+- Modify: `frontend/src/components/customers/ContactList.test.tsx` (avatar radius — confirm from
+  Task 18, don't re-touch)
+- Modify: `frontend/src/components/customers/ContactForm.tsx` (~277 lines — keep its own
+  `PrimaryCheckbox`, per the Global Constraints rule)
+- Modify: `frontend/src/components/customers/CustomerForm.tsx` (~139 lines)
+
+Since every primitive these compose is already restyled by Phase B, this task is mostly "confirm
+it inherited the restyle correctly" plus fixing any ad hoc styling each file still does itself
+(`Fact` in the detail page — the fork flagged this duplicates `CaseHeader`'s own `Fact` helper;
+**do not deduplicate them in this task** — that's a real-but-separate refactor beyond a visual
+pass, flag it and move on) and `ContactForm`'s `PrimaryCheckbox`'s own fill colour (rename map:
+`--ob-solid-on-track` → `--ob-ok-fg`, same as Task 17's `Checkbox`, but this is a *separate*
+component per its own comment — update it there too, don't redirect it to import `Checkbox`).
+
+- [ ] **Step 1–4:** Read each file, apply the rename map, run `npx vitest run ContactList
+  ContactForm CustomerForm && npm run build`, manually verify the customer detail page renders
+  correctly, commit:
+
+```bash
+git add "frontend/src/app/(app)/t/[slug]/customers/[id]/page.tsx" frontend/src/components/customers/ContactList.tsx frontend/src/components/customers/ContactForm.tsx frontend/src/components/customers/CustomerForm.tsx
+git commit -m "feat(frontend): restyle customer detail page, contacts and forms"
+```
+
+---
+
+### Task 29: Case header, switcher, create-case dialog
+
+**Files:**
+- Modify: `frontend/src/components/journey/CaseHeader.tsx` (~115 lines — uses `Avatar`,
+  `StatusPill`)
+- Modify: `frontend/src/components/journey/CaseHeader.test.tsx` (asserts `case-fact-grid`
+  className contains `grid-cols-3`/`xl:grid-cols-5`, and `.style.font` mono-vs-human — both
+  **layout/behavioural assertions, not colour ones**, so they should survive unchanged; run first
+  to confirm before editing anything)
+- Modify: `frontend/src/components/journey/CaseSwitcher.tsx` (~132 lines — deliberately not using
+  `Chip`, since it needs real `<Link>`s; keep that decision, only restyle colours/tokens, including
+  its own duplicate status→colour map)
+- Modify: `frontend/src/components/journey/CreateCaseDialog.tsx` (~230 lines — uses `Button`,
+  `Dialog`/`DialogActions`, `Field`, `SkeletonRows`; has its own `selectStyle`/`errorStyle` consts
+  and a radio-as-card pattern to restyle)
+
+Per `SCREENS.md` §3: header chip row (case id · pinned-version chip `warn` · SLA-paused chip `info`
+· multi-journey chip `automation`), `h1 27px` for the customer name with a `15px/500 text-subtle`
+journey-name span, then the address/owner/date line, then the right-aligned `Message customer`
+(secondary)/`Request document` (primary) buttons — none of the latter two exist as functionality
+yet (no messaging, no document requests are sub-project 1–2 scope), so **do not add these buttons**
+— restyle what's actually there today, matching only the layout/typography pattern, not inventing
+controls for features that don't exist (same "no dead controls" principle `TopBar.tsx`/`Rail.tsx`
+already established).
+
+- [ ] **Step 1–4:** Read each file, apply the rename map plus the case-header chip-row notes above,
+  run `npx vitest run CaseHeader CaseSwitcher CreateCaseDialog && npm run build`, commit:
+
+```bash
+git add frontend/src/components/journey/CaseHeader.tsx frontend/src/components/journey/CaseSwitcher.tsx frontend/src/components/journey/CreateCaseDialog.tsx
+git commit -m "feat(frontend): restyle CaseHeader, CaseSwitcher and CreateCaseDialog"
+```
+
+---
+
+### Task 30: Journey roadmap — convert to `StageAccordion`
+
+**Files:**
+- Modify: `frontend/src/components/journey/Roadmap.tsx` (~49 lines — thin composition)
+- Modify: `frontend/src/components/journey/StageGroupHeader.tsx` (~20 lines)
+- Modify: `frontend/src/components/journey/MilestoneRow.tsx` (~222 lines — largest journey file;
+  its own `CIRCLE_COLOR` map duplicates `StatusPill`'s role logic, per the fork; leave the
+  duplication — not this task's job to unify it, same reasoning as Task 29's `CaseSwitcher`)
+- Modify: `frontend/src/components/journey/RequirementList.tsx` (~190 lines — uses `Button`,
+  `Dialog`, `Field`, `StatusPill`; has its own local `DocumentChip`/`WaiveDialog`; **uses a raw
+  `<input type="checkbox">`, not the shared `Checkbox`** per the fork — leave that as-is, since
+  `RequirementList`'s checkbox has the server-round-trip-before-flip behaviour the Global
+  Constraints call out as untouched, and redirecting it to the shared primitive risks that
+  behaviour, which this task does not need to touch)
+
+Convert `Roadmap`/`StageGroupHeader` to render one `StageAccordion` (Task 23) per stage, with
+`MilestoneRow` becoming the content passed as `StageAccordion`'s `children` for the expanded panel
+— `MilestoneRow` itself keeps its current internal structure (nested `Section` helper for
+dependencies/comments), only its outer wrapper and colour tokens change, plus its
+`var(--ob-keyframe-enter)` reference (flagged by Task 2's globals.css note as needing this exact
+fix) becomes `animation: om-pop var(--ob-duration-pop) var(--ob-ease-default)`.
+
+- [ ] **Step 1–4:** Read all four files, convert `Roadmap`/`StageGroupHeader` to compose
+  `StageAccordion`, apply the rename map to `MilestoneRow`/`RequirementList`, fix the `fadeUp`→
+  `om-pop` reference, run `npx vitest run journey && npm run build`, manually verify the case
+  workspace's Journey tab still expands/collapses stages and shows requirement checkboxes/waive
+  dialog correctly, commit:
+
+```bash
+git add frontend/src/components/journey/Roadmap.tsx frontend/src/components/journey/StageGroupHeader.tsx frontend/src/components/journey/MilestoneRow.tsx frontend/src/components/journey/RequirementList.tsx
+git commit -m "feat(frontend): convert the journey roadmap to the StageAccordion primitive"
+```
+
+---
+
+### Task 31: Approval, hold, and force-complete dialogs
+
+**Files:**
+- Modify: `frontend/src/components/journey/ApprovalPanel.tsx` (~99 lines — uses `Button`,
+  `TextareaField`)
+- Modify: `frontend/src/components/journey/ForceCompleteDialog.tsx` (~74 lines — this is
+  `COMPONENTS.md` §18's actual Modal spec target)
+- Modify: `frontend/src/components/journey/HoldDialog.tsx` (~60 lines)
+
+`ForceCompleteDialog` gets the full §18 treatment: `Dialog` with `maxWidth={520}` (Task 15), a
+header eyebrow `PRIVILEGED ACTION · APPROVAL REQUIRED` in `risk-fg` mono above the title, a `risk`
+warning callout in the body (reuse `ErrorState`'s visual pattern from Task 21 — same border/bg
+tokens, different copy — or a lighter inline callout if `ErrorState`'s retry-button affordance
+doesn't fit here; this is a warning, not a retry prompt), and a bordered footer via `DialogActions`
+with the submit button disabled until an approver is chosen and the reason exceeds 9 characters
+(**this validation logic already exists today per the Global Constraints — confirm it, do not
+rewrite it**). `ApprovalPanel` and `HoldDialog` get the token rename map only; neither is the §18
+target.
+
+- [ ] **Step 1–4:** Read all three files first (confirm the disabled-until-valid logic's exact
+  current shape before touching it), implement the `ForceCompleteDialog` header/callout/footer
+  restyle plus the rename map on all three, run `npx vitest run ApprovalPanel ForceCompleteDialog
+  HoldDialog && npm run build`, commit:
+
+```bash
+git add frontend/src/components/journey/ApprovalPanel.tsx frontend/src/components/journey/ForceCompleteDialog.tsx frontend/src/components/journey/HoldDialog.tsx
+git commit -m "feat(frontend): restyle approval/hold dialogs, give ForceCompleteDialog its COMPONENTS.md §18 chrome
+
+Privileged-action eyebrow header, risk warning callout, bordered footer.
+The disabled-until-valid submit rule is unchanged, only restyled."
+```
+
+---
+
+### Task 32: Timeline tab
+
+**Files:** Modify `frontend/src/components/journey/TimelineTab.tsx` (~69 lines — already uses
+`Pagination`, `EmptyState`/`SkeletonRows`, `TimelineRow`, all restyled by Phase B).
+
+- [ ] **Step 1–4:** Rename-map pass only, plus the `IMMUTABLE AUDIT LOG · 7-YEAR RETENTION · N
+  EARLIER EVENTS` footer copy per `SCREENS.md` §3 if not already present in some form (confirm
+  first — this may already exist and just need restyling, not new copy). Run
+  `npx vitest run TimelineTab && npm run build`, commit:
+
+```bash
+git add frontend/src/components/journey/TimelineTab.tsx
+git commit -m "feat(frontend): restyle TimelineTab"
+```
+
+---
+
+### Task 33: Workflow builder canvas — convert `StageRow` to `BuilderNode`
+
+**Files:**
+- Modify: `frontend/src/components/workflow/StageRow.tsx` (~258 lines, full rewrite converting to
+  `BuilderNode` from Task 24, keeping its existing drag-and-drop wiring — `dragstart`/`dragover`/
+  `drop` handlers — untouched, only the rendered markup changes)
+- Modify: `frontend/src/components/workflow/BranchRuleCard.tsx` (~191 lines — its own `selectStyle`
+  const, rename-map pass)
+- Modify: `frontend/src/components/workflow/StageInspector.tsx` (~246 lines — uses `Field`,
+  `Switch`; composes `MilestoneEditor`+`BranchRuleCard`; sticky `xl:top-[76px]` positioning
+  preserved)
+- Modify: `frontend/src/components/workflow/MilestoneEditor.tsx` (~229 lines — its own
+  `MandatoryToggle`, kept per the Global Constraints rule)
+
+Per `COMPONENTS.md` §21's own closing note, add the keyboard-accessible reorder affordance
+(move-up/move-down buttons) `BuilderNode`'s Task 24 comment deferred to this task — since
+`StageRow` already has the real reorder logic (the drag handlers), wire two small buttons calling
+the same reorder function the drop handler calls, visually hidden until focus (`sr-only
+focus:not-sr-only` or an always-visible small icon pair next to the `⋮⋮` handle — pick whichever
+reads better once the canvas is actually rendered, this is a UI-polish judgment call the design
+doesn't dictate the shape of, only that it must exist).
+
+- [ ] **Step 1–4:** Read all four files, convert `StageRow` to compose `BuilderNode`, add the
+  keyboard reorder affordance, apply the rename map to `BranchRuleCard`/`StageInspector`/
+  `MilestoneEditor`, run `npx vitest run workflow && npm run build`, manually verify the builder
+  canvas still drag-reorders and click-selects nodes, commit:
+
+```bash
+git add frontend/src/components/workflow/StageRow.tsx frontend/src/components/workflow/BranchRuleCard.tsx frontend/src/components/workflow/StageInspector.tsx frontend/src/components/workflow/MilestoneEditor.tsx
+git commit -m "feat(frontend): convert the workflow builder canvas to the BuilderNode primitive
+
+Adds the keyboard-accessible reorder affordance COMPONENTS.md §21 calls
+for in production, wired to the same reorder function drag-and-drop
+already calls."
+```
+
+---
+
+### Task 34: Publish panel + migration table — convert to `DataTable`
+
+**Files:**
+- Modify: `frontend/src/components/workflow/PublishPanel.tsx` (~93 lines — one `<Link>` styled as
+  a button; check whether it should become a real `Button` with `asChild`-style link composition,
+  or stay a styled `<Link>` — Next's `<Link>` can't literally be a `<button>` when it needs to
+  navigate, so keep it a styled anchor, just restyled to `Button`'s primary-variant tokens rather
+  than a separate hardcoded style)
+- Modify: `frontend/src/components/workflow/MigrationTable.tsx` (~145 lines, converting to
+  `DataTable`)
+- Modify: `frontend/src/components/workflow/MigrationTable.test.tsx`
+
+**`MigrationTable`'s `candidates.length === 0` empty-state guard (the real product-bug fix from
+2026-08-23, per `CLAUDE.md`) must survive this conversion exactly.** Write a test for it *before*
+converting if `MigrationTable.test.tsx` doesn't already cover it explicitly by name (confirm first
+— per `CLAUDE.md` it does: "`MigrationTable.test.tsx` gained a case proving the ineligible-only
+table still renders" — so this is regression protection already in place, not a gap to fill; just
+don't let the `DataTable` conversion break it).
+
+- [ ] **Step 1: Run `MigrationTable.test.tsx` before touching anything, confirm it's green and
+  note which case covers the empty-state guard.**
+
+- [ ] **Step 2: Convert `MigrationTable` to compose `DataTable`**, keeping the guard's exact
+  condition (`candidates.length === 0`, not `eligible.length === 0`) — the checkbox column (17px,
+  radius 5, per Task 17's `Checkbox` restyle already covering this size), risk chip column
+  (`SAFE`/`NEEDS MAPPING`/`BLOCKED`), and the diff aside are unchanged in behaviour, restyled in
+  place. If `DataTable` gained the `stackedColumn` prop in Task 27's option (a), use it here too —
+  this was the second caller Task 22 named as the reason to fold the fallback into the primitive
+  rather than duplicate it a second time.
+
+- [ ] **Step 3: Run `npx vitest run MigrationTable && npm run build`, confirm the empty-state guard
+  test still passes.**
+
+- [ ] **Step 4: Restyle `PublishPanel`** (rename map plus the `Button` primary-variant tokens for
+  its link-styled-as-button).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add frontend/src/components/workflow/PublishPanel.tsx frontend/src/components/workflow/MigrationTable.tsx frontend/src/components/workflow/MigrationTable.test.tsx
+git commit -m "feat(frontend): convert MigrationTable to DataTable, restyle PublishPanel
+
+Preserves the candidates.length === 0 empty-state guard (2026-08-23 fix)
+exactly -- confirmed via its existing regression test before and after
+the conversion."
+```
+
+---
+
+### Task 35: Admin — roles, team members, org, users, workflow list pages
+
+**Files:**
+- Modify: `frontend/src/components/admin/RoleEditor.tsx` (~513 lines, largest file in this refactor
+  — uses `Button`, `StatusPill`; **has its own locally-defined `Switch`**, kept per the Global
+  Constraints rule, restyled to the same track/knob tokens as `ui/Switch.tsx` gets in Task 13, just
+  not consolidated into it; sticky `xl:top-[76px]` inspector pattern preserved)
+- Modify: `frontend/src/components/admin/TeamMembers.tsx` (~235 lines — uses `Button`,
+  `Card`/`CardHeader`, `Dialog`/`DialogActions`, `EmptyState`/`SkeletonRows`. **Fix the pre-existing
+  bug the domain-survey fork found**: line ~213's `var(--ob-font-family-mono)` doesn't exist as a
+  token in either the old or new system — correct it to `var(--ob-font-family-data)`, the name
+  every other mono usage in the codebase actually uses.)
+- Modify: `frontend/src/app/(app)/t/[slug]/admin/layout.tsx` (the tab-strip sub-nav between
+  Users/Roles/Org/Workflows — restyle its underline-active treatment's tokens; **leave it as
+  underline-style navigation, not `SegmentedControl`** — unlike Task 14's case-workspace tabs,
+  this is real route navigation between separate pages, not a `role="tablist"` switching panels in
+  place, so `SegmentedControl`'s single-page-switching visual doesn't fit it the way it fit
+  `Tabs.tsx`)
+- Modify: `frontend/src/app/(app)/t/[slug]/admin/org/page.tsx` (`Row`/`OrgForm` helpers; **fix the
+  second pre-existing bug the fork found**: line ~156's `hover:bg-bg-hover` Tailwind class points
+  at a token, `--ob-bg-hover`, that was never defined in the old system either — replace with
+  `hover:bg-surface-active`, the closest real hover token)
+- Modify: `frontend/src/app/(app)/t/[slug]/admin/roles/page.tsx`
+- Modify: `frontend/src/app/(app)/t/[slug]/admin/users/page.tsx` (~626 lines, largest route file —
+  `UserRow`/`RoleChip`/`Quiet`/`RoleAssignment` helpers)
+- Modify: `frontend/src/app/(app)/t/[slug]/admin/workflows/page.tsx`,
+  `workflows/[id]/versions/[vid]/page.tsx`, `workflows/[id]/migration/page.tsx` (this last one
+  composes `MigrationTable`, already converted in Task 34 — confirm it renders correctly, no
+  changes expected here beyond the rename map on the page's own chrome, e.g. `ProblemBanner`)
+
+- [ ] **Step 1–4:** Read every file, apply the rename map plus the two named bug fixes, run
+  `npx vitest run admin workflows/page && npm run build`, manually verify every admin screen and
+  the two named Tailwind-class bugs are gone (search-confirm no remaining `bg-bg-hover` or
+  `font-family-mono` references anywhere: `grep -rn 'bg-bg-hover\|font-family-mono' frontend/src`),
+  commit:
+
+```bash
+git add frontend/src/components/admin "frontend/src/app/(app)/t/[slug]/admin"
+git commit -m "feat(frontend): restyle admin screens (org, roles, users, workflow list)
+
+Fixes two pre-existing token-reference bugs found during the restyle
+survey: TeamMembers' var(--ob-font-family-mono) (undefined in either
+system) and admin/org's hover:bg-bg-hover (never a defined token)."
+```
+
+---
+
+### Task 36: Case workspace route page
+
+**Files:** Modify `frontend/src/app/(app)/t/[slug]/customers/[id]/cases/[caseId]/page.tsx` (the
+route composing `CaseHeader`, `Tabs` (now `SegmentedControl`-styled per Task 14), `Roadmap`
+(now `StageAccordion`-based per Task 30), `TimelineTab`, `ApprovalPanel`/dialogs).
+
+Mostly wiring confirmation — every child it renders was already restyled in Tasks 29–32. This task
+is the "does it all actually fit together" check plus any page-level layout (the wrapping two-column
+flex from `SCREENS.md` §3: content `flex:1 1 520px` + aside `flex:1 1 296px; min 264px; max 340px`,
+wrapping below `1100px` per the design spec's corrected responsive section) that lives at this
+level rather than in any one child component.
+
+- [ ] **Step 1: Read the current page file in full.**
+
+- [ ] **Step 2: Apply the two-column flex layout** per the dimensions above, with the `<1100px`
+  wrap behaviour (`flex-wrap: wrap` on the row, both children's `flex` values already encode the
+  wrap point via their basis/min/max).
+
+- [ ] **Step 3: Manual check** — resize the browser through 1100px, confirm the aside wraps beneath
+  the content and the header row (from `CaseHeader`, Task 29) also wraps rather than overflowing.
+
+- [ ] **Step 4: Run the full suite**
+
+Run: `cd frontend && npx vitest run && npm run build`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add "frontend/src/app/(app)/t/[slug]/customers/[id]/cases/[caseId]/page.tsx"
+git commit -m "feat(frontend): wire the case workspace's two-column layout with the <1100px wrap"
+```
+
+---
+
+### Task 37: Dashboard placeholder
+
+**Files:** Modify `frontend/src/app/(app)/t/[slug]/dashboard/page.tsx`.
+
+Token rename map only — `EmptyState` (already restyled in Task 21) does the rest. No structural
+change; this route stays a placeholder per the design spec §2.
+
+- [ ] **Step 1–2:** Confirm the page renders correctly with no code changes needed beyond what
+  `EmptyState`'s own Task 21 restyle already provides — if the page passes its own icon/copy
+  through unchanged and `EmptyState` is the only thing rendering, this task may find nothing left
+  to do. If so, skip the commit and note that in the plan's tracking rather than making a
+  no-op commit.
+
+---
+
+## Phase C completion check
+
+Once Task 37 lands, run the full verification suite from the design spec §8:
+
+```bash
+cd backend && ./gradlew cleanTest test
+cd frontend && npx vitest run
+cd frontend && npx playwright test
+python frontend/scripts/contrast.py
+```
+
+All four must be clean. `npx playwright test`'s accessibility spec drops its "both themes"
+dimension (per the design spec §8) — if that spec still asserts against `[data-theme="dark"]`
+anywhere, update it as part of Task 2 (dark-theme removal) rather than leaving it for this final
+check to discover, since a spec asserting against a deleted mechanism is a build-breaking miss, not
+a polish item.
+
+Grep for any remaining reference to the old token names or the old design system, as a final sweep
+nothing above should have missed:
+
+```bash
+grep -rn -- '--ob-bg-\|--ob-text-primary\|--ob-text-secondary\|--ob-accent\b\|--ob-status-\|--ob-solid-\|docs/uispecs/\b' frontend/src
+```
+
+A clean result (no matches outside `docs/uispecs_legacy/`'s own copied `.css`/`.md` files, which
+this refactor never touches) is the exit criterion for the whole plan.
