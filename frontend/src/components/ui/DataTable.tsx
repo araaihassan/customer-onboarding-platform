@@ -15,6 +15,7 @@ export function DataTable<T>({
   onRowClick,
   footer,
   stackedColumn,
+  framed = true,
 }: {
   columns: Column<T>[];
   rows: T[];
@@ -34,6 +35,16 @@ export function DataTable<T>({
    * construction rather than a length check.
    */
   stackedColumn?: (row: T) => ReactNode;
+  /**
+   * Whether the table wrapper carries its own card frame
+   * (`bg-surface border border-line rounded-11 overflow-hidden`). Defaults to
+   * `true` so existing callers (`CustomerTable`) need no change. A caller
+   * that already wraps `DataTable` in its own frame -- `MigrationTable`'s
+   * page does this today, and would otherwise end up double-bordered the
+   * moment it converts to this primitive -- passes `framed={false}` to opt
+   * out and supply its own instead.
+   */
+  framed?: boolean;
 }) {
   const gridTemplate = columns.map((c) => c.width ?? "1fr").join(" ");
 
@@ -41,7 +52,7 @@ export function DataTable<T>({
     <>
       <div
         data-view="table"
-        className={`bg-surface border border-line rounded-11 overflow-hidden ${stackedColumn ? "hidden min-[900px]:block" : ""}`}
+        className={`${framed ? "bg-surface border border-line rounded-11 overflow-hidden" : ""} ${stackedColumn ? "hidden min-[900px]:block" : ""}`}
         style={{ overflowX: "auto" }}
       >
         <div style={{ minWidth: "fit-content" }}>

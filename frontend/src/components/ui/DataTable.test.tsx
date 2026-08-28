@@ -33,6 +33,34 @@ describe("DataTable", () => {
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
   });
 
+  describe("framed", () => {
+    it("carries the card-frame classes by default", () => {
+      const { container } = render(<DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} />);
+      const tableWrapper = container.querySelector("[data-view='table']")!;
+      expect(tableWrapper.className).toContain("bg-surface");
+      expect(tableWrapper.className).toContain("border-line");
+      expect(tableWrapper.className).toContain("rounded-11");
+      expect(tableWrapper.className).toContain("overflow-hidden");
+    });
+
+    /**
+     * A caller that already wraps DataTable in its own frame -- MigrationTable's
+     * page does this today, and would otherwise end up double-bordered the
+     * moment it converts to this primitive -- needs a way to opt out rather
+     * than being forced into a second, redundant frame.
+     */
+    it("omits the card-frame classes when framed is false", () => {
+      const { container } = render(
+        <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} framed={false} />,
+      );
+      const tableWrapper = container.querySelector("[data-view='table']")!;
+      expect(tableWrapper.className).not.toContain("bg-surface");
+      expect(tableWrapper.className).not.toContain("border-line");
+      expect(tableWrapper.className).not.toContain("rounded-11");
+      expect(tableWrapper.className).not.toContain("overflow-hidden");
+    });
+  });
+
   describe("stackedColumn", () => {
     it("renders no card list when stackedColumn is omitted", () => {
       const { container } = render(<DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} />);
