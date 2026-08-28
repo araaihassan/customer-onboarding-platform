@@ -1,172 +1,49 @@
-/* Onboard OS — Tailwind v4 theme.
- * Import after tokens.css:  @import './tokens.css'; @import './tailwind.css';
- * Maps the semantic layer onto Tailwind's utility namespaces so classes like
- * bg-surface, text-muted, border-default, rounded-card resolve to tokens.
- */
-
+/* Onboard OS — Tailwind v4 theme. Import after tokens.css. */
 @theme {
-  /* colours — semantic only; primitives are deliberately not exposed as utilities */
-  --color-bg-page: var(--ob-bg-page);
-  --color-bg-surface: var(--ob-bg-surface);
-  --color-bg-surface-subtle: var(--ob-bg-surface-subtle);
-  --color-bg-surface-sunken: var(--ob-bg-surface-sunken);
-  --color-bg-inset: var(--ob-bg-inset);
-  --color-bg-inset-strong: var(--ob-bg-inset-strong);
-  --color-bg-rail: var(--ob-bg-rail);
-  --color-bg-rail-raised: var(--ob-bg-rail-raised);
-  --color-bg-overlay: var(--ob-bg-overlay);
-  --color-border-default: var(--ob-border-default);
-  --color-border-subtle: var(--ob-border-subtle);
-  --color-border-panel: var(--ob-border-panel);
-  --color-border-strong: var(--ob-border-strong);
-  --color-border-dashed: var(--ob-border-dashed);
-  --color-text-primary: var(--ob-text-primary);
-  --color-text-secondary: var(--ob-text-secondary);
+  --color-canvas: var(--ob-canvas);
+  --color-surface: var(--ob-surface);
+  --color-surface-sunken: var(--ob-surface-sunken);
+  --color-surface-muted: var(--ob-surface-muted);
+  --color-surface-active: var(--ob-surface-active);
+  --color-line: var(--ob-line);
+  --color-line-soft: var(--ob-line-soft);
+  --color-line-faint: var(--ob-line-faint);
+  --color-line-strong: var(--ob-line-strong);
+  --color-line-hover: var(--ob-line-hover);
+  --color-ink: var(--ob-ink);
+  --color-ink-hover: var(--ob-ink-hover);
+  --color-text-2: var(--ob-text-2);
   --color-text-muted: var(--ob-text-muted);
+  --color-text-subtle: var(--ob-text-subtle);
   --color-text-faint: var(--ob-text-faint);
-  --color-text-disabled: var(--ob-text-disabled);
-  --color-text-on-accent: var(--ob-text-on-accent);
-  --color-text-on-solid: var(--ob-text-on-solid);
-  --color-text-on-rail: var(--ob-text-on-rail);
-  --color-accent: var(--ob-accent);
-  --color-accent-hover: var(--ob-accent-hover);
-  --color-accent-tint: var(--ob-accent-tint);
-  --color-accent-tint-border: var(--ob-accent-tint-border);
-  --color-accent-ink: var(--ob-accent-ink);
-  --color-accent-weak: var(--ob-accent-weak);
-  --color-status-on-track-bg: var(--ob-status-on-track-bg);
-  --color-status-on-track-fg: var(--ob-status-on-track-fg);
-  --color-status-progress-bg: var(--ob-status-progress-bg);
-  --color-status-progress-fg: var(--ob-status-progress-fg);
-  --color-status-at-risk-bg: var(--ob-status-at-risk-bg);
-  --color-status-at-risk-fg: var(--ob-status-at-risk-fg);
-  --color-status-blocked-bg: var(--ob-status-blocked-bg);
-  --color-status-blocked-fg: var(--ob-status-blocked-fg);
-  --color-status-neutral-bg: var(--ob-status-neutral-bg);
-  --color-status-neutral-fg: var(--ob-status-neutral-fg);
-  --color-solid-on-track: var(--ob-solid-on-track);
-  --color-solid-at-risk: var(--ob-solid-at-risk);
-  --color-solid-blocked: var(--ob-solid-blocked);
+  --color-text-ghost: var(--ob-text-ghost);
+  --color-ok-fg: var(--ob-ok-fg); --color-ok-bg: var(--ob-ok-bg);
+  --color-warn-fg: var(--ob-warn-fg); --color-warn-bg: var(--ob-warn-bg);
+  --color-risk-fg: var(--ob-risk-fg); --color-risk-bg: var(--ob-risk-bg);
+  --color-info-fg: var(--ob-info-fg); --color-info-bg: var(--ob-info-bg);
+  --color-accent-fg: var(--ob-accent-fg); --color-accent-bg: var(--ob-accent-bg);
+  --color-automation-fg: var(--ob-automation-fg); --color-automation-bg: var(--ob-automation-bg);
+  --color-neutral-fg: var(--ob-neutral-fg); --color-neutral-bg: var(--ob-neutral-bg);
 
-  /* radius */
-  --radius-pill: var(--ob-radius-pill);
-  --radius-overlay: var(--ob-radius-overlay);
-  --radius-card: var(--ob-radius-card);
-  --radius-avatar-lg: var(--ob-radius-avatar-lg);
-  --radius-row: var(--ob-radius-row);
-  --radius-inner: var(--ob-radius-inner);
-  --radius-control: var(--ob-radius-control);
-  --radius-chip: var(--ob-radius-chip);
-  --radius-segment: var(--ob-radius-segment);
-  --radius-check: var(--ob-radius-check);
-  --radius-bar: var(--ob-radius-bar);
+  --radius-4: var(--ob-radius-4); --radius-5: var(--ob-radius-5); --radius-6: var(--ob-radius-6);
+  --radius-7: var(--ob-radius-7); --radius-8: var(--ob-radius-8); --radius-9: var(--ob-radius-9);
+  --radius-10: var(--ob-radius-10); --radius-11: var(--ob-radius-11); --radius-13: var(--ob-radius-13);
   --radius-full: var(--ob-radius-full);
 
-  /* spacing — the scale is irregular by design, so it is enumerated */
-  --spacing-2: var(--ob-space-2);
-  --spacing-3: var(--ob-space-3);
-  --spacing-4: var(--ob-space-4);
-  --spacing-5: var(--ob-space-5);
-  --spacing-6: var(--ob-space-6);
-  --spacing-7: var(--ob-space-7);
-  --spacing-8: var(--ob-space-8);
-  --spacing-9: var(--ob-space-9);
-  --spacing-10: var(--ob-space-10);
-  --spacing-11: var(--ob-space-11);
-  --spacing-12: var(--ob-space-12);
-  --spacing-13: var(--ob-space-13);
-  --spacing-14: var(--ob-space-14);
-  --spacing-16: var(--ob-space-16);
-  --spacing-18: var(--ob-space-18);
-  --spacing-20: var(--ob-space-20);
-  --spacing-22: var(--ob-space-22);
-  --spacing-24: var(--ob-space-24);
-  --spacing-26: var(--ob-space-26);
-  --spacing-28: var(--ob-space-28);
-  --spacing-34: var(--ob-space-34);
-  --spacing-44: var(--ob-space-44);
-  --spacing-56: var(--ob-space-56);
-
-  /* type */
-  --text-34: var(--ob-type-34-size);
-  --text-34--line-height: var(--ob-type-34-line);
-  --text-34--font-weight: var(--ob-type-34-weight);
-  --text-34--letter-spacing: var(--ob-type-34-tracking);
-  --text-30: var(--ob-type-30-size);
-  --text-30--line-height: var(--ob-type-30-line);
-  --text-30--font-weight: var(--ob-type-30-weight);
-  --text-30--letter-spacing: var(--ob-type-30-tracking);
-  --text-29: var(--ob-type-29-size);
-  --text-29--line-height: var(--ob-type-29-line);
-  --text-29--font-weight: var(--ob-type-29-weight);
-  --text-29--letter-spacing: var(--ob-type-29-tracking);
-  --text-23: var(--ob-type-23-size);
-  --text-23--line-height: var(--ob-type-23-line);
-  --text-23--font-weight: var(--ob-type-23-weight);
-  --text-23--letter-spacing: var(--ob-type-23-tracking);
-  --text-19: var(--ob-type-19-size);
-  --text-19--line-height: var(--ob-type-19-line);
-  --text-19--font-weight: var(--ob-type-19-weight);
-  --text-19--letter-spacing: var(--ob-type-19-tracking);
-  --text-17: var(--ob-type-17-size);
-  --text-17--line-height: var(--ob-type-17-line);
-  --text-17--font-weight: var(--ob-type-17-weight);
-  --text-17--letter-spacing: var(--ob-type-17-tracking);
-  --text-15: var(--ob-type-15-size);
-  --text-15--line-height: var(--ob-type-15-line);
-  --text-15--font-weight: var(--ob-type-15-weight);
-  --text-15--letter-spacing: var(--ob-type-15-tracking);
-  --text-14: var(--ob-type-14-size);
-  --text-14--line-height: var(--ob-type-14-line);
-  --text-14--font-weight: var(--ob-type-14-weight);
-  --text-14--letter-spacing: var(--ob-type-14-tracking);
-  --text-13-5: var(--ob-type-13-5-size);
-  --text-13-5--line-height: var(--ob-type-13-5-line);
-  --text-13-5--font-weight: var(--ob-type-13-5-weight);
-  --text-13-5--letter-spacing: var(--ob-type-13-5-tracking);
-  --text-13: var(--ob-type-13-size);
-  --text-13--line-height: var(--ob-type-13-line);
-  --text-13--font-weight: var(--ob-type-13-weight);
-  --text-13--letter-spacing: var(--ob-type-13-tracking);
-  --text-12-5: var(--ob-type-12-5-size);
-  --text-12-5--line-height: var(--ob-type-12-5-line);
-  --text-12-5--font-weight: var(--ob-type-12-5-weight);
-  --text-12-5--letter-spacing: var(--ob-type-12-5-tracking);
-  --text-12: var(--ob-type-12-size);
-  --text-12--line-height: var(--ob-type-12-line);
-  --text-12--font-weight: var(--ob-type-12-weight);
-  --text-12--letter-spacing: var(--ob-type-12-tracking);
-  --text-11-5: var(--ob-type-11-5-size);
-  --text-11-5--line-height: var(--ob-type-11-5-line);
-  --text-11-5--font-weight: var(--ob-type-11-5-weight);
-  --text-11-5--letter-spacing: var(--ob-type-11-5-tracking);
-  --text-11: var(--ob-type-11-size);
-  --text-11--line-height: var(--ob-type-11-line);
-  --text-11--font-weight: var(--ob-type-11-weight);
-  --text-11--letter-spacing: var(--ob-type-11-tracking);
-  --text-10-5: var(--ob-type-10-5-size);
-  --text-10-5--line-height: var(--ob-type-10-5-line);
-  --text-10-5--font-weight: var(--ob-type-10-5-weight);
-  --text-10-5--letter-spacing: var(--ob-type-10-5-tracking);
-  --text-10: var(--ob-type-10-size);
-  --text-10--line-height: var(--ob-type-10-line);
-  --text-10--font-weight: var(--ob-type-10-weight);
-  --text-10--letter-spacing: var(--ob-type-10-tracking);
-  --text-9-5: var(--ob-type-9-5-size);
-  --text-9-5--line-height: var(--ob-type-9-5-line);
-  --text-9-5--font-weight: var(--ob-type-9-5-weight);
-  --text-9-5--letter-spacing: var(--ob-type-9-5-tracking);
+  --spacing-2: var(--ob-space-2); --spacing-3: var(--ob-space-3); --spacing-4: var(--ob-space-4);
+  --spacing-5: var(--ob-space-5); --spacing-6: var(--ob-space-6); --spacing-7: var(--ob-space-7);
+  --spacing-8: var(--ob-space-8); --spacing-9: var(--ob-space-9); --spacing-10: var(--ob-space-10);
+  --spacing-11: var(--ob-space-11); --spacing-12: var(--ob-space-12); --spacing-13: var(--ob-space-13);
+  --spacing-14: var(--ob-space-14); --spacing-15: var(--ob-space-15); --spacing-16: var(--ob-space-16);
+  --spacing-18: var(--ob-space-18); --spacing-20: var(--ob-space-20); --spacing-22: var(--ob-space-22);
+  --spacing-26: var(--ob-space-26); --spacing-40: var(--ob-space-40);
 
   --font-ui: var(--ob-font-family-ui);
   --font-data: var(--ob-font-family-data);
 
-  /* elevation */
-  --shadow-flat: var(--ob-elevation-flat);
-  --shadow-raised: var(--ob-elevation-raised);
-  --shadow-popover: var(--ob-elevation-popover);
-  --shadow-device: var(--ob-elevation-device);
-  --shadow-ring-accent: var(--ob-elevation-ring-accent);
+  --shadow-card: var(--ob-shadow-card);
+  --shadow-dropdown: var(--ob-shadow-dropdown);
+  --shadow-drawer: var(--ob-shadow-drawer);
+  --shadow-modal: var(--ob-shadow-modal);
+  --shadow-toast: var(--ob-shadow-toast);
 }
-
-/* Dark mode is driven by the data-theme attribute, matching tokens.css. */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
