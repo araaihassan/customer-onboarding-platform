@@ -349,6 +349,8 @@
   "milestone.overdue": "(overdue)",
   "milestone.forceComplete": "Force complete",
   "milestone.forceCompleteDialog.title": "Force complete milestone",
+  "milestone.forceCompleteDialog.eyebrow": "Privileged action · Approval required",
+  "milestone.forceCompleteDialog.warning": "This bypasses the milestone's normal completion requirements. It creates a pending request only -- a second person with approval authority must still decide it before the milestone actually completes.",
   "milestone.forceCompleteDialog.reason": "Reason",
   "milestone.forceCompleteDialog.submit": "Request",
   "milestone.dependencies.title": "Dependencies",

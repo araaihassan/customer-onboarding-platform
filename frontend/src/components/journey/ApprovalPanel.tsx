@@ -42,19 +42,19 @@ export function ApprovalPanel({ caseId, approval }: { caseId: string; approval: 
 
   return (
     <div
-      className="flex flex-col bg-bg-inset"
-      style={{ gap: "var(--ob-space-8)", padding: "var(--ob-space-11)", borderRadius: "var(--ob-radius-inner)" }}
+      className="flex flex-col bg-surface-sunken"
+      style={{ gap: "var(--ob-space-8)", padding: "var(--ob-space-11)", borderRadius: "var(--ob-radius-10)" }}
     >
       <p
-        className="text-text-primary"
-        style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+        className="text-ink"
+        style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
       >
         {t("approval.pendingTitle")}
       </p>
       {approval.reason && (
         <p
           className="text-text-muted"
-          style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+          style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
         >
           {approval.reason}
         </p>
@@ -76,7 +76,7 @@ export function ApprovalPanel({ caseId, approval }: { caseId: string; approval: 
               type="button"
               variant="secondary"
               disabled={decide.isPending}
-              style={{ color: "var(--ob-status-blocked-fg)", borderColor: "var(--ob-status-blocked-fg)" }}
+              style={{ color: "var(--ob-risk-fg)", borderColor: "var(--ob-risk-fg)" }}
               onClick={() => submit(false)}
             >
               {t("approval.reject")}
@@ -88,7 +88,7 @@ export function ApprovalPanel({ caseId, approval }: { caseId: string; approval: 
       {error && (
         <p
           role="alert"
-          style={{ color: "var(--ob-status-blocked-fg)", font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+          style={{ color: "var(--ob-risk-fg)", font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
         >
           {error}
         </p>

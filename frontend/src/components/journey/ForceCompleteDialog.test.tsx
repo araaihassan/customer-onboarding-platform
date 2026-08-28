@@ -40,7 +40,9 @@ describe("ForceCompleteDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /request/i }));
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/required/i)).not.toBeNull();
+    // Not /required/i: the new §18 eyebrow ("...Approval required") also matches that
+    // regex, so the exact field-error string is what disambiguates the two.
+    expect(screen.getByText("This field is required")).not.toBeNull();
   });
 
   it("submits the trimmed reason and closes on success", async () => {

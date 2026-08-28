@@ -18,11 +18,19 @@ import type { ReactNode } from "react";
  */
 export function Dialog({
   title,
+  eyebrow,
   onClose,
   children,
   maxWidth = 460,
 }: {
   title: string;
+  /**
+   * An optional line rendered above the title -- added for `ForceCompleteDialog`'s
+   * §18 "PRIVILEGED ACTION · APPROVAL REQUIRED" eyebrow, the same way `maxWidth`
+   * was added for that dialog's 520px width. Opt-in and `undefined` by default, so
+   * every other caller's header is unaffected.
+   */
+  eyebrow?: ReactNode;
   onClose: () => void;
   children: ReactNode;
   maxWidth?: number;
@@ -99,6 +107,7 @@ export function Dialog({
           padding: "var(--ob-space-20)",
         }}
       >
+        {eyebrow}
         <h2
           id={titleId}
           className="text-ink"
