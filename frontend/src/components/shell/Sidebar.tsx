@@ -102,7 +102,13 @@ export function Sidebar({
         />
       )}
       <aside
-        className={isDrawer ? "fixed inset-y-0 z-50 max-[1023px]:flex hidden min-[1024px]:flex" : "flex"}
+        className={
+          isDrawer
+            ? `fixed inset-y-0 z-50 max-[1023px]:flex hidden min-[1024px]:flex${
+                isOpen ? "" : " max-[1023px]:-translate-x-full"
+              }`
+            : "flex"
+        }
         style={{
           left: "var(--ob-rail-width)",
           width: "var(--ob-sidebar-width)",
@@ -110,8 +116,11 @@ export function Sidebar({
           borderRight: "1px solid var(--ob-line)",
           flexDirection: "column",
           padding: "12px 10px 10px",
-          transform: isDrawer && !isOpen ? "translateX(-100%)" : "none",
-          transition: isDrawer ? `transform var(--ob-duration-slide) var(--ob-ease-default)` : undefined,
+          // Tailwind v4's translate-* utilities set the standalone CSS `translate`
+          // property, not `transform` -- this has to transition the same property
+          // the max-[1023px]:-translate-x-full class above actually sets, or the
+          // slide-in/out animation silently no-ops.
+          transition: isDrawer ? `translate var(--ob-duration-slide) var(--ob-ease-default)` : undefined,
         }}
       >
         <nav
