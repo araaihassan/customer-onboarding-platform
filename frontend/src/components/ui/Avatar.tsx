@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 /**
  * An initials avatar, and the one place the company/person distinction lives.
  *
@@ -8,13 +10,23 @@
  * behind a required `kind` prop means the distinction cannot be flattened by
  * accident, only by editing this file.
  *
- * The mark is neutral, never tinted. Colour in this system always means status,
- * and an avatar has no status to report — its subject's status is already a pill
- * beside it.
+ * DESIGN_TOKENS.md's avatar colour-cycle: the background is hashed from the
+ * subject's name into a 7-colour palette, rather than a single neutral tone —
+ * still never a status colour (an avatar has no status to report; that's a
+ * pill beside it), just enough variety to tell rows apart at a glance.
  *
  * Decorative by construction: the name is always rendered next to it, so
  * announcing the initials again would be noise.
  */
+
+const AVATAR_PALETTE = ["#10736b", "#b4392f", "#6a4fb0", "#2b5fb0", "#9a6410", "#2f7d4f", "#4b4842"];
+
+function paletteColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[hash % AVATAR_PALETTE.length]!;
+}
+
 export function Avatar({
   name,
   kind,
@@ -25,25 +37,19 @@ export function Avatar({
   /** 30px in tables and lists, 46px in the record header (tokens: avatar-size). */
   size?: number;
 }) {
-  const company = kind === "company";
+  const style: CSSProperties = {
+    width: size,
+    height: size,
+    borderRadius: kind === "person" ? "var(--ob-radius-full)" : "var(--ob-radius-5)",
+    background: paletteColor(name),
+    color: "var(--ob-canvas)",
+    font: `600 ${Math.round(size * 0.37)}px/1 var(--ob-font-family-ui)`,
+    display: "grid",
+    placeItems: "center",
+  };
 
   return (
-    <span
-      aria-hidden="true"
-      className="grid shrink-0 place-items-center bg-bg-inset-strong text-text-secondary"
-      style={{
-        width: size,
-        height: size,
-        // radius-chip at 30px, radius-avatar-lg above it: an 8px corner on a
-        // 46px square reads as a plain box rather than a rounded one.
-        borderRadius: company
-          ? size >= 40
-            ? "var(--ob-radius-avatar-lg)"
-            : "var(--ob-radius-chip)"
-          : "var(--ob-radius-full)",
-        font: `600 ${Math.round(size * 0.37)}px/1 var(--ob-font-family-ui)`,
-      }}
-    >
+    <span aria-hidden="true" className="shrink-0" style={style}>
       {initials(name)}
     </span>
   );

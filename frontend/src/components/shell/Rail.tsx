@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FocusEvent } from "react";
+import { initials } from "@/components/ui/Avatar";
 import { useAuth } from "@/lib/auth/useAuth";
 import { t } from "@/lib/i18n";
 
@@ -162,12 +163,4 @@ function AccountMenu() {
       )}
     </div>
   );
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  const first = parts[0];
-  const last = parts[parts.length - 1];
-  if (!first || !last) return "";
-  return (first.slice(0, 1) + (parts.length > 1 ? last.slice(0, 1) : "")).toUpperCase();
 }

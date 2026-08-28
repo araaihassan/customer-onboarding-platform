@@ -112,7 +112,7 @@ describe("CustomerTable", () => {
     renderTable();
     const row = within(table()).getByRole("row", { name: /northwind foods/i });
     const avatar = row.querySelector<HTMLElement>("[aria-hidden='true']")!;
-    expect(avatar.style.borderRadius).toBe("var(--ob-radius-chip)");
+    expect(avatar.style.borderRadius).toBe("var(--ob-radius-5)");
     expect(avatar.textContent).toBe("NF");
   });
 
