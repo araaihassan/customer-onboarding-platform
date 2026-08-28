@@ -25,7 +25,7 @@ export function Rail({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
           type="button"
           onClick={onToggleSidebar}
           aria-label={t("shell.sidebar.toggle")}
-          className="text-[#f4f2ee]"
+          className="text-line-faint"
           style={{
             width: 34,
             height: 34,
