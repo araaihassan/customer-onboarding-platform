@@ -45,7 +45,7 @@ export function Field({
           padding: "9px 11px",
           fontSize: "13px",
           background: "var(--ob-surface)",
-          color: error ? "var(--ob-risk-fg)" : "var(--ob-text-primary)",
+          color: error ? "var(--ob-risk-fg)" : "var(--ob-ink)",
           fontFamily: "var(--ob-font-family-ui)",
           ...props.style,
         }}
@@ -104,7 +104,7 @@ export function TextareaField({
           padding: "9px 11px",
           fontSize: "13px",
           background: "var(--ob-surface)",
-          color: error ? "var(--ob-risk-fg)" : "var(--ob-text-primary)",
+          color: error ? "var(--ob-risk-fg)" : "var(--ob-ink)",
           fontFamily: "var(--ob-font-family-ui)",
           resize: "vertical",
           ...props.style,
