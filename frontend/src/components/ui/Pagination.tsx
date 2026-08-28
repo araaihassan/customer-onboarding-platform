@@ -35,8 +35,10 @@ export function Pagination({
     >
       {/* A page position is a machine-generated value, so it is mono. */}
       <span
-        className="text-text-muted"
-        style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)" }}
+        style={{
+          font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)",
+          color: "var(--ob-text-muted)",
+        }}
       >
         {t("page.position", { page: String(page + 1), pages: String(totalPages) })}
       </span>
