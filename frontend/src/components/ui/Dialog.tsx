@@ -20,10 +20,12 @@ export function Dialog({
   title,
   onClose,
   children,
+  maxWidth = 460,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
+  maxWidth?: number;
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -76,10 +78,7 @@ export function Dialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
-      // The scrim ink is the same 25,26,30 the elevation tokens are built from,
-      // so it stays consistent with every shadow in the system. The token set
-      // has no scrim role because the design has no modals at all.
-      style={{ background: "rgba(25, 26, 30, 0.42)", padding: "var(--ob-space-20)" }}
+      style={{ background: "var(--ob-scrim-modal)", padding: "var(--ob-space-20)" }}
       // The backdrop is not the only way out — Escape and Cancel both work — so
       // it is deliberately not focusable and carries no role of its own.
       onMouseDown={(event) => {
@@ -91,19 +90,21 @@ export function Dialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full bg-bg-overlay border border-border-default"
+        className="w-full"
         style={{
-          maxWidth: 460,
-          borderRadius: "var(--ob-radius-overlay)",
-          boxShadow: "var(--ob-elevation-popover)",
+          maxWidth: `${maxWidth}px`,
+          background: "var(--ob-surface)",
+          borderRadius: "var(--ob-radius-13)",
+          boxShadow: "var(--ob-shadow-modal)",
           padding: "var(--ob-space-20)",
         }}
       >
         <h2
           id={titleId}
-          className="text-text-primary"
+          className="text-ink"
           style={{
-            font: "600 var(--ob-type-15-size)/var(--ob-type-15-line) var(--ob-font-family-ui)",
+            font: "600 var(--ob-type-section-heading-size)/var(--ob-type-section-heading-line) var(--ob-font-family-ui)",
+            letterSpacing: "var(--ob-type-section-heading-tracking)",
             marginBottom: "var(--ob-space-16)",
           }}
         >
