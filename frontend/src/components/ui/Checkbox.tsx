@@ -41,9 +41,9 @@ export function Checkbox({
           style={{
             width: 17,
             height: 17,
-            borderRadius: "var(--ob-radius-check)",
+            borderRadius: "var(--ob-radius-5)",
             border: checked ? "none" : "1px solid var(--ob-paper-500)",
-            background: checked ? "var(--ob-solid-on-track)" : "var(--ob-bg-surface)",
+            background: checked ? "var(--ob-ok-fg)" : "var(--ob-bg-surface)",
           }}
         >
           {checked && <CheckIcon size={11} strokeWidth={3} style={{ color: "var(--ob-text-on-solid)" }} />}
