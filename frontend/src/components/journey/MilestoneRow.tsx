@@ -131,7 +131,7 @@ export function MilestoneRow({
           </div>
 
           <div style={{ width: 74 }}>
-            <ProgressBar value={milestone.progressPercent ?? 0} label={t("milestone.progressLabel", { name: milestone.name ?? "" })} />
+            <ProgressBar value={milestone.progressPercent ?? 0} label={t("milestone.progressLabel", { name: milestone.name ?? "" })} context="stage-summary" />
           </div>
 
           <span
