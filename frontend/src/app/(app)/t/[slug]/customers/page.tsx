@@ -82,18 +82,26 @@ export default function CustomersPage() {
           className="flex flex-wrap items-center"
           style={{ gap: "var(--ob-space-6)" }}
         >
-          <FilterChip
-            label={t("customer.filter.all")}
-            pressed={status === null}
+          <Button
+            type="button"
+            variant={status === null ? "filter-active" : "filter-idle"}
+            aria-pressed={status === null}
             onClick={() => refilter(() => setStatus(null))}
-          />
+            style={{ whiteSpace: "nowrap" }}
+          >
+            {t("customer.filter.all")}
+          </Button>
           {CUSTOMER_STATUSES.map((value) => (
-            <FilterChip
+            <Button
               key={value}
-              label={t(`customer.status.${value}`)}
-              pressed={status === value}
+              type="button"
+              variant={status === value ? "filter-active" : "filter-idle"}
+              aria-pressed={status === value}
               onClick={() => refilter(() => setStatus(value))}
-            />
+              style={{ whiteSpace: "nowrap" }}
+            >
+              {t(`customer.status.${value}`)}
+            </Button>
           ))}
         </div>
 
@@ -102,8 +110,8 @@ export default function CustomersPage() {
         {/* A count is a machine-generated value, so it is mono. */}
         {!isLoading && (
           <span
-            className="text-text-muted whitespace-nowrap"
-            style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)" }}
+            className="text-text-subtle whitespace-nowrap"
+            style={{ font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)" }}
           >
             {t("customer.list.count", { count: String(totalElements) })}
           </span>
@@ -202,47 +210,15 @@ function SearchBox({ value, onChange }: { value: string; onChange: (next: string
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={t("customer.list.search")}
-        className="bg-bg-surface border border-border-default text-text-primary"
+        className="bg-surface border border-line text-ink"
         style={{
           height: "var(--ob-control-height)",
           width: 260,
-          borderRadius: "var(--ob-radius-control)",
-          padding: "0 var(--ob-space-11) 0 var(--ob-space-28)",
-          font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+          borderRadius: "var(--ob-radius-9)",
+          padding: "0 var(--ob-space-11) 0 var(--ob-space-26)",
+          font: "var(--ob-type-body-size)/var(--ob-type-body-line) var(--ob-font-family-ui)",
         }}
       />
     </div>
-  );
-}
-
-/** Filter chip (component-specs §8): active is the inverted fill. */
-function FilterChip({
-  label,
-  pressed,
-  onClick,
-}: {
-  label: string;
-  pressed: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      style={{
-        height: "var(--ob-control-height-sm)",
-        borderRadius: "var(--ob-radius-chip)",
-        padding: "0 13px",
-        background: pressed ? "var(--ob-text-primary)" : "var(--ob-bg-surface)",
-        color: pressed ? "var(--ob-bg-surface)" : "var(--ob-text-secondary)",
-        border: `1px solid ${pressed ? "var(--ob-text-primary)" : "var(--ob-border-default)"}`,
-        font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
-        whiteSpace: "nowrap",
-        cursor: "pointer",
-      }}
-    >
-      {label}
-    </button>
   );
 }

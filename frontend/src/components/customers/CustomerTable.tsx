@@ -1,13 +1,15 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Avatar } from "@/components/ui/Avatar";
+import { DataTable } from "@/components/ui/DataTable";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { shortId } from "@/lib/api/customers";
 import type { Customer } from "@/lib/api/customers";
 import { t } from "@/lib/i18n";
 
 /**
- * The customer table (component-specs §7).
+ * The customer table (component-specs §7), composing the shared `DataTable`
+ * primitive (Task 22, `COMPONENTS.md` §12).
  *
  * **Columns.** The design's customer screen lists *cases*, not companies — its
  * six columns are name, stage, progress, owner, due date and health, and the
@@ -17,149 +19,102 @@ import { t } from "@/lib/i18n";
  * Cases arrive in sub-project 2. `CustomerView` carries display name, legal
  * name, status, industry, country and three ownership ids — no stage, no
  * progress, no health, no dates — so this table renders the five columns that
- * exist rather than inventing four that do not. The design's fr shares are kept
- * for the columns that remain: 2.1 / 1.2 / 1.5 / 1 / 1, converted to
- * percentages because `fr` is not a table width.
+ * exist rather than inventing four that do not. The design's fr shares —
+ * 2.1 / 1.2 / 1.5 / 1 / 1 — are `DataTable`'s own `width` per column, in fr
+ * units directly (a percentage conversion was only needed for a real
+ * `<table>`'s `colgroup`, which this component no longer has).
  *
- * **Rows.** A row's primary cell holds a real link. The prototype's
- * `<div onClick>` is not keyboard reachable and appears in both the dashboard
- * and this list, which is precisely why it is the pattern not to copy.
+ * **Rows.** A row's primary cell holds a real link, not a click handler on the
+ * row (`DataTable`'s own `onRowClick` is deliberately unused here) — the
+ * prototype's `<div onClick>` is not keyboard reachable and appears in both
+ * the dashboard and this list, which is precisely why it is the pattern not
+ * to copy.
  *
- * **Below 1024px** the table is replaced by a two-line card list carrying the
- * name, the status word and the mono reference line. A table cannot be made to
- * fit a phone by shrinking it; below the breakpoint it stops being a table.
+ * **Below 900px** (`SCREENS.md`'s RESPONSIVE table) `DataTable`'s
+ * `stackedColumn` replaces the grid with a two-line card list carrying the
+ * name, the status word and the mono reference line. A table cannot be made
+ * to fit a phone by shrinking it; below the breakpoint it stops being a
+ * table.
  */
-const COLUMN_WIDTHS = ["30.88%", "17.65%", "22.06%", "14.71%", "14.71%"];
-
 export function CustomerTable({ customers, slug }: { customers: Customer[]; slug: string }) {
-  return (
-    <>
-      <div
-        data-view="table"
-        className="hidden lg:block bg-bg-surface border border-border-default rounded-card overflow-hidden"
-      >
-        <table className="w-full" style={{ borderCollapse: "collapse", tableLayout: "fixed" }}>
-          <colgroup>
-            {COLUMN_WIDTHS.map((width, index) => (
-              // Two columns share the same width (both 1fr), so the width
-              // string itself is not a unique key -- position is stable and
-              // this list never reorders.
-              <col key={index} style={{ width }} />
-            ))}
-          </colgroup>
-          <thead>
-            <tr className="bg-bg-surface-subtle">
-              <ColumnHeader>{t("customer.table.customer")}</ColumnHeader>
-              <ColumnHeader>{t("customer.table.status")}</ColumnHeader>
-              <ColumnHeader>{t("customer.table.legalName")}</ColumnHeader>
-              <ColumnHeader>{t("customer.table.industry")}</ColumnHeader>
-              <ColumnHeader>{t("customer.table.country")}</ColumnHeader>
-            </tr>
-          </thead>
-          <tbody>
-            {customers.map((customer) => (
-              <tr
-                key={customer.id}
-                className="border-t border-border-subtle hover:bg-bg-surface-subtle"
-              >
-                <Cell>
-                  <EntityCell customer={customer} slug={slug} />
-                </Cell>
-                <Cell>
-                  <StatusPill status={customer.status} />
-                </Cell>
-                <Cell>
-                  <span className="block truncate text-text-secondary" style={BODY_TEXT}>
-                    {customer.legalName}
-                  </span>
-                </Cell>
-                <Cell>
-                  <span className="block truncate text-text-muted" style={BODY_TEXT}>
-                    {customer.industry || EMPTY}
-                  </span>
-                </Cell>
-                <Cell>
-                  {/* An ISO 3166-1 alpha-2 code is a machine value, so it is
-                      mono — the same rule that makes ids and counts mono and
-                      the industry beside it not. */}
-                  <span className="text-text-muted" style={MONO_TEXT}>
-                    {customer.country ? customer.country.toUpperCase() : EMPTY}
-                  </span>
-                </Cell>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+  const columns: { key: string; label: string; width: string; render: (customer: Customer) => ReactNode }[] = [
+    {
+      key: "customer",
+      label: t("customer.table.customer"),
+      width: "2.1fr",
+      render: (customer) => <EntityCell customer={customer} slug={slug} />,
+    },
+    {
+      key: "status",
+      label: t("customer.table.status"),
+      width: "1.2fr",
+      render: (customer) => <StatusPill status={customer.status} />,
+    },
+    {
+      key: "legalName",
+      label: t("customer.table.legalName"),
+      width: "1.5fr",
+      render: (customer) => (
+        <span className="block truncate text-text-muted" style={BODY_TEXT}>
+          {customer.legalName}
+        </span>
+      ),
+    },
+    {
+      key: "industry",
+      label: t("customer.table.industry"),
+      width: "1fr",
+      render: (customer) => (
+        <span className="block truncate text-text-subtle" style={BODY_TEXT}>
+          {customer.industry || EMPTY}
+        </span>
+      ),
+    },
+    {
+      key: "country",
+      label: t("customer.table.country"),
+      width: "1fr",
+      // An ISO 3166-1 alpha-2 code is a machine value, so it is mono — the
+      // same rule that makes ids and counts mono and the industry beside it
+      // not.
+      render: (customer) => (
+        <span className="text-text-subtle" style={MONO_TEXT}>
+          {customer.country ? customer.country.toUpperCase() : EMPTY}
+        </span>
+      ),
+    },
+  ];
 
-      <ul data-view="cards" className="lg:hidden flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
-        {customers.map((customer) => (
-          <li
-            key={customer.id}
-            className="bg-bg-surface border border-border-default rounded-card"
-            style={{ padding: "var(--ob-space-13) var(--ob-space-16)" }}
-          >
-            <div className="flex items-center" style={{ gap: "var(--ob-space-11)" }}>
-              <Avatar name={customer.displayName ?? ""} kind="company" />
-              <div className="flex-1 min-w-0">
-                <CustomerLink customer={customer} slug={slug} />
-                <p className="truncate text-text-faint" style={MONO_SUBLINE}>
-                  {[shortId(customer.id), customer.country?.toUpperCase(), customer.industry]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-              </div>
-              <StatusPill status={customer.status} />
-            </div>
-          </li>
-        ))}
-      </ul>
-    </>
+  return (
+    <DataTable
+      columns={columns}
+      rows={customers}
+      getRowKey={(customer) => customer.id ?? ""}
+      stackedColumn={(customer) => <CustomerCard customer={customer} slug={slug} />}
+    />
   );
 }
 
 /** An em dash, so a missing optional value reads as absent rather than broken. */
 const EMPTY = "—";
 
+/** Table cell (`DESIGN_TOKENS.md` Typography: 12.5px/400, 600 for the identifying column). */
 const BODY_TEXT = {
-  font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+  font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
 } as const;
 
+/** Mono data (10–11px) — case IDs, dates, durations, counts, and here an ISO country code. */
 const MONO_TEXT = {
-  font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)",
+  font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)",
 } as const;
 
+/**
+ * `COMPONENTS.md` §12: "the identifying column: 12.5–13px/600 with an 11px
+ * text-subtle subtitle underneath" — the reference line under the name.
+ */
 const MONO_SUBLINE = {
-  font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)",
+  font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)",
 } as const;
-
-function ColumnHeader({ children }: { children: ReactNode }) {
-  return (
-    <th
-      scope="col"
-      className="text-left text-text-faint"
-      style={{
-        padding: "var(--ob-space-8) var(--ob-table-row-padding-x)",
-        textTransform: "uppercase",
-        letterSpacing: "0.08em",
-        font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
-      }}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Cell({ children }: { children: ReactNode }) {
-  return (
-    <td
-      className="align-middle"
-      style={{ padding: "var(--ob-table-row-padding-y) var(--ob-table-row-padding-x)" }}
-    >
-      {children}
-    </td>
-  );
-}
 
 /**
  * The entity cell: a rounded-square avatar — a customer is a company — the name
@@ -171,7 +126,7 @@ function EntityCell({ customer, slug }: { customer: Customer; slug: string }) {
       <Avatar name={customer.displayName ?? ""} kind="company" />
       <div className="min-w-0">
         <CustomerLink customer={customer} slug={slug} />
-        <p className="truncate text-text-faint" style={MONO_SUBLINE}>
+        <p className="truncate text-text-subtle" style={MONO_SUBLINE}>
           {shortId(customer.id)}
         </p>
       </div>
@@ -183,10 +138,33 @@ function CustomerLink({ customer, slug }: { customer: Customer; slug: string }) 
   return (
     <Link
       href={`/t/${slug}/customers/${customer.id}`}
-      className="block truncate text-text-primary hover:underline"
-      style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+      className="block truncate text-ink hover:underline"
+      style={{ font: "600 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
     >
       {customer.displayName}
     </Link>
+  );
+}
+
+/**
+ * The `<900px` card: avatar, name link, a combined reference/country/industry
+ * subline, and the status pill — the two-line card the design calls for,
+ * moved here (from `CustomerTable`'s own markup) as `DataTable`'s
+ * `stackedColumn` render prop.
+ */
+function CustomerCard({ customer, slug }: { customer: Customer; slug: string }) {
+  return (
+    <div className="flex items-center" style={{ gap: "var(--ob-space-11)" }}>
+      <Avatar name={customer.displayName ?? ""} kind="company" />
+      <div className="flex-1 min-w-0">
+        <CustomerLink customer={customer} slug={slug} />
+        <p className="truncate text-text-subtle" style={MONO_SUBLINE}>
+          {[shortId(customer.id), customer.country?.toUpperCase(), customer.industry]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
+      </div>
+      <StatusPill status={customer.status} />
+    </div>
   );
 }
