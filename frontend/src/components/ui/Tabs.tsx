@@ -51,11 +51,9 @@ export function Tabs({
         border: "1px solid var(--ob-line)",
         borderRadius: "var(--ob-radius-9)",
         padding: "3px",
-        display: "flex",
-        gap: "4px",
       }}
     >
-      <div role="tablist" className="flex w-full">
+      <div role="tablist" className="flex w-full" style={{ gap: "4px" }}>
         {items.map((item, index) => {
           const selected = item.id === value;
           return (
@@ -86,7 +84,7 @@ export function Tabs({
                   aria-hidden
                   style={{
                     marginLeft: 4,
-                    font: "500 12.5px/1.2 var(--ob-font-family-ui)",
+                    font: `500 var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)`,
                   }}
                 >
                   ({item.badge})
