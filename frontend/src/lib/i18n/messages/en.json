@@ -19,6 +19,7 @@
   "shell.brand": "Onboard OS",
   "shell.nav.label": "Main navigation",
   "shell.account.open": "Account menu for {name}",
+  "shell.sidebar.toggle": "Toggle navigation menu",
   "shell.theme.toDark": "Switch to dark theme",
   "shell.theme.toLight": "Switch to light theme",
   "shell.theme.dark": "Dark",
