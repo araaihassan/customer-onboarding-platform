@@ -116,9 +116,9 @@ export function CustomerForm({
         <p
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
+            color: "var(--ob-risk-fg)",
             marginTop: "var(--ob-space-11)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
           }}
         >
           {error}

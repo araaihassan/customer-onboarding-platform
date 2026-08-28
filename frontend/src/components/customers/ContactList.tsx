@@ -202,22 +202,22 @@ export function ContactList({
             return (
               <li
                 key={contact.id}
-                className="flex items-center border-t border-border-subtle first:border-t-0"
+                className="flex items-center border-t border-line-faint first:border-t-0"
                 style={{ gap: "var(--ob-space-11)", padding: "var(--ob-space-11) 0" }}
               >
                 <Avatar name={name} kind="person" />
 
                 <div className="flex-1 min-w-0">
                   <p
-                    className="truncate text-text-primary"
-                    style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+                    className="truncate text-ink"
+                    style={{ font: "500 var(--ob-type-body-size)/var(--ob-type-body-line) var(--ob-font-family-ui)" }}
                   >
                     {name}
                   </p>
                   {contact.title && (
                     <p
-                      className="truncate text-text-muted"
-                      style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+                      className="truncate text-text-subtle"
+                      style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
                     >
                       {contact.title}
                     </p>
@@ -225,7 +225,7 @@ export function ContactList({
                   {/* An address is a machine-readable identifier, so it is mono. */}
                   <p
                     className="truncate text-text-faint"
-                    style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
+                    style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
                   >
                     {contact.email}
                   </p>
@@ -267,8 +267,8 @@ export function ContactList({
                       // The button is spent: an invitation already on its way is
                       // not something to offer again on the same screen.
                       <span
-                        className="text-text-muted whitespace-nowrap"
-                        style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+                        className="text-text-subtle whitespace-nowrap"
+                        style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
                       >
                         {t("contact.invite.sent")}
                       </span>
@@ -278,8 +278,8 @@ export function ContactList({
                           <span
                             className="whitespace-nowrap"
                             style={{
-                              color: "var(--ob-status-blocked-fg)",
-                              font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+                              color: "var(--ob-risk-fg)",
+                              font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
                             }}
                           >
                             {t("common.error")}
