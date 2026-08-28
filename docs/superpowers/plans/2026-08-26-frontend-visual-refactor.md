@@ -2228,7 +2228,7 @@ deferred to Task 27, which converts the one caller that already has one."
 **Files:** Create `frontend/src/components/ui/StageAccordion.tsx`, `StageAccordion.test.tsx`.
 
 This is the case roadmap's core primitive (`COMPONENTS.md` §14) — built here as a standalone
-primitive; Task 29 (journey roadmap) converts `Roadmap.tsx`/`StageGroupHeader.tsx`/`MilestoneRow.tsx`
+primitive; Task 30 (journey roadmap) converts `Roadmap.tsx`/`StageGroupHeader.tsx`/`MilestoneRow.tsx`
 to use it.
 
 **Interfaces:**
@@ -2384,7 +2384,7 @@ export function StageAccordion({
 git add frontend/src/components/ui/StageAccordion.tsx frontend/src/components/ui/StageAccordion.test.tsx
 git commit -m "feat(frontend): add the StageAccordion primitive (COMPONENTS.md §14)
 
-The case roadmap's core primitive. Task 29 converts Roadmap.tsx/
+The case roadmap's core primitive. Task 30 converts Roadmap.tsx/
 StageGroupHeader.tsx/MilestoneRow.tsx to compose it."
 ```
 
