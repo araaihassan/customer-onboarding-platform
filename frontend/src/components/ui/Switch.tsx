@@ -42,9 +42,9 @@ export function Switch({
         className="relative inline-flex shrink-0 items-center"
         style={{
           width: 34,
-          height: 20,
+          height: 19,
           borderRadius: "var(--ob-radius-pill)",
-          background: checked ? "var(--ob-accent)" : "var(--ob-bg-inset)",
+          background: checked ? "var(--ob-accent-fg)" : "var(--ob-line-strong)",
           padding: 2,
           border: "none",
           cursor: "pointer",
@@ -54,11 +54,11 @@ export function Switch({
         <span
           aria-hidden
           style={{
-            width: 16,
-            height: 16,
+            width: 15,
+            height: 15,
             borderRadius: "var(--ob-radius-full)",
             background: "var(--ob-bg-surface)",
-            transform: checked ? "translateX(14px)" : "translateX(0)",
+            transform: checked ? "translateX(13px)" : "translateX(0)",
             transition: "transform var(--ob-duration-fast) ease",
           }}
         />
