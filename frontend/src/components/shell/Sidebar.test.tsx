@@ -1,6 +1,11 @@
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+// Registers toHaveAttribute() etc. on vitest's expect. Nothing else in this
+// suite has needed a jest-dom matcher yet, so it isn't wired into the global
+// vitest config -- imported locally here rather than widening that config for
+// a single test file.
+import "@testing-library/jest-dom/vitest";
 
 /**
  * The rail is the one place where a permission the user does not hold becomes an
@@ -59,7 +64,7 @@ describe("Sidebar", () => {
     render(<Sidebar slug="acme" />);
     const rail = screen.getByRole("navigation").closest("aside");
 
-    expect(rail?.style.borderRight).toBe("1px solid var(--ob-graphic-muted)");
+    expect(rail?.style.borderRight).toBe("1px solid var(--ob-line)");
   });
 
   it("renders a navigation landmark containing a list", () => {
@@ -146,8 +151,26 @@ describe("Sidebar", () => {
     for (const icon of icons) expect(icon.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("shows the tenant slug in the logo block", () => {
-    render(<Sidebar slug="acme" />);
-    expect(screen.getByText("acme")).not.toBeNull();
+  /**
+   * Below 1024px the sidebar is a drawer: hidden from the accessibility tree
+   * until isOpen flips true (SCREENS.md's RESPONSIVE table). At 1024px and
+   * above it stays inline regardless of isOpen -- Task 6 wires the toggle.
+   */
+  it("renders as a drawer below 1024px, hidden until isOpen", () => {
+    // getByRole excludes aria-hidden elements from its default accessibility-
+    // tree filter, so finding the closed drawer's nav needs { hidden: true } --
+    // that's the point under test, not a workaround for it.
+    window.innerWidth = 900;
+    const { rerender } = render(<Sidebar slug="acme" isOpen={false} onClose={vi.fn()} />);
+    expect(screen.getByRole("navigation", { hidden: true })).toHaveAttribute("aria-hidden", "true");
+    rerender(<Sidebar slug="acme" isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByRole("navigation")).not.toHaveAttribute("aria-hidden");
+  });
+
+  it("calls onClose on Escape when open as a drawer", () => {
+    const onClose = vi.fn();
+    render(<Sidebar slug="acme" isOpen={true} onClose={onClose} />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });

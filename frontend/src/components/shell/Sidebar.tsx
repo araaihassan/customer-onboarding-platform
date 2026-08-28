@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
@@ -9,19 +10,18 @@ import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
 /**
- * The navigation rail (component-specs §1).
+ * The sidebar (component-specs §2): the second column of the two-column shell,
+ * next to the icon rail (Rail.tsx, Task 3). Brand mark and account menu live on
+ * the rail now, not here -- this component is nav items only.
  *
- * The rail is the one surface identical in both themes — it is already dark in
- * light mode — which is what keeps navigation stable when the theme flips. Do not
- * "fix" it to follow bg-surface.
+ * At and above 1024px it is always inline. Below 1024px it is a drawer: fully
+ * hidden until toggled open (SCREENS.md's RESPONSIVE table), replacing the old
+ * design's icon-only collapse at 1281px. `isOpen`/`onClose` are optional so a
+ * caller that never needs the drawer behaviour (or a test rendering the
+ * component in isolation) can omit them entirely and get the always-inline
+ * rendering.
  *
- * Below 1281px it collapses to an icon-only 56px rail (review finding 11). The
- * boundary is not arbitrary: the design's content column is 1440 − 244 = 1196px,
- * and a 56px rail on a 1280px viewport leaves 1224px, so every screen built for
- * the design's own width still fits without reflowing. Labels stay in the DOM as
- * sr-only text, so the accessible name of each link is unchanged when collapsed.
- *
- * Hiding an entry the user has no permission for is a courtesy, not a control —
+ * Hiding an entry the user has no permission for is a courtesy, not a control --
  * see useHasPermission. Every one of these routes enforces server-side.
  */
 type NavItem = {
@@ -32,7 +32,15 @@ type NavItem = {
   Icon: ComponentType<IconProps>;
 };
 
-export function Sidebar({ slug }: { slug: string }) {
+export function Sidebar({
+  slug,
+  isOpen,
+  onClose,
+}: {
+  slug: string;
+  isOpen?: boolean;
+  onClose?: () => void;
+}) {
   const pathname = usePathname();
 
   // Fixed hook order: every check runs on every render, and the results are
@@ -71,133 +79,90 @@ export function Sidebar({ slug }: { slug: string }) {
     });
   }
 
+  const isDrawer = onClose !== undefined;
+
+  // Escape closes the drawer. Only attached when it's actually a controlled drawer.
+  useEffect(() => {
+    if (!isDrawer || !isOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose?.();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [isDrawer, isOpen, onClose]);
+
   return (
-    <aside
-      className="sticky top-0 h-screen shrink-0 flex flex-col bg-bg-rail text-text-on-rail w-[var(--ob-rail-width-collapsed)] min-[1281px]:w-[var(--ob-rail-width)]"
-      // The rail's edge has to be drawn, because no pair of surface tokens can
-      // draw it. bg-rail is pinned to slate-950 in BOTH themes -- that is what
-      // keeps navigation stable across a theme flip -- and the dark page sits
-      // just below it, so the palette caps rail-against-page at 1.17:1 even with
-      // a pure black page. Task R1 moved it from 1.00:1 to 1.10:1, which is
-      // measurable and still invisible.
-      //
-      // graphic-muted (paper-600) rather than border-default: it is the same
-      // value in both themes, as the rail is, and it clears 3:1 against
-      // everything it touches -- 5.17:1 on the rail, 5.70:1 on the dark page,
-      // 3.17:1 on the light page. border-default would put a near-white line on
-      // the dark rail in the light theme, which reads as a highlight, not an
-      // edge.
-      style={{ borderRight: "1px solid var(--ob-graphic-muted)" }}
-    >
-      <div
-        className="flex items-center justify-center min-[1281px]:justify-start px-0 min-[1281px]:px-[var(--ob-space-20)]"
+    <>
+      {isDrawer && isOpen && (
+        <div
+          className="fixed inset-0 z-40"
+          style={{ background: "var(--ob-scrim-drawer)" }}
+          onClick={onClose}
+          aria-hidden="true"
+        />
+      )}
+      <aside
+        className={isDrawer ? "fixed inset-y-0 z-50 max-[1023px]:flex hidden min-[1024px]:flex" : "flex"}
         style={{
-          paddingTop: "var(--ob-space-22)",
-          paddingBottom: "var(--ob-space-18)",
-          gap: "var(--ob-space-10)",
+          left: "var(--ob-rail-width)",
+          width: "var(--ob-sidebar-width)",
+          background: "var(--ob-canvas)",
+          borderRight: "1px solid var(--ob-line)",
+          flexDirection: "column",
+          padding: "12px 10px 10px",
+          transform: isDrawer && !isOpen ? "translateX(-100%)" : "none",
+          transition: isDrawer ? `transform var(--ob-duration-slide) var(--ob-ease-default)` : undefined,
         }}
       >
-        <BrandMark />
-        <div className="sr-only min-[1281px]:not-sr-only min-[1281px]:flex flex-col" style={{ lineHeight: 1.15 }}>
-          <span
-            style={{
-              font: "600 var(--ob-type-14-size)/1.15 var(--ob-font-family-ui)",
-              letterSpacing: "var(--ob-type-14-tracking)",
-            }}
-          >
-            {t("shell.brand")}
-          </span>
-          {/* A slug is a machine value, so it is mono. 50% over the rail measures
-              4.7:1 — the design's own figure, and it clears AA. */}
-          <span
-            style={{
-              font: "var(--ob-type-10-size)/1.15 var(--ob-font-family-data)",
-              opacity: 0.5,
-            }}
-          >
-            {slug}
-          </span>
-        </div>
-      </div>
-
-      <nav aria-label={t("shell.nav.label")} style={{ padding: "var(--ob-space-6) var(--ob-space-10)" }}>
-        <ul className="flex flex-col" style={{ gap: "var(--ob-space-2)" }}>
-          {items.map((item) => {
-            const active = pathname === item.section || pathname.startsWith(`${item.section}/`);
-            return (
-              <li key={item.href}>
-                <NavLink item={item} active={active} />
-              </li>
-            );
-          })}
-        </ul>
-      </nav>
-    </aside>
+        <nav
+          aria-label={t("shell.nav.label")}
+          aria-hidden={isDrawer && !isOpen ? true : undefined}
+        >
+          <ul className="flex flex-col" style={{ gap: "var(--ob-space-2)" }}>
+            {items.map((item) => {
+              const active = pathname === item.section || pathname.startsWith(`${item.section}/`);
+              return (
+                <li key={item.href}>
+                  <NavLink item={item} active={active} onNavigate={isDrawer ? onClose : undefined} />
+                </li>
+              );
+            })}
+          </ul>
+        </nav>
+      </aside>
+    </>
   );
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+function NavLink({
+  item,
+  active,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  onNavigate?: () => void;
+}) {
   const { Icon, href, label } = item;
-
-  // State-dependent background and opacity are classes rather than inline styles
-  // on purpose: an inline style wins over any :hover rule, so the hover state
-  // would silently never appear.
-  const state = active
-    ? "bg-bg-rail-raised opacity-100"
-    : "opacity-[0.72] hover:opacity-100 hover:bg-[var(--ob-rail-item-hover)]";
-
   return (
     <Link
       href={href}
       aria-current={active ? "page" : undefined}
-      className={`flex items-center w-full justify-center min-[1281px]:justify-start ${state}`}
+      onClick={onNavigate}
+      className="flex items-center w-full hover:bg-surface-active"
       style={{
-        padding: "var(--ob-space-8) var(--ob-space-11)",
-        borderRadius: "var(--ob-rail-item-radius)",
-        gap: "var(--ob-space-10)",
-        font: `${active ? 500 : 400} var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)`,
-        color: "inherit",
+        gap: "var(--ob-space-9)",
+        padding: "7px 9px",
+        borderRadius: "var(--ob-radius-8)",
+        font: `${active ? 500 : 400} var(--ob-type-nav-item-size)/var(--ob-type-nav-item-line) var(--ob-font-family-ui)`,
+        color: "var(--ob-ink)",
+        background: active ? "var(--ob-surface-active)" : "transparent",
       }}
     >
-      <span
-        aria-hidden="true"
-        className="grid place-items-center"
-        style={{ flex: "0 0 16px", width: 16, height: 16, opacity: 0.85 }}
-      >
-        <Icon size={16} />
+      <span aria-hidden="true" className="grid place-items-center" style={{ flex: "0 0 14px", width: 14, color: "var(--ob-text-subtle)" }}>
+        <Icon size={14} />
       </span>
-      <span className="sr-only min-[1281px]:not-sr-only min-[1281px]:flex-1 text-left">{label}</span>
+      <span className="text-left">{label}</span>
     </Link>
-  );
-}
-
-/**
- * The brand mark from 01-brand/logo/logo-tile.svg, inlined at 26px.
- *
- * Inlined rather than fetched so the rail has no network dependency, and with the
- * tile fill pointing at `accent` rather than the file's baked #4f5cc3 — that hex
- * IS indigo-600, and a mark that drifts from the accent when the palette moves is
- * exactly the kind of quiet erosion the design warns about.
- */
-function BrandMark() {
-  return (
-    <svg
-      width="26"
-      height="26"
-      viewBox="0 0 32 32"
-      style={{ flex: "0 0 26px" }}
-      aria-hidden="true"
-      focusable="false"
-    >
-      <rect width="32" height="32" rx="9" fill="var(--ob-accent)" />
-      <path
-        d="M19.74 9.52A7.49 7.49 0 1 1 12.26 9.52"
-        fill="none"
-        stroke="#fff"
-        strokeWidth="3.01"
-        strokeLinecap="round"
-      />
-      <circle cx="16" cy="8.51" r="1.5" fill="#fff" />
-    </svg>
   );
 }
