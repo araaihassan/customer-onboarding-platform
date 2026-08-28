@@ -41,7 +41,7 @@ export function MilestoneEditor({
       <h4
         className="text-text-faint"
         style={{
-          font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+          font: "500 var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
         }}
@@ -52,8 +52,8 @@ export function MilestoneEditor({
       {milestones.map((milestone, index) => (
         <div
           key={milestone.key ?? index}
-          className="bg-bg-surface-sunken"
-          style={{ borderRadius: "var(--ob-radius-inner)", padding: "var(--ob-space-11)" }}
+          className="bg-surface-sunken"
+          style={{ borderRadius: "var(--ob-radius-9)", padding: "var(--ob-space-11)" }}
         >
           <div className="flex items-start" style={{ gap: "var(--ob-space-8)" }}>
             <div className="flex-1" style={{ display: "grid", gridTemplateColumns: "1fr 100px", gap: "var(--ob-space-8)" }}>
@@ -75,7 +75,7 @@ export function MilestoneEditor({
               aria-label={t("workflow.milestone.remove")}
               onClick={() => removeMilestone(index)}
               className="inline-flex items-center justify-center"
-              style={{ width: 26, height: 26, marginTop: 20, color: "var(--ob-text-muted)" }}
+              style={{ width: 26, height: 26, marginTop: 20, color: "var(--ob-text-subtle)" }}
             >
               <XIcon size={14} />
             </button>
@@ -95,10 +95,10 @@ export function MilestoneEditor({
         style={{
           gap: "var(--ob-space-6)",
           padding: "var(--ob-space-8) var(--ob-space-11)",
-          borderRadius: "var(--ob-radius-chip)",
-          border: "1px dashed var(--ob-border-dashed)",
-          color: "var(--ob-text-secondary)",
-          font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+          borderRadius: "var(--ob-radius-7)",
+          border: "1px dashed var(--ob-line-strong)",
+          color: "var(--ob-text-muted)",
+          font: "12px/1.4 var(--ob-font-family-ui)",
         }}
       >
         <PlusIcon size={13} />
@@ -140,10 +140,10 @@ function RequirementList({
             onChange={(e) => update(index, { kind: e.target.value as RequirementRequest["kind"] })}
             style={{
               height: "var(--ob-control-height-sm)",
-              borderRadius: "var(--ob-radius-chip)",
-              border: "1px solid var(--ob-border-default)",
-              background: "var(--ob-bg-surface)",
-              font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)",
+              borderRadius: "var(--ob-radius-7)",
+              border: "1px solid var(--ob-line)",
+              background: "var(--ob-surface)",
+              font: "11px/1.4 var(--ob-font-family-ui)",
             }}
           >
             {REQUIREMENT_KINDS.map((kind) => (
@@ -160,11 +160,11 @@ function RequirementList({
             className="flex-1"
             style={{
               height: "var(--ob-control-height-sm)",
-              borderRadius: "var(--ob-radius-chip)",
-              border: "1px solid var(--ob-border-default)",
-              background: "var(--ob-bg-surface)",
+              borderRadius: "var(--ob-radius-7)",
+              border: "1px solid var(--ob-line)",
+              background: "var(--ob-surface)",
               padding: "0 var(--ob-space-8)",
-              font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)",
+              font: "11px/1.4 var(--ob-font-family-ui)",
               minWidth: 120,
             }}
           />
@@ -179,7 +179,7 @@ function RequirementList({
             aria-label={t("workflow.requirement.remove")}
             onClick={() => remove(index)}
             className="inline-flex items-center justify-center"
-            style={{ width: 22, height: 22, color: "var(--ob-text-muted)" }}
+            style={{ width: 22, height: 22, color: "var(--ob-text-subtle)" }}
           >
             <XIcon size={12} />
           </button>
@@ -189,8 +189,8 @@ function RequirementList({
       <button
         type="button"
         onClick={add}
-        className="inline-flex items-center self-start text-text-muted"
-        style={{ gap: "var(--ob-space-5)", font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-ui)" }}
+        className="inline-flex items-center self-start text-text-subtle"
+        style={{ gap: "var(--ob-space-5)", font: "10.5px/1.4 var(--ob-font-family-ui)" }}
       >
         <PlusIcon size={11} />
         {t("workflow.requirement.add")}
@@ -218,8 +218,8 @@ function MandatoryToggle({ checked, onChange }: { checked: boolean; onChange: (c
         style={{ width: 14, height: 14 }}
       />
       <span
-        className="text-text-secondary"
-        style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-ui)" }}
+        className="text-text-muted"
+        style={{ font: "10.5px/1.4 var(--ob-font-family-ui)" }}
       >
         {t("workflow.requirement.mandatory")}
       </span>
