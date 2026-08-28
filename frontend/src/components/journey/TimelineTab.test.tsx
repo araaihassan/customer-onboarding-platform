@@ -60,7 +60,7 @@ describe("TimelineTab", () => {
 
     renderTab();
 
-    await waitFor(() => expect(screen.getByText(/Immutable/)).not.toBeNull());
+    await waitFor(() => expect(screen.getByText(/Immutable · 1 events/)).not.toBeNull());
   });
 
   it("renders the empty state for a case with no events yet", async () => {

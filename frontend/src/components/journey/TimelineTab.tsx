@@ -30,12 +30,14 @@ export function TimelineTab({ caseId }: { caseId: string }) {
     return <EmptyState title={t("case.timeline.emptyTitle")} description={t("case.timeline.emptyDescription")} />;
   }
 
+  const earlierEvents = totalElements - events.length;
+
   return (
     <div className="flex flex-col" style={{ gap: "var(--ob-space-11)" }}>
       <p
         className="text-text-faint"
         style={{
-          font: "500 var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)",
+          font: "500 var(--ob-type-mono-label-size)/var(--ob-type-mono-label-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
         }}
@@ -63,6 +65,17 @@ export function TimelineTab({ caseId }: { caseId: string }) {
           disabled={timeline.isFetching}
         />
       )}
+
+      <p
+        className="text-text-faint"
+        style={{
+          font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+        }}
+      >
+        {t("case.timeline.auditFooter", { count: String(earlierEvents) })}
+      </p>
     </div>
   );
 }

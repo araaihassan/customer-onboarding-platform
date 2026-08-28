@@ -326,6 +326,7 @@
   "case.timeline.emptyTitle": "No activity yet",
   "case.timeline.emptyDescription": "Actions taken on this case will appear here, and can never be edited or removed.",
   "case.timeline.pages": "Case timeline pages",
+  "case.timeline.auditFooter": "Immutable audit log · 7-year retention · {count} earlier events",
   "requirement.sectionTitle": "Requirements",
   "requirement.waive": "Waive",
   "requirement.waiveDialog.title": "Waive requirement",
