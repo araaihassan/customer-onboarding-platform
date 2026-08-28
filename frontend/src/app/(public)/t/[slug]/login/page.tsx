@@ -65,8 +65,8 @@ export default function LoginPage() {
           <p
             role="alert"
             style={{
-              color: "var(--ob-status-blocked-fg)",
-              font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+              color: "var(--ob-risk-fg)",
+              font: "var(--ob-type-small-print-size)/var(--ob-type-small-print-line) var(--ob-font-family-ui)",
             }}
           >
             {error}
@@ -80,9 +80,9 @@ export default function LoginPage() {
 
       <p
         className="text-text-muted"
-        style={{ marginTop: "var(--ob-space-16)", font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}
+        style={{ marginTop: "var(--ob-space-16)", font: "var(--ob-type-small-print-size)/var(--ob-type-small-print-line) var(--ob-font-family-ui)" }}
       >
-        <a href={`/t/${slug}/reset-password`} style={{ color: "var(--ob-accent)" }}>
+        <a href={`/t/${slug}/reset-password`} style={{ color: "var(--ob-accent-fg)" }}>
           {t("auth.reset.title")}
         </a>
       </p>

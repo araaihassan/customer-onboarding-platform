@@ -74,8 +74,8 @@ function ActivateForm() {
           <p
             role="alert"
             style={{
-              color: "var(--ob-status-blocked-fg)",
-              font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+              color: "var(--ob-risk-fg)",
+              font: "var(--ob-type-small-print-size)/var(--ob-type-small-print-line) var(--ob-font-family-ui)",
             }}
           >
             {error}
