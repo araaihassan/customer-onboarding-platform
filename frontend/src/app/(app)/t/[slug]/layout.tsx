@@ -1,10 +1,11 @@
 "use client";
 
-import { use } from "react";
+import { use, useState } from "react";
 import { AuthProvider } from "@/lib/auth/AuthProvider";
 import { AuthGuard } from "@/lib/auth/AuthGuard";
 import { PageHeaderProvider } from "@/components/shell/PageHeader";
 import { QueryProvider } from "@/lib/api/QueryProvider";
+import { Rail } from "@/components/shell/Rail";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { TopBar } from "@/components/shell/TopBar";
 
@@ -27,6 +28,9 @@ export default function TenantLayout({
 }) {
   // Next 15 delivers params as a promise to layouts; `use` unwraps it.
   const { slug } = use(params);
+  // Drives the <1024px Sidebar drawer only (SCREENS.md's RESPONSIVE table) --
+  // Sidebar renders inline at 1024px and above regardless of this value.
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
     <AuthProvider slug={slug}>
@@ -37,7 +41,20 @@ export default function TenantLayout({
         <QueryProvider>
           <PageHeaderProvider>
             <div className="flex min-h-screen">
-              <Sidebar slug={slug} />
+              <Rail onToggleSidebar={() => setSidebarOpen((open) => !open)} />
+              <Sidebar slug={slug} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+              {/* Sidebar renders `position: fixed` (Task 4), so it takes no space
+                  of its own in this flex row -- this spacer reserves its width
+                  only at the breakpoint where Sidebar is actually inline
+                  (>=1024px), using the same breakpoint Sidebar itself keys off of,
+                  so the content column starts to its right instead of underneath
+                  it. Below 1024px Sidebar is a hidden or overlay drawer, so no
+                  space is reserved and content runs from the rail's edge. */}
+              <div
+                className="hidden min-[1024px]:block shrink-0"
+                style={{ width: "var(--ob-sidebar-width)" }}
+                aria-hidden="true"
+              />
               {/* The column is a plain div, not <main>. TopBar renders a <header>,
                   which is only the `banner` landmark while it is not inside <main>
                   — nesting it would leave the authenticated application with no
@@ -50,8 +67,10 @@ export default function TenantLayout({
               <div className="flex flex-1 min-w-0 flex-col">
                 <TopBar />
                 <main
-                  className="flex-1 px-[var(--ob-space-16)] md:px-[var(--ob-content-padding-x)]"
+                  className="flex-1"
                   style={{
+                    paddingLeft: "var(--ob-content-padding-x)",
+                    paddingRight: "var(--ob-content-padding-x)",
                     paddingTop: "var(--ob-content-padding-top)",
                     // 56px, so the last table row clears the fold rather than
                     // looking truncated.
