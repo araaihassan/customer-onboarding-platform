@@ -7,7 +7,6 @@ const logout = vi.fn(async () => {});
 let user: Me | null = { fullName: "Maria Kessler", email: "maria@acme.test" };
 
 vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ user, logout }) }));
-vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: "light", setTheme: vi.fn() }) }));
 
 const { TopBar } = await import("./TopBar");
 const { PageHeaderProvider, useSetPageHeader } = await import("./PageHeader");
@@ -162,11 +161,6 @@ describe("TopBar", () => {
 
     expect(signOut()).toBeNull();
     outside.remove();
-  });
-
-  it("renders the theme toggle", () => {
-    renderTopBar();
-    expect(screen.getByRole("button", { name: /switch to dark theme/i })).not.toBeNull();
   });
 
   /**

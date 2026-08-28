@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { FocusEvent } from "react";
-import { ThemeToggle } from "./ThemeToggle";
 import { usePageHeader } from "./PageHeader";
 import { useAuth } from "@/lib/auth/useAuth";
 import { t } from "@/lib/i18n";
@@ -61,7 +60,6 @@ export function TopBar() {
 
       <div className="flex-1" />
 
-      <ThemeToggle />
       <AccountMenu />
     </header>
   );

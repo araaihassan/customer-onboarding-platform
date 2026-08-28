@@ -11,77 +11,31 @@
  * coexisting — which is how a design system dies in month two. Every value here
  * is a pointer; none is a colour. */
 :root {
-  --background: var(--ob-bg-page);
-  --foreground: var(--ob-text-primary);
-  --card: var(--ob-bg-surface);
-  --card-foreground: var(--ob-text-primary);
-  --popover: var(--ob-bg-overlay);
-  --popover-foreground: var(--ob-text-primary);
-  --primary: var(--ob-accent);
-  --primary-foreground: var(--ob-text-on-accent);
-  --secondary: var(--ob-bg-inset);
-  --secondary-foreground: var(--ob-text-secondary);
-  --muted: var(--ob-bg-surface-subtle);
-  --muted-foreground: var(--ob-text-muted);
-  --accent: var(--ob-accent-tint);
-  --accent-foreground: var(--ob-accent);
-  --destructive: var(--ob-solid-blocked);
-  /* text-on-solid, NOT text-on-accent. Both are white in light, so one token
-   * served both until the dark accent became a pale indigo and its ink had to
-   * invert to near-black. The solid status fills do not invert, so riding on
-   * text-on-accent would put near-black on solid-blocked in dark: 3.43:1. */
-  --destructive-foreground: var(--ob-text-on-solid);
-  --border: var(--ob-border-default);
-  --input: var(--ob-border-default);
-  --ring: var(--ob-accent);
-  --radius: var(--ob-radius-control);
-}
-
-/* A semantic role the generated token set is missing.
- *
- * tokens.md documents paper-600 as a graphics-only tier — valid at 3:1 for a 20px+
- * glyph or decorative mark, never for text — but exposes no semantic name for it,
- * and components must never reference a primitive directly. Its own guidance for
- * this case is to add a semantic role pointing at the existing primitive, which is
- * what this is. If the dark theme ever needs a different value, this belongs in
- * build_tokens.py rather than here.
- */
-:root { --ob-graphic-muted: var(--ob-paper-600); }
-[data-theme="dark"] { --ob-graphic-muted: var(--ob-slate-600, var(--ob-paper-600)); }
-
-/* Three shell roles the generated set does not carry, for the same reason: the
- * design has no layout below 1440px and no theme toggle, so it never needed them.
- * Same rule as above — every value is a pointer or a derivation, never a new
- * colour, and if any of them ever needs a per-theme value it belongs in
- * build_tokens.py rather than here.
- *
- * rail-width-collapsed  the icon-only rail from review finding 11, still open.
- * rail-item-hover       the rail's white overlay, given as a literal in
- *                       component-specs §1 because it is a translucent wash over
- *                       the slate ramp rather than a palette colour.
- * bg-header             component-specs §2 gives the header as
- *                       rgba(247,246,243,0.88) — which IS bg-page at 88%, but only
- *                       in the light theme. Left as a literal the header would
- *                       stay paper-white in dark mode, the one place the whole
- *                       shell breaks when the theme flips. Derived from the token,
- *                       it resolves to exactly the specified value in light.
- */
-:root {
-  --ob-rail-width-collapsed: var(--ob-space-56);
-  --ob-rail-item-hover: rgba(255, 255, 255, 0.07);
-  --ob-bg-header: color-mix(in srgb, var(--ob-bg-page) 88%, transparent);
-}
-
-/* Point the token families at the next/font variables, so the tokens stay the
- * single source of truth and next/font handles loading and fallback metrics. */
-:root {
-  --ob-font-family-ui: var(--font-archivo), 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --ob-font-family-data: var(--font-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+  --background: var(--ob-canvas);
+  --foreground: var(--ob-ink);
+  --card: var(--ob-surface);
+  --card-foreground: var(--ob-ink);
+  --popover: var(--ob-surface);
+  --popover-foreground: var(--ob-ink);
+  --primary: var(--ob-ink);
+  --primary-foreground: var(--ob-canvas);
+  --secondary: var(--ob-surface-active);
+  --secondary-foreground: var(--ob-text-muted);
+  --muted: var(--ob-surface-sunken);
+  --muted-foreground: var(--ob-text-subtle);
+  --accent: var(--ob-accent-bg);
+  --accent-foreground: var(--ob-accent-fg);
+  --destructive: var(--ob-risk-fg);
+  --destructive-foreground: var(--ob-canvas);
+  --border: var(--ob-line);
+  --input: var(--ob-line);
+  --ring: var(--ob-ink);
+  --radius: var(--ob-radius-9);
 }
 
 body {
-  background: var(--ob-bg-page);
-  color: var(--ob-text-primary);
+  background: var(--ob-canvas);
+  color: var(--ob-ink);
   font-family: var(--ob-font-family-ui);
 }
 
@@ -89,24 +43,20 @@ body {
  * WCAG 2.4.7 failure. :where() keeps specificity at zero so any component can
  * override it; :focus-visible means mouse users never see it. */
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--ob-accent);
+  outline: 2px solid var(--ob-ink);
   outline-offset: 2px;
   border-radius: 5px;
 }
 
-/* `--ob-keyframe-enter` names this animation but the generated set ships no
- * keyframes for it -- the prototype has no JS-driven expand/collapse, so
- * nothing there ever needed one. MilestoneRow's expanded panel is the first
- * real consumer. Respects prefers-reduced-motion the same way tokens.css
- * already collapses --ob-duration-instant to near-zero: the keyframe still
- * runs, just over an imperceptible span. */
-@keyframes fadeUp {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+@keyframes om-pop {
+  from { opacity: 0; transform: translateY(6px) scale(.99); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes om-slide {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes om-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .35; }
 }
