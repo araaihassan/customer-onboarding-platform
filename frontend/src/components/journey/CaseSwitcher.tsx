@@ -33,9 +33,9 @@ export function CaseSwitcher({
       <span
         className="text-text-faint"
         style={{
-          font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+          font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
-          letterSpacing: "0.08em",
+          letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
         }}
       >
         {t("case.switcher.title")}
@@ -57,13 +57,13 @@ export function CaseSwitcher({
               className="inline-flex items-center flex-shrink-0"
               style={{
                 height: "var(--ob-control-height-sm)",
-                borderRadius: "var(--ob-radius-chip)",
+                borderRadius: "var(--ob-radius-5)",
                 padding: "0 13px",
                 gap: "5px",
-                background: active ? "var(--ob-text-primary)" : "var(--ob-bg-surface)",
-                color: active ? "var(--ob-bg-surface)" : "var(--ob-text-secondary)",
-                border: `1px solid var(${active ? "--ob-text-primary" : "--ob-border-default"})`,
-                font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+                background: active ? "var(--ob-ink)" : "var(--ob-surface)",
+                color: active ? "var(--ob-surface)" : "var(--ob-text-muted)",
+                border: `1px solid var(${active ? "--ob-ink" : "--ob-line"})`,
+                font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
               }}
             >
               <span
@@ -76,7 +76,12 @@ export function CaseSwitcher({
                 }}
               />
               <span>{c.currentStageName || t("case.header.noStage")}</span>
-              <span style={{ font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)" }}>
+              <span
+                style={{
+                  font: "var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
+                  letterSpacing: "var(--ob-type-mono-chip-tracking)",
+                }}
+              >
                 {shortId(c.id)}
               </span>
             </Link>
@@ -90,13 +95,13 @@ export function CaseSwitcher({
             className="inline-flex items-center flex-shrink-0"
             style={{
               height: "var(--ob-control-height-sm)",
-              borderRadius: "var(--ob-radius-chip)",
+              borderRadius: "var(--ob-radius-5)",
               padding: "0 13px",
               gap: "5px",
-              border: "1px dashed var(--ob-border-dashed)",
-              color: "var(--ob-text-secondary)",
+              border: "1px dashed var(--ob-line-strong)",
+              color: "var(--ob-text-muted)",
               background: "transparent",
-              font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+              font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
               cursor: "pointer",
             }}
           >
@@ -110,22 +115,22 @@ export function CaseSwitcher({
 }
 
 /**
- * Only three "solid" dot tokens exist (on-track/at-risk/blocked), so ACTIVE
- * borrows the accent instead of doubling up on-track with COMPLETED --
- * otherwise an active and a completed case would be indistinguishable by dot
- * colour alone.
+ * Only three status-fg tokens map to a case status (ok/warn/risk, for
+ * COMPLETED/ON_HOLD/CANCELLED), so ACTIVE borrows the accent instead of
+ * doubling up ok-fg with COMPLETED -- otherwise an active and a completed
+ * case would be indistinguishable by dot colour alone.
  */
 function dotColor(status: CaseStatus | undefined): string {
   switch (status) {
     case "ACTIVE":
-      return "var(--ob-accent)";
+      return "var(--ob-accent-fg)";
     case "ON_HOLD":
-      return "var(--ob-solid-at-risk)";
+      return "var(--ob-warn-fg)";
     case "COMPLETED":
-      return "var(--ob-solid-on-track)";
+      return "var(--ob-ok-fg)";
     case "CANCELLED":
-      return "var(--ob-solid-blocked)";
+      return "var(--ob-risk-fg)";
     default:
-      return "var(--ob-accent)";
+      return "var(--ob-accent-fg)";
   }
 }
