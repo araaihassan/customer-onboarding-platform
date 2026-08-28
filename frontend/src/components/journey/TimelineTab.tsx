@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Pagination } from "@/components/ui/Pagination";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
 import { TimelineRow } from "@/components/ui/TimelineRow";
-import { useTimeline } from "@/lib/api/cases";
+import { useTimeline, TIMELINE_PAGE_SIZE } from "@/lib/api/cases";
 import { t } from "@/lib/i18n";
 
 /**
@@ -30,7 +30,7 @@ export function TimelineTab({ caseId }: { caseId: string }) {
     return <EmptyState title={t("case.timeline.emptyTitle")} description={t("case.timeline.emptyDescription")} />;
   }
 
-  const earlierEvents = totalElements - events.length;
+  const earlierEvents = Math.max(totalElements - (page * TIMELINE_PAGE_SIZE + events.length), 0);
 
   return (
     <div className="flex flex-col" style={{ gap: "var(--ob-space-11)" }}>
@@ -71,7 +71,7 @@ export function TimelineTab({ caseId }: { caseId: string }) {
         style={{
           font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
-          letterSpacing: "0.08em",
+          letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
         }}
       >
         {t("case.timeline.auditFooter", { count: String(earlierEvents) })}
