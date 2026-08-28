@@ -173,7 +173,7 @@ export function RoleEditor({
             {/* The word carries the state; the colour only reinforces it. */}
             <StatusPill
               status={role.enabled ? t("role.enabled") : t("role.disabled")}
-              role={role.enabled ? "on-track" : "blocked"}
+              role={role.enabled ? "ok" : "risk"}
             />
           </div>
 

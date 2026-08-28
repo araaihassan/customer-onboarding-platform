@@ -14,9 +14,9 @@ import { ForceCompleteDialog } from "./ForceCompleteDialog";
 import { RequirementList } from "./RequirementList";
 
 const ROLE_BY_STATUS: Record<string, StatusRole> = {
-  DONE: "on-track",
-  ACTIVE: "progress",
-  BLOCKED: "blocked",
+  DONE: "ok",
+  ACTIVE: "accent",
+  BLOCKED: "risk",
   PENDING: "neutral",
   SKIPPED: "neutral",
 };

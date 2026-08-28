@@ -93,7 +93,7 @@ export function MigrationTable({
             <Cell>
               <StatusPill
                 status={candidate.eligible ? t("workflow.migration.eligible") : t("workflow.migration.notEligible")}
-                role={candidate.eligible ? "on-track" : "blocked"}
+                role={candidate.eligible ? "ok" : "risk"}
               />
             </Cell>
             <Cell>

@@ -136,7 +136,7 @@ function DocumentChip({ requirement }: { requirement: RequirementRoadmap }) {
       </span>
       <StatusPill
         status={requirement.status === "OPEN" ? t("requirement.status.OPEN") : t(`requirement.status.${requirement.status}`)}
-        role={requirement.status === "OPEN" ? "neutral" : "on-track"}
+        role={requirement.status === "OPEN" ? "neutral" : "ok"}
       />
     </div>
   );
