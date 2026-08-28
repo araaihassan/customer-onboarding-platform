@@ -185,6 +185,7 @@
   "workflow.stage.unnamed": "Untitled stage",
   "workflow.stage.approval": "Approval",
   "workflow.stage.auto": "Auto",
+  "workflow.stage.conditional": "Conditional",
   "workflow.stage.subline": "{milestones} milestones · {sla} · {writeScope}",
   "workflow.stage.slaDays": "{days}d SLA",
   "workflow.stage.noSla": "No SLA",

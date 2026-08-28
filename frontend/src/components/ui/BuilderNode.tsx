@@ -1,11 +1,18 @@
-// BuilderNode -- the workflow builder's draggable stage node (COMPONENTS.md §21).
+import { t } from "@/lib/i18n";
+
+// BuilderNode -- the workflow builder's stage node (COMPONENTS.md §21).
 //
-// Drag-and-drop wiring (`draggable`, `onDragStart`/`onDragOver`/`onDrop`) stays the
-// caller's responsibility -- `StageRow.tsx` already implements it, and Task 31
-// converts that component to compose this primitive. The keyboard-accessible
-// reorder affordance COMPONENTS.md §21 describes (move-up/move-down buttons) is
-// deferred to that same conversion, since it needs the real reorder logic to
-// attach to -- it is not invented here.
+// Corrected by Task 33: this component's own comment used to claim
+// `StageRow.tsx` already implemented HTML5 drag-and-drop -- it never did.
+// `draftState.ts`'s own doc comment records the real, deliberate history:
+// this screen has only ever reordered stages via keyboard-operable ▲▼
+// buttons, never drag-and-drop. `StageRow.tsx` (Task 33) composes this
+// primitive for its visual chrome and supplies those buttons itself; there is
+// no `draggable`/`onDragStart`/`onDragOver`/`onDrop` wiring anywhere to be a
+// caller's responsibility for. The `⋮⋮` glyph stays as a visual grouping cue
+// (the real move/delete buttons sit right next to it in `StageRow`), but
+// nothing here claims draggability any more -- see the removed `cursor: grab`
+// below.
 export function BuilderNode({
   name,
   teamMeta,
@@ -29,6 +36,7 @@ export function BuilderNode({
     <button
       type="button"
       onClick={onClick}
+      aria-pressed={isSelected}
       style={{
         width: "100%",
         display: "flex",
@@ -40,7 +48,6 @@ export function BuilderNode({
         border: `1px solid ${isSelected ? "var(--ob-ink)" : isBranch ? "var(--ob-automation-border)" : "var(--ob-line)"}`,
         boxShadow: isSelected ? "var(--ob-shadow-ring-selected)" : "var(--ob-shadow-card)",
         opacity: isDragging ? 0.4 : 1,
-        cursor: "grab",
         textAlign: "left",
       }}
     >
@@ -71,7 +78,7 @@ export function BuilderNode({
                 padding: "2px 6px",
               }}
             >
-              CONDITIONAL
+              {t("workflow.stage.conditional")}
             </span>
           )}
         </div>

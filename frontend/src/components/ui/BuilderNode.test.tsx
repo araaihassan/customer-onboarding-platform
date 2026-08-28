@@ -22,6 +22,22 @@ describe("BuilderNode", () => {
 
   it("renders a CONDITIONAL chip and the branch number-tile fill when isBranch", () => {
     render(<BuilderNode name="Segment is ENTERPRISE?" teamMeta="" milestonePills={[]} isBranch conditionalChip onClick={vi.fn()} />);
-    expect(screen.getByText("CONDITIONAL")).toBeInTheDocument();
+    // Text content comes from t("workflow.stage.conditional") ("Conditional"); the
+    // all-caps look is CSS (textTransform: uppercase), not the DOM text itself.
+    expect(screen.getByText("Conditional")).toBeInTheDocument();
+  });
+
+  it("reflects isSelected as aria-pressed on the node's own button, not just its border/shadow", () => {
+    render(<BuilderNode name="Agreement" teamMeta="" milestonePills={[]} onClick={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /agreement/i })).toHaveAttribute("aria-pressed", "false");
+
+    cleanup();
+    render(<BuilderNode name="Agreement" teamMeta="" milestonePills={[]} isSelected onClick={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /agreement/i })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("does not set a grab cursor -- there is no drag-and-drop for this node to promise", () => {
+    render(<BuilderNode name="Agreement" teamMeta="" milestonePills={[]} onClick={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /agreement/i }).style.cursor).not.toBe("grab");
   });
 });
