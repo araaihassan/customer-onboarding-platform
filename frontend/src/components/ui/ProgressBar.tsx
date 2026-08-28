@@ -66,7 +66,7 @@ export function ProgressBar({
           // prefers-reduced-motion by tokens.css.
           style={{
             width: `${clamped}%`,
-            transition: "width var(--ob-duration-progress) ease",
+            transition: "width var(--ob-duration-pop) ease",
             background: fillColor(clamped, context),
             borderRadius: "var(--ob-radius-4)",
           }}
@@ -75,7 +75,7 @@ export function ProgressBar({
       {showPercentage && (
         <span
           className="text-text-muted"
-          style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)" }}
+          style={{ font: "var(--ob-type-small-print-size)/var(--ob-type-small-print-line) var(--ob-font-family-data)" }}
         >
           {clamped}%
         </span>
