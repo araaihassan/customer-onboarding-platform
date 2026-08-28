@@ -58,7 +58,7 @@ export function Switch({
             height: 15,
             borderRadius: "var(--ob-radius-full)",
             background: "var(--ob-bg-surface)",
-            transform: checked ? "translateX(13px)" : "translateX(0)",
+            transform: checked ? "translateX(15px)" : "translateX(0)",
             transition: "transform var(--ob-duration-fast) ease",
           }}
         />
