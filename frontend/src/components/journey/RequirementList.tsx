@@ -58,11 +58,11 @@ export function RequirementList({
   return (
     <div className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
       <h5
-        className="text-text-faint"
+        className="text-faint"
         style={{
-          font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+          font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
-          letterSpacing: "0.08em",
+          letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
         }}
       >
         {t("requirement.sectionTitle")}
@@ -87,11 +87,11 @@ export function RequirementList({
                   onChange={() => toggle(requirement.id!)}
                 />
                 <span
-                  className="text-text-primary"
+                  className="text-ink"
                   style={{
-                    font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+                    font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
                     textDecoration: settled ? "line-through" : "none",
-                    color: settled ? "var(--ob-text-disabled)" : "var(--ob-text-primary)",
+                    color: settled ? "var(--ob-text-faint)" : "var(--ob-ink)",
                   }}
                 >
                   {requirement.label}
@@ -106,7 +106,7 @@ export function RequirementList({
             </div>
 
             {errors[requirement.id!] && (
-              <p role="alert" style={{ color: "var(--ob-status-blocked-fg)", font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)" }}>
+              <p role="alert" style={{ color: "var(--ob-risk-fg)", font: "var(--ob-type-small-print-size)/var(--ob-type-small-print-line) var(--ob-font-family-ui)" }}>
                 {errors[requirement.id!]}
               </p>
             )}
@@ -128,10 +128,10 @@ export function RequirementList({
 function DocumentChip({ requirement }: { requirement: RequirementRoadmap }) {
   return (
     <div
-      className="flex items-center justify-between bg-bg-surface border border-border-default"
-      style={{ padding: "var(--ob-space-8) var(--ob-space-11)", borderRadius: "var(--ob-radius-chip)" }}
+      className="flex items-center justify-between bg-surface border border-line"
+      style={{ padding: "var(--ob-space-8) var(--ob-space-11)", borderRadius: "var(--ob-radius-5)" }}
     >
-      <span className="text-text-primary" style={{ font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}>
+      <span className="text-ink" style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}>
         {requirement.label}
       </span>
       <StatusPill
@@ -160,7 +160,7 @@ function WaiveDialog({ caseId, requirementId, onClose }: { caseId: string; requi
       />
 
       {waive.isError && (
-        <p role="alert" style={{ color: "var(--ob-status-blocked-fg)", marginTop: "var(--ob-space-11)", font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}>
+        <p role="alert" style={{ color: "var(--ob-risk-fg)", marginTop: "var(--ob-space-11)", font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}>
           {waive.error instanceof ApiError ? parseProblemDetail(waive.error.message) : t("common.error")}
         </p>
       )}

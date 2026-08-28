@@ -359,5 +359,9 @@
   "case.resume.action": "Resume",
   "case.holdDialog.title": "Put case on hold",
   "case.holdDialog.reason": "Reason",
-  "case.holdDialog.submit": "Hold"
+  "case.holdDialog.submit": "Hold",
+  "stage.status.COMPLETE": "Complete",
+  "stage.status.ACTIVE": "Active",
+  "stage.status.UPCOMING": "Upcoming",
+  "stage.milestonesProgress": "{done}/{total} milestones"
 }
