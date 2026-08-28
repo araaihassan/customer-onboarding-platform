@@ -20,30 +20,48 @@ const ROLE_BY_STAGE_STATUS: Record<StageStatus, StatusRole> = {
  * mockup's aspirational `Stage` shape in STATE_AND_DATA.md) -- both are derived
  * here from the milestones actually returned, the same way `MilestoneRow`
  * already derives "overdue" client-side rather than expecting a server field.
+ *
+ * A SKIPPED milestone still means the stage was *reached* -- something in it
+ * ran, even if this particular milestone didn't -- so it counts toward
+ * "active", same as DONE/ACTIVE/BLOCKED. Without this, a stage holding only
+ * [SKIPPED, PENDING] milestones falls through to "upcoming" despite clearly
+ * having been entered.
  */
 function stageStatus(milestones: MilestoneRoadmap[]): StageStatus {
   if (milestones.length > 0 && milestones.every((m) => m.status === "DONE" || m.status === "SKIPPED")) {
     return "complete";
   }
-  if (milestones.some((m) => m.status === "DONE" || m.status === "ACTIVE" || m.status === "BLOCKED")) {
+  if (milestones.some((m) => m.status === "DONE" || m.status === "ACTIVE" || m.status === "BLOCKED" || m.status === "SKIPPED")) {
     return "active";
   }
   return "upcoming";
 }
 
+/**
+ * CLAUDE.md's sub-project-2 invariant 10: "Skipped milestones contribute to
+ * neither progress numerator nor denominator." SKIPPED milestones are
+ * filtered out entirely before averaging, not counted as 100% -- otherwise a
+ * [DONE, SKIPPED, PENDING] stage would read 67% instead of the
+ * case-engine-honored 50%. A stage left with nothing after filtering (every
+ * milestone SKIPPED) reads 100%, matching `stageStatus`'s own "complete" call
+ * for that same shape.
+ */
+function countedMilestones(milestones: MilestoneRoadmap[]): MilestoneRoadmap[] {
+  return milestones.filter((m) => m.status !== "SKIPPED");
+}
+
 function stageProgress(milestones: MilestoneRoadmap[]): number {
-  if (milestones.length === 0) return 0;
-  const total = milestones.reduce(
-    (sum, m) => sum + (m.progressPercent ?? (m.status === "DONE" || m.status === "SKIPPED" ? 100 : 0)),
-    0,
-  );
-  return Math.round(total / milestones.length);
+  const counted = countedMilestones(milestones);
+  if (counted.length === 0) return milestones.length === 0 ? 0 : 100;
+  const total = counted.reduce((sum, m) => sum + (m.progressPercent ?? (m.status === "DONE" ? 100 : 0)), 0);
+  return Math.round(total / counted.length);
 }
 
 function stageMeta(milestones: MilestoneRoadmap[]): string {
-  if (milestones.length === 0) return "";
-  const done = milestones.filter((m) => m.status === "DONE" || m.status === "SKIPPED").length;
-  return t("stage.milestonesProgress", { done: String(done), total: String(milestones.length) });
+  const counted = countedMilestones(milestones);
+  if (counted.length === 0) return "";
+  const done = counted.filter((m) => m.status === "DONE").length;
+  return t("stage.milestonesProgress", { done: String(done), total: String(counted.length) });
 }
 
 /**

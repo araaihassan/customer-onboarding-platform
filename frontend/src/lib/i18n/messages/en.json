@@ -363,5 +363,6 @@
   "stage.status.COMPLETE": "Complete",
   "stage.status.ACTIVE": "Active",
   "stage.status.UPCOMING": "Upcoming",
-  "stage.milestonesProgress": "{done}/{total} milestones"
+  "stage.milestonesProgress": "{done}/{total} milestones",
+  "stage.milestonesLabel": "Milestones in this stage"
 }

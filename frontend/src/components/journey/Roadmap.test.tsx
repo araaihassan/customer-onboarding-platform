@@ -106,4 +106,42 @@ describe("Roadmap rendering", () => {
     renderRoadmap(stages);
     expect(screen.getByText("Upcoming")).not.toBeNull();
   });
+
+  it("excludes a SKIPPED milestone from both the progress denominator and the meta count (invariant 10)", () => {
+    const stages: StageRoadmap[] = [
+      {
+        id: "s-0",
+        name: "Document Collection",
+        ordinal: 0,
+        milestones: [
+          milestone("Company registration record", "DONE"),
+          milestone("Tax certificate", "SKIPPED"),
+          milestone("Document quality review", "PENDING"),
+        ],
+      },
+    ];
+
+    renderRoadmap(stages);
+
+    // 1 DONE out of 2 counted milestones (the SKIPPED one excluded entirely) -- 50%, not 67%.
+    const progressbar = screen.getByRole("progressbar", { name: "Document Collection" });
+    expect(progressbar.getAttribute("aria-valuenow")).toBe("50");
+    expect(screen.getByText("1/2 milestones")).not.toBeNull();
+  });
+
+  it("treats a stage holding a SKIPPED milestone as active, not upcoming", () => {
+    const stages: StageRoadmap[] = [
+      {
+        id: "s-0",
+        name: "Verification",
+        ordinal: 0,
+        milestones: [milestone("Sanctions screening", "SKIPPED"), milestone("KYC verification", "PENDING")],
+      },
+    ];
+
+    renderRoadmap(stages);
+
+    expect(screen.getByText("Active")).not.toBeNull();
+    expect(screen.queryByText("Upcoming")).toBeNull();
+  });
 });

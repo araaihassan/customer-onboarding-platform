@@ -7,6 +7,7 @@
  * `Milestone`'s shape.
  */
 import type { ReactNode } from "react";
+import { t } from "@/lib/i18n";
 import { ProgressBar } from "./ProgressBar";
 
 export function StageAccordion({
@@ -98,7 +99,7 @@ export function StageAccordion({
                 color: "var(--ob-text-faint)",
               }}
             >
-              Milestones in this stage
+              {t("stage.milestonesLabel")}
             </div>
             {children}
           </div>

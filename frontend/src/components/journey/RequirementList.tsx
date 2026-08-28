@@ -58,7 +58,7 @@ export function RequirementList({
   return (
     <div className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
       <h5
-        className="text-faint"
+        className="text-text-faint"
         style={{
           font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
           textTransform: "uppercase",

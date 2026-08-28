@@ -137,7 +137,7 @@ export function MilestoneRow({
                 unlike the mono due date above (the pre-refactor version used
                 the data font-family for this too). */}
             <p
-              className="text-faint"
+              className="text-text-faint"
               style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-ui)" }}
             >
               {owner ?? t("milestone.noOwner")}
@@ -186,7 +186,7 @@ export function MilestoneRow({
           <div className="flex flex-col" style={{ gap: "var(--ob-space-16)" }}>
             <Section title={t("milestone.dependencies.title")}>
               <p
-                className="text-muted"
+                className="text-text-muted"
                 style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
               >
                 {blockedBy.length > 0
@@ -220,7 +220,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <div className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
       <h5
-        className="text-faint"
+        className="text-text-faint"
         style={{
           font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
