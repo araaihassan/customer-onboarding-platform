@@ -42,17 +42,17 @@ export function Checkbox({
             width: 17,
             height: 17,
             borderRadius: "var(--ob-radius-5)",
-            border: checked ? "none" : "1px solid var(--ob-paper-500)",
-            background: checked ? "var(--ob-ok-fg)" : "var(--ob-bg-surface)",
+            border: checked ? "none" : "1px solid var(--ob-line-strong)",
+            background: checked ? "var(--ob-ok-fg)" : "var(--ob-surface)",
           }}
         >
-          {checked && <CheckIcon size={11} strokeWidth={3} style={{ color: "var(--ob-text-on-solid)" }} />}
+          {checked && <CheckIcon size={11} strokeWidth={3} style={{ color: "var(--ob-canvas)" }} />}
         </span>
       </span>
       <span
         style={{
-          font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
-          color: checked ? "var(--ob-text-disabled)" : "var(--ob-text-primary)",
+          font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
+          color: checked ? "var(--ob-text-faint)" : "var(--ob-ink)",
           textDecoration: checked ? "line-through" : "none",
         }}
       >
