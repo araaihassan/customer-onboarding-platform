@@ -1,9 +1,9 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
 /**
- * Chip (component-specs §8) — the filter chip and the case chip share this one
- * shape. Active is "inverted": text-primary fill, bg-surface text, exactly the
- * spec's own wording for both variants.
+ * Chip (COMPONENTS.md §3) — the workhorse: always uppercase mono, never
+ * bordered. Active is "inverted": `ink` fill, `canvas` text; inactive is the
+ * neutral status pair, `neutral-bg`/`neutral-fg`.
  *
  * A filter SET is the caller's responsibility: wrap several of these in a
  * `<div role="group">` with an accessible name, per the spec's own accessibility
@@ -30,15 +30,17 @@ export function Chip({
       aria-pressed={active}
       className={`inline-flex items-center ${className}`}
       style={{
-        height: "var(--ob-control-height-sm)",
-        borderRadius: "var(--ob-radius-chip)",
-        padding: "0 13px",
+        height: "auto",
+        padding: "2px 6px",
+        borderRadius: "var(--ob-radius-5)",
+        border: "none",
         gap: "5px",
-        background: active ? "var(--ob-text-primary)" : "var(--ob-bg-surface)",
-        color: active ? "var(--ob-bg-surface)" : "var(--ob-text-secondary)",
-        border: `1px solid var(${active ? "--ob-text-primary" : "--ob-border-default"})`,
-        font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
-        cursor: "pointer",
+        font: `400 var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)`,
+        letterSpacing: "var(--ob-type-mono-chip-tracking)",
+        textTransform: "uppercase",
+        background: active ? "var(--ob-ink)" : "var(--ob-neutral-bg)",
+        color: active ? "var(--ob-canvas)" : "var(--ob-neutral-fg)",
+        cursor: props.onClick ? "pointer" : "default",
         ...props.style,
       }}
     >
@@ -47,7 +49,8 @@ export function Chip({
       {mono !== undefined && (
         <span
           style={{
-            font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+            font: `400 var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)`,
+            letterSpacing: "var(--ob-type-mono-chip-tracking)",
           }}
         >
           {mono}

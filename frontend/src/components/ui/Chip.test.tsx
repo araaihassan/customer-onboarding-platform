@@ -35,4 +35,11 @@ describe("Chip", () => {
     expect(screen.getByText("CASE-0142")).not.toBeNull();
     expect(screen.getByText("Acme Corp")).not.toBeNull();
   });
+
+  it("uses the standard mono chip sizing", () => {
+    render(<Chip>COMPLETE</Chip>);
+    const el = screen.getByRole("button");
+    expect(el.style.font).toContain("var(--ob-type-mono-chip-size)");
+    expect(el.style.borderRadius).toBe("var(--ob-radius-5)");
+  });
 });
