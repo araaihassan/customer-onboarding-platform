@@ -1,7 +1,12 @@
 # -*- coding: utf-8 -*-
 """WCAG 2.1 contrast audit for the current (light-only) token set.
 
-Literal hex pairs from docs/uispecs_latest/design_handoff_onboarding_platform/DESIGN_TOKENS.md.
+Hex pairs mirror tokens.css, which mirrors
+docs/uispecs_latest/design_handoff_onboarding_platform/DESIGN_TOKENS.md by name -- with four
+deliberate exceptions: text-subtle, text-faint, ok-fg and warn-fg are darkened from the design
+doc's literal values (2026-08-28) because those literal values measured below WCAG AA at the
+sizes they're actually used at. This is a values-only, hue-preserving deviation from the design
+doc, not an invented one -- see tokens.css's own comments and the SDD ledger for the full record.
 A FAIL here is live -- these are the values tokens.css actually ships.
 """
 
@@ -36,17 +41,17 @@ PAIRS = [
     ("text-2 on surface",        "#4a4741", SURFACE, 12,   400, "callout secondary copy"),
     ("text-muted on surface",    "#6b6862", SURFACE, 11.5, 400, "supporting copy"),
     ("text-muted on canvas",     "#6b6862", CANVAS,  11.5, 400, "header meta"),
-    ("text-subtle on surface",   "#8b8780", SURFACE, 11.5, 400, "row subtitles"),
-    ("text-subtle on sunken",    "#8b8780", SUNKEN,  11.5, 400, "table header labels"),
-    ("text-faint on surface",    "#a5a099", SURFACE, 10,   500, "mono uppercase labels"),
-    ("text-faint on sunken",     "#a5a099", SUNKEN,  9.5,  500, "table header labels"),
+    ("text-subtle on surface",   "#75726b", SURFACE, 11.5, 400, "row subtitles"),
+    ("text-subtle on sunken",    "#75726b", SUNKEN,  11.5, 400, "table header labels"),
+    ("text-faint on surface",    "#75726b", SURFACE, 10,   500, "mono uppercase labels"),
+    ("text-faint on sunken",     "#75726b", SUNKEN,  9.5,  500, "table header labels"),
     ("canvas on ink",            CANVAS,    INK,     12.5, 600, "primary button label"),
     ("canvas on ink-hover",      CANVAS,    "#302e2a", 12.5, 600, "primary button hover"),
     ("accent-fg on surface",     "#10736b", SURFACE, 11.5, 400, "links, active state"),
     ("accent-fg on accent-bg",   "#10736b", "#e6f2f0", 9,   500, "accent chip"),
 
-    ("ok-fg on ok-bg",           "#2f7d4f", "#e8f3ec", 9.5, 500, "status chip"),
-    ("warn-fg on warn-bg",       "#9a6410", "#fbf1de", 9.5, 500, "status chip"),
+    ("ok-fg on ok-bg",           "#2e7b4d", "#e8f3ec", 9.5, 500, "status chip"),
+    ("warn-fg on warn-bg",       "#986210", "#fbf1de", 9.5, 500, "status chip"),
     ("risk-fg on risk-bg",       "#b4392f", "#fbeae7", 9.5, 500, "status chip"),
     ("info-fg on info-bg",       "#2b5fb0", "#e9f0fb", 9.5, 500, "status chip"),
     ("automation-fg on automation-bg", "#6a4fb0", "#f0ebfa", 9.5, 500, "status chip"),

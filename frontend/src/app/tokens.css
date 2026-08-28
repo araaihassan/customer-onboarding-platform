@@ -20,14 +20,26 @@
   --ob-ink-rail-active: #3d3a35;
   --ob-text-2: #4a4741;
   --ob-text-muted: #6b6862;
-  --ob-text-subtle: #8b8780;
-  --ob-text-faint: #a5a099;
+  /* text-subtle/text-faint darkened from DESIGN_TOKENS.md's literal #8b8780/#a5a099 --
+   * frontend/scripts/contrast.py measured both below 4.5:1 on surface/sunken at the sizes
+   * COMPONENTS.md specifies for them (row subtitles, mono eyebrow labels). At that contrast
+   * floor the two tiers converge to nearly the same darkness (any gray light enough to read as
+   * "fainter" than text-subtle also reads below 4.5:1) -- accepted as a deliberate AA-driven
+   * deviation rather than left failing; see 2026-08-28 ledger entry for the human design call
+   * this still owes (formally merge the two tokens, or keep them distinct and typographic-only).
+   */
+  --ob-text-subtle: #75726b;
+  --ob-text-faint: #75726b;
   --ob-text-ghost: #c5c0b8;
   --ob-avatar-neutral: #4b4842;
 
   /* ----------------------------------------------------------- semantics */
-  --ob-ok-fg: #2f7d4f;       --ob-ok-bg: #e8f3ec;       --ob-ok-border: #cfe4d7;
-  --ob-warn-fg: #9a6410;     --ob-warn-bg: #fbf1de;     --ob-warn-border: #f0e0bc;
+  /* ok-fg/warn-fg darkened from DESIGN_TOKENS.md's literal #2f7d4f/#9a6410 -- both measured
+   * marginally under 4.5:1 on their own chip background (<0.1 short); same AA-driven deviation
+   * as text-subtle/text-faint above.
+   */
+  --ob-ok-fg: #2e7b4d;       --ob-ok-bg: #e8f3ec;       --ob-ok-border: #cfe4d7;
+  --ob-warn-fg: #986210;     --ob-warn-bg: #fbf1de;     --ob-warn-border: #f0e0bc;
   --ob-risk-fg: #b4392f;     --ob-risk-bg: #fbeae7;     --ob-risk-border: #f2d3cd;
   --ob-info-fg: #2b5fb0;     --ob-info-bg: #e9f0fb;     --ob-info-border: #d5e2f5;
   --ob-accent-fg: #10736b;   --ob-accent-bg: #e6f2f0;   --ob-accent-fg-hover: #0b544e;
