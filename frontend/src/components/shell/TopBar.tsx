@@ -18,7 +18,7 @@ export function TopBar() {
       className="sticky top-0 z-30 flex items-center border-b"
       style={{
         height: "var(--ob-topbar-height)",
-        padding: "0 18px",
+        padding: "0 var(--ob-space-18)",
         gap: "var(--ob-space-12)",
         borderColor: "var(--ob-line)",
         background: "var(--ob-canvas)",
