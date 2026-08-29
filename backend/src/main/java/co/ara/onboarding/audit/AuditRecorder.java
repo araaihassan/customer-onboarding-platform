@@ -29,6 +29,23 @@ public class AuditRecorder {
      * MANDATORY is deliberate: an audit event must be written in the same
      * transaction as the change it records, so a rolled-back operation cannot
      * leave a phantom audit entry.
+     *
+     * CALL ORDER IS THE TIMELINE ORDER. occurredAt is stamped here, from the
+     * clock, so events are ordered by when record() ran -- not by when the
+     * change they describe conceptually happened. An action that triggers
+     * further recorded work must therefore record ITSELF FIRST, before
+     * calling into that work.
+     *
+     * This is easy to get backwards, because writing the audit line last reads
+     * naturally ("do the thing, then record it") and every unit test passes
+     * either way. Nine call sites across five journey services had it that way:
+     * each recorded its cause after engine.reconcile(), so case.created landed
+     * ABOVE the case.stage_entered and milestone.completed of its own creation
+     * on a newest-first timeline -- a case that appears to have been created
+     * after the milestones inside it finished. Found by reading the screen, not
+     * by a test.
+     *
+     * journey.CauseBeforeEffectTest guards it now.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void record(AuditAction action, String resourceType, UUID resourceId,

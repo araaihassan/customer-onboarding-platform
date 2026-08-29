@@ -95,10 +95,14 @@ public class RequirementService {
         r.setSatisfiedRefType(refType);
         requirements.save(r);
 
-        engine.reconcile(c);
+        // Cause before effects: reconcile may complete this requirement's
+        // milestone (and the case), and those events must not precede the
+        // satisfaction that caused them. See AuditRecorder.
         audit.record(AuditActions.REQUIREMENT_SATISFIED, "onboarding_case", c.getId(),
                 "Completed " + labelOf(r),
                 Map.of("requirementId", r.getId().toString(), "milestoneId", m.getId().toString()));
+
+        engine.reconcile(c);
         return toView(r);
     }
 
@@ -128,10 +132,11 @@ public class RequirementService {
         r.setWaiverReason(reason);
         requirements.save(r);
 
-        engine.reconcile(c);
-        audit.record(AuditActions.REQUIREMENT_WAIVED, "onboarding_case", c.getId(),
+        audit.record(AuditActions.REQUIREMENT_WAIVED, "onboarding_case", c.getId(),   // cause before effects
                 "Waived " + labelOf(r) + ": " + reason,
                 Map.of("requirementId", r.getId().toString(), "milestoneId", m.getId().toString()));
+
+        engine.reconcile(c);
         return toView(r);
     }
 
