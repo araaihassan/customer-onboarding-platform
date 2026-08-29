@@ -240,12 +240,18 @@ regression to hunt:
   that is permanently unreachable, since every request resolves no slug and answers 401, with no
   error at creation time. A duplicate slug is a raw 500 from the unique constraint: nothing maps
   `DataIntegrityViolationException`.
-- **`DB_APP_PASSWORD` defaults to the committed literal `onboarding_app`.**
-  `V2__app_role_and_tenant.sql` creates the login role with that password and `application.yml`
-  defaults to it, with no guard — the same failure shape `JwtProperties` was just built to prevent
-  for `JWT_SECRET`. Migrations are forward-only, so the role's password must be rotated
-  operationally; the code half is to drop the default and refuse to start without the variable,
-  exactly as `JWT_SECRET` now does.
+- **`DB_APP_PASSWORD` defaults to the committed literal `onboarding_app`.** Fixed, and differently
+  than `JWT_SECRET`'s equivalent gap: `V2__app_role_and_tenant.sql` creates the `onboarding_app`
+  login role with that literal password, and migrations are forward-only, so that statement can
+  never change — a guard that simply refused the literal would leave the role's *actual* password
+  at it forever. `DatabaseCredentialsGuard` refuses to start on a blank or literal
+  `DB_APP_PASSWORD`, same as before, but `AppRolePasswordReconciler` (a Flyway `AFTER_MIGRATE`
+  callback, `backend/src/main/java/co/ara/onboarding/platform/`) now runs `ALTER ROLE
+  onboarding_app PASSWORD '<DB_APP_PASSWORD>'` against the owner connection on every startup,
+  including ones where no new migration applies — so the role stays reconciled to whatever
+  `DB_APP_PASSWORD` currently is, indefinitely. An operator sets the variable once; there is no
+  separate "rotate the role's password" step to remember. `application.yml` carries no fallback,
+  same as `JWT_SECRET`.
 - **Contact email drifts from `app_user`, and the two uniqueness rules disagree.**
   `CustomerContactService.update` rewrites `contact.email` without touching the linked
   `app_user.email`, so a corrected address leaves the portal login on the old one. And

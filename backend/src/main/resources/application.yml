@@ -2,7 +2,14 @@ spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/onboarding}
     username: ${DB_APP_USER:onboarding_app}
-    password: ${DB_APP_PASSWORD:onboarding_app}
+    # Deliberately no fallback, on any profile. V2__app_role_and_tenant.sql
+    # creates the onboarding_app role with the committed literal password
+    # 'onboarding_app', so a default here would be a password every reader of
+    # this repository holds. DatabaseCredentialsGuard refuses to start the
+    # application when this is unset or equal to that literal, and
+    # AppRolePasswordReconciler reconciles the role's real password to match it
+    # on every startup -- an operator only has to set it once.
+    password: ${DB_APP_PASSWORD:}
   flyway:
     enabled: true
     url: ${DB_URL:jdbc:postgresql://localhost:5432/onboarding}
