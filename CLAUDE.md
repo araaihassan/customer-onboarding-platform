@@ -391,9 +391,39 @@ cannot negotiate with current Docker Desktop API versions; do not revert it blin
 
 `cd frontend && npx playwright test` is the end-to-end command: nine specs — login, activation,
 refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
-1024px fallback, the administration screens, accessibility in both themes at four widths, workflow
-authoring through publish, a case lifecycle (branch skip, force-complete, completion at 100%), and
-migration between versions.
+900px card-list fallback, the administration screens, accessibility in the light theme at four
+widths, workflow authoring through publish, a case lifecycle (branch skip, force-complete,
+completion at 100%), and migration between versions.
+
+**First live run against the frontend visual refactor, 2026-08-29** (sub-project 3 Task 1) — every
+spec had never actually been executed against this branch before; only read/reviewed. All nine
+spec files pass now, after fixing what the first run surfaced (a stale scratch database left over
+from an earlier session doesn't count as a suite finding — see below; individual test counts are
+deliberately not pinned here, same as the backend/vitest suites above). Two were
+real product bugs, fixed with their own test before the e2e fix: (1) `SecurityConfig` required
+authentication on the servlet container's internal `/error` forward, so ANY framework-level
+exception with no app `@ExceptionHandler` (a bean-validation failure, malformed JSON, an unmapped
+route) had its real status silently overwritten to 401 by the entry point on that second pass —
+invisible to every MockMvc-based backend test, since MockMvc never performs a real container
+forward; only a live server does. (2) `Sidebar`'s drawer `aria-hidden`/tab-focus gating was derived
+from `isOpen` alone, with no regard for the actual viewport, so the whole navigation landmark was
+hidden from assistive technology (and its links stayed off-screen but still Tab-reachable) on every
+authenticated screen at >=1024px by default — invisible to jsdom, which never evaluates the
+`max-lg:` media query the CSS actually uses either way. Three were stale specs, not product bugs:
+customers.spec.ts still asserted the pre-refactor 1024px table/card breakpoint (Task 27 moved it to
+900px, matching SCREENS.md, and never touched this spec); accessibility.spec.ts's rail-collapse
+assertion (`aside` width 244px below 1281px) asserted a "collapse to icons" mode the refactor
+deliberately removed in favour of a fixed 250px sidebar that is either fully inline or a hidden
+drawer, never anything in between (`Sidebar.tsx`'s own doc comment names this); and one heading
+lookup used an unscoped name-only locator that matched both the shared page `<h1>` and the case
+workspace's own `<h2>` repeating the same customer name by design. One was the spec's own malformed
+seed data, not a stale assertion: accessibility.spec.ts's builder-sweep workflow omitted
+`estimatedDurationDays` on its milestone, which the API correctly 400s on — the same
+omit-a-field-and-it-500s/400s-instead-of-defaulting class of defect sub-project 2's live run
+already found in other specs' seed payloads. No assertion was weakened to make a spec pass. Full
+detail, including the exact failure output and the reasoning behind each ruling, is in
+`.superpowers/sdd/2026-08-29-tasks-and-collaboration/task-1-report.md`.
+
 It starts **both** applications itself, so nothing needs to be running first; if 8080 or
 3000 is already bound it reuses what is there, which is wrong often enough that killing strays
 first is worth it — **unless that port is held by another session on a shared machine**, in which
