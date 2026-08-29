@@ -19,6 +19,22 @@ import "@testing-library/jest-dom/vitest";
 let pathname = "/t/acme/dashboard";
 let permissions: Record<string, string[]> = {};
 
+/**
+ * jsdom has no real `matchMedia` implementation at all (calling it throws),
+ * so every test needs one stubbed in, defaulting to "desktop" (matches the
+ * component's own SSR-safe default) unless a test explicitly narrows it.
+ */
+let mediaMatches = true;
+
+function stubMatchMedia() {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: mediaMatches,
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
+}
+
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 
 vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions }) }));
@@ -44,6 +60,8 @@ function linkNamed(name: RegExp) {
 beforeEach(() => {
   pathname = "/t/acme/dashboard";
   permissions = {};
+  mediaMatches = true;
+  stubMatchMedia();
 });
 
 afterEach(cleanup);
@@ -157,14 +175,64 @@ describe("Sidebar", () => {
    * above it stays inline regardless of isOpen -- Task 6 wires the toggle.
    */
   it("renders as a drawer below 1024px, hidden until isOpen", () => {
+    mediaMatches = false; // matchMedia("(min-width: 1024px)") -- below it
+    stubMatchMedia();
     // getByRole excludes aria-hidden elements from its default accessibility-
     // tree filter, so finding the closed drawer's nav needs { hidden: true } --
     // that's the point under test, not a workaround for it.
-    window.innerWidth = 900;
     const { rerender } = render(<Sidebar slug="acme" isOpen={false} onClose={vi.fn()} />);
     expect(screen.getByRole("navigation", { hidden: true })).toHaveAttribute("aria-hidden", "true");
     rerender(<Sidebar slug="acme" isOpen={true} onClose={vi.fn()} />);
     expect(screen.getByRole("navigation")).not.toHaveAttribute("aria-hidden");
+  });
+
+  /**
+   * Regression: the real layout (TenantLayout) always passes onClose (so
+   * isDrawer is always true) and starts with isOpen false -- exactly the
+   * state every authenticated screen renders in by default. Before this fix,
+   * aria-hidden was set from `isDrawer && !isOpen` alone, with no regard for
+   * the actual viewport -- so on a genuine >=1024px screen, where the CSS
+   * keeps the aside inline and visible regardless of isOpen, the <nav> was
+   * STILL marked aria-hidden="true", removing the whole navigation landmark
+   * from the accessibility tree on every authenticated page by default. This
+   * is invisible to jsdom-based assertions on desktop width alone (jsdom
+   * never evaluates the `max-lg:` media query either way), which is exactly
+   * why e2e/auth.spec.ts -- a real browser -- is what actually caught it.
+   */
+  it("does not hide the drawer's nav at >=1024px, even while isOpen is false", () => {
+    mediaMatches = true; // matchMedia("(min-width: 1024px)") -- at or above it
+    stubMatchMedia();
+    render(<Sidebar slug="acme" isOpen={false} onClose={vi.fn()} />);
+    expect(screen.getByRole("navigation")).not.toHaveAttribute("aria-hidden");
+  });
+
+  /**
+   * axe's aria-hidden-focus rule: an aria-hidden element must not contain a
+   * focusable descendant, because a screen reader hides it while Tab still
+   * lands on it -- a real, sighted-keyboard-user-only trap. aria-hidden alone
+   * never removes an element from the tab order, so the closed drawer's links
+   * stayed Tab-reachable while invisible and announced as hidden -- caught
+   * live by axe in e2e/accessibility.spec.ts's <768px sweep, not by this
+   * suite, since jsdom's `render` never evaluates focus order either way.
+   * `inert` is the one HTML primitive that removes both the accessibility
+   * tree presence AND focusability/hit-testing in one step, which is why the
+   * fix uses it instead of a hand-rolled tabIndex sweep over every NavLink.
+   */
+  it("also gates the closed drawer with inert, not aria-hidden alone", () => {
+    mediaMatches = false; // below 1024px
+    stubMatchMedia();
+    const { container, rerender } = render(<Sidebar slug="acme" isOpen={false} onClose={vi.fn()} />);
+    expect(container.querySelector("aside")).toHaveAttribute("inert");
+
+    rerender(<Sidebar slug="acme" isOpen={true} onClose={vi.fn()} />);
+    expect(container.querySelector("aside")).not.toHaveAttribute("inert");
+  });
+
+  it("never applies inert at >=1024px, even while isOpen is false", () => {
+    mediaMatches = true; // at or above 1024px
+    stubMatchMedia();
+    const { container } = render(<Sidebar slug="acme" isOpen={false} onClose={vi.fn()} />);
+    expect(container.querySelector("aside")).not.toHaveAttribute("inert");
   });
 
   it("calls onClose on Escape when open as a drawer", () => {

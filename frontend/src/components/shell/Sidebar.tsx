@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
@@ -32,6 +32,38 @@ type NavItem = {
   Icon: ComponentType<IconProps>;
 };
 
+/**
+ * Whether the viewport is currently at or above the `lg` breakpoint (1024px) --
+ * the same one the drawer's own `max-lg:-translate-x-full` class is scoped to.
+ *
+ * `isDrawer`/`isOpen` describe drawer STATE, not visibility: at >=1024px the
+ * CSS keeps the aside inline regardless of `isOpen`, but nothing tracked that
+ * before this -- `aria-hidden` was derived from `isDrawer && !isOpen` alone,
+ * so it read "true" on a genuine desktop viewport too (isOpen starts false in
+ * the real layout), hiding the whole navigation landmark from assistive
+ * technology by default on every authenticated screen despite it being
+ * visibly rendered. jsdom never evaluates the `max-lg:` media query either
+ * way, so no component test running at a "desktop" width actually proves
+ * this -- only a real browser does (this is what e2e/auth.spec.ts caught).
+ *
+ * Defaults to true (desktop): SSR and the first client render before the
+ * effect below runs have no reliable way to know the viewport, and assuming
+ * desktop is the safer default -- worst case the nav is briefly IN the
+ * accessibility tree on a narrow screen, never briefly hidden from it on a
+ * wide one.
+ */
+function useIsDesktopViewport(): boolean {
+  const [isDesktop, setIsDesktop] = useState(true);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 1024px)");
+    setIsDesktop(query.matches);
+    const onChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return isDesktop;
+}
+
 export function Sidebar({
   slug,
   isOpen,
@@ -42,6 +74,7 @@ export function Sidebar({
   onClose?: () => void;
 }) {
   const pathname = usePathname();
+  const isDesktop = useIsDesktopViewport();
 
   // Fixed hook order: every check runs on every render, and the results are
   // filtered afterwards. Calling these inside a filter would be a hooks violation.
@@ -91,6 +124,15 @@ export function Sidebar({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [isDrawer, isOpen, onClose]);
 
+  // True only while the drawer is genuinely off-screen: closed AND actually
+  // below 1024px. Drives both aria-hidden (below) and `inert` on the <aside>
+  // itself -- aria-hidden alone hides an element from the accessibility tree
+  // but does nothing to the tab order, so a closed drawer's links stayed
+  // keyboard-focusable while invisible and announced as hidden (axe's
+  // aria-hidden-focus rule, caught live in e2e/accessibility.spec.ts's
+  // <768px sweep). `inert` removes both in one step.
+  const hiddenDrawer = isDrawer && !isOpen && !isDesktop;
+
   return (
     <>
       {isDrawer && isOpen && (
@@ -120,6 +162,7 @@ export function Sidebar({
             ? `fixed inset-y-0 z-50 flex ${isOpen ? "" : "max-lg:-translate-x-full"}`
             : "flex"
         }
+        inert={hiddenDrawer}
         style={{
           left: "var(--ob-rail-width)",
           width: "var(--ob-sidebar-width)",
@@ -136,7 +179,7 @@ export function Sidebar({
       >
         <nav
           aria-label={t("shell.nav.label")}
-          aria-hidden={isDrawer && !isOpen ? true : undefined}
+          aria-hidden={hiddenDrawer ? true : undefined}
         >
           <ul className="flex flex-col" style={{ gap: "var(--ob-space-2)" }}>
             {items.map((item) => {
