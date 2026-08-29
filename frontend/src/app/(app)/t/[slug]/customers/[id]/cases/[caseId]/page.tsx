@@ -83,42 +83,71 @@ export default function CaseWorkspacePage() {
   }
 
   return (
-    <section className="flex flex-col" style={{ gap: "var(--ob-grid-gap)" }}>
+    <section className="flex flex-col" style={{ gap: "var(--ob-space-16)" }}>
       <BackLink slug={slug} customerId={customerId} />
 
       <CaseHeader caseData={caseQuery.data} customer={customer.data} />
 
-      <CaseSwitcher
-        cases={cases.data ?? []}
-        activeCaseId={caseId}
-        slug={slug}
-        customerId={customerId}
-        canCreate={false}
-        onCreateNew={() => {}}
-      />
+      {/*
+       * SCREENS.md §3's wrapping two-column flex: content `1 1 520px`, aside
+       * `1 1 296px` (min 264px, max 340px). `flex-wrap` on the row plus each
+       * child's own basis/min/max is what forces the aside beneath the
+       * content below ~1100px (the RESPONSIVE table's corrected breakpoint,
+       * superseding this section's own inline "~900px") -- no separate media
+       * query needed, the shell's fixed rail/padding width is what makes the
+       * combined basis first exceed the available row width there.
+       */}
+      <div className="flex flex-wrap" style={{ gap: "var(--ob-space-16)" }}>
+        <div className="flex flex-col min-w-0" style={{ flex: "1 1 520px", gap: "var(--ob-space-16)" }}>
+          <Tabs items={TABS} value={tab} onChange={setTab} />
 
-      {canHold && (caseQuery.data.status === "ACTIVE" || caseQuery.data.status === "ON_HOLD") && (
-        <div className="flex justify-end">
-          {caseQuery.data.status === "ACTIVE" ? (
-            <Button type="button" variant="secondary" onClick={() => setHolding(true)}>
-              {t("case.hold.action")}
-            </Button>
-          ) : (
-            <Button type="button" variant="secondary" disabled={resume.isPending} onClick={() => resume.mutate(caseId)}>
-              {t("case.resume.action")}
-            </Button>
-          )}
+          <div role="tabpanel" id={panelId(tab)} aria-labelledby={`tab-${tab}`}>
+            {tab === "journey" && <JourneyPreview caseId={caseId} />}
+            {tab === "tasks" && <EmptyState title={t("case.tabs.tasks.empty")} />}
+            {tab === "documents" && <EmptyState title={t("case.tabs.documents.empty")} />}
+            {tab === "agreements" && <EmptyState title={t("case.tabs.agreements.empty")} />}
+            {tab === "timeline" && <TimelineTab caseId={caseId} />}
+          </div>
         </div>
-      )}
 
-      <Tabs items={TABS} value={tab} onChange={setTab} />
+        {/* Right rail (SCREENS.md §3): the sibling-journeys switcher and the
+            hold/resume action -- the only two right-rail items this sub-project
+            actually has real data and functionality for; CUSTOMER/SLA
+            CLOCK/PARTICIPANTS cards are later sub-projects' scope. */}
+        <aside
+          className="flex flex-col"
+          style={{
+            flex: "1 1 296px",
+            minWidth: 264,
+            maxWidth: 340,
+            gap: "var(--ob-space-16)",
+            borderLeft: "1px solid var(--ob-line)",
+            paddingLeft: "var(--ob-space-16)",
+          }}
+        >
+          <CaseSwitcher
+            cases={cases.data ?? []}
+            activeCaseId={caseId}
+            slug={slug}
+            customerId={customerId}
+            canCreate={false}
+            onCreateNew={() => {}}
+          />
 
-      <div role="tabpanel" id={panelId(tab)} aria-labelledby={`tab-${tab}`}>
-        {tab === "journey" && <JourneyPreview caseId={caseId} />}
-        {tab === "tasks" && <EmptyState title={t("case.tabs.tasks.empty")} />}
-        {tab === "documents" && <EmptyState title={t("case.tabs.documents.empty")} />}
-        {tab === "agreements" && <EmptyState title={t("case.tabs.agreements.empty")} />}
-        {tab === "timeline" && <TimelineTab caseId={caseId} />}
+          {canHold && (caseQuery.data.status === "ACTIVE" || caseQuery.data.status === "ON_HOLD") && (
+            <div className="flex justify-end">
+              {caseQuery.data.status === "ACTIVE" ? (
+                <Button type="button" variant="secondary" onClick={() => setHolding(true)}>
+                  {t("case.hold.action")}
+                </Button>
+              ) : (
+                <Button type="button" variant="secondary" disabled={resume.isPending} onClick={() => resume.mutate(caseId)}>
+                  {t("case.resume.action")}
+                </Button>
+              )}
+            </div>
+          )}
+        </aside>
       </div>
 
       {holding && <HoldDialog caseId={caseId} onClose={() => setHolding(false)} />}
@@ -155,7 +184,7 @@ function BackLink({ slug, customerId }: { slug: string; customerId: string }) {
     <Link
       href={`/t/${slug}/customers/${customerId}`}
       className="inline-flex items-center self-start text-text-muted hover:underline"
-      style={{ gap: "var(--ob-space-6)", font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+      style={{ gap: "var(--ob-space-6)", font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
     >
       <span aria-hidden="true" style={{ transform: "rotate(180deg)", display: "inline-flex" }}>
         <ArrowRightIcon size={14} />

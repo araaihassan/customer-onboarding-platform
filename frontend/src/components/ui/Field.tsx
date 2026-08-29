@@ -22,11 +22,15 @@ export function Field({
   const errorId = `${id}-error`;
 
   return (
-    <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
+    <div className="flex flex-col">
       <label
         htmlFor={id}
-        className="text-text-secondary"
-        style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+        style={{
+          fontSize: "11.5px",
+          color: "var(--ob-text-subtle)",
+          marginBottom: "5px",
+          fontWeight: 500,
+        }}
       >
         {label}
       </label>
@@ -36,13 +40,13 @@ export function Field({
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         style={{
-          height: "var(--ob-control-height)",
-          borderRadius: "var(--ob-radius-control)",
-          border: `1px solid var(${error ? "--ob-status-blocked-fg" : "--ob-border-default"})`,
-          background: "var(--ob-bg-surface)",
-          color: "var(--ob-text-primary)",
-          padding: "0 var(--ob-space-11)",
-          font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+          border: `1px solid var(${error ? "--ob-risk-fg" : "--ob-line"})`,
+          borderRadius: "var(--ob-radius-9)",
+          padding: "9px 11px",
+          fontSize: "13px",
+          background: "var(--ob-surface)",
+          color: error ? "var(--ob-risk-fg)" : "var(--ob-ink)",
+          fontFamily: "var(--ob-font-family-ui)",
           ...props.style,
         }}
       />
@@ -50,8 +54,9 @@ export function Field({
         <p
           id={errorId}
           style={{
-            color: "var(--ob-status-blocked-fg)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            color: "var(--ob-risk-fg)",
+            fontSize: "11.5px",
+            fontFamily: "var(--ob-font-family-ui)",
           }}
         >
           {error}
@@ -75,11 +80,15 @@ export function TextareaField({
   const errorId = `${id}-error`;
 
   return (
-    <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
+    <div className="flex flex-col">
       <label
         htmlFor={id}
-        className="text-text-secondary"
-        style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+        style={{
+          fontSize: "11.5px",
+          color: "var(--ob-text-subtle)",
+          marginBottom: "5px",
+          fontWeight: 500,
+        }}
       >
         {label}
       </label>
@@ -90,12 +99,13 @@ export function TextareaField({
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         style={{
-          borderRadius: "var(--ob-radius-control)",
-          border: `1px solid var(${error ? "--ob-status-blocked-fg" : "--ob-border-default"})`,
-          background: "var(--ob-bg-surface)",
-          color: "var(--ob-text-primary)",
-          padding: "var(--ob-space-8) var(--ob-space-11)",
-          font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+          border: `1px solid var(${error ? "--ob-risk-fg" : "--ob-line"})`,
+          borderRadius: "var(--ob-radius-9)",
+          padding: "9px 11px",
+          fontSize: "13px",
+          background: "var(--ob-surface)",
+          color: error ? "var(--ob-risk-fg)" : "var(--ob-ink)",
+          fontFamily: "var(--ob-font-family-ui)",
           resize: "vertical",
           ...props.style,
         }}
@@ -104,8 +114,9 @@ export function TextareaField({
         <p
           id={errorId}
           style={{
-            color: "var(--ob-status-blocked-fg)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            color: "var(--ob-risk-fg)",
+            fontSize: "11.5px",
+            fontFamily: "var(--ob-font-family-ui)",
           }}
         >
           {error}

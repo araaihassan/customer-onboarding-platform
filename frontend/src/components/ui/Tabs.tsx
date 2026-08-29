@@ -45,45 +45,55 @@ export function Tabs({
   }
 
   return (
-    <div role="tablist" className="flex" style={{ borderBottom: "1px solid var(--ob-border-default)" }}>
-      {items.map((item, index) => {
-        const selected = item.id === value;
-        return (
-          <button
-            key={item.id}
-            id={tabId(item.id)}
-            type="button"
-            role="tab"
-            aria-selected={selected}
-            aria-controls={panelId(item.id)}
-            tabIndex={selected ? 0 : -1}
-            onClick={() => onChange(item.id)}
-            onKeyDown={(e) => handleKeyDown(e, index)}
-            style={{
-              padding: "9px 15px 11px",
-              font: `${selected ? 600 : 400} var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)`,
-              color: selected ? "var(--ob-text-primary)" : "var(--ob-text-muted)",
-              boxShadow: selected ? "inset 0 -2px 0 var(--ob-accent)" : "none",
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-            }}
-          >
-            {item.label}
-            {item.badge !== undefined && (
-              <span
-                aria-hidden
-                style={{
-                  marginLeft: 4,
-                  font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)",
-                }}
-              >
-                ({item.badge})
-              </span>
-            )}
-          </button>
-        );
-      })}
+    <div
+      style={{
+        background: "var(--ob-surface-active)",
+        border: "1px solid var(--ob-line)",
+        borderRadius: "var(--ob-radius-9)",
+        padding: "3px",
+      }}
+    >
+      <div role="tablist" className="flex w-full" style={{ gap: "4px" }}>
+        {items.map((item, index) => {
+          const selected = item.id === value;
+          return (
+            <button
+              key={item.id}
+              id={tabId(item.id)}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              aria-controls={panelId(item.id)}
+              tabIndex={selected ? 0 : -1}
+              onClick={() => onChange(item.id)}
+              onKeyDown={(e) => handleKeyDown(e, index)}
+              style={{
+                height: "27px",
+                padding: "0 12px",
+                border: "0",
+                borderRadius: "var(--ob-radius-6)",
+                font: `500 12.5px/1.2 var(--ob-font-family-ui)`,
+                background: selected ? "var(--ob-surface)" : "transparent",
+                color: selected ? "var(--ob-ink)" : "var(--ob-text-muted)",
+                cursor: "pointer",
+              }}
+            >
+              {item.label}
+              {item.badge !== undefined && (
+                <span
+                  aria-hidden
+                  style={{
+                    marginLeft: 4,
+                    font: `500 var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)`,
+                  }}
+                >
+                  ({item.badge})
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

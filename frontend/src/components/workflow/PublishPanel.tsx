@@ -32,7 +32,7 @@ export function PublishPanel({
       <h4
         className="text-text-faint"
         style={{
-          font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+          font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
         }}
@@ -40,8 +40,8 @@ export function PublishPanel({
         {t("workflow.publish.title")}
       </h4>
       <p
-        className="text-text-secondary"
-        style={{ font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}
+        className="text-text-2"
+        style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
       >
         {t("workflow.publish.freezeExplanation")}
       </p>
@@ -52,35 +52,42 @@ export function PublishPanel({
           style={{
             gap: "var(--ob-space-10)",
             padding: "var(--ob-space-10) var(--ob-space-11)",
-            borderRadius: "var(--ob-radius-inner)",
-            background: "var(--ob-amber-50)",
-            border: "1px solid var(--ob-amber-200)",
+            borderRadius: "var(--ob-radius-10)",
+            background: "var(--ob-warn-bg)",
+            border: "1px solid var(--ob-warn-border)",
           }}
         >
           <div className="min-w-0 flex-1">
             <p
-              className="text-text-primary"
-              style={{ font: "500 var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}
+              className="text-ink"
+              style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
             >
               {t("workflow.publish.onVersion", { count: String(preview.onVersion ?? 0), version: String(versionNo) })}
             </p>
             <p
               className="text-text-muted"
-              style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)", marginTop: 2 }}
+              style={{ font: "var(--ob-type-small-print-size)/var(--ob-type-small-print-line) var(--ob-font-family-ui)", marginTop: 2 }}
             >
               {t("workflow.publish.eligible", { count: String(preview.eligible ?? 0) })}
             </p>
           </div>
+          {/*
+            Next's `Link` can't literally be a `<button>` when it needs
+            client-side navigation, so this stays a styled anchor -- restyled
+            to `Button`'s `primary` variant token values directly (height,
+            padding, radius, background/color, font) rather than the
+            previous hardcoded style object built from since-renamed tokens.
+          */}
           <Link
             href={`/t/${slug}/admin/workflows/${templateId}/migration?versionId=${versionId}`}
             className="inline-flex items-center justify-center flex-shrink-0"
             style={{
-              height: 28,
-              padding: "0 var(--ob-space-11)",
-              borderRadius: "var(--ob-radius-chip)",
-              background: "var(--ob-text-primary)",
-              color: "var(--ob-bg-surface)",
-              font: "500 var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+              height: "var(--ob-control-height)",
+              padding: "0 13px",
+              borderRadius: "var(--ob-radius-8)",
+              background: "var(--ob-ink)",
+              color: "var(--ob-canvas)",
+              font: "600 12.5px/1.2 var(--ob-font-family-ui)",
             }}
           >
             {t("workflow.publish.reviewMigration")}

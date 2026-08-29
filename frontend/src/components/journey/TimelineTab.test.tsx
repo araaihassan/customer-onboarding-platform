@@ -60,7 +60,7 @@ describe("TimelineTab", () => {
 
     renderTab();
 
-    await waitFor(() => expect(screen.getByText(/Immutable/)).not.toBeNull());
+    await waitFor(() => expect(screen.getByText(/Immutable · 1 events/)).not.toBeNull());
   });
 
   it("renders the empty state for a case with no events yet", async () => {
@@ -90,5 +90,45 @@ describe("TimelineTab", () => {
       expect.stringContaining("page=1"),
       expect.anything(),
     ));
+  });
+
+  it("computes the footer's earlier-events count correctly across pages", async () => {
+    // Page 0: 25 events shown, 60 total → 35 earlier events (on this page only)
+    fetchMock.mockResolvedValueOnce(
+      reply({
+        content: Array.from({ length: 25 }, (_, i) => ({ id: `e-${i}`, summary: `Event ${i}` })),
+        totalElements: 60,
+        totalPages: 3,
+      }),
+    );
+
+    renderTab();
+
+    await waitFor(() => expect(screen.getByText(/60 events/)).not.toBeNull());
+    expect(screen.getByText(/35 earlier events/)).not.toBeNull();
+
+    // Page 1: 25 events shown, 60 total → 10 earlier events (60 - 25 already seen - 25 on this page)
+    fetchMock.mockResolvedValueOnce(
+      reply({
+        content: Array.from({ length: 25 }, (_, i) => ({ id: `e-${25 + i}`, summary: `Event ${25 + i}` })),
+        totalElements: 60,
+        totalPages: 3,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByText(/10 earlier events/)).not.toBeNull());
+
+    // Page 2 (last page): 10 events shown, 60 total → 0 earlier events
+    fetchMock.mockResolvedValueOnce(
+      reply({
+        content: Array.from({ length: 10 }, (_, i) => ({ id: `e-${50 + i}`, summary: `Event ${50 + i}` })),
+        totalElements: 60,
+        totalPages: 3,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /next/i }));
+    await waitFor(() => expect(screen.getByText(/0 earlier events/)).not.toBeNull());
   });
 });

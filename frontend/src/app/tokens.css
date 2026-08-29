@@ -1,335 +1,117 @@
-/* Onboard OS design tokens
- * Generated. Layer order: primitive -> semantic -> component.
- * Colour is authored in oklch(); an sRGB hex sits beside each primitive as a
- * comment for tools that cannot parse oklch.
+/* Onboard OS design tokens — flat semantic layer, mirroring
+ * docs/uispecs_latest/design_handoff_onboarding_platform/DESIGN_TOKENS.md by name.
+ * Light theme only. See CLAUDE.md's UI/UX section for why there is no dark theme.
  */
 
 :root {
-  /* ---------------------------------------------------- primitive: colour */
-  --ob-paper-0: #ffffff;
-  --ob-paper-25: #fdfcfb;
-  --ob-paper-50: #faf9f7;
-  --ob-paper-100: #f7f6f3;
-  --ob-paper-150: #f4f2ee;
-  --ob-paper-200: #f2f0ec;
-  --ob-paper-250: #f0eee9;
-  --ob-paper-300: #efece7;
-  --ob-paper-350: #eae7e1;
-  --ob-paper-400: #e6e3dd;
-  --ob-paper-450: #dbd7cf;
-  --ob-paper-500: #d6d1c9;
-  --ob-paper-550: #ccc7bf;
-  --ob-paper-560: #b4afa7;
-  --ob-paper-580: #a49f97;
-  --ob-paper-600: #8f8a82;
-  --ob-paper-700: #716d67;
-  --ob-paper-800: #625f5a;
-  --ob-paper-900: #4d4a46;
-  --ob-paper-950: #191a1e;
+  /* ------------------------------------------------------------- neutrals */
+  --ob-canvas: #fbfaf8;
+  --ob-surface: #ffffff;
+  --ob-surface-sunken: #faf9f6;
+  --ob-surface-muted: #f6f5f2;
+  --ob-surface-active: #f2f0ec;
+  --ob-line: #e7e4de;
+  --ob-line-soft: #efece7;
+  --ob-line-faint: #f4f2ee;
+  --ob-line-strong: #dedad3;
+  --ob-line-hover: #cfcbc3;
+  --ob-ink: #1c1b18;
+  --ob-ink-hover: #302e2a;
+  --ob-ink-rail-active: #3d3a35;
+  --ob-text-2: #4a4741;
+  --ob-text-muted: #6b6862;
+  /* text-subtle/text-faint darkened from DESIGN_TOKENS.md's literal #8b8780/#a5a099 --
+   * frontend/scripts/contrast.py measured both below 4.5:1 on surface/sunken at the sizes
+   * COMPONENTS.md specifies for them (row subtitles, mono eyebrow labels). At that contrast
+   * floor the two tiers converge to nearly the same darkness (any gray light enough to read as
+   * "fainter" than text-subtle also reads below 4.5:1) -- accepted as a deliberate AA-driven
+   * deviation rather than left failing; see 2026-08-28 ledger entry for the human design call
+   * this still owes (formally merge the two tokens, or keep them distinct and typographic-only).
+   */
+  --ob-text-subtle: #75726b;
+  --ob-text-faint: #75726b;
+  --ob-text-ghost: #c5c0b8;
+  --ob-avatar-neutral: #4b4842;
 
-  --ob-slate-700: #34363c;
-  --ob-slate-800: #2b2c31;
-  --ob-slate-900: #222328;
-  --ob-slate-950: #17181c;
-  --ob-slate-975: #0b0c10;
+  /* ----------------------------------------------------------- semantics */
+  /* ok-fg/warn-fg darkened from DESIGN_TOKENS.md's literal #2f7d4f/#9a6410 -- both measured
+   * marginally under 4.5:1 on their own chip background (<0.1 short); same AA-driven deviation
+   * as text-subtle/text-faint above.
+   */
+  --ob-ok-fg: #2e7b4d;       --ob-ok-bg: #e8f3ec;       --ob-ok-border: #cfe4d7;
+  --ob-warn-fg: #986210;     --ob-warn-bg: #fbf1de;     --ob-warn-border: #f0e0bc;
+  --ob-risk-fg: #b4392f;     --ob-risk-bg: #fbeae7;     --ob-risk-border: #f2d3cd;
+  --ob-info-fg: #2b5fb0;     --ob-info-bg: #e9f0fb;     --ob-info-border: #d5e2f5;
+  --ob-accent-fg: #10736b;   --ob-accent-bg: #e6f2f0;   --ob-accent-fg-hover: #0b544e;
+  --ob-automation-fg: #6a4fb0; --ob-automation-bg: #f0ebfa; --ob-automation-border: #d8cdf0;
+  --ob-automation-bg-hover: #e6ddf7;
+  --ob-neutral-fg: #6b6862;  --ob-neutral-bg: #f2f0ec;
 
-  --ob-indigo-50: oklch(0.97 0.02 274);  /* #f1f5ff */
-  --ob-indigo-100: oklch(0.95 0.03 274);  /* #e8eeff */
-  --ob-indigo-200: oklch(0.93 0.03 274);  /* #e1e7fd */
-  --ob-indigo-300: oklch(0.86 0.04 274);  /* #c8d0ec */
-  --ob-indigo-400: oklch(0.6 0.14 274);  /* #6777d3 */
-  --ob-indigo-600: oklch(0.52 0.16 274);  /* #4f5cc3 */
-  --ob-indigo-700: oklch(0.45 0.16 274);  /* #3d47ac */
-  --ob-indigo-800: oklch(0.42 0.16 274);  /* #363ea2 */
+  /* -------------------------------------------------------------- spacing */
+  --ob-space-2: 2px;   --ob-space-3: 3px;   --ob-space-4: 4px;   --ob-space-5: 5px;
+  --ob-space-6: 6px;   --ob-space-7: 7px;   --ob-space-8: 8px;   --ob-space-9: 9px;
+  --ob-space-10: 10px; --ob-space-11: 11px; --ob-space-12: 12px; --ob-space-13: 13px;
+  --ob-space-14: 14px; --ob-space-15: 15px; --ob-space-16: 16px; --ob-space-18: 18px;
+  --ob-space-20: 20px; --ob-space-22: 22px; --ob-space-26: 26px; --ob-space-40: 40px;
 
-  --ob-green-100: oklch(0.95 0.04 155);  /* #daf7e3 */
-  --ob-green-300: oklch(0.86 0.09 155);  /* #a1e3b7 */
-  --ob-green-500: oklch(0.6 0.12 155);  /* #389560 */
-  --ob-green-700: oklch(0.45 0.12 155);  /* #006836 */
+  /* --------------------------------------------------------------- radius */
+  --ob-radius-4: 4px; --ob-radius-5: 5px; --ob-radius-6: 6px; --ob-radius-7: 7px;
+  --ob-radius-8: 8px; --ob-radius-9: 9px; --ob-radius-10: 10px; --ob-radius-11: 11px;
+  --ob-radius-13: 13px; --ob-radius-full: 50%;
 
-  --ob-amber-50: oklch(0.98 0.02 70);  /* #fff6ea */
-  --ob-amber-100: oklch(0.96 0.05 70);  /* #ffedce */
-  --ob-amber-200: oklch(0.9 0.05 70);  /* #f4d9bb */
-  --ob-amber-300: oklch(0.86 0.09 70);  /* #f7c790 */
-  --ob-amber-500: oklch(0.72 0.14 70);  /* #dc932e */
-  --ob-amber-600: oklch(0.66 0.14 70);  /* #c8800d */
-  --ob-amber-700: oklch(0.46 0.14 70);  /* #874500 */
+  /* -------------------------------------------------------------- shadows */
+  --ob-shadow-card: 0 1px 2px rgba(28, 27, 24, .03);
+  --ob-shadow-dropdown: 0 8px 24px rgba(28, 27, 24, .08);
+  --ob-shadow-drawer: -20px 0 50px rgba(28, 27, 24, .1);
+  --ob-shadow-modal: 0 30px 70px rgba(28, 27, 24, .22);
+  --ob-shadow-toast: 0 12px 30px rgba(28, 27, 24, .25);
+  --ob-shadow-ring-selected: 0 0 0 3px rgba(28, 27, 24, .07);
+  --ob-scrim-drawer: rgba(28, 27, 24, .18);
+  --ob-scrim-modal: rgba(28, 27, 24, .24);
 
-  --ob-red-100: oklch(0.96 0.04 25);  /* #ffe8e4 */
-  --ob-red-300: oklch(0.86 0.06 25);  /* #f6c2bd */
-  --ob-red-500: oklch(0.57 0.17 25);  /* #c84341 */
-  --ob-red-700: oklch(0.5 0.17 25);  /* #b02a2d */
+  /* --------------------------------------------------------------- motion */
+  --ob-duration-pop: .16s;
+  --ob-duration-slide: .2s;
+  --ob-duration-pulse: 2.4s;
+  --ob-ease-default: ease;
 
-  /* ---------------------------------------------------- primitive: space */
-  --ob-space-2: 2px;
-  --ob-space-3: 3px;
-  --ob-space-4: 4px;
-  --ob-space-5: 5px;
-  --ob-space-6: 6px;
-  --ob-space-7: 7px;
-  --ob-space-8: 8px;
-  --ob-space-9: 9px;
-  --ob-space-10: 10px;
-  --ob-space-11: 11px;
-  --ob-space-12: 12px;
-  --ob-space-13: 13px;
-  --ob-space-14: 14px;
-  --ob-space-16: 16px;
-  --ob-space-18: 18px;
-  --ob-space-20: 20px;
-  --ob-space-22: 22px;
-  --ob-space-24: 24px;
-  --ob-space-26: 26px;
-  --ob-space-28: 28px;
-  --ob-space-34: 34px;
-  --ob-space-44: 44px;
-  --ob-space-56: 56px;
+  /* ---------------------------------------------------------------- type */
+  --ob-font-family-ui: var(--font-instrument-sans), 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+  --ob-font-family-data: var(--font-spline-mono), 'Spline Sans Mono', ui-monospace, monospace;
 
-  /* --------------------------------------------------- primitive: radius */
-  --ob-radius-pill: 20px;  /* status pills, count badges */
-  --ob-radius-overlay: 14px;  /* popovers, notification panel */
-  --ob-radius-card: 13px;  /* cards, tables, dropzones */
-  --ob-radius-avatar-lg: 12px;  /* large rounded-square avatars */
-  --ob-radius-row: 11px;  /* workflow stage rows */
-  --ob-radius-inner: 10px;  /* cards nested inside cards */
-  --ob-radius-control: 9px;  /* buttons, inputs, rail items */
-  --ob-radius-chip: 8px;  /* filter chips, small buttons */
-  --ob-radius-segment: 7px;  /* segmented control, tile mark */
-  --ob-radius-check: 5px;  /* checkboxes, progress tracks */
-  --ob-radius-bar: 4px;  /* thin bars, kbd chips */
-  --ob-radius-full: 9999px;  /* circular avatars and dots */
+  --ob-type-page-title-size: 26px;      --ob-type-page-title-line: 1.2;    --ob-type-page-title-tracking: -0.03em;
+  --ob-type-hero-metric-size: 34px;     --ob-type-hero-metric-line: 1.1;   --ob-type-hero-metric-tracking: -0.04em;
+  --ob-type-section-heading-size: 19px; --ob-type-section-heading-line: 1.25; --ob-type-section-heading-tracking: -0.025em;
+  --ob-type-card-title-size: 13.5px;    --ob-type-card-title-line: 1.3;    --ob-type-card-title-tracking: -0.01em;
+  --ob-type-body-size: 13.5px;          --ob-type-body-line: 1.45;         --ob-type-body-tracking: 0;
+  --ob-type-table-cell-size: 12.5px;    --ob-type-table-cell-line: 1.4;    --ob-type-table-cell-tracking: 0;
+  --ob-type-row-subtitle-size: 11.5px;  --ob-type-row-subtitle-line: 1.4;  --ob-type-row-subtitle-tracking: 0;
+  --ob-type-small-print-size: 11px;     --ob-type-small-print-line: 1.4;   --ob-type-small-print-tracking: 0;
+  --ob-type-breadcrumb-size: 10.5px;    --ob-type-breadcrumb-line: 1.3;    --ob-type-breadcrumb-tracking: 0.08em;
+  --ob-type-mono-label-size: 10px;      --ob-type-mono-label-line: 1.3;    --ob-type-mono-label-tracking: 0.08em;
+  --ob-type-mono-label-sm-size: 9.5px;  --ob-type-mono-label-sm-line: 1.3; --ob-type-mono-label-sm-tracking: 0.1em;
+  --ob-type-mono-chip-size: 9.5px;      --ob-type-mono-chip-line: 1.2;     --ob-type-mono-chip-tracking: 0.05em;
+  --ob-type-mono-chip-sm-size: 9px;     --ob-type-mono-chip-sm-line: 1.2;  --ob-type-mono-chip-sm-tracking: 0.05em;
+  --ob-type-mono-data-size: 11px;       --ob-type-mono-data-line: 1.3;     --ob-type-mono-data-tracking: 0;
+  --ob-type-nav-item-size: 13px;        --ob-type-nav-item-line: 1.3;      --ob-type-nav-item-tracking: 0;
 
-  /* ----------------------------------------------------- primitive: type */
-  --ob-font-family-ui: Archivo, 'Helvetica Neue', Helvetica, Arial, sans-serif;
-  --ob-font-family-data: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --ob-font-weight-regular: 400;
-  --ob-font-weight-medium: 500;
-  --ob-font-weight-semibold: 600;
-  --ob-font-weight-bold: 700;
-  --ob-type-34-size: 34px;
-  --ob-type-34-weight: 600;
-  --ob-type-34-line: 1.15;
-  --ob-type-34-tracking: -0.03em;  /* hero metric, portal percentage */
-  --ob-type-30-size: 30px;
-  --ob-type-30-weight: 600;
-  --ob-type-30-line: 1.2;
-  --ob-type-30-tracking: -0.03em;  /* portal headline */
-  --ob-type-29-size: 29px;
-  --ob-type-29-weight: 600;
-  --ob-type-29-line: 1;
-  --ob-type-29-tracking: -0.03em;  /* KPI value */
-  --ob-type-23-size: 23px;
-  --ob-type-23-weight: 600;
-  --ob-type-23-line: 1.2;
-  --ob-type-23-tracking: -0.02em;  /* mobile headline */
-  --ob-type-19-size: 19px;
-  --ob-type-19-weight: 600;
-  --ob-type-19-line: 1.25;
-  --ob-type-19-tracking: -0.02em;  /* page object name */
-  --ob-type-17-size: 17px;
-  --ob-type-17-weight: 600;
-  --ob-type-17-line: 1.3;
-  --ob-type-17-tracking: -0.02em;  /* screen title */
-  --ob-type-15-size: 15px;
-  --ob-type-15-weight: 600;
-  --ob-type-15-line: 1.3;
-  --ob-type-15-tracking: -0.01em;  /* section heading */
-  --ob-type-14-size: 14px;
-  --ob-type-14-weight: 600;
-  --ob-type-14-line: 1.35;
-  --ob-type-14-tracking: -0.01em;  /* card heading */
-  --ob-type-13-5-size: 13.5px;
-  --ob-type-13-5-weight: 600;
-  --ob-type-13-5-line: 1.35;
-  --ob-type-13-5-tracking: 0;  /* panel heading, lede */
-  --ob-type-13-size: 13px;
-  --ob-type-13-weight: 400;
-  --ob-type-13-line: 1.5;
-  --ob-type-13-tracking: 0;  /* body, table cell */
-  --ob-type-12-5-size: 12.5px;
-  --ob-type-12-5-weight: 400;
-  --ob-type-12-5-line: 1.45;
-  --ob-type-12-5-tracking: 0;  /* secondary text */
-  --ob-type-12-size: 12px;
-  --ob-type-12-weight: 400;
-  --ob-type-12-line: 1.45;
-  --ob-type-12-tracking: 0;  /* dense table text */
-  --ob-type-11-5-size: 11.5px;
-  --ob-type-11-5-weight: 400;
-  --ob-type-11-5-line: 1.5;
-  --ob-type-11-5-tracking: 0;  /* tertiary, card sub-line */
-  --ob-type-11-size: 11px;
-  --ob-type-11-weight: 400;
-  --ob-type-11-line: 1.4;
-  --ob-type-11-tracking: 0;  /* meta, mono dates */
-  --ob-type-10-5-size: 10.5px;
-  --ob-type-10-5-weight: 400;
-  --ob-type-10-5-line: 1.4;
-  --ob-type-10-5-tracking: 0;  /* mono owner line */
-  --ob-type-10-size: 10px;
-  --ob-type-10-weight: 500;
-  --ob-type-10-line: 1.3;
-  --ob-type-10-tracking: 0.08em;  /* mono uppercase label */
-  --ob-type-9-5-size: 9.5px;
-  --ob-type-9-5-weight: 500;
-  --ob-type-9-5-line: 1.3;
-  --ob-type-9-5-tracking: 0.09em;  /* mono uppercase micro-label */
-
-  /* ------------------------------------------------ primitive: elevation */
-  --ob-elevation-flat: none;  /* cards at rest — the default */
-  --ob-elevation-raised: 0 8px 24px -16px rgba(25,26,30,0.22);  /* open milestone */
-  --ob-elevation-popover: 0 18px 44px -18px rgba(25,26,30,0.32);  /* notification panel */
-  --ob-elevation-device: 0 30px 70px -30px rgba(25,26,30,0.45);  /* mobile device frame */
-  --ob-elevation-ring-accent: 0 0 0 3px var(--ob-accent-tint);  /* selected workflow stage */
-
-  /* --------------------------------------------------- primitive: motion */
-  --ob-duration-instant: 0.16s;  /* popovers, panel expansion */
-  --ob-duration-fast: 0.18s;  /* chevron rotation */
-  --ob-duration-progress: 0.4s;  /* progress bar width */
-  --ob-duration-pulse: 2s;  /* live indicator */
-  --ob-ease-default: ease;  /* everything — no custom curves */
-  --ob-keyframe-enter: fadeUp;  /* translateY(6px) + opacity 0 -> none */
-  --ob-keyframe-live: pulseDot;  /* opacity 1 -> 0.35 -> 1 */
-
-  /* ============================================== semantic: light theme */
-  --ob-bg-page: var(--ob-paper-100);  /* app canvas */
-  --ob-bg-surface: var(--ob-paper-0);  /* cards, tables, panels */
-  --ob-bg-surface-subtle: var(--ob-paper-50);  /* row hover, table header */
-  --ob-bg-surface-sunken: var(--ob-paper-25);  /* read-only inspector fields */
-  --ob-bg-inset: var(--ob-paper-150);  /* progress tracks, neutral pills */
-  --ob-bg-inset-strong: var(--ob-paper-200);  /* avatars, secondary button hover */
-  --ob-bg-rail: var(--ob-slate-950);  /* navigation rail */
-  --ob-bg-rail-raised: var(--ob-slate-800);  /* active rail item */
-  --ob-bg-overlay: var(--ob-paper-0);  /* popovers, notification panel */
-  --ob-border-default: var(--ob-paper-600);  /* card and control borders */
-  --ob-border-subtle: var(--ob-paper-150);  /* table row dividers */
-  --ob-border-panel: var(--ob-paper-300);  /* expanded panel dividers */
-  --ob-border-strong: var(--ob-paper-600);  /* open milestone, emphasis */
-  --ob-border-dashed: var(--ob-paper-600);  /* dropzones, add affordances */
-  --ob-text-primary: var(--ob-paper-950);  /* headings, table values */
-  --ob-text-secondary: var(--ob-paper-900);  /* body, stage labels */
-  --ob-text-muted: var(--ob-paper-800);  /* supporting copy, meta */
-  --ob-text-faint: var(--ob-paper-700);  /* mono labels, timestamps */
-  --ob-text-disabled: var(--ob-paper-700);  /* struck-through completed titles — same value as faint in BOTH themes; the state is carried by strike-through, not lightness, because neither palette has room for a third quiet grey clearing AA on the ground that binds it */
-  --ob-text-on-accent: var(--ob-paper-0);  /* text on the accent fill — see the note below */
-  --ob-text-on-solid: var(--ob-paper-0);  /* text on a solid status fill, e.g. a badge count */
-  --ob-text-on-rail: var(--ob-paper-200);  /* rail navigation text */
-  --ob-accent: var(--ob-indigo-600);  /* primary action, active state */
-  --ob-accent-hover: var(--ob-indigo-700);  /* primary action hover */
-  --ob-accent-tint: var(--ob-indigo-100);  /* selection ring, rule strips */
-  --ob-accent-tint-border: var(--ob-indigo-400);  /* edge of tinted panels */
-  --ob-accent-ink: var(--ob-indigo-800);  /* text on accent tint, links */
-  --ob-accent-weak: var(--ob-indigo-400);  /* earlier periods in charts */
-
-  --ob-status-on-track-bg: var(--ob-green-100);
-  --ob-status-on-track-fg: var(--ob-green-700);  /* Designed, On track, Signed, Completed */
-  --ob-status-progress-bg: var(--ob-indigo-100);
-  --ob-status-progress-fg: var(--ob-indigo-800);  /* In Progress, active stage */
-  --ob-status-at-risk-bg: var(--ob-amber-100);
-  --ob-status-at-risk-fg: var(--ob-amber-700);  /* At risk, expiring, over SLA */
-  --ob-status-blocked-bg: var(--ob-red-100);
-  --ob-status-blocked-fg: var(--ob-red-700);  /* Blocked, overdue, cancelled */
-  --ob-status-neutral-bg: var(--ob-paper-200);
-  --ob-status-neutral-fg: var(--ob-paper-800);  /* Pending, Waiting, Draft, low priority */
-
-  --ob-solid-on-track: var(--ob-green-500);  /* completed milestone circle, healthy bar */
-  --ob-solid-at-risk: var(--ob-amber-600);  /* bottleneck bar, warning dot */
-  --ob-solid-blocked: var(--ob-red-500);  /* notification badge, blocked circle */
-
-  /* ==================================================== component layer */
-  --ob-rail-width: 244px;  /* fixed, never fluid */
-  --ob-rail-item-height: 32px;  /* 8px 11px padding at 13px text */
-  --ob-rail-item-radius: var(--ob-radius-control);
-  --ob-header-height: 60px;  /* sticky, blurred */
-  --ob-content-padding-x: var(--ob-space-28);
-  --ob-content-padding-top: var(--ob-space-24);
-  --ob-content-padding-bottom: var(--ob-space-56);  /* room for the last row to clear the fold */
-  --ob-card-radius: var(--ob-radius-card);
-  --ob-card-padding-y: var(--ob-space-16);  /* 16-22 depending on density of contents */
-  --ob-card-padding-x: var(--ob-space-20);
-  --ob-grid-gap: var(--ob-space-16);  /* 12-16 across dashboard rows */
-  --ob-kpi-value-size: var(--ob-type-29);
-  --ob-table-row-padding-y: var(--ob-space-13);  /* comfortable density */
-  --ob-table-row-padding-y-compact: var(--ob-space-8);  /* compact density */
-  --ob-table-row-padding-x: var(--ob-space-20);
-  --ob-control-height: 34px;  /* search, buttons, primary actions */
-  --ob-control-height-sm: 30px;  /* filter chips, range chips */
-  --ob-control-height-xs: 26px;  /* stage reorder buttons */
-  --ob-pill-radius: var(--ob-radius-pill);
-  --ob-progress-track-height: 6px;  /* 4-8 depending on context */
-  --ob-progress-track-height-lg: 22px;  /* pipeline-by-stage rows */
-  --ob-checkbox-size: 17px;
-  --ob-avatar-size: 30px;  /* 22 in feeds, 28 rail, 46 workspace header */
-  --ob-touch-target-min: 44px;  /* mobile portal minimum */
-  --ob-focus-ring-width: 2px;  /* see the review note on focus visibility */
+  /* -------------------------------------------------------------- layout */
+  --ob-rail-width: 56px;
+  --ob-sidebar-width: 250px;
+  --ob-topbar-height: 52px;
+  --ob-content-padding-x: var(--ob-space-22);
+  --ob-content-padding-top: var(--ob-space-22);
+  --ob-content-padding-bottom: var(--ob-space-40);
+  --ob-card-radius: var(--ob-radius-11);
+  --ob-control-height: 31px;      /* standard button, 30-32 */
+  --ob-control-height-sm: 27px;   /* small button, 26-29 */
+  --ob-focus-ring-width: 2px;
 }
 
-/* ======================================================== dark theme
- * Only the semantic layer is redefined. Primitives never change, and no
- * component token is touched — that is the point of the middle layer.
- * The rail is already dark in both themes, so it does not move.
- */
-[data-theme="dark"] {
-  --ob-bg-page: var(--ob-slate-975);
-  --ob-bg-surface: var(--ob-slate-900);
-  --ob-bg-surface-subtle: var(--ob-slate-800);
-  --ob-bg-surface-sunken: var(--ob-slate-800);
-  --ob-bg-inset: var(--ob-slate-700);
-  --ob-bg-inset-strong: var(--ob-slate-700);
-  --ob-bg-rail: var(--ob-slate-950);
-  --ob-bg-rail-raised: var(--ob-slate-800);
-  --ob-bg-overlay: var(--ob-slate-800);
-  --ob-border-default: var(--ob-paper-600);
-  --ob-border-subtle: var(--ob-slate-800);
-  --ob-border-panel: var(--ob-slate-800);
-  --ob-border-strong: var(--ob-paper-600);
-  --ob-border-dashed: var(--ob-paper-600);
-  --ob-text-primary: var(--ob-paper-100);
-  --ob-text-secondary: var(--ob-paper-400);
-  --ob-text-muted: var(--ob-paper-560);
-  --ob-text-faint: var(--ob-paper-580);
-  --ob-text-disabled: var(--ob-paper-580);
-  --ob-text-on-accent: var(--ob-paper-950);
-  --ob-text-on-solid: var(--ob-paper-0);
-  --ob-text-on-rail: var(--ob-paper-200);
-  --ob-accent: var(--ob-indigo-300);
-  --ob-accent-hover: var(--ob-indigo-200);
-  --ob-accent-tint: var(--ob-slate-800);
-  --ob-accent-tint-border: var(--ob-paper-600);
-  --ob-accent-ink: var(--ob-indigo-300);
-  --ob-accent-weak: var(--ob-indigo-400);
-
-  /* Status fills invert: tint becomes a low-alpha wash over the dark surface,
-     ink becomes the bright end of the ramp so it clears 4.5:1 on that wash. */
-  --ob-status-on-track-bg: color-mix(in oklab, var(--ob-green-500) 18%, transparent);
-  --ob-status-on-track-fg: var(--ob-green-300);
-  --ob-status-progress-bg: color-mix(in oklab, var(--ob-indigo-600) 26%, transparent);
-  --ob-status-progress-fg: var(--ob-indigo-300);
-  --ob-status-at-risk-bg: color-mix(in oklab, var(--ob-amber-500) 20%, transparent);
-  --ob-status-at-risk-fg: var(--ob-amber-300);
-  --ob-status-blocked-bg: color-mix(in oklab, var(--ob-red-500) 22%, transparent);
-  --ob-status-blocked-fg: var(--ob-red-300);
-  --ob-status-neutral-bg: var(--ob-slate-700);
-  --ob-status-neutral-fg: var(--ob-paper-560);
-
-  --ob-elevation-raised: 0 8px 24px -16px rgba(0,0,0,0.6);
-  --ob-elevation-popover: 0 18px 44px -18px rgba(0,0,0,0.7);
-  --ob-elevation-device: 0 30px 70px -30px rgba(0,0,0,0.8);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-  }
-}
-
-/* Honour the OS reduced-motion preference. The prototype animates progress
- * widths, panel entry, and a live-feed pulse; all three are decorative. */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --ob-duration-instant: 0.01ms;
-    --ob-duration-fast: 0.01ms;
-    --ob-duration-progress: 0.01ms;
+    --ob-duration-pop: .01ms;
+    --ob-duration-slide: .01ms;
     --ob-duration-pulse: 0s;
   }
 }

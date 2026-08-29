@@ -93,7 +93,7 @@ export default function MigrationPage() {
         className="flex flex-wrap items-center"
         style={{ gap: "var(--ob-space-11)", marginBottom: "var(--ob-space-16)" }}
       >
-        <p className="text-text-muted" style={{ font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}>
+        <p className="text-text-subtle" style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}>
           {t("workflow.migration.subtitle", {
             onVersion: String(preview.data.onVersion ?? 0),
             eligible: String(preview.data.eligible ?? 0),
@@ -113,9 +113,9 @@ export default function MigrationPage() {
         <p
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
+            color: "var(--ob-risk-fg)",
             marginBottom: "var(--ob-space-13)",
-            font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+            font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
           }}
         >
           {migrateError}
@@ -123,8 +123,8 @@ export default function MigrationPage() {
       )}
 
       <div
-        className="bg-bg-surface border border-border-default overflow-hidden"
-        style={{ borderRadius: "var(--ob-radius-card)" }}
+        className="bg-surface border border-line overflow-hidden"
+        style={{ borderRadius: "var(--ob-card-radius)" }}
       >
         <MigrationTable candidates={candidates} slug={slug} selected={selected} onToggle={toggle} onSelectAll={selectAll} />
       </div>

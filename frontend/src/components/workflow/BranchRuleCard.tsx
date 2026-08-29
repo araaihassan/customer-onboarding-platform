@@ -47,16 +47,15 @@ export function BranchRuleCard({
       style={{
         gap: "var(--ob-space-8)",
         padding: "var(--ob-space-11)",
-        borderRadius: "var(--ob-radius-inner)",
-        background: "var(--ob-accent-tint)",
-        border: "1px solid var(--ob-accent-tint-border)",
+        borderRadius: "var(--ob-radius-9)",
+        background: "var(--ob-automation-bg)",
       }}
     >
       <div className="flex items-center flex-wrap" style={{ gap: "var(--ob-space-8)" }}>
         <span
           style={{
-            font: "600 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
-            color: "var(--ob-accent-ink)",
+            font: "600 var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
+            color: "var(--ob-automation-fg)",
           }}
         >
           {t("workflow.branch.ifLabel")}
@@ -95,7 +94,7 @@ export function BranchRuleCard({
           aria-label={t("workflow.branch.remove")}
           onClick={onRemove}
           className="inline-flex items-center justify-center"
-          style={{ width: 22, height: 22, color: "var(--ob-accent-ink)" }}
+          style={{ width: 22, height: 22, color: "var(--ob-automation-fg)" }}
         >
           <XIcon size={13} />
         </button>
@@ -183,8 +182,8 @@ function ConditionEditor({
 
 const selectStyle: CSSProperties = {
   height: "var(--ob-control-height-sm)",
-  borderRadius: "var(--ob-radius-chip)",
-  border: "1px solid var(--ob-border-default)",
-  background: "var(--ob-bg-surface)",
-  font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)",
+  borderRadius: "var(--ob-radius-7)",
+  border: "1px solid var(--ob-line)",
+  background: "var(--ob-surface)",
+  font: "11px/1.4 var(--ob-font-family-ui)",
 };

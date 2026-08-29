@@ -153,14 +153,14 @@ export default function OrgPage() {
                 <li
                   key={team.id}
                   onClick={() => setSelectedTeam(team)}
-                  className="border-t border-border-subtle first:border-t-0 cursor-pointer hover:bg-bg-hover"
+                  className="border-t border-line-faint first:border-t-0 cursor-pointer hover:bg-surface-active"
                   style={{ padding: "var(--ob-space-10) 0" }}
                   role="button"
                   tabIndex={0}
                 >
                   <p
-                    className="truncate text-text-primary"
-                    style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+                    className="truncate text-ink"
+                    style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
                   >
                     {team.name}
                   </p>
@@ -173,8 +173,8 @@ export default function OrgPage() {
                       .join(" · ");
                     return detail ? (
                       <p
-                        className="truncate text-text-muted"
-                        style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+                        className="truncate text-text-subtle"
+                        style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
                       >
                         {detail}
                       </p>
@@ -243,19 +243,19 @@ export default function OrgPage() {
 function Row({ name, detail }: { name: string; detail?: string }) {
   return (
     <li
-      className="border-t border-border-subtle first:border-t-0"
+      className="border-t border-line-faint first:border-t-0"
       style={{ padding: "var(--ob-space-10) 0" }}
     >
       <p
-        className="truncate text-text-primary"
-        style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+        className="truncate text-ink"
+        style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
       >
         {name}
       </p>
       {detail && (
         <p
-          className="truncate text-text-muted"
-          style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+          className="truncate text-text-subtle"
+          style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
         >
           {detail}
         </p>
@@ -328,8 +328,8 @@ function OrgForm({
           <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
             <label
               htmlFor="team-department"
-              className="text-text-secondary"
-              style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+              className="text-text-muted"
+              style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
             >
               {t("admin.org.field.department")}
             </label>
@@ -337,12 +337,12 @@ function OrgForm({
               id="team-department"
               value={departmentId}
               onChange={(event) => setDepartmentId(event.target.value)}
-              className="bg-bg-surface border border-border-default text-text-primary"
+              className="bg-surface border border-line text-ink"
               style={{
                 height: "var(--ob-control-height)",
-                borderRadius: "var(--ob-radius-control)",
+                borderRadius: "var(--ob-radius-9)",
                 padding: "0 var(--ob-space-11)",
-                font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+                font: "13px/1.3 var(--ob-font-family-ui)",
               }}
             >
               <option value="">{t("admin.org.field.department.none")}</option>
@@ -360,9 +360,9 @@ function OrgForm({
         <p
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
+            color: "var(--ob-risk-fg)",
             marginTop: "var(--ob-space-11)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
           }}
         >
           {error}

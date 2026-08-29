@@ -29,7 +29,7 @@ export function HoldDialog({ caseId, onClose }: { caseId: string; onClose: () =>
       {hold.isError && (
         <p
           role="alert"
-          style={{ color: "var(--ob-status-blocked-fg)", marginTop: "var(--ob-space-11)", font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+          style={{ color: "var(--ob-risk-fg)", marginTop: "var(--ob-space-11)", font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
         >
           {hold.error instanceof ApiError ? parseProblemDetail(hold.error.message) : t("common.error")}
         </p>

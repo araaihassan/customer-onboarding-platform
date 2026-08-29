@@ -78,8 +78,8 @@ export function CreateCaseDialog({
       <div className="flex flex-col" style={{ gap: "var(--ob-space-13)" }}>
         <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
           <span
-            className="text-text-secondary"
-            style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+            className="text-text-muted"
+            style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
           >
             {t("case.create.template")}
           </span>
@@ -95,11 +95,11 @@ export function CreateCaseDialog({
                 style={{
                   height: "var(--ob-control-height)",
                   padding: "0 var(--ob-space-13)",
-                  borderRadius: "var(--ob-radius-control)",
-                  border: `1px solid var(${templateId === tpl.id ? "--ob-accent" : "--ob-border-default"})`,
-                  background: templateId === tpl.id ? "var(--ob-accent-tint)" : "var(--ob-bg-surface)",
-                  color: "var(--ob-text-primary)",
-                  font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+                  borderRadius: "var(--ob-radius-8)",
+                  border: `1px solid var(${templateId === tpl.id ? "--ob-accent-fg" : "--ob-line"})`,
+                  background: templateId === tpl.id ? "var(--ob-accent-bg)" : "var(--ob-surface)",
+                  color: "var(--ob-ink)",
+                  font: "500 var(--ob-type-body-size)/var(--ob-type-body-line) var(--ob-font-family-ui)",
                   cursor: "pointer",
                 }}
               >
@@ -168,8 +168,8 @@ function AttributeField({
       <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
         <label
           htmlFor={id}
-          className="text-text-secondary"
-          style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+          className="text-text-muted"
+          style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
         >
           {label}
         </label>
@@ -196,7 +196,7 @@ function AttributeField({
           checked={value === "true"}
           onChange={(e) => onChange(e.target.checked ? "true" : "false")}
         />
-        <span className="text-text-secondary" style={{ font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}>
+        <span className="text-text-muted" style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}>
           {label}
         </span>
       </label>
@@ -215,15 +215,15 @@ function AttributeField({
 
 const selectStyle = {
   height: "var(--ob-control-height)",
-  borderRadius: "var(--ob-radius-chip)",
-  border: "1px solid var(--ob-border-default)",
-  background: "var(--ob-bg-surface)",
+  borderRadius: "var(--ob-radius-9)",
+  border: "1px solid var(--ob-line)",
+  background: "var(--ob-surface)",
   padding: "0 var(--ob-space-11)",
-  font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+  font: "var(--ob-type-body-size)/var(--ob-type-body-line) var(--ob-font-family-ui)",
 } as const;
 
 const errorStyle = {
-  color: "var(--ob-status-blocked-fg)",
+  color: "var(--ob-risk-fg)",
   marginTop: "var(--ob-space-4)",
-  font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)",
+  font: "var(--ob-type-small-print-size)/var(--ob-type-small-print-line) var(--ob-font-family-ui)",
 } as const;

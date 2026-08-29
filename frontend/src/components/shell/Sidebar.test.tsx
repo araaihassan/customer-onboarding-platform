@@ -1,6 +1,11 @@
 import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+// Registers toHaveAttribute() etc. on vitest's expect. Nothing else in this
+// suite has needed a jest-dom matcher yet, so it isn't wired into the global
+// vitest config -- imported locally here rather than widening that config for
+// a single test file.
+import "@testing-library/jest-dom/vitest";
 
 /**
  * The rail is the one place where a permission the user does not hold becomes an
@@ -59,7 +64,7 @@ describe("Sidebar", () => {
     render(<Sidebar slug="acme" />);
     const rail = screen.getByRole("navigation").closest("aside");
 
-    expect(rail?.style.borderRight).toBe("1px solid var(--ob-graphic-muted)");
+    expect(rail?.style.borderRight).toBe("1px solid var(--ob-line)");
   });
 
   it("renders a navigation landmark containing a list", () => {
@@ -146,8 +151,69 @@ describe("Sidebar", () => {
     for (const icon of icons) expect(icon.getAttribute("aria-hidden")).toBe("true");
   });
 
-  it("shows the tenant slug in the logo block", () => {
-    render(<Sidebar slug="acme" />);
-    expect(screen.getByText("acme")).not.toBeNull();
+  /**
+   * Below 1024px the sidebar is a drawer: hidden from the accessibility tree
+   * until isOpen flips true (SCREENS.md's RESPONSIVE table). At 1024px and
+   * above it stays inline regardless of isOpen -- Task 6 wires the toggle.
+   */
+  it("renders as a drawer below 1024px, hidden until isOpen", () => {
+    // getByRole excludes aria-hidden elements from its default accessibility-
+    // tree filter, so finding the closed drawer's nav needs { hidden: true } --
+    // that's the point under test, not a workaround for it.
+    window.innerWidth = 900;
+    const { rerender } = render(<Sidebar slug="acme" isOpen={false} onClose={vi.fn()} />);
+    expect(screen.getByRole("navigation", { hidden: true })).toHaveAttribute("aria-hidden", "true");
+    rerender(<Sidebar slug="acme" isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByRole("navigation")).not.toHaveAttribute("aria-hidden");
+  });
+
+  it("calls onClose on Escape when open as a drawer", () => {
+    const onClose = vi.fn();
+    render(<Sidebar slug="acme" isOpen={true} onClose={onClose} />);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * Regression for the bug found wiring Task 6's tenant layout: the aside's
+   * off-screen positioning previously came from an unconditional inline
+   * `transform: translateX(-100%)` whenever isDrawer && !isOpen -- true on
+   * every real render, since the real layout always passes onClose and starts
+   * closed -- so the persistent desktop sidebar was translated off-screen at
+   * EVERY width, including >=1024px, until the drawer was toggled once.
+   *
+   * jsdom never evaluates CSS media queries, so setting window.innerWidth to
+   * a desktop value and asserting on getComputedStyle would pass even with
+   * the bug still in place -- jsdom would just apply every media-gated rule
+   * (or none) regardless of the width it reports. The only assertion that
+   * actually distinguishes "always off-screen" from "off-screen only below
+   * 1024px" in this environment is a structural one: prove the fix removed
+   * the *unconditional* inline transform entirely, and that the off-screen
+   * positioning is now expressed solely through a className carrying the
+   * `max-[1023px]:` prefix -- the same breakpoint gate the component's own
+   * display classes already use. That prefix is what a real browser's media
+   * query engine (which this test cannot invoke) uses to withhold the
+   * translation at >=1024px; a className search proves the gate exists at
+   * all, which the old code -- correct display classes, ungated inline style
+   * -- would fail.
+   */
+  it("gates the closed drawer's off-screen position below 1024px, never inline/unconditionally", () => {
+    const { container } = render(<Sidebar slug="acme" isOpen={false} onClose={vi.fn()} />);
+    const aside = container.querySelector("aside");
+    expect(aside).not.toBeNull();
+
+    // The bug: an inline `transform` applied with no breakpoint condition at
+    // all. Asserting its absence is what catches a regression back to it.
+    expect(aside?.style.transform).toBe("");
+
+    // The fix: the off-screen state is a className, and specifically one
+    // scoped under the same max-[1023px] prefix guarding this component's
+    // display classes -- never bare, which would reapply at every width.
+    expect(aside?.className).toContain("max-[1023px]:-translate-x-full");
+    expect(aside?.className).not.toMatch(/(?<!max-\[1023px\]:)-translate-x-full/);
+
+    // Opening the drawer removes the off-screen class again, same as before.
+    const { container: openContainer } = render(<Sidebar slug="acme" isOpen={true} onClose={vi.fn()} />);
+    expect(openContainer.querySelector("aside")?.className).not.toContain("-translate-x-full");
   });
 });

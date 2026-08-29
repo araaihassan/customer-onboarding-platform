@@ -109,8 +109,8 @@ export default function WorkflowsPage() {
         >
           <p
             style={{
-              color: "var(--ob-status-blocked-fg)",
-              font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+              color: "var(--ob-risk-fg)",
+              font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
             }}
           >
             {draftIssue.message}
@@ -171,19 +171,19 @@ export default function WorkflowsPage() {
           {templates.map((template) => (
             <li
               key={template.id}
-              className="flex items-center justify-between bg-bg-surface border border-border-default"
-              style={{ borderRadius: "var(--ob-radius-row)", padding: "var(--ob-space-13) var(--ob-space-16)" }}
+              className="flex items-center justify-between bg-surface border border-line"
+              style={{ borderRadius: "var(--ob-radius-11)", padding: "var(--ob-space-13) var(--ob-space-16)" }}
             >
               <div>
                 <p
-                  className="text-text-primary"
-                  style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+                  className="text-ink"
+                  style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
                 >
                   {template.name}
                 </p>
                 <p
                   className="text-text-faint"
-                  style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
+                  style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
                 >
                   {template.currentVersionNo
                     ? t("workflow.version.published", { version: String(template.currentVersionNo) })
@@ -275,9 +275,9 @@ function NewTemplateForm({
         <p
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
+            color: "var(--ob-risk-fg)",
             marginTop: "var(--ob-space-11)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
           }}
         >
           {error}

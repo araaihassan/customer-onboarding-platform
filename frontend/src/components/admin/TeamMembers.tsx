@@ -130,9 +130,9 @@ export function TeamMembers({ team }: { team: Team }) {
             <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
               <label
                 htmlFor="select-user"
-                className="text-text-secondary"
+                className="text-text-muted"
                 style={{
-                  font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+                  font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
                 }}
               >
                 {t("admin.team.members.selectUser")}
@@ -141,12 +141,12 @@ export function TeamMembers({ team }: { team: Team }) {
                 id="select-user"
                 value={selectedUserId}
                 onChange={(e) => setSelectedUserId(e.target.value)}
-                className="bg-bg-surface border border-border-default text-text-primary"
+                className="bg-surface border border-line text-ink"
                 style={{
                   height: "var(--ob-control-height)",
-                  borderRadius: "var(--ob-radius-control)",
+                  borderRadius: "var(--ob-radius-9)",
                   padding: "0 var(--ob-space-11)",
-                  font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+                  font: "13px/1.3 var(--ob-font-family-ui)",
                 }}
               >
                 <option value="">{t("common.select")}</option>
@@ -195,22 +195,22 @@ function MemberRow({
 }) {
   return (
     <li
-      className="border-t border-border-subtle first:border-t-0 flex items-center justify-between"
+      className="border-t border-line-faint first:border-t-0 flex items-center justify-between"
       style={{ padding: "var(--ob-space-10) 0" }}
     >
       <div className="flex-1">
         <p
-          className="truncate text-text-primary"
+          className="truncate text-ink"
           style={{
-            font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+            font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
           }}
         >
           {member.fullName}
         </p>
         <p
-          className="truncate text-text-muted"
+          className="truncate text-text-subtle"
           style={{
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-mono)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-data)",
           }}
         >
           {member.email}

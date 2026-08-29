@@ -9,18 +9,18 @@
  * falls back to neutral rather than going uncoloured, so an unmapped value is
  * legible rather than invisible.
  */
-export type StatusRole = "on-track" | "progress" | "at-risk" | "blocked" | "neutral";
+export type StatusRole = "ok" | "accent" | "warn" | "risk" | "neutral";
 
 const ROLE_BY_STATUS: Record<string, StatusRole> = {
   // customer
-  ACTIVE: "on-track",
+  ACTIVE: "ok",
   PROSPECT: "neutral",
-  ON_HOLD: "at-risk",
-  INACTIVE: "blocked",
+  ON_HOLD: "warn",
+  INACTIVE: "risk",
   // user / contact
   INVITED: "neutral",
-  SUSPENDED: "at-risk",
-  DEACTIVATED: "blocked",
+  SUSPENDED: "warn",
+  DEACTIVATED: "risk",
 };
 
 export function roleForStatus(status: string): StatusRole {
@@ -51,14 +51,14 @@ export function StatusPill({ status, role }: { status?: string; role?: StatusRol
   return (
     <span
       style={{
-        background: `var(--ob-status-${resolved}-bg)`,
-        color: `var(--ob-status-${resolved}-fg)`,
-        borderRadius: "var(--ob-radius-pill)",
+        background: `var(--ob-${resolved}-bg)`,
+        color: `var(--ob-${resolved}-fg)`,
+        borderRadius: "var(--ob-radius-5)",
         padding: "3px 8px",
         whiteSpace: "nowrap",
         textTransform: "uppercase",
         letterSpacing: "0.05em",
-        font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+        font: "var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
       }}
     >
       {humanise(status)}

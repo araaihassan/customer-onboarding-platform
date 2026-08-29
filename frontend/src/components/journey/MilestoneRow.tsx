@@ -14,20 +14,28 @@ import { ForceCompleteDialog } from "./ForceCompleteDialog";
 import { RequirementList } from "./RequirementList";
 
 const ROLE_BY_STATUS: Record<string, StatusRole> = {
-  DONE: "on-track",
-  ACTIVE: "progress",
-  BLOCKED: "blocked",
+  DONE: "ok",
+  ACTIVE: "accent",
+  BLOCKED: "risk",
   PENDING: "neutral",
   SKIPPED: "neutral",
 };
 
-/** uispecs §5a's four circle colours -- SKIPPED gets no mention there, so it takes PENDING's neutral treatment. */
+/**
+ * uispecs §5a's four circle colours -- SKIPPED gets no mention there, so it
+ * takes PENDING's neutral treatment. This duplicates `StatusPill`'s own
+ * role-color logic; unifying the two is a separate refactor, not this one's
+ * job (same reasoning as `CaseSwitcher`'s own duplicate status map). The
+ * PENDING/SKIPPED fill matches `StageAccordion`'s own "not started" rail
+ * treatment (COMPONENTS.md §14: `line-soft` circle, no icon) rather than a
+ * solid fill, since neither status draws an icon inside the circle.
+ */
 const CIRCLE_COLOR: Record<string, string> = {
-  DONE: "var(--ob-solid-on-track)",
-  ACTIVE: "var(--ob-accent)",
-  BLOCKED: "var(--ob-solid-blocked)",
-  PENDING: "var(--ob-paper-500)",
-  SKIPPED: "var(--ob-paper-500)",
+  DONE: "var(--ob-ok-fg)",
+  ACTIVE: "var(--ob-accent-fg)",
+  BLOCKED: "var(--ob-risk-fg)",
+  PENDING: "var(--ob-line-soft)",
+  SKIPPED: "var(--ob-line-soft)",
 };
 
 /**
@@ -66,11 +74,13 @@ export function MilestoneRow({
   return (
     <div
       data-testid="milestone-row"
-      className="bg-bg-surface"
+      className="bg-surface"
       style={{
-        borderRadius: "var(--ob-radius-card)",
-        border: `1px solid var(--ob-paper-${expanded ? "450" : "400"})`,
-        boxShadow: expanded ? "var(--ob-elevation-raised)" : "var(--ob-elevation-flat)",
+        borderRadius: "var(--ob-card-radius)",
+        border: `1px solid var(--ob-${expanded ? "line-strong" : "line"})`,
+        // Cards are flat (CLAUDE.md's four decisions) -- no raised shadow on
+        // expand; the border-strength change alone signals the open state.
+        boxShadow: "var(--ob-shadow-card)",
       }}
     >
       <button
@@ -85,15 +95,15 @@ export function MilestoneRow({
           className="inline-flex items-center justify-center"
           style={{ width: 26, height: 26, borderRadius: "50%", background: CIRCLE_COLOR[status] ?? CIRCLE_COLOR.PENDING }}
         >
-          {status === "DONE" && <CheckIcon size={14} style={{ color: "var(--ob-text-on-solid)" }} />}
-          {status === "BLOCKED" && <ExclamationIcon size={14} style={{ color: "var(--ob-text-on-solid)" }} />}
+          {status === "DONE" && <CheckIcon size={14} style={{ color: "var(--ob-canvas)" }} />}
+          {status === "BLOCKED" && <ExclamationIcon size={14} style={{ color: "var(--ob-canvas)" }} />}
         </span>
 
         <div className="min-w-0">
           <div className="flex items-center flex-wrap" style={{ gap: "var(--ob-space-8)" }}>
             <span
-              className="text-text-primary truncate"
-              style={{ font: "600 var(--ob-type-13-5-size)/var(--ob-type-13-5-line) var(--ob-font-family-ui)" }}
+              className="text-ink truncate"
+              style={{ font: "600 var(--ob-type-card-title-size)/var(--ob-type-card-title-line) var(--ob-font-family-ui)" }}
             >
               {milestone.name}
             </span>
@@ -101,8 +111,8 @@ export function MilestoneRow({
             {status === "BLOCKED" && blockedBy.length > 0 && (
               <span
                 style={{
-                  color: "var(--ob-status-blocked-fg)",
-                  font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)",
+                  color: "var(--ob-risk-fg)",
+                  font: "var(--ob-type-mono-label-size)/var(--ob-type-mono-label-line) var(--ob-font-family-data)",
                 }}
               >
                 {t("milestone.blockedBy", { names: blockedBy.join(", ") })}
@@ -115,29 +125,33 @@ export function MilestoneRow({
           <div className="text-right">
             <p
               style={{
-                font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)",
-                color: overdue ? "var(--ob-status-blocked-fg)" : "var(--ob-text-primary)",
+                font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)",
+                color: overdue ? "var(--ob-risk-fg)" : "var(--ob-ink)",
               }}
             >
               {milestone.dueDate ?? "—"}
               {overdue && ` ${t("milestone.overdue")}`}
             </p>
+            {/* Owner is a person's name, not a machine value -- Instrument Sans
+                per CLAUDE.md's "human text vs. machine-generated values" rule,
+                unlike the mono due date above (the pre-refactor version used
+                the data font-family for this too). */}
             <p
               className="text-text-faint"
-              style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
+              style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-ui)" }}
             >
               {owner ?? t("milestone.noOwner")}
             </p>
           </div>
 
           <div style={{ width: 74 }}>
-            <ProgressBar value={milestone.progressPercent ?? 0} label={t("milestone.progressLabel", { name: milestone.name ?? "" })} />
+            <ProgressBar value={milestone.progressPercent ?? 0} label={t("milestone.progressLabel", { name: milestone.name ?? "" })} context="stage-summary" />
           </div>
 
           <span
             aria-hidden="true"
             className="inline-flex"
-            style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform var(--ob-duration-fast) ease" }}
+            style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)", transition: "transform var(--ob-duration-pop) var(--ob-ease-default)" }}
           >
             <ChevronDownIcon size={16} />
           </span>
@@ -151,10 +165,10 @@ export function MilestoneRow({
         <div
           className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr]"
           style={{
-            borderTop: "1px solid var(--ob-paper-300)",
+            borderTop: "1px solid var(--ob-line-soft)",
             padding: "16px 18px 18px 58px",
             gap: "22px",
-            animation: "var(--ob-keyframe-enter) var(--ob-duration-instant) ease",
+            animation: "om-pop var(--ob-duration-pop) var(--ob-ease-default)",
           }}
         >
           <div className="flex flex-col" style={{ gap: "var(--ob-space-16)" }}>
@@ -173,7 +187,7 @@ export function MilestoneRow({
             <Section title={t("milestone.dependencies.title")}>
               <p
                 className="text-text-muted"
-                style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+                style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
               >
                 {blockedBy.length > 0
                   ? t("milestone.blockedBy", { names: blockedBy.join(", ") })
@@ -208,9 +222,9 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       <h5
         className="text-text-faint"
         style={{
-          font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+          font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
-          letterSpacing: "0.08em",
+          letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
         }}
       >
         {title}

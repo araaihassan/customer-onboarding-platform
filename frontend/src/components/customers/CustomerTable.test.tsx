@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, within } from "@testing-library/react";
 import type { Customer } from "@/lib/api/customers";
 
 vi.mock("next/link", () => ({
@@ -38,48 +38,59 @@ function renderTable() {
   return render(<CustomerTable customers={customers} slug="acme" />);
 }
 
-function table() {
-  return screen.getByRole("table");
+/**
+ * `CustomerTable` now composes `DataTable` (Task 22), a generic CSS-grid table
+ * primitive rather than a real `<table>` -- that architectural call was made
+ * and reviewed clean in Task 22, not this task. `DataTable` carries the full
+ * ARIA table role set (`table`/`rowgroup`/`row`/`columnheader`/`cell`, added
+ * as a final-review fix) so the grid is ARIA-equivalent to a real table
+ * despite the CSS grid markup. Every query below is scoped to the
+ * `[data-view]` wrapper it cares about, because `DataTable` mounts BOTH the
+ * grid and the `<900px` card list at once (CSS-gated visibility, not
+ * conditional rendering) -- an unscoped query would see duplicate text from
+ * whichever view isn't the one under test.
+ */
+function tableWrapper(container: HTMLElement): HTMLElement {
+  return container.querySelector("[data-view='table']") as HTMLElement;
+}
+
+function cardsWrapper(container: HTMLElement): HTMLElement {
+  return container.querySelector("[data-view='cards']") as HTMLElement;
 }
 
 describe("CustomerTable", () => {
-  /**
-   * A real <table>, not a div grid with ARIA bolted on. component-specs §7 allows
-   * either, but only one of them is free.
-   */
-  it("names every column with a scoped column header", () => {
-    renderTable();
-    const headers = within(table()).getAllByRole("columnheader");
-    expect(headers.map((h) => h.textContent)).toEqual([
-      "Customer",
-      "Status",
-      "Legal name",
-      "Industry",
-      "Country",
-    ]);
-    for (const header of headers) expect(header.getAttribute("scope")).toBe("col");
+  it("names every column across the header row", () => {
+    const { container } = renderTable();
+    // Scoped to the table's header rowgroup specifically -- the body
+    // rowgroup's own rows now also carry `role="row"`, so an unscoped
+    // `getByRole("row")` would be ambiguous.
+    const headerRowgroup = within(tableWrapper(container)).getAllByRole("rowgroup")[0];
+    const headerRow = within(headerRowgroup).getByRole("row");
+    const headers = Array.from(headerRow.children).map((el) => el.textContent);
+    expect(headers).toEqual(["Customer", "Status", "Legal name", "Industry", "Country"]);
   });
 
   /**
    * The specific thing not to copy from the prototype: a <div> with an onClick is
-   * not keyboard reachable. The row's primary cell carries a real link.
+   * not keyboard reachable. The row's primary cell carries a real link, and
+   * (unlike `DataTable`'s own optional `onRowClick`, unused here) nothing turns
+   * the row itself into a button.
    */
-  it("navigates from a link in the primary cell, not a click handler on the row", () => {
-    renderTable();
-    const link = within(table()).getByRole("link", { name: /northwind foods/i });
+  it("navigates from a link in the primary cell, not a row-level control", () => {
+    const { container } = renderTable();
+    const table = tableWrapper(container);
+    const link = within(table).getByRole("link", { name: /northwind foods/i });
     expect(link.getAttribute("href")).toBe("/t/acme/customers/0199a0c1-0000-7000-8000-00000000abcd");
 
-    for (const row of within(table()).getAllByRole("row")) {
-      expect(row.getAttribute("onclick")).toBeNull();
-      expect(row.getAttribute("tabindex")).toBeNull();
-    }
+    expect(within(table).queryAllByRole("button")).toHaveLength(0);
   });
 
   /** Colour is never the only signal: the pill carries the word. */
   it("renders status as a pill containing the word", () => {
-    renderTable();
-    expect(within(table()).getByText("Active")).not.toBeNull();
-    expect(within(table()).getByText("On hold")).not.toBeNull();
+    const { container } = renderTable();
+    const table = tableWrapper(container);
+    expect(within(table).getByText("Active")).not.toBeNull();
+    expect(within(table).getByText("On hold")).not.toBeNull();
   });
 
   /**
@@ -89,18 +100,20 @@ describe("CustomerTable", () => {
    * "colour always means status" rule, not a style preference.
    */
   it("says nothing rather than inventing a status that is absent", () => {
-    render(
+    const { container } = render(
       <CustomerTable
         customers={[{ id: "0199a0c1-0000-7000-8000-000000000001", displayName: "Unknown Co" }]}
         slug="acme"
       />,
     );
 
-    expect(screen.queryByText("Prospect")).toBeNull();
+    const table = tableWrapper(container);
+    expect(within(table).queryByText("Prospect")).toBeNull();
 
-    // The status cell specifically — industry and country are em dashes here
-    // too, and for the same reason.
-    const statusCell = within(table()).getAllByRole("cell")[1]!;
+    // The status cell specifically, addressed by DataTable's own
+    // data-column marker rather than a cell role (there is none). The first
+    // match is the header label ("Status"); the second is this row's cell.
+    const statusCell = table.querySelectorAll("[data-column='status']")[1]!;
     expect(statusCell.textContent).toBe("—");
   });
 
@@ -109,10 +122,13 @@ describe("CustomerTable", () => {
    * doing quiet work across the product, and a customer is always a company.
    */
   it("marks the customer with a rounded-square avatar, never a circle", () => {
-    renderTable();
-    const row = within(table()).getByRole("row", { name: /northwind foods/i });
-    const avatar = row.querySelector<HTMLElement>("[aria-hidden='true']")!;
-    expect(avatar.style.borderRadius).toBe("var(--ob-radius-chip)");
+    const { container } = renderTable();
+    const table = tableWrapper(container);
+    // The first match is the header label ("Customer"); the second is this
+    // row's entity cell.
+    const entityCell = table.querySelectorAll("[data-column='customer']")[1]!;
+    const avatar = entityCell.querySelector<HTMLElement>("[aria-hidden='true']")!;
+    expect(avatar.style.borderRadius).toBe("var(--ob-radius-5)");
     expect(avatar.textContent).toBe("NF");
   });
 
@@ -123,31 +139,36 @@ describe("CustomerTable", () => {
    * eight-character prefix.
    */
   it("shows a machine-readable reference under the name", () => {
-    renderTable();
-    expect(within(table()).getByText("00000000abcd")).not.toBeNull();
+    const { container } = renderTable();
+    expect(within(tableWrapper(container)).getByText("00000000abcd")).not.toBeNull();
   });
 
   /**
-   * Below 1024px the table is replaced by a two-line card list. jsdom performs no
-   * layout and applies no media queries, so this asserts only that both
-   * presentations exist and are gated by the `lg:` breakpoint classes — it cannot
-   * prove that either one is actually hidden at a given width. Task 28's
-   * Playwright suite is where that becomes observable.
+   * Below 900px (`SCREENS.md`'s RESPONSIVE table) the grid is replaced by a
+   * two-line card list carrying the name, the status word and the mono
+   * reference line -- via `DataTable`'s `stackedColumn` prop. This is the same
+   * shape as the `MigrationTable` empty-state-guard bug already in CLAUDE.md: a
+   * fallback that silently drops rows is a regression, so this proves every
+   * row survives, not just the first.
    */
-  it("carries a card list gated to below the lg breakpoint", () => {
+  it("carries a card list gated below 900px, and drops no rows", () => {
     const { container } = renderTable();
 
-    const tableWrapper = container.querySelector("[data-view='table']")!;
-    expect(tableWrapper.className).toContain("hidden");
-    expect(tableWrapper.className).toContain("lg:block");
+    const table = tableWrapper(container);
+    expect(table.className).toContain("hidden");
+    expect(table.className).toContain("min-[900px]:block");
 
-    const cardWrapper = container.querySelector("[data-view='cards']")!;
-    expect(cardWrapper.className).toContain("lg:hidden");
+    const cards = cardsWrapper(container);
+    expect(cards.className).toContain("min-[900px]:hidden");
 
-    // The card keeps the name and the status word — the two things a narrow
-    // screen cannot afford to lose.
-    const cards = within(cardWrapper as HTMLElement);
-    expect(cards.getByRole("link", { name: /northwind foods/i })).not.toBeNull();
-    expect(cards.getByText("Active")).not.toBeNull();
+    const cardItems = within(cards).getAllByRole("listitem");
+    expect(cardItems).toHaveLength(customers.length);
+
+    // Both customers' names and statuses are present in the card list, not
+    // just the first one.
+    expect(within(cards).getByRole("link", { name: /northwind foods/i })).not.toBeNull();
+    expect(within(cards).getByRole("link", { name: /halden rail/i })).not.toBeNull();
+    expect(within(cards).getByText("Active")).not.toBeNull();
+    expect(within(cards).getByText("On hold")).not.toBeNull();
   });
 });

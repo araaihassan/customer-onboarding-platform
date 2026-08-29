@@ -2,14 +2,31 @@
 
 import { useState } from "react";
 import { ArrowRightIcon, ChevronDownIcon, ChevronRightIcon, ChevronUpIcon, XIcon } from "@/components/icons";
+import { BuilderNode } from "@/components/ui/BuilderNode";
 import type { StageDraft } from "./draftState";
 import { t } from "@/lib/i18n";
 
 /**
- * Workflow stage row (component-specs §12). Reordering is the ▲▼ buttons the
- * prototype draws, not drag-and-drop: keyboard-operable and announceable for
- * free, on a screen an admin touches twice a year. Delete stops propagation
- * so it never also selects the row it just removed.
+ * Workflow stage row (component-specs §12), now composing `BuilderNode`
+ * (COMPONENTS.md §21) for its main visual chrome -- name, meta line, selection
+ * ring and the branch number-tile fill -- rather than drawing an ad hoc
+ * button of its own.
+ *
+ * There is no drag-and-drop here to preserve: `useDraftState`'s own doc
+ * comment already records that this screen deliberately implemented ONLY the
+ * ▲▼ button reorder the prototype also draws, never HTML5 drag-and-drop --
+ * "keyboard-operable and announceable for free, on a screen an admin touches
+ * twice a year." `BuilderNode`'s Task 24 doc comment claiming "StageRow.tsx
+ * already implements [drag-and-drop]" does not match this file as it has
+ * ever existed; the real, sole reorder mechanism is the `onMoveUp`/
+ * `onMoveDown` callbacks below, unchanged, which is exactly the keyboard-
+ * accessible affordance README.md's accessibility note asks production code
+ * to supply. See the task-33 report for the full reasoning.
+ *
+ * The select affordance stays `BuilderNode`'s own internal `<button>`, a
+ * sibling of the reorder/delete controls rather than a wrapper around them --
+ * a `<button>` cannot nest another `<button>`, and BuilderNode already owns
+ * that constraint internally.
  */
 export function StageRow({
   stage,
@@ -43,21 +60,26 @@ export function StageRow({
   const stageName = (key: string) => stages.find((s) => s.key === key)?.name || t("workflow.stage.unnamed");
   const [expanded, setExpanded] = useState(false);
 
+  const teamMeta = t("workflow.stage.subline", {
+    milestones: String(milestoneCount),
+    sla: stage.slaDays ? t("workflow.stage.slaDays", { days: String(stage.slaDays) }) : t("workflow.stage.noSla"),
+    writeScope: t(`workflow.writeScope.${stage.writeScope ?? "ANY"}`),
+  });
+
   return (
-    <div className="flex flex-col bg-bg-surface" style={{ borderRadius: "var(--ob-radius-row)" }}>
-      <div
-        className="flex items-start"
-        style={{
-          padding: "12px 16px",
-          gap: "var(--ob-space-11)",
-          border: `1px solid var(${selected ? "--ob-accent" : "--ob-border-default"})`,
-          borderBottom: expanded ? "none" : undefined,
-          borderRadius: expanded
-            ? "var(--ob-radius-row) var(--ob-radius-row) 0 0"
-            : "var(--ob-radius-row)",
-          boxShadow: selected ? "var(--ob-elevation-ring-accent)" : undefined,
-        }}
-      >
+    <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
+      <div className="flex items-center" style={{ gap: "var(--ob-space-8)" }}>
+        <span
+          className="text-text-faint flex-shrink-0"
+          style={{
+            font: "var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
+            width: 16,
+            textAlign: "right",
+          }}
+        >
+          {String(index + 1).padStart(2, "0")}
+        </span>
+
         {/* A stage with no milestones has nothing to expand into, so no toggle is
             drawn -- an affordance that always opens onto an empty list is worse
             than no affordance at all. */}
@@ -72,66 +94,17 @@ export function StageRow({
           <span style={{ width: 26, height: 26, flexShrink: 0 }} />
         )}
 
-        <span
-          className="text-text-faint"
-          style={{ font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)", paddingTop: 2 }}
-        >
-          {String(index + 1).padStart(2, "0")}
-        </span>
-
-        {/* The select affordance is its own button, a sibling of the reorder/delete
-            controls rather than a wrapper around them -- a <button> cannot nest
-            another <button>, and a div[role=button] wrapping real buttons has the
-            same problem for assistive tech even though the DOM allows it. */}
-        <button
-          type="button"
-          aria-pressed={selected}
-          onClick={onSelect}
-          className="flex-1 min-w-0 text-left bg-transparent border-none cursor-pointer"
-        >
-          <div className="flex items-center flex-wrap" style={{ gap: "var(--ob-space-8)" }}>
-            <span
-              className="text-text-primary truncate"
-              style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
-            >
-              {stage.name || t("workflow.stage.unnamed")}
-            </span>
-            {stage.requiresApproval && <Badge>{t("workflow.stage.approval")}</Badge>}
-            {stage.autoAdvance && <Badge>{t("workflow.stage.auto")}</Badge>}
-          </div>
-
-          <p
-            className="text-text-muted truncate"
-            style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-ui)" }}
-          >
-            {t("workflow.stage.subline", {
-              milestones: String(milestoneCount),
-              sla: stage.slaDays ? t("workflow.stage.slaDays", { days: String(stage.slaDays) }) : t("workflow.stage.noSla"),
-              writeScope: t(`workflow.writeScope.${stage.writeScope ?? "ANY"}`),
-            })}
-          </p>
-
-          {branchRules.map((rule, i) => (
-            <div
-              key={i}
-              className="flex items-center flex-wrap"
-              style={{
-                marginTop: "var(--ob-space-6)",
-                padding: "var(--ob-space-5) var(--ob-space-8)",
-                borderRadius: "var(--ob-radius-inner)",
-                background: "var(--ob-accent-tint)",
-                border: "1px solid var(--ob-accent-tint-border)",
-                gap: "var(--ob-space-5)",
-                font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
-                color: "var(--ob-accent-ink)",
-              }}
-            >
-              <span>{t("workflow.branch.ifLabel")}</span>
-              <ArrowRightIcon size={13} />
-              <span>{rule.targetStageKey ? stageName(rule.targetStageKey) : t("workflow.branch.noTarget")}</span>
-            </div>
-          ))}
-        </button>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <BuilderNode
+            name={stage.name || t("workflow.stage.unnamed")}
+            teamMeta={teamMeta}
+            milestonePills={[]}
+            isBranch={branchRules.length > 0}
+            isSelected={selected}
+            conditionalChip={Boolean(stage.entryCondition)}
+            onClick={onSelect}
+          />
+        </div>
 
         {!readOnly && (
           <div className="flex" style={{ gap: "var(--ob-space-5)", flexShrink: 0 }}>
@@ -148,15 +121,42 @@ export function StageRow({
         )}
       </div>
 
+      {(stage.requiresApproval || stage.autoAdvance || branchRules.length > 0) && (
+        <div className="flex items-center flex-wrap" style={{ marginLeft: 50, gap: "var(--ob-space-6)" }}>
+          {stage.requiresApproval && <Badge>{t("workflow.stage.approval")}</Badge>}
+          {stage.autoAdvance && <Badge>{t("workflow.stage.auto")}</Badge>}
+
+          {branchRules.map((rule, i) => (
+            <div
+              key={i}
+              className="flex items-center"
+              style={{
+                padding: "var(--ob-space-5) var(--ob-space-8)",
+                borderRadius: "var(--ob-radius-6)",
+                background: "var(--ob-automation-bg)",
+                gap: "var(--ob-space-5)",
+                font: "var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
+                color: "var(--ob-automation-fg)",
+              }}
+            >
+              <span>{t("workflow.branch.ifLabel")}</span>
+              <ArrowRightIcon size={13} />
+              <span>{rule.targetStageKey ? stageName(rule.targetStageKey) : t("workflow.branch.noTarget")}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {expanded && milestoneCount > 0 && (
         <ul
           className="flex flex-col"
           style={{
             gap: "var(--ob-space-6)",
             padding: "var(--ob-space-11) 16px",
-            border: `1px solid var(${selected ? "--ob-accent" : "--ob-border-default"})`,
-            borderTop: "1px solid var(--ob-border-subtle)",
-            borderRadius: "0 0 var(--ob-radius-row) var(--ob-radius-row)",
+            marginLeft: 50,
+            borderRadius: "var(--ob-radius-9)",
+            border: "1px solid var(--ob-line)",
+            background: "var(--ob-surface-sunken)",
           }}
         >
           {milestones.map((milestone, i) => {
@@ -169,14 +169,14 @@ export function StageRow({
                 style={{ gap: "var(--ob-space-8)" }}
               >
                 <span
-                  className="text-text-secondary truncate"
-                  style={{ font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}
+                  className="text-text-muted truncate"
+                  style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
                 >
                   {milestone.name || t("workflow.stage.unnamed")}
                 </span>
                 <span
                   className="text-text-faint flex-shrink-0"
-                  style={{ font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)" }}
+                  style={{ font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)" }}
                 >
                   {t("workflow.milestone.durationSummary", { days: String(milestone.estimatedDurationDays ?? 0) })}
                   {" · "}
@@ -199,9 +199,9 @@ export function StageRow({
 function Badge({ children }: { children: string }) {
   return (
     <span
-      className="text-text-muted"
+      className="text-text-subtle"
       style={{
-        font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+        font: "var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
         textTransform: "uppercase",
         letterSpacing: "0.05em",
       }}
@@ -234,21 +234,21 @@ function RowButton({
       style={{
         width: 26,
         height: 26,
-        borderRadius: "var(--ob-radius-segment)",
-        border: "1px solid var(--ob-border-default)",
-        background: "var(--ob-bg-surface)",
-        color: danger ? "var(--ob-text-muted)" : "var(--ob-text-secondary)",
+        borderRadius: "var(--ob-radius-6)",
+        border: "1px solid var(--ob-line)",
+        background: "var(--ob-surface)",
+        color: danger ? "var(--ob-text-subtle)" : "var(--ob-text-muted)",
         cursor: disabled ? "not-allowed" : "pointer",
       }}
       onMouseEnter={(e) => {
         if (danger && !disabled) {
-          e.currentTarget.style.background = "var(--ob-status-blocked-bg)";
-          e.currentTarget.style.color = "var(--ob-status-blocked-fg)";
+          e.currentTarget.style.background = "var(--ob-risk-bg)";
+          e.currentTarget.style.color = "var(--ob-risk-fg)";
         }
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = "var(--ob-bg-surface)";
-        e.currentTarget.style.color = danger ? "var(--ob-text-muted)" : "var(--ob-text-secondary)";
+        e.currentTarget.style.background = "var(--ob-surface)";
+        e.currentTarget.style.color = danger ? "var(--ob-text-subtle)" : "var(--ob-text-muted)";
       }}
     >
       {children}

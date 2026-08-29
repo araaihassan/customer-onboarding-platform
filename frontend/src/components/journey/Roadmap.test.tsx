@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import type { MilestoneRoadmap, StageRoadmap } from "@/lib/api/cases";
@@ -17,8 +17,8 @@ function makeWrapper() {
   };
 }
 
-function milestone(name: string): MilestoneRoadmap {
-  return { id: name, name, status: "PENDING", requirements: [] };
+function milestone(name: string, status: MilestoneRoadmap["status"] = "PENDING"): MilestoneRoadmap {
+  return { id: name, name, status, requirements: [] };
 }
 
 beforeEach(() => {
@@ -32,44 +32,116 @@ function renderRoadmap(stages: StageRoadmap[]) {
 }
 
 describe("Roadmap rendering", () => {
-  it("suppresses the stage header for a single same-named milestone", () => {
-    const nineOneToOneStages: StageRoadmap[] = [
-      "Registration", "Sales Approval", "Agreement", "Document Collection", "Verification",
-      "Technical Setup", "Testing", "Training", "Go Live",
-    ].map((name, i) => ({ id: `s-${i}`, name, ordinal: i, milestones: [milestone(name)] }));
+  it("renders one StageAccordion header per stage, expanded by default", () => {
+    const stages: StageRoadmap[] = [
+      { id: "s-0", name: "Registration", ordinal: 0, milestones: [milestone("Company profile captured")] },
+      {
+        id: "s-1",
+        name: "Sales Approval",
+        ordinal: 1,
+        milestones: [milestone("Handoff approved"), milestone("Second review")],
+      },
+    ];
 
-    renderRoadmap(nineOneToOneStages);
+    renderRoadmap(stages);
 
-    expect(screen.queryByRole("heading", { name: "Registration" })).toBeNull();
-    expect(screen.getAllByTestId("milestone-row")).toHaveLength(9);
+    expect(screen.getByRole("button", { name: /registration/i })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /sales approval/i })).not.toBeNull();
+    expect(screen.getAllByTestId("milestone-row")).toHaveLength(3);
   });
 
-  it("shows the stage header when a stage fans out", () => {
-    const registrationWithTwoMilestones: StageRoadmap[] = [
+  it("collapses a stage's milestone rows when its header is clicked, and re-expands on a second click", () => {
+    const stages: StageRoadmap[] = [
       { id: "s-0", name: "Registration", ordinal: 0, milestones: [milestone("Sign up"), milestone("Verify email")] },
     ];
 
-    renderRoadmap(registrationWithTwoMilestones);
+    renderRoadmap(stages);
+    expect(screen.getAllByTestId("milestone-row")).toHaveLength(2);
 
-    expect(screen.getByRole("heading", { name: "Registration" })).not.toBeNull();
+    const header = screen.getByRole("button", { name: /registration/i });
+    fireEvent.click(header);
+    expect(screen.queryAllByTestId("milestone-row")).toHaveLength(0);
+
+    fireEvent.click(header);
     expect(screen.getAllByTestId("milestone-row")).toHaveLength(2);
   });
 
-  it("shows the header when one milestone has a different name from its stage", () => {
+  it("only collapses the clicked stage, leaving other stages expanded", () => {
     const stages: StageRoadmap[] = [
       { id: "s-0", name: "Registration", ordinal: 0, milestones: [milestone("Sign up")] },
+      { id: "s-1", name: "Agreement", ordinal: 1, milestones: [milestone("MSA drafted")] },
+    ];
+
+    renderRoadmap(stages);
+    fireEvent.click(screen.getByRole("button", { name: /registration/i }));
+
+    expect(screen.queryAllByTestId("milestone-row")).toHaveLength(1);
+    expect(screen.getByText("MSA drafted")).not.toBeNull();
+  });
+
+  it("shows the stage title with no milestone rows for a stage with none yet", () => {
+    const stages: StageRoadmap[] = [{ id: "s-0", name: "Go Live", ordinal: 0, milestones: [] }];
+    renderRoadmap(stages);
+    expect(screen.getByRole("button", { name: /go live/i })).not.toBeNull();
+    expect(screen.queryAllByTestId("milestone-row")).toHaveLength(0);
+  });
+
+  it("marks a stage complete only once every milestone is DONE or SKIPPED", () => {
+    const stages: StageRoadmap[] = [
+      {
+        id: "s-0",
+        name: "Agreement",
+        ordinal: 0,
+        milestones: [milestone("MSA drafted", "DONE"), milestone("Signature collected", "SKIPPED")],
+      },
+    ];
+    renderRoadmap(stages);
+    expect(screen.getByText("Complete")).not.toBeNull();
+  });
+
+  it("marks a stage with no progress yet as upcoming", () => {
+    const stages: StageRoadmap[] = [
+      { id: "s-0", name: "Testing", ordinal: 0, milestones: [milestone("Customer acceptance test")] },
+    ];
+    renderRoadmap(stages);
+    expect(screen.getByText("Upcoming")).not.toBeNull();
+  });
+
+  it("excludes a SKIPPED milestone from both the progress denominator and the meta count (invariant 10)", () => {
+    const stages: StageRoadmap[] = [
+      {
+        id: "s-0",
+        name: "Document Collection",
+        ordinal: 0,
+        milestones: [
+          milestone("Company registration record", "DONE"),
+          milestone("Tax certificate", "SKIPPED"),
+          milestone("Document quality review", "PENDING"),
+        ],
+      },
     ];
 
     renderRoadmap(stages);
 
-    expect(screen.getByRole("heading", { name: "Registration" })).not.toBeNull();
-    expect(screen.getAllByTestId("milestone-row")).toHaveLength(1);
+    // 1 DONE out of 2 counted milestones (the SKIPPED one excluded entirely) -- 50%, not 67%.
+    const progressbar = screen.getByRole("progressbar", { name: "Document Collection" });
+    expect(progressbar.getAttribute("aria-valuenow")).toBe("50");
+    expect(screen.getByText("1/2 milestones")).not.toBeNull();
   });
 
-  it("renders nothing for a stage with no milestones yet", () => {
-    const stages: StageRoadmap[] = [{ id: "s-0", name: "Go Live", ordinal: 0, milestones: [] }];
+  it("treats a stage holding a SKIPPED milestone as active, not upcoming", () => {
+    const stages: StageRoadmap[] = [
+      {
+        id: "s-0",
+        name: "Verification",
+        ordinal: 0,
+        milestones: [milestone("Sanctions screening", "SKIPPED"), milestone("KYC verification", "PENDING")],
+      },
+    ];
+
     renderRoadmap(stages);
-    expect(screen.getByRole("heading", { name: "Go Live" })).not.toBeNull();
-    expect(screen.queryAllByTestId("milestone-row")).toHaveLength(0);
+
+    expect(screen.getByText("Active")).not.toBeNull();
+    expect(screen.queryByText("Upcoming")).toBeNull();
   });
 });

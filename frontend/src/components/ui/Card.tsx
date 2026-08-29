@@ -4,8 +4,12 @@ import type { ReactNode } from "react";
  * The base surface for almost everything (component-specs §3).
  *
  * Cards are FLAT. Elevation is reserved for things that genuinely float —
- * popovers, open milestones, device frames — and adding a shadow to make a card
- * "pop" is one of the four decisions the design says erodes quietly.
+ * popovers, open milestones, device frames — and a shadow that makes a card
+ * "pop" is one of the four decisions the design says erodes quietly. The `card`
+ * shadow token below is not that: at `rgba(28,27,24,.03)` it reads as a soft
+ * edge, not a lift, and DESIGN_TOKENS.md's own Shadows table assigns it to
+ * "every card" explicitly — this is the design system's one deliberate,
+ * barely-perceptible exception, not an invitation to reach for a bigger one.
  */
 export function Card({
   children,
@@ -16,8 +20,8 @@ export function Card({
 }) {
   return (
     <div
-      className={`bg-bg-surface border border-border-default rounded-card ${className}`}
-      style={{ padding: "var(--ob-card-padding-y) var(--ob-card-padding-x)" }}
+      className={`bg-surface border border-line rounded-11 ${className}`}
+      style={{ padding: "14px 15px 14px 15px", boxShadow: "var(--ob-shadow-card)" }}
     >
       {children}
     </div>
@@ -46,14 +50,14 @@ export function CardHeader({
       className={`flex justify-between ${action ? "items-center" : "items-baseline"}`}
       style={{ marginBottom: "var(--ob-space-16)" }}
     >
-      <h2 className="text-text-primary" style={{ font: "600 var(--ob-type-13-5-size)/var(--ob-type-13-5-line) var(--ob-font-family-ui)" }}>
+      <h2 className="text-ink" style={{ font: "600 var(--ob-type-card-title-size)/var(--ob-type-card-title-line) var(--ob-font-family-ui)" }}>
         {title}
       </h2>
       <div className="flex items-center" style={{ gap: "var(--ob-space-11)" }}>
         {count !== undefined && (
           <span
             className="text-text-faint"
-            style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
+            style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
           >
             {count}
           </span>

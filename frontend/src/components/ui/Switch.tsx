@@ -28,8 +28,8 @@ export function Switch({
     <div className="flex items-center justify-between">
       <span
         id={labelId}
-        className="text-text-secondary"
-        style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+        className="text-text-muted"
+        style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
       >
         {label}
       </span>
@@ -42,24 +42,24 @@ export function Switch({
         className="relative inline-flex shrink-0 items-center"
         style={{
           width: 34,
-          height: 20,
-          borderRadius: "var(--ob-radius-pill)",
-          background: checked ? "var(--ob-accent)" : "var(--ob-bg-inset)",
+          height: 19,
+          borderRadius: "var(--ob-radius-11)",
+          background: checked ? "var(--ob-accent-fg)" : "var(--ob-line-strong)",
           padding: 2,
           border: "none",
           cursor: "pointer",
-          transition: "background var(--ob-duration-fast) ease",
+          transition: "background var(--ob-duration-pop) ease",
         }}
       >
         <span
           aria-hidden
           style={{
-            width: 16,
-            height: 16,
+            width: 15,
+            height: 15,
             borderRadius: "var(--ob-radius-full)",
-            background: "var(--ob-bg-surface)",
-            transform: checked ? "translateX(14px)" : "translateX(0)",
-            transition: "transform var(--ob-duration-fast) ease",
+            background: "var(--ob-surface)",
+            transform: checked ? "translateX(15px)" : "translateX(0)",
+            transition: "transform var(--ob-duration-pop) ease",
           }}
         />
       </button>

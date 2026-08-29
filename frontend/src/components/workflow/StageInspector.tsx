@@ -73,7 +73,7 @@ export function StageInspector({
       <h3
         className="text-text-faint"
         style={{
-          font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+          font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
           textTransform: "uppercase",
           letterSpacing: "0.08em",
           marginBottom: "var(--ob-space-8)",
@@ -82,8 +82,8 @@ export function StageInspector({
         {t("workflow.inspector.title")}
       </h3>
       <p
-        className="text-text-primary"
-        style={{ font: "600 var(--ob-type-15-size)/var(--ob-type-15-line) var(--ob-font-family-ui)", marginBottom: "var(--ob-space-13)" }}
+        className="text-ink"
+        style={{ font: "600 15px/1.3 var(--ob-font-family-ui)", marginBottom: "var(--ob-space-13)" }}
       >
         {stage.name || t("workflow.stage.unnamed")}
       </p>
@@ -102,8 +102,8 @@ export function StageInspector({
         <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
           <label
             htmlFor="stage-department"
-            className="text-text-secondary"
-            style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+            className="text-text-muted"
+            style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
           >
             {t("workflow.inspector.department")}
           </label>
@@ -133,8 +133,8 @@ export function StageInspector({
         <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
           <label
             htmlFor="stage-write-scope"
-            className="text-text-secondary"
-            style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+            className="text-text-muted"
+            style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
           >
             {t("workflow.inspector.writeScope")}
           </label>
@@ -173,13 +173,13 @@ export function StageInspector({
         <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
           <label
             htmlFor="stage-notification-template"
-            className="text-text-secondary"
-            style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+            className="text-text-muted"
+            style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
           >
             {t("workflow.inspector.notificationTemplate")}
           </label>
           <input id="stage-notification-template" disabled value={stage.notificationTemplateKey ?? ""} style={selectStyle} />
-          <p className="text-text-faint" style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-ui)" }}>
+          <p className="text-text-faint" style={{ font: "10.5px/1.4 var(--ob-font-family-ui)" }}>
             {t("workflow.inspector.notificationTemplate.hint")}
           </p>
         </div>
@@ -193,7 +193,7 @@ export function StageInspector({
           <h4
             className="text-text-faint"
             style={{
-              font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+              font: "500 var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
               textTransform: "uppercase",
               letterSpacing: "0.08em",
             }}
@@ -219,10 +219,10 @@ export function StageInspector({
               style={{
                 gap: "var(--ob-space-6)",
                 padding: "var(--ob-space-8) var(--ob-space-11)",
-                borderRadius: "var(--ob-radius-chip)",
-                border: "1px dashed var(--ob-border-dashed)",
-                color: "var(--ob-text-secondary)",
-                font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+                borderRadius: "var(--ob-radius-7)",
+                border: "1px dashed var(--ob-line-strong)",
+                color: "var(--ob-text-muted)",
+                font: "12px/1.4 var(--ob-font-family-ui)",
               }}
             >
               <PlusIcon size={13} />
@@ -237,9 +237,9 @@ export function StageInspector({
 
 const selectStyle = {
   height: "var(--ob-control-height)",
-  borderRadius: "var(--ob-radius-chip)",
-  border: "1px solid var(--ob-border-default)",
-  background: "var(--ob-bg-surface)",
+  borderRadius: "var(--ob-radius-9)",
+  border: "1px solid var(--ob-line)",
+  background: "var(--ob-surface)",
   padding: "0 var(--ob-space-11)",
-  font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+  font: "13px/1.3 var(--ob-font-family-ui)",
 } as const;

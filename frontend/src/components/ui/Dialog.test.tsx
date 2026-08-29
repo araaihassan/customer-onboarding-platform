@@ -127,4 +127,11 @@ describe("Dialog", () => {
     const dialog = screen.getByRole("dialog", { name: "Deactivate customer" });
     expect(dialog.getAttribute("aria-modal")).toBe("true");
   });
+
+  it("defaults to 460px and accepts a wider maxWidth", () => {
+    const { rerender } = render(<Dialog title="t" onClose={() => {}}>x</Dialog>);
+    expect(screen.getByRole("dialog").style.maxWidth).toBe("460px");
+    rerender(<Dialog title="t" onClose={() => {}} maxWidth={520}>x</Dialog>);
+    expect(screen.getByRole("dialog").style.maxWidth).toBe("520px");
+  });
 });

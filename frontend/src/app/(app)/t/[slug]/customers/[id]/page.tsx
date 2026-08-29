@@ -126,7 +126,7 @@ export default function CustomerDetailPage() {
     );
 
   return (
-    <section className="flex flex-col" style={{ gap: "var(--ob-grid-gap)" }}>
+    <section className="flex flex-col" style={{ gap: "var(--ob-space-16)" }}>
       <BackLink slug={slug} />
 
       <Card>
@@ -137,10 +137,10 @@ export default function CustomerDetailPage() {
           <div className="flex-1 min-w-0">
             <div className="flex items-center flex-wrap" style={{ gap: "var(--ob-space-11)" }}>
               <h2
-                className="text-text-primary min-w-0 truncate"
+                className="text-ink min-w-0 truncate"
                 style={{
-                  font: "600 var(--ob-type-19-size)/var(--ob-type-19-line) var(--ob-font-family-ui)",
-                  letterSpacing: "var(--ob-type-19-tracking)",
+                  font: "600 var(--ob-type-section-heading-size)/var(--ob-type-section-heading-line) var(--ob-font-family-ui)",
+                  letterSpacing: "var(--ob-type-section-heading-tracking)",
                 }}
               >
                 {customer.displayName}
@@ -150,7 +150,7 @@ export default function CustomerDetailPage() {
 
             <div
               className="flex flex-wrap"
-              style={{ gap: "var(--ob-space-28)", marginTop: "var(--ob-space-16)" }}
+              style={{ gap: "var(--ob-space-26)", marginTop: "var(--ob-space-16)" }}
             >
               <Fact label={t("customer.form.legalName")} value={customer.legalName} />
               <Fact label={t("customer.form.industry")} value={customer.industry} />
@@ -198,7 +198,7 @@ export default function CustomerDetailPage() {
           <h2
             className="text-text-faint"
             style={{
-              font: "500 var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+              font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
               textTransform: "uppercase",
               letterSpacing: "0.08em",
               marginBottom: "var(--ob-space-13)",
@@ -210,7 +210,7 @@ export default function CustomerDetailPage() {
           {cases.isLoading ? (
             <SkeletonRows rows={1} height={32} />
           ) : cases.isError ? (
-            <p className="text-text-muted" style={{ font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}>
+            <p className="text-text-subtle" style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}>
               {t("common.error")}
             </p>
           ) : (cases.data ?? []).length === 0 ? (
@@ -278,8 +278,8 @@ export default function CustomerDetailPage() {
       {confirming && (
         <Dialog title={t("customer.deactivate.title")} onClose={() => setConfirming(false)}>
           <p
-            className="text-text-secondary"
-            style={{ font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+            className="text-text-muted"
+            style={{ font: "var(--ob-type-body-size)/var(--ob-type-body-line) var(--ob-font-family-ui)" }}
           >
             {t("customer.deactivate.confirm", { name: customer.displayName ?? "" })}
           </p>
@@ -293,9 +293,9 @@ export default function CustomerDetailPage() {
           <p
             role="alert"
             style={{
-              color: "var(--ob-status-blocked-fg)",
+              color: "var(--ob-risk-fg)",
               marginTop: deactivate.isError ? "var(--ob-space-11)" : 0,
-              font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+              font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
             }}
           >
             {deactivate.isError ? t("common.error") : ""}
@@ -325,10 +325,10 @@ function BackLink({ slug }: { slug: string }) {
   return (
     <Link
       href={`/t/${slug}/customers`}
-      className="inline-flex items-center self-start text-text-muted hover:underline"
+      className="inline-flex items-center self-start text-text-subtle hover:underline"
       style={{
         gap: "var(--ob-space-6)",
-        font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+        font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
       }}
     >
       <span aria-hidden="true" style={{ transform: "rotate(180deg)", display: "inline-flex" }}>
@@ -360,18 +360,18 @@ function Fact({
         style={{
           textTransform: "uppercase",
           letterSpacing: "0.08em",
-          font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+          font: "var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
         }}
       >
         {label}
       </p>
       <p
-        className="text-text-primary truncate"
+        className="text-ink truncate"
         style={{
           marginTop: "var(--ob-space-4)",
           font: mono
-            ? "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-data)"
-            : "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+            ? "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-data)"
+            : "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
         }}
       >
         {value || "—"}

@@ -4,6 +4,13 @@
 **Sub-project:** 1 of 10
 **Status:** Approved
 
+> **Design system superseded (2026-08-25).** Every `docs/uispecs/` reference below (build order,
+> token system, component families, shell dimensions) describes the design system this
+> sub-project's frontend was actually built against, now at `docs/uispecs_legacy/`. It is accurate
+> history and is left as written. For any new frontend work — including the sub-project 1–2
+> refactor — the current design system is
+> `docs/uispecs_latest/design_handoff_onboarding_platform/`; see CLAUDE.md's "UI/UX" section.
+
 ---
 
 ## 1. Context

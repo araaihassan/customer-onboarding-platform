@@ -97,9 +97,9 @@ export function RoleEditor({
         <section aria-labelledby={`${roleId}-permissions`}>
           <h3
             id={`${roleId}-permissions`}
-            className="text-text-primary"
+            className="text-ink"
             style={{
-              font: "600 var(--ob-type-13-5-size)/var(--ob-type-13-5-line) var(--ob-font-family-ui)",
+              font: "600 var(--ob-type-card-title-size)/var(--ob-type-card-title-line) var(--ob-font-family-ui)",
               marginBottom: "var(--ob-space-12)",
             }}
           >
@@ -113,8 +113,8 @@ export function RoleEditor({
                   id={`${roleId}-cat-${category}`}
                   className="text-text-faint"
                   style={{
-                    font: "500 var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)",
-                    letterSpacing: "0.08em",
+                    font: "500 var(--ob-type-mono-label-size)/var(--ob-type-mono-label-line) var(--ob-font-family-data)",
+                    letterSpacing: "var(--ob-type-mono-label-tracking)",
                     textTransform: "uppercase",
                     marginBottom: "var(--ob-space-8)",
                   }}
@@ -140,20 +140,20 @@ export function RoleEditor({
         </section>
 
         <aside
-          className="xl:sticky bg-bg-surface border border-border-default"
+          className="xl:sticky bg-surface border border-line"
           // 76px is the design's own figure for the inspector: the header is 64px
           // and the gap above the panel is 12px.
           style={{
             top: 76,
-            borderRadius: "var(--ob-radius-card)",
+            borderRadius: "var(--ob-card-radius)",
             padding: "var(--ob-space-16)",
           }}
         >
           <p
             className="text-text-faint"
             style={{
-              font: "500 var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-data)",
-              letterSpacing: "0.08em",
+              font: "500 var(--ob-type-mono-label-size)/var(--ob-type-mono-label-line) var(--ob-font-family-data)",
+              letterSpacing: "var(--ob-type-mono-label-tracking)",
               textTransform: "uppercase",
             }}
           >
@@ -165,15 +165,18 @@ export function RoleEditor({
             style={{ gap: "var(--ob-space-8)", margin: "var(--ob-space-6) 0 var(--ob-space-16)" }}
           >
             <h3
-              className="text-text-primary"
-              style={{ font: "600 var(--ob-type-15-size)/var(--ob-type-15-line) var(--ob-font-family-ui)" }}
+              className="text-ink"
+              // No new-system role sits at 15px (the scale collapses card-title's
+              // 13.5 straight to section-heading's 19) -- kept literal rather than
+              // forced into either, same as StageInspector's own stage-name heading.
+              style={{ font: "600 15px/1.3 var(--ob-font-family-ui)" }}
             >
               {role.name}
             </h3>
             {/* The word carries the state; the colour only reinforces it. */}
             <StatusPill
               status={role.enabled ? t("role.enabled") : t("role.disabled")}
-              role={role.enabled ? "on-track" : "blocked"}
+              role={role.enabled ? "ok" : "risk"}
             />
           </div>
 
@@ -196,9 +199,9 @@ export function RoleEditor({
 
           {role.systemTemplate && (
             <p
-              className="text-text-muted"
+              className="text-text-subtle"
               style={{
-                font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+                font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
                 marginTop: "var(--ob-space-12)",
               }}
             >
@@ -214,8 +217,8 @@ export function RoleEditor({
               >
                 <span
                   id={`${roleId}-enabled-label`}
-                  className="text-text-secondary"
-                  style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+                  className="text-text-muted"
+                  style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
                 >
                   {t("role.enabledToggle")}
                 </span>
@@ -239,9 +242,9 @@ export function RoleEditor({
                 <p
                   role="alert"
                   style={{
-                    color: "var(--ob-status-blocked-fg)",
+                    color: "var(--ob-risk-fg)",
                     marginTop: "var(--ob-space-11)",
-                    font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+                    font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
                   }}
                 >
                   {updateGrants.isError ? t("role.saveFailed") : t("role.enableFailed")}
@@ -300,26 +303,26 @@ function PermissionRow({
 
   return (
     <li
-      className="flex items-start bg-bg-surface border border-border-default"
+      className="flex items-start bg-surface border border-line"
       style={{
         gap: "var(--ob-space-11)",
         padding: "var(--ob-space-10) var(--ob-space-13)",
-        borderRadius: "var(--ob-radius-row)",
+        borderRadius: "var(--ob-radius-11)",
       }}
     >
       <div className="flex-1 min-w-0">
-        {/* Human text, so Archivo. */}
+        {/* Human text, so Instrument Sans. */}
         <p
           id={`${id}-label`}
-          className="text-text-primary"
-          style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+          className="text-ink"
+          style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
         >
           {permission.description}
         </p>
         {/* A permission key is a machine-generated identifier, so it is mono. */}
         <p
           className="text-text-faint truncate"
-          style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
+          style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
         >
           {permission.key}
         </p>
@@ -332,7 +335,10 @@ function PermissionRow({
               <label
                 htmlFor={`${id}-scope`}
                 className="text-text-faint"
-                style={{ font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-ui)" }}
+                // No new-system role sits at plain (non-uppercase) 10px UI-font
+                // caption text -- kept literal rather than forced into
+                // mono-label, which the design reserves for uppercase text.
+                style={{ font: "10px/1.3 var(--ob-font-family-ui)" }}
               >
                 {t("role.scope")}
               </label>
@@ -341,12 +347,12 @@ function PermissionRow({
                 value={scope}
                 disabled={!canManage}
                 onChange={(event) => onRescope(event.target.value as Scope)}
-                className="bg-bg-surface-sunken border border-border-default text-text-primary"
+                className="bg-surface-sunken border border-line text-ink"
                 style={{
                   height: "var(--ob-control-height-sm)",
-                  borderRadius: "var(--ob-radius-chip)",
+                  borderRadius: "var(--ob-radius-8)",
                   padding: "0 var(--ob-space-8)",
-                  font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)",
+                  font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)",
                 }}
               >
                 {allowed.map((option) => (
@@ -362,17 +368,17 @@ function PermissionRow({
             <>
               <span
                 className="text-text-faint"
-                style={{ font: "var(--ob-type-10-size)/var(--ob-type-10-line) var(--ob-font-family-ui)" }}
+                style={{ font: "10px/1.3 var(--ob-font-family-ui)" }}
               >
                 {t("role.scope")}
               </span>
               <span
-                className="text-text-secondary"
+                className="text-text-muted"
                 style={{
                   height: "var(--ob-control-height-sm)",
                   display: "inline-flex",
                   alignItems: "center",
-                  font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)",
+                  font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)",
                 }}
               >
                 {t(`role.scope.${scope}`)}
@@ -395,7 +401,11 @@ function PermissionRow({
 }
 
 /**
- * The 34×20px track from component-specs §12.
+ * The 34×19px track from COMPONENTS.md §17, kept as its own component (per
+ * the Global Constraints rule for `RoleEditor`'s own `Switch`) rather than
+ * redirected to `ui/Switch.tsx` -- but restyled to the same track/knob token
+ * VALUES that component now uses: 19px track, 15×15 knob, `accent-fg` on /
+ * `line-strong` off, border:0.
  *
  * `role="switch"` with `aria-checked`, named by the text it sits beside rather
  * than by a duplicate aria-label — a label that repeats visible text is one more
@@ -423,15 +433,15 @@ function Switch({
       onClick={() => onChange(!checked)}
       style={{
         width: 34,
-        height: 20,
+        height: 19,
         flex: "0 0 34px",
-        borderRadius: "var(--ob-radius-pill)",
-        background: checked ? "var(--ob-accent)" : "var(--ob-bg-inset-strong)",
-        border: `1px solid ${checked ? "var(--ob-accent)" : "var(--ob-border-default)"}`,
+        borderRadius: "var(--ob-radius-11)",
+        background: checked ? "var(--ob-accent-fg)" : "var(--ob-line-strong)",
+        border: "none",
         position: "relative",
         opacity: disabled ? 0.55 : 1,
         cursor: disabled ? "not-allowed" : "pointer",
-        transition: "background 120ms ease",
+        transition: "background var(--ob-duration-pop) ease",
       }}
     >
       <span
@@ -439,19 +449,20 @@ function Switch({
         style={{
           position: "absolute",
           top: 2,
-          left: checked ? 16 : 2,
-          width: 14,
-          height: 14,
-          borderRadius: "var(--ob-radius-pill)",
-          background: "var(--ob-bg-surface)",
-          transition: "left 120ms ease",
+          left: checked ? 17 : 2,
+          width: 15,
+          height: 15,
+          borderRadius: "var(--ob-radius-full)",
+          background: "var(--ob-surface)",
+          boxShadow: "0 1px 2px rgba(0,0,0,.2)",
+          transition: "left var(--ob-duration-pop) ease",
         }}
       />
     </button>
   );
 }
 
-/** A read-only inspector field: 32px, radius-chip, on bg-surface-sunken (§12). */
+/** A read-only inspector field: 32px, radius-8, on surface-sunken (§12). */
 function InspectorField({
   label,
   value,
@@ -467,8 +478,8 @@ function InspectorField({
     <div className="flex flex-col" style={{ gap: "var(--ob-space-4)" }}>
       <label
         htmlFor={id}
-        className="text-text-secondary"
-        style={{ font: "500 var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+        className="text-text-muted"
+        style={{ font: "500 var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
       >
         {label}
       </label>
@@ -476,14 +487,14 @@ function InspectorField({
         id={id}
         readOnly
         value={value}
-        className="bg-bg-surface-sunken border border-border-default text-text-primary"
+        className="bg-surface-sunken border border-line text-ink"
         style={{
           height: 32,
-          borderRadius: "var(--ob-radius-chip)",
+          borderRadius: "var(--ob-radius-8)",
           padding: "0 var(--ob-space-10)",
           font: mono
-            ? "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)"
-            : "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+            ? "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)"
+            : "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
         }}
       />
     </div>

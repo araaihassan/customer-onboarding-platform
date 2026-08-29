@@ -19,26 +19,26 @@ import { t } from "@/lib/i18n";
 export function CaseHeader({ caseData, customer }: { caseData: Case; customer: Customer }) {
   return (
     <div
-      className="bg-bg-surface border border-border-default"
-      style={{ borderRadius: "var(--ob-radius-card)", padding: "var(--ob-space-20)" }}
+      className="bg-surface border border-line"
+      style={{ borderRadius: "var(--ob-card-radius)", padding: "var(--ob-space-20)" }}
     >
       <div className="flex items-start" style={{ gap: "var(--ob-space-16)" }}>
         <Avatar name={customer.displayName ?? ""} kind="company" size={46} />
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center flex-wrap" style={{ gap: "var(--ob-space-11)" }}>
-            <h1
-              className="text-text-primary min-w-0 truncate"
-              style={{ font: "600 var(--ob-type-19-size)/var(--ob-type-19-line) var(--ob-font-family-ui)" }}
+            <h2
+              className="text-ink min-w-0 truncate"
+              style={{ font: "600 var(--ob-type-section-heading-size)/var(--ob-type-section-heading-line) var(--ob-font-family-ui)" }}
             >
               {customer.displayName}
-            </h1>
+            </h2>
             <StatusPill status={caseData.status} />
           </div>
 
           <p
             className="text-text-faint"
-            style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)", marginTop: 4 }}
+            style={{ font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)", marginTop: 4 }}
           >
             {[shortId(caseData.id), t("case.header.version", { version: `v${caseData.versionNo ?? "?"} (frozen)` })]
               .filter(Boolean)
@@ -60,18 +60,18 @@ export function CaseHeader({ caseData, customer }: { caseData: Case; customer: C
 
         <div className="flex-shrink-0 flex flex-col items-end" style={{ gap: 6 }}>
           <span
-            className="text-text-primary"
-            style={{ font: "600 var(--ob-type-34-size)/var(--ob-type-34-line) var(--ob-font-family-data)" }}
+            className="text-ink"
+            style={{ font: "600 var(--ob-type-hero-metric-size)/var(--ob-type-hero-metric-line) var(--ob-font-family-data)" }}
           >
             {caseData.progressPercent ?? 0}%
           </span>
           <div
-            className="bg-bg-inset overflow-hidden"
-            style={{ width: 150, height: 7, borderRadius: "var(--ob-radius-bar)" }}
+            className="bg-line-faint overflow-hidden"
+            style={{ width: 150, height: 7, borderRadius: "var(--ob-radius-4)" }}
           >
             <div
-              className="h-full bg-solid-on-track"
-              style={{ width: `${caseData.progressPercent ?? 0}%`, background: "var(--ob-solid-on-track)" }}
+              className="h-full bg-ok-fg"
+              style={{ width: `${caseData.progressPercent ?? 0}%`, background: "var(--ob-ok-fg)" }}
             />
           </div>
         </div>
@@ -92,19 +92,19 @@ function Fact({ label, value, mono = false }: { label: string; value: string; mo
         className="text-text-faint"
         style={{
           textTransform: "uppercase",
-          letterSpacing: "0.08em",
-          font: "var(--ob-type-9-5-size)/var(--ob-type-9-5-line) var(--ob-font-family-data)",
+          letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
+          font: "var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
         }}
       >
         {label}
       </p>
       <p
-        className="text-text-primary truncate"
+        className="text-ink truncate"
         style={{
           marginTop: "var(--ob-space-4)",
           font: mono
-            ? "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-data)"
-            : "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+            ? "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-data)"
+            : "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
         }}
       >
         {value}

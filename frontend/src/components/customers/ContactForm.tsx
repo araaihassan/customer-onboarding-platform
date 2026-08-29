@@ -152,8 +152,8 @@ export function ContactForm({
           <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
             <label
               htmlFor={statusId}
-              className="text-text-secondary"
-              style={{ font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+              className="text-text-muted"
+              style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
             >
               {t("contact.form.status")}
             </label>
@@ -161,12 +161,12 @@ export function ContactForm({
               id={statusId}
               value={values.status}
               onChange={(event) => set("status", event.target.value as ContactStatus)}
-              className="bg-bg-surface border border-border-default text-text-primary"
+              className="bg-surface border border-line text-ink"
               style={{
                 height: "var(--ob-control-height)",
-                borderRadius: "var(--ob-radius-control)",
+                borderRadius: "var(--ob-radius-9)",
                 padding: "0 var(--ob-space-11)",
-                font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+                font: "var(--ob-type-body-size)/var(--ob-type-body-line) var(--ob-font-family-ui)",
               }}
             >
               {STATUSES.map((status) => (
@@ -183,9 +183,9 @@ export function ContactForm({
         <p
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
+            color: "var(--ob-risk-fg)",
             marginTop: "var(--ob-space-11)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
           }}
         >
           {error}
@@ -210,18 +210,15 @@ export function ContactForm({
  *
  * Two deliberate departures from §11, both of which the spec's own rules require:
  *
- * The checked fill is NEUTRAL, not §11's `solid-on-track` green. "Primary" is a
- * role, not a state, and colour in this system always means status; the contact
- * list marks the same flag with a neutral pill for the same reason. The
- * text-primary fill with a bg-surface mark is the pairing the pressed filter chip
- * already uses.
+ * The checked fill is NEUTRAL (`ink`/`surface`), not §11's `solid-on-track`
+ * (`ok-fg`) green. "Primary" is a role, not a state, and colour in this system
+ * always means status; the contact list marks the same flag with a neutral pill
+ * for the same reason. The ink fill with a surface mark is the pairing the
+ * pressed filter chip already uses.
  *
- * The border is `border-strong`, not the literal `paper-500` §11 names. paper-500
- * is a primitive: it holds its value across themes, so quoting it directly would
- * paint a pale beige hairline onto the dark surface. `border-strong` is the
- * semantic tier that resolves to paper-450 in light — a shade off what §11 asked
- * for — and paper-600 in dark, which is exactly the graphics-only tier documented
- * as valid at 3:1 for 1px borders.
+ * The unchecked border is `line-strong`, not a literal hex — the semantic tier
+ * this design system documents as valid at 3:1 for 1px borders/graphics, not
+ * the literal §11 names a value would otherwise have quoted directly.
  *
  * The state is driven from the controlled value rather than `:checked`, because
  * an inline style cannot express a pseudo-class and this component is already
@@ -236,10 +233,10 @@ function PrimaryCheckbox({
 }) {
   return (
     <label
-      className="flex items-center text-text-secondary"
+      className="flex items-center text-text-muted"
       style={{
         gap: "var(--ob-space-8)",
-        font: "500 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+        font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
       }}
     >
       <span className="relative inline-flex shrink-0">
@@ -250,11 +247,11 @@ function PrimaryCheckbox({
           style={{
             appearance: "none",
             margin: 0,
-            width: "var(--ob-checkbox-size)",
-            height: "var(--ob-checkbox-size)",
-            borderRadius: "var(--ob-radius-check)",
-            border: `1px solid var(${checked ? "--ob-text-primary" : "--ob-border-strong"})`,
-            background: checked ? "var(--ob-text-primary)" : "var(--ob-bg-surface)",
+            width: 17,
+            height: 17,
+            borderRadius: "var(--ob-radius-5)",
+            border: `1px solid var(${checked ? "--ob-ink" : "--ob-line-strong"})`,
+            background: checked ? "var(--ob-ink)" : "var(--ob-surface)",
             cursor: "pointer",
           }}
         />
@@ -264,7 +261,7 @@ function PrimaryCheckbox({
           <span
             aria-hidden="true"
             className="absolute inset-0 grid place-items-center pointer-events-none"
-            style={{ color: "var(--ob-bg-surface)" }}
+            style={{ color: "var(--ob-surface)" }}
           >
             <CheckIcon size={11} strokeWidth={3} />
           </span>

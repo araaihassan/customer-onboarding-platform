@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { MigrationTable } from "./MigrationTable";
 import type { Candidate } from "@/lib/api/workflows";
 
@@ -23,6 +23,21 @@ const ineligibleCase: Candidate = {
 
 const mixed = [eligibleCase, ineligibleCase];
 
+/**
+ * `MigrationTable` now composes `DataTable` (Task 34), which mounts BOTH the
+ * `>=900px` grid and the `<900px` card list at once (CSS-gated visibility,
+ * not conditional rendering -- `DataTable`'s own doc comment explains why:
+ * it is what keeps a responsive fallback from ever silently dropping a row,
+ * the same failure shape as the `candidates.length === 0` guard this file
+ * exists to protect). Every row's content therefore appears twice in the
+ * DOM, so queries below are scoped to the grid view via this helper, the
+ * same pattern `CustomerTable.test.tsx` established for its own Task 27
+ * conversion, rather than to `screen` directly.
+ */
+function tableWrapper(container: HTMLElement): HTMLElement | null {
+  return container.querySelector("[data-view='table']");
+}
+
 function renderTable(candidates: Candidate[], overrides: Partial<Parameters<typeof MigrationTable>[0]> = {}) {
   const props = {
     candidates,
@@ -32,49 +47,58 @@ function renderTable(candidates: Candidate[], overrides: Partial<Parameters<type
     onSelectAll: vi.fn(),
     ...overrides,
   };
-  render(<MigrationTable {...props} />);
-  return props;
+  const { container } = render(<MigrationTable {...props} />);
+  return { ...props, container };
 }
 
 describe("MigrationTable", () => {
   it("shows the computed reason for every ineligible case", () => {
-    renderTable(mixed);
-    expect(screen.getByText(/no longer exists in the new version/i)).not.toBeNull();
+    const { container } = renderTable(mixed);
+    const table = tableWrapper(container)!;
+    expect(within(table).getByText(/no longer exists in the new version/i)).not.toBeNull();
   });
 
   it("disables selection for ineligible rows", () => {
-    renderTable(mixed);
-    const ineligibleCheckbox = screen.getByLabelText(`Select case ${ineligibleCase.caseId}`) as HTMLInputElement;
+    const { container } = renderTable(mixed);
+    const table = tableWrapper(container)!;
+    const ineligibleCheckbox = within(table).getByLabelText(`Select case ${ineligibleCase.caseId}`) as HTMLInputElement;
     expect(ineligibleCheckbox.disabled).toBe(true);
 
-    const eligibleCheckbox = screen.getByLabelText(`Select case ${eligibleCase.caseId}`) as HTMLInputElement;
+    const eligibleCheckbox = within(table).getByLabelText(`Select case ${eligibleCase.caseId}`) as HTMLInputElement;
     expect(eligibleCheckbox.disabled).toBe(false);
   });
 
   it("calls onToggle with the case id when an eligible row's checkbox is clicked", () => {
-    const props = renderTable(mixed);
-    fireEvent.click(screen.getByLabelText(`Select case ${eligibleCase.caseId}`));
-    expect(props.onToggle).toHaveBeenCalledWith(eligibleCase.caseId);
+    const { container, onToggle } = renderTable(mixed);
+    const table = tableWrapper(container)!;
+    fireEvent.click(within(table).getByLabelText(`Select case ${eligibleCase.caseId}`));
+    expect(onToggle).toHaveBeenCalledWith(eligibleCase.caseId);
   });
 
-  it("selects all eligible rows without selecting any ineligible one, via the header checkbox", () => {
-    const props = renderTable(mixed);
-    fireEvent.click(screen.getByLabelText("Select all eligible"));
-    expect(props.onSelectAll).toHaveBeenCalled();
+  it("selects all eligible rows without selecting any ineligible one, via the select-all control", () => {
+    const { container, onSelectAll } = renderTable(mixed);
+    // The select-all control sits just above the grid/card views (Task 34's
+    // doc comment on `MigrationTable` explains why: `DataTable`'s header
+    // cells only ever render a plain string label, so there is nowhere
+    // inside the generated header row for an interactive control to live),
+    // so it is queried from the whole container rather than a scoped view.
+    fireEvent.click(within(container).getByLabelText("Select all eligible"));
+    expect(onSelectAll).toHaveBeenCalled();
   });
 
   it("renders the empty state only when there are no candidates at all", () => {
-    renderTable([]);
-    expect(screen.getByText(/nothing eligible to migrate/i)).not.toBeNull();
-    expect(screen.queryByRole("table")).toBeNull();
+    const { container } = renderTable([]);
+    expect(within(container).getByText(/nothing eligible to migrate/i)).not.toBeNull();
+    expect(tableWrapper(container)).toBeNull();
   });
 
   it("still renders the table and the reason when every candidate is ineligible", () => {
     // The whole point of this table: "0 eligible" without a reason is a
     // number an admin cannot act on. Migrating the only eligible case must
     // not blank out the ineligible rows still waiting on a fix.
-    renderTable([ineligibleCase]);
-    expect(screen.getByRole("table")).not.toBeNull();
-    expect(screen.getByText(/no longer exists in the new version/i)).not.toBeNull();
+    const { container } = renderTable([ineligibleCase]);
+    const table = tableWrapper(container);
+    expect(table).not.toBeNull();
+    expect(within(table!).getByText(/no longer exists in the new version/i)).not.toBeNull();
   });
 });

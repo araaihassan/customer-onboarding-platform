@@ -1,24 +1,17 @@
 import type { Metadata } from "next";
-import { Archivo, IBM_Plex_Mono } from "next/font/google";
-import { ThemeProvider } from "@/components/ThemeProvider";
+import { Instrument_Sans, Spline_Sans_Mono } from "next/font/google";
 import "./globals.css";
 
-/**
- * Archivo for human text, IBM Plex Mono for machine-generated values — ids, dates,
- * counts, metrics. That distinction is applied consistently across all nine
- * prototype screens and is one of the four design decisions that erode quietly, so
- * both families are loaded here and nothing else should introduce a third.
- *
- * The scaffold's Geist fonts are deliberately replaced rather than kept alongside.
- */
-const archivo = Archivo({
-  variable: "--font-archivo",
+const instrumentSans = Instrument_Sans({
+  variable: "--font-instrument-sans",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
   display: "swap",
 });
 
-const plexMono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
+const splineMono = Spline_Sans_Mono({
+  variable: "--font-spline-mono",
   subsets: ["latin"],
   weight: ["400", "500", "600"],
   display: "swap",
@@ -35,20 +28,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // suppressHydrationWarning is required by next-themes: it writes data-theme on
-    // the client before React hydrates, so the server and client markup differ by
-    // that one attribute by design.
-    // The next/font variables go on <html>, not <body>. globals.css declares
-    // --ob-font-family-ui on :root as var(--font-archivo), …; with the font
-    // variables one level lower that reference is undefined AT :root, which makes
-    // the whole declaration invalid at computed-value time. The failure is silent
-    // and total: every `font:` shorthand built on the family token — the entire
-    // type ramp — is dropped, and the app renders in the browser's default sans
-    // at default sizes while every variable still "exists".
-    <html lang="en" className={`${archivo.variable} ${plexMono.variable}`} suppressHydrationWarning>
-      <body className="antialiased">
-        <ThemeProvider>{children}</ThemeProvider>
-      </body>
+    <html lang="en" className={`${instrumentSans.variable} ${splineMono.variable}`}>
+      <body className="antialiased">{children}</body>
     </html>
   );
 }

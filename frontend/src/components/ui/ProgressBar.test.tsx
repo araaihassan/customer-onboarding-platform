@@ -74,4 +74,15 @@ describe("ProgressBar", () => {
     render(<ProgressBar value={40} label="Onboarding progress" />);
     expect(screen.getByRole("progressbar", { name: "Onboarding progress" })).not.toBeNull();
   });
+
+  it.each([
+    ["table-cell", "5px", "var(--ob-radius-4)"],
+    ["stage-summary", "5px", "var(--ob-radius-4)"],
+    ["case-hero", "7px", "var(--ob-radius-4)"],
+    ["portal-sidebar", "5px", "var(--ob-radius-4)"],
+    ["portal-card", "6px", "var(--ob-radius-4)"],
+  ] as const)("context=%s sets the documented track height", (context, height) => {
+    render(<ProgressBar value={50} label="Progress" context={context} />);
+    expect(screen.getByRole("progressbar").style.height).toBe(height);
+  });
 });
