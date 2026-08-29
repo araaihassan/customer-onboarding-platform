@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -130,5 +131,89 @@ class DeactivationRevokesCredentialsTest extends PostgresTestBase {
                 token.set(resets.request("active-control@example.com").orElseThrow()));
 
         fixture.runAs(tenant, () -> resets.reset(token.get(), "brand-new-password-value"));
+    }
+
+    /**
+     * Fix round 1's own finding. issueForUser resolves its userId through
+     * AuthorizedQuery before doing anything -- revokePendingInvitations, right next
+     * to it on the same interface with the same permission, did not, and was safe
+     * only because its one caller (UserAdminService.deactivate) happened to
+     * already resolve the id itself. UserActivationSender is a public
+     * identity-module interface, injectable by anything: this proves the method
+     * now defends itself even when called directly, bypassing that caller
+     * entirely, exactly the shape CLAUDE.md names as having recurred multiple
+     * times already (contact creation, role assignment, invitation issuance).
+     *
+     * The outstanding invitation is issued through the privileged fixture
+     * administrator, not the narrow actor -- the narrow actor could not reach the
+     * outsider to invite them either, so this isolates the revoke call's own
+     * scope check from issueForUser's.
+     */
+    @Test
+    void departmentScopedActorCannotRevokeInvitationsForAUserOutsideTheirDepartment() {
+        UUID tenant = fixture.createTenant("deact-invite-narrow");
+        var narrowActor = new AtomicReference<UUID>();
+        var outsider = new AtomicReference<UUID>();
+        var rawToken = new AtomicReference<String>();
+
+        fixture.runAs(tenant, () -> {
+            UUID deptA = fixture.createDepartment(tenant, "Dept A");
+            UUID deptB = fixture.createDepartment(tenant, "Dept B");
+            narrowActor.set(fixture.createUserInDepartment(tenant, "narrow@example.com", deptA));
+            outsider.set(fixture.createUserInDepartment(tenant, "outsider@example.com", deptB));
+
+            UUID role = roles.createRole("Narrow User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.DEPARTMENT,
+                    PermissionKeys.USER_MANAGE, Scope.DEPARTMENT));
+            roles.assignRole(narrowActor.get(), role);
+        });
+
+        fixture.runAs(tenant, () ->
+                rawToken.set(activationSender.issueForUser(outsider.get())));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, narrowActor.get(),
+                () -> activationSender.revokePendingInvitations(outsider.get())))
+                .as("a department-scoped actor must not reach a user outside their department")
+                .isInstanceOf(NoSuchElementException.class);
+
+        fixture.runAs(tenant, () -> {
+            Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken.get()))
+                    .orElseThrow();
+            assertThat(invitation.getRevokedAt())
+                    .as("the refusal must not have revoked anything")
+                    .isNull();
+        });
+    }
+
+    /** Positive control: revoking within one's own department still works. */
+    @Test
+    void departmentScopedActorCanRevokeInvitationsWithinTheirDepartment() {
+        UUID tenant = fixture.createTenant("deact-invite-narrow-in");
+        var narrowActor = new AtomicReference<UUID>();
+        var peer = new AtomicReference<UUID>();
+        var rawToken = new AtomicReference<String>();
+
+        fixture.runAs(tenant, () -> {
+            UUID deptA = fixture.createDepartment(tenant, "Dept A");
+            narrowActor.set(fixture.createUserInDepartment(tenant, "narrowin@example.com", deptA));
+            peer.set(fixture.createUserInDepartment(tenant, "peerin@example.com", deptA));
+
+            UUID role = roles.createRole("Narrow User Admin In", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.DEPARTMENT,
+                    PermissionKeys.USER_MANAGE, Scope.DEPARTMENT));
+            roles.assignRole(narrowActor.get(), role);
+        });
+
+        fixture.runAsUser(tenant, narrowActor.get(),
+                () -> rawToken.set(activationSender.issueForUser(peer.get())));
+
+        fixture.runAsUser(tenant, narrowActor.get(),
+                () -> activationSender.revokePendingInvitations(peer.get()));
+
+        fixture.runAs(tenant, () -> {
+            Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken.get()))
+                    .orElseThrow();
+            assertThat(invitation.getRevokedAt()).isNotNull();
+        });
     }
 }

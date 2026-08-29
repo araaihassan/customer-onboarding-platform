@@ -80,13 +80,17 @@ public class UserInvitationService implements UserActivationSender {
     }
 
     /**
-     * userId here has already been resolved and authorized by the immediate caller
-     * (UserAdminService.deactivate, through authorizedQuery.getById) before this is
-     * invoked in the same transaction — unlike issueForUser above, this is not a
-     * fresh caller-supplied id arriving unchecked. The write itself only ever
-     * revokes rows already scoped to the bound tenant (Invitation is
-     * TenantScopedEntity, enforced by RLS and the Hibernate filter), and touches
-     * nothing outside the one userId the caller already established it may manage.
+     * userId is a foreign id the caller supplies, so — exactly like issueForUser
+     * above — it must be resolved through AuthorizedQuery before anything is
+     * written, and not trusted just because today's one caller
+     * (UserAdminService.deactivate) happens to have already resolved it itself.
+     * UserActivationSender is a public identity-module interface; a future second
+     * caller passing a raw request-body id straight through would otherwise be an
+     * unguarded cross-tenant/cross-scope escalation that no structural guard would
+     * catch — the ArchUnit finder rule sees a port call here, not a raw finder
+     * call, so it is invisible to that guard too. Resolving here makes this
+     * method's own safety self-contained rather than a property of its current
+     * caller.
      *
      * One row in Invitation covers both activation and password-reset tokens
      * (InvitationPurpose distinguishes them, not separate tables), so a single
@@ -96,13 +100,16 @@ public class UserInvitationService implements UserActivationSender {
      * calling InvitationRepository.findByUserIdAnd... here directly — see that
      * class's own javadoc for why: this class's simple name ends in "Service", so
      * a direct call here would (correctly, structurally) trip
-     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly even
-     * though the id is already authorized by this point.
+     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly. The id
+     * PendingInvitationRevoker receives is the AppUser.getId() this method just
+     * resolved through AuthorizedQuery, immediately above — not the raw parameter.
      */
     @Override
     @RequirePermission(PermissionKeys.USER_MANAGE)
     @Transactional
     public void revokePendingInvitations(UUID userId) {
-        new PendingInvitationRevoker(invitations).revoke(userId);
+        AppUser user = authorizedQuery.getById(users, AppUser.class,
+                PermissionKeys.USER_MANAGE, userId);
+        new PendingInvitationRevoker(invitations).revoke(user.getId());
     }
 }
