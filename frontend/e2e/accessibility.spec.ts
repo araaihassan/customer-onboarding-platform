@@ -159,7 +159,15 @@ for (const width of RESPONSIVE_WIDTHS) {
       await page.setViewportSize({ width, height: 900 });
       await signIn(page, tenant.slug, tenant.adminEmail);
       await page.goto(`/t/${tenant.slug}/customers/${customerId}/cases/${caseId}`);
-      await expect(page.getByRole("heading", { name: "Tailspin Toys" })).toBeVisible();
+      // level: 1, as every other precondition heading check in this file does
+      // (lines 306/378) -- the case workspace deliberately has a SECOND
+      // heading with the same text at level 2 (CaseHeader's own card title,
+      // SCREENS.md §3's "h1 27px = customer name"; TopBar's shared, page-wide
+      // <h1> mechanism is what actually holds the h1 tag here, a prior fix
+      // for a genuine duplicate-<h1> regression). An unscoped name-only
+      // locator matches both and fails Playwright's strict mode -- a test
+      // specificity gap, not a product defect.
+      await expect(page.getByRole("heading", { level: 1, name: "Tailspin Toys" })).toBeVisible();
       await expect(page.getByTestId("milestone-row").first()).toBeVisible();
 
       const violations = await scan(page);
@@ -321,16 +329,23 @@ test("any progress bar exposes an aria-valuenow matching its visible percentage"
 });
 
 /**
- * The rail collapses to 56px icons at or below 1280px, and its labels stay in the
- * DOM as `sr-only` precisely so the accessible name of each link does not change
- * with the viewport.
+ * Stale as written: this asserted the OLD design's icon-only rail collapse at
+ * 1281px (labels going `sr-only` below it). The frontend visual refactor
+ * deliberately replaced that with a fixed-width Sidebar (DESIGN_TOKENS.md:
+ * "Sidebar | 250px fixed") that is either fully inline with visible text
+ * labels (>=1024px) or an entirely hidden drawer (<1024px) — Sidebar.tsx's
+ * own doc comment names this explicitly: "replacing the old design's
+ * icon-only collapse at 1281px". There is no longer any width, at or above
+ * 1024px, where the sidebar is a narrower icon-only column, so every width
+ * this test exercises (all >=1024px) is now the single "inline, full labels"
+ * regime, and 250px replaces the old 244px measurement.
  *
- * jsdom does no layout, so a unit test can only check that a class is present.
- * This is the assertion that checks the effect — and if it passes at 1440 and
- * fails at 1280, that is a regression in the rail, not a test needing a
- * breakpoint guard.
+ * The part of the original intent that still matters is kept: a link's
+ * accessible name must not silently change with viewport width. The <1024px
+ * hidden-drawer behaviour itself is covered elsewhere (this file's own
+ * <768px sweep above, and customers.spec.ts's 900px table/card breakpoint).
  */
-test("navigation keeps its accessible names at every breakpoint", async ({ page }) => {
+test("navigation keeps its accessible names and sidebar width at every breakpoint >=1024px", async ({ page }) => {
   await signIn(page, tenant.slug, tenant.adminEmail);
 
   const names: Record<number, string[]> = {};
@@ -341,22 +356,17 @@ test("navigation keeps its accessible names at every breakpoint", async ({ page 
 
     const nav = page.getByRole("navigation", { name: "Main navigation" });
     await expect(nav).toBeVisible();
-    // textContent, not innerText: the labels are `sr-only` below 1281px, and
-    // innerText reports "" for clipped text — which would make this pass by
-    // comparing two empty lists.
     names[width] = await nav.getByRole("link").evaluateAll((links) =>
       links.map((link) => (link.textContent ?? "").trim()),
     );
 
-    // Collapsed or not, the rail is still a 56px column of reachable links.
-    const railWidth = await page
-      .locator("aside")
-      .first()
+    const sidebarWidth = await nav
+      .locator("xpath=ancestor::aside[1]")
       .evaluate((el) => el.getBoundingClientRect().width);
-    expect(railWidth, `rail width at ${width}px`).toBe(width >= 1281 ? 244 : 56);
+    expect(sidebarWidth, `sidebar width at ${width}px`).toBe(250);
   }
 
-  expect(names[1280], "names changed when the rail collapsed").toEqual(names[1281]);
+  expect(names[1280]).toEqual(names[1281]);
   expect(names[1024]).toEqual(names[1440]);
   expect(names[1440]).toContain("Customers");
 });
