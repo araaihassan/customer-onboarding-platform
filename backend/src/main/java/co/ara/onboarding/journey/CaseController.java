@@ -99,7 +99,7 @@ public class CaseController {
             @ApiResponse(responseCode = "422", description = "Every attribute problem found, so the dialog can list them all",
                     content = @Content(schema = @Schema(implementation = JourneyExceptionHandler.ProblemList.class)))
     })
-    public CaseView update(@PathVariable UUID id, @RequestBody UpdateCaseRequest request) {
+    public CaseView update(@PathVariable UUID id, @Valid @RequestBody UpdateCaseRequest request) {
         return cases.update(id, request);
     }
 

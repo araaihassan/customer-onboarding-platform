@@ -114,6 +114,7 @@ public class JourneyFixtures {
         Case c = new Case();
         c.setId(Uuid7.generate());
         c.setTenantId(tenant);
+        c.setName("Journey Fixture Case " + Uuid7.generate());
         c.setCustomerId(customerId);
         c.setTemplateId(t.getId());
         c.setVersionId(v.getId());

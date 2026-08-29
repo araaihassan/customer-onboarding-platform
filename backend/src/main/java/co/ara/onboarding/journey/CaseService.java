@@ -152,6 +152,13 @@ public class CaseService {
         Case c = new Case();
         c.setId(Uuid7.generate());
         c.setTenantId(TenantContext.getRequired());
+        // Q18: falls back to the same synthetic label V15's backfill gives
+        // pre-existing rows -- template name plus the case id's own short id --
+        // when the caller supplies none, because CreateCaseDialog does not
+        // collect one yet. See CreateCaseRequest's own javadoc.
+        c.setName(request.name() == null || request.name().isBlank()
+                ? template.getName() + " " + shortId(c.getId())
+                : request.name());
         c.setCustomerId(customer.id());
         c.setTemplateId(template.getId());
         c.setVersionId(versionId);                 // pinned here, never reassigned except by migration
@@ -307,6 +314,11 @@ public class CaseService {
     @Transactional
     public CaseView update(UUID caseId, UpdateCaseRequest request) {
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.CASE_EDIT, caseId);
+
+        // Full replace: @NotBlank on UpdateCaseRequest.name (enforced by
+        // CaseController.update's @Valid) is what rejects a client that never
+        // read the view back before saving -- see that record's own javadoc.
+        c.setName(request.name());
 
         List<AttributeDefinition> declared = readDefinition(attributeDefinitions,
                 AttributeDefinition.class, c.getVersionId(), "ordinal");
@@ -711,10 +723,22 @@ public class CaseService {
     private CaseView toView(Case c) {
         String currentStageName = c.getCurrentStageId() == null ? null
                 : readOneDefinition(stages, Stage.class, c.getCurrentStageId()).getName();
-        return new CaseView(c.getId(), c.getCustomerId(), c.getTemplateId(), c.getVersionId(),
+        return new CaseView(c.getId(), c.getName(), c.getCustomerId(), c.getTemplateId(), c.getVersionId(),
                 versionNoOf(c.getVersionId()), c.getStatus(), c.getCurrentStageId(), currentStageName,
                 c.getProgressPercent(), c.getTargetCompletionDate(), c.getHeldAt(), c.getTotalHoldDays(),
                 c.getOwnerUserId(), c.getOwningDepartmentId(), c.getOwningTeamId(), attributesOf(c),
                 c.getStartedAt(), c.getCompletedAt(), engine.pendingTransition(c));
+    }
+
+    /**
+     * The last hyphen-delimited segment of a case id -- the same truncation
+     * frontend/src/lib/api/customers.ts's shortId() applies, so a synthesized
+     * name (here, and V15's backfill) matches the id fragment CaseSwitcher
+     * already showed users before Q18.
+     */
+    private static String shortId(UUID id) {
+        String s = id.toString();
+        int i = s.lastIndexOf('-');
+        return i < 0 ? s : s.substring(i + 1);
     }
 }

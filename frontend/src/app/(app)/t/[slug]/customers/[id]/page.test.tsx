@@ -329,10 +329,10 @@ describe("CustomerDetailPage", () => {
 
   it("lists the customer's existing cases instead of the empty state", async () => {
     permissions = { "customer.view": ["ALL"], "case.view": ["ALL"] };
-    cases = [{ id: "case-1", currentStageName: "Registration", status: "ACTIVE" }];
+    cases = [{ id: "case-1", name: "Enterprise onboarding", currentStageName: "Registration", status: "ACTIVE" }];
     renderPage();
 
-    await waitFor(() => expect(screen.getByRole("link", { name: /Registration/ })).not.toBeNull());
+    await waitFor(() => expect(screen.getByRole("link", { name: /Enterprise onboarding/ })).not.toBeNull());
     expect(screen.queryByText("No cases yet")).toBeNull();
   });
 

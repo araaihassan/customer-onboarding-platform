@@ -234,6 +234,48 @@ class CaseCreationTest extends PostgresTestBase {
                 .isInstanceOf(NoSuchElementException.class);
     }
 
+    /** Q18: a journey carries a human-readable name, set at creation. */
+    @Test
+    void aCaseCanBeCreatedWithAName() {
+        UUID tenant = fixture.createTenant("case-named");
+        fixture.runAs(tenant, () -> {
+            UUID templateId = journey.publishedTemplate();
+            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+
+            var view = cases.create(new CreateCaseRequest(customerId, templateId,
+                    "Enterprise onboarding", Map.of()));
+
+            assertThat(view.name()).isEqualTo("Enterprise onboarding");
+            assertThat(cases.get(view.id()).name()).isEqualTo("Enterprise onboarding");
+        });
+    }
+
+    /**
+     * CreateCaseDialog does not collect a name yet (Phase 2 UI gap), so the
+     * 3-arg convenience constructor -- and every existing caller using it --
+     * must still produce a NOT NULL-satisfying name rather than 500ing. The
+     * fallback is the same label V15's backfill gives pre-existing rows: the
+     * template's name plus the case id's own short id.
+     */
+    @Test
+    void aCaseCreatedWithoutANameGetsTheSameSyntheticLabelTheBackfillUses() {
+        UUID tenant = fixture.createTenant("case-unnamed");
+        fixture.runAs(tenant, () -> {
+            UUID templateId = journey.publishedTemplate();
+            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+
+            var view = cases.create(new CreateCaseRequest(customerId, templateId, Map.of()));
+
+            assertThat(view.name()).isNotBlank().doesNotContain("null");
+            assertThat(view.name()).endsWith(shortIdOf(view.id()));
+        });
+    }
+
+    private static String shortIdOf(UUID id) {
+        String s = id.toString();
+        return s.substring(s.lastIndexOf('-') + 1);
+    }
+
     /** Two cases on one customer are normal: the switcher exists because they coexist. */
     @Test
     void aCustomerCanHaveConcurrentCases() {

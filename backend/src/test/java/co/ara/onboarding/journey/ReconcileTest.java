@@ -416,6 +416,7 @@ class ReconcileTest extends PostgresTestBase {
         Case c = new Case();
         c.setId(Uuid7.generate());
         c.setTenantId(tenant);
+        c.setName("Reconcile Fixture Case " + Uuid7.generate());
         c.setCustomerId(customerId);
         c.setTemplateId(t.getId());
         c.setVersionId(v.getId());

@@ -25,6 +25,10 @@ import java.util.UUID;
 @Table(name = "onboarding_case")
 public class Case extends TenantScopedEntity {
 
+    /** Q18: a human-readable name set at creation -- "Enterprise onboarding", "EU expansion". */
+    @Column(name = "name", nullable = false)
+    private String name;
+
     @Column(name = "customer_id", nullable = false)
     private UUID customerId;
 
@@ -81,6 +85,9 @@ public class Case extends TenantScopedEntity {
      */
     @Transient
     private boolean advanceRequested;
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
 
     public UUID getCustomerId() { return customerId; }
     public void setCustomerId(UUID customerId) { this.customerId = customerId; }

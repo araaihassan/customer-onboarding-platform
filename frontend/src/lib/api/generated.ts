@@ -1114,6 +1114,7 @@ export interface components {
             status?: "ACTIVE" | "INACTIVE";
         };
         UpdateCaseRequest: {
+            name: string;
             /** Format: uuid */
             ownerUserId?: string;
             /** Format: uuid */
@@ -1133,6 +1134,7 @@ export interface components {
         CaseView: {
             /** Format: uuid */
             id?: string;
+            name?: string;
             /** Format: uuid */
             customerId?: string;
             /** Format: uuid */
@@ -1252,6 +1254,7 @@ export interface components {
             customerId?: string;
             /** Format: uuid */
             templateId?: string;
+            name?: string;
             attributes?: {
                 [key: string]: string;
             };
@@ -1415,6 +1418,8 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
@@ -1423,8 +1428,6 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
             numberOfElements?: number;
-            first?: boolean;
-            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -1433,11 +1436,11 @@ export interface components {
             offset?: number;
             sort?: components["schemas"]["SortObject"];
             unpaged?: boolean;
-            /** Format: int32 */
-            pageNumber?: number;
+            paged?: boolean;
             /** Format: int32 */
             pageSize?: number;
-            paged?: boolean;
+            /** Format: int32 */
+            pageNumber?: number;
         };
         SortObject: {
             empty?: boolean;
@@ -1464,6 +1467,8 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
@@ -1472,8 +1477,6 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
             numberOfElements?: number;
-            first?: boolean;
-            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -1545,6 +1548,8 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
@@ -1553,8 +1558,6 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
             numberOfElements?: number;
-            first?: boolean;
-            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };

@@ -75,7 +75,7 @@ export function CaseSwitcher({
                   background: dotColor(c.status),
                 }}
               />
-              <span>{c.currentStageName || t("case.header.noStage")}</span>
+              <span>{c.name || t("case.header.noStage")}</span>
               <span
                 style={{
                   font: "var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
