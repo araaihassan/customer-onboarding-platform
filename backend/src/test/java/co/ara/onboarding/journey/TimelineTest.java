@@ -137,7 +137,24 @@ class TimelineTest extends PostgresTestBase {
 
             var events = timeline.forCase(caseId, Pageable.ofSize(50)).getContent();
             assertThat(events).hasSizeGreaterThanOrEqualTo(2);
-            assertThat(events).isSortedAccordingTo(Comparator.comparing(AuditEventView::occurredAt).reversed());
+
+            // Ordering on occurredAt alone is not enough to assert, and the
+            // weaker version of this assertion hid a real bug: several events
+            // recorded inside one request can share a timestamp to the clock's
+            // resolution, and a run of equal values satisfies *any* comparator,
+            // so `isSortedAccordingTo(comparing(occurredAt).reversed())` passed
+            // while the timeline shuffled same-moment events on every query --
+            // and, when a whole case's events tied, fell back to heap order and
+            // read oldest-first.
+            //
+            // The tiebreak is id, which is UUIDv7 and therefore ordered by its
+            // own leading millisecond timestamp. Java's UUID.compareTo is signed,
+            // but every v7 value has a clear top bit for the next few millennia,
+            // so it agrees with Postgres's byte-wise order here.
+            assertThat(events).isSortedAccordingTo(
+                    Comparator.comparing(AuditEventView::occurredAt)
+                            .thenComparing(AuditEventView::id)
+                            .reversed());
         });
     }
 
