@@ -263,6 +263,15 @@ regression to hunt:
   the `user.created` action key with only its prose summary dissenting. Fixed, but `audit_event` is
   append-only, so historical rows cannot be corrected — anything querying `user.created` over that
   period is counting deactivations too.
+- **Audit events written before 2026-08-29 have their causes stamped after their effects.** Nine
+  `journey` call sites recorded an action only after `engine.reconcile` had already recorded what
+  that action triggered, and `AuditRecorder` stamps `occurredAt` from the clock — so a case's
+  `case.created` carries a LATER timestamp than the `case.stage_entered` and `milestone.completed`
+  of its own creation, and a newest-first timeline shows every cause above its own effects. Fixed
+  (`CauseBeforeEffectTest`, and the rule is on `AuditRecorder`), but `audit_event` is append-only,
+  so existing rows read wrong permanently: cases opened before that date still show milestones
+  completing before the case was created. New cases read correctly. Anything that derives a
+  sequence — not just a set — from historical audit rows is reading a scrambled one.
 - **Retiring a contact does not revoke portal access, and does not stop a new one being granted.**
   `update` sets `status = INACTIVE` on the contact only; the linked `app_user` stays `ACTIVE`, and
   `LoginService` reads the user, so a retired contact can still sign in. It can also still be
