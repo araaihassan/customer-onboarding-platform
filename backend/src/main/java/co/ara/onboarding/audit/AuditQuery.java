@@ -46,7 +46,7 @@ public class AuditQuery {
 
     @Transactional(readOnly = true)
     public Page<AuditEventView> findForResource(String resourceType, UUID resourceId, Pageable pageable) {
-        return events.findByResourceTypeAndResourceIdOrderByOccurredAtDesc(resourceType, resourceId, pageable)
+        return events.findByResourceTypeAndResourceIdOrderByOccurredAtDescIdDesc(resourceType, resourceId, pageable)
                 .map(this::toView);
     }
 

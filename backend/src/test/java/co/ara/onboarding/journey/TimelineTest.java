@@ -1,5 +1,7 @@
 package co.ara.onboarding.journey;
 
+import co.ara.onboarding.audit.AuditEvent;
+import co.ara.onboarding.audit.AuditEventRepository;
 import co.ara.onboarding.audit.AuditEventView;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
@@ -12,7 +14,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -34,6 +39,7 @@ class TimelineTest extends PostgresTestBase {
     @Autowired MigrationService migrations;
     @Autowired TimelineService timeline;
     @Autowired RoleService roles;
+    @Autowired AuditEventRepository auditEvents;
 
     /**
      * The timeline shows the case's whole history regardless of who acted. Every
@@ -137,8 +143,80 @@ class TimelineTest extends PostgresTestBase {
 
             var events = timeline.forCase(caseId, Pageable.ofSize(50)).getContent();
             assertThat(events).hasSizeGreaterThanOrEqualTo(2);
-            assertThat(events).isSortedAccordingTo(Comparator.comparing(AuditEventView::occurredAt).reversed());
+
+            // Asserts the full (occurredAt, id) contract. Note this alone does
+            // NOT prove the tiebreak works: whether these events actually share
+            // a timestamp is up to the clock, and a run of *distinct* values
+            // satisfies the comparator with or without `id DESC` in the query.
+            // eventsSharingATimestampAreOrderedById below forces the tie, and
+            // is the test that fails when the tiebreak is removed.
+            assertThat(events).isSortedAccordingTo(
+                    Comparator.comparing(AuditEventView::occurredAt)
+                            .thenComparing(AuditEventView::id, Uuid7::compareUnsigned)
+                            .reversed());
         });
+    }
+
+    /**
+     * The regression test for the ordering bug, and the reason it needs to write
+     * audit rows by hand rather than lean on the events the case itself records.
+     *
+     * AuditRecorder stamps occurred_at with Instant.now(), so several events
+     * recorded inside one request -- the normal case, since a single
+     * CaseEngine.reconcile can satisfy a requirement, complete a milestone and
+     * advance a stage -- can land on an identical timestamp. But whether they
+     * actually do is up to the clock's resolution, which makes it useless as the
+     * precondition of an assertion: the real events above are only *likely* to
+     * tie. Forcing an exact tie is what makes this deterministic.
+     *
+     * Without `id DESC` in the query, ordering on occurred_at alone leaves tied
+     * rows in no defined order at all, and Postgres returns them in heap order --
+     * i.e. ascending id, i.e. oldest-first, the exact reverse of what the
+     * timeline promises.
+     */
+    @Test
+    void eventsSharingATimestampAreOrderedById() {
+        UUID tenant = fixture.createTenant("tl-ties");
+        fixture.runAs(tenant, () -> {
+            UUID templateId = journey.publishedTemplate();
+            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+
+            Instant sameMoment = Instant.now();
+            List<UUID> inserted = new ArrayList<>();
+            for (int i = 0; i < 5; i++) {
+                inserted.add(appendEvent(tenant, caseId, sameMoment, "case.tied_" + i));
+            }
+
+            var ids = timeline.forCase(caseId, Pageable.ofSize(50)).getContent().stream()
+                    .map(AuditEventView::id)
+                    .filter(inserted::contains)
+                    .toList();
+
+            // Uuid7.generate() is strictly monotonic -- a 12-bit per-millisecond
+            // counter, spin-waiting rather than carrying into the millis field --
+            // so insertion order IS id order, and newest-first over a tied group
+            // means exactly the reverse of the order they went in. That is why
+            // the tiebreak is *correct* and not merely *stable*.
+            assertThat(ids).containsExactlyElementsOf(inserted.reversed());
+        });
+    }
+
+    /** Mirrors AuditRecorder.record, but with occurredAt supplied rather than clock-read. */
+    private UUID appendEvent(UUID tenant, UUID caseId, Instant at, String action) {
+        AuditEvent e = new AuditEvent();
+        e.setId(Uuid7.generate());
+        e.setTenantId(tenant);
+        e.setOccurredAt(at);
+        e.setAction(action);
+        e.setTimelineVisible(true);
+        e.setResourceType("onboarding_case");
+        e.setResourceId(caseId);
+        e.setSummary("tie fixture");
+        e.setPayload("{}");
+        e.setActorType("SYSTEM");
+        auditEvents.save(e);
+        return e.getId();
     }
 
     /**
