@@ -188,11 +188,12 @@ The highest-severity open item. `CustomerService` writes `ownerUserId`, `owningD
 
 ```java
 @Test
-void anotherTenantsUserIdCannotBecomeACustomerOwner() {
+void anotherTenantsDepartmentIdCannotBecomeACustomersOwningDepartment() {
     UUID tenantA = fixture.createTenant("own-a");
     UUID tenantB = fixture.createTenant("own-b");
-    var strangerId = new UUID[1];
-    fixture.runAs(tenantB, () -> strangerId[0] = fixture.createUser(tenantB, "stranger@b.test"));
+    var strangerDepartmentId = new UUID[1];
+    fixture.runAs(tenantB, () ->
+            strangerDepartmentId[0] = fixture.createDepartment(tenantB, "B's Ops"));
 
     // A real id, but in another tenant. The FK is satisfied because RLS is
     // bypassed for referential integrity, so before the fix this answered 200.
@@ -222,9 +223,17 @@ void anInventedDepartmentIdIsA404NotA500() {
  */
 @Test
 void updateCannotHandOwnershipToAnotherTenantsUser() {
-    UUID customerId = createOwnCustomer(tenantA);
+    UUID tenantA = fixture.createTenant("own-upd-a");
+    UUID tenantB = fixture.createTenant("own-upd-b");
+    var strangerUserId = new UUID[1];
+    fixture.runAs(tenantB, () -> strangerUserId[0] = fixture.createUser(tenantB, "stranger@b.test"));
+
+    var customerId = new UUID[1];
+    fixture.runAs(tenantA, () -> customerId[0] = customers.create(new CreateCustomerRequest(
+            "Acme", null, null, null, null, null, null)).id());
+
     assertThatThrownBy(() -> fixture.runAs(tenantA, () ->
-            customers.update(customerId, new UpdateCustomerRequest(
+            customers.update(customerId[0], new UpdateCustomerRequest(
                     "Acme", null, null, null, null, strangerUserId[0], null, null))))
             .isInstanceOf(NoSuchElementException.class);
 }
@@ -242,20 +251,27 @@ cd backend && ./gradlew cleanTest test --tests "co.ara.onboarding.security.Cross
 
 Expected: FAIL — the cross-tenant cases return a customer (200), the invented-id case throws `DataIntegrityViolationException` (500).
 
-- [ ] **Step 3: Resolve every foreign id through its repository and let RLS do the tenancy work**
+- [ ] **Step 3: Resolve every foreign id, but through two different mechanisms — read this before writing any code**
 
-In `CustomerService`, replace the direct assignments in both `create` and `update` with resolution through `AuthorizedQuery`. RLS scopes each repository to the bound tenant, so a foreign id simply is not found:
+**`PermissionKeys` has no `DEPARTMENT_VIEW` or `TEAM_VIEW`.** The only permissions gating `Department`/`Team` are `DEPARTMENT_MANAGE` and `TEAM_MANAGE`, and both are catalogued `ALL_ONLY` (`PermissionCatalog.java`, "Manage departments"/"Manage teams") — an administrative permission for editing the org chart itself, not a permission for merely referencing an existing unit. `CUSTOMER_CREATE` is also `ALL_ONLY`, but `CUSTOMER_EDIT` is `RECORD` (all four scopes) — so gating department/team resolution on `DEPARTMENT_MANAGE`/`TEAM_MANAGE` would mean a customer editor holding `customer.edit` at TEAM scope (a real, plausible role) could no longer save **any** edit to a customer that has an owning department set, including edits that don't touch the department at all, unless they also separately hold `department.manage`. That is a real regression, not a hardening.
+
+So: **department and team are resolved through a plain, tenant-scoped repository lookup, not through `AuthorizedQuery`.** This is safe, not a bypass: the Hibernate `tenantFilter` (`TenantScopedEntity`) is enabled automatically per-session by `TenantConnectionCustomizer` for every query on a tenant-bound connection — it is not something `AuthorizedQuery` turns on per-call. A bare `repository.findById(id)` is already tenant-scoped at both the Hibernate-filter layer and the Postgres RLS layer. What `AuthorizedQuery` adds beyond that is the intra-tenant DEPARTMENT/TEAM/ASSIGNED *scope* predicate — and department/team have no such predicate to add, since the only permission that exists for them is `ALL_ONLY`. The actual defect here is a **tenancy** leak, not a **scope** leak, so the tenancy-only guarantee RLS already provides is the correct and sufficient fix.
+
+`ownerUserId` (in `update()` only) is different: `PermissionKeys.USER_VIEW` exists, is a real view permission, and is catalogued `ORG_SCOPES` (`PermissionCatalog.java`, "View users"). Resolving it through `AuthorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId)` is both correct and desirable: it means an actor can only hand ownership to a user they can actually see, which is a real tightening worth having, not an unrelated coupling — unlike the department/team case, `user.view` is exactly the permission this operation should require.
 
 ```java
 private UUID resolveDepartment(UUID departmentId) {
     if (departmentId == null) return null;
-    return authorizedQuery.getById(departments, Department.class,
-            PermissionKeys.DEPARTMENT_VIEW, departmentId).getId();
+    return departments.findById(departmentId)
+            .orElseThrow(() -> new NoSuchElementException("Department not found"))
+            .getId();
 }
 
 private UUID resolveTeam(UUID teamId) {
     if (teamId == null) return null;
-    return authorizedQuery.getById(teams, Team.class, PermissionKeys.TEAM_VIEW, teamId).getId();
+    return teams.findById(teamId)
+            .orElseThrow(() -> new NoSuchElementException("Team not found"))
+            .getId();
 }
 
 private UUID resolveOwner(UUID ownerUserId) {
@@ -264,7 +280,7 @@ private UUID resolveOwner(UUID ownerUserId) {
 }
 ```
 
-`resolveDepartment`/`resolveTeam` are called from **both** `create` and `update`; `resolveOwner` only from `update`, since `create` never reads an owner id from the request. `AuthorizedQuery.getById` throws `NoSuchElementException` for both the foreign id and the invented one, which is exactly the collapse the oracle needs. Confirm the exact repository and permission-key names (`AppUserRepository`/`USER_VIEW` or equivalent) against the real code before using them verbatim — they are not re-verified here.
+`resolveDepartment`/`resolveTeam` are called from **both** `create` and `update`; `resolveOwner` only from `update`, since `create` never reads an owner id from the request. Both mechanisms collapse the foreign-tenant case and the invented-id case to the same `NoSuchElementException` — the Hibernate filter/RLS pair for department/team, `AuthorizedQuery` for the user — which is exactly the collapse the oracle needs. Confirm `DepartmentRepository`/`TeamRepository`/`AppUserRepository`'s actual field names against `CustomerService`'s existing constructor injection before wiring these in — the service does not currently inject any of the three.
 
 - [ ] **Step 4: Run to verify both pass, then the whole suite**
 
