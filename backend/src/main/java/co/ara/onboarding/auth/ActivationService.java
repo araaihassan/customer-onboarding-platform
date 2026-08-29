@@ -2,6 +2,7 @@ package co.ara.onboarding.auth;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
+import co.ara.onboarding.customer.ContactStatus;
 import co.ara.onboarding.customer.CustomerContact;
 import co.ara.onboarding.customer.CustomerContactRepository;
 import co.ara.onboarding.identity.AppUser;
@@ -95,6 +96,17 @@ public class ActivationService {
     private AppUser activateContact(Invitation invitation, String rawPassword) {
         CustomerContact contact = contacts.findById(invitation.getCustomerContactId())
                 .orElseThrow(() -> new InvalidTokenException("Invitation has no contact"));
+
+        // A retired contact must not still be activatable. Retiring a contact now
+        // revokes any invitation outstanding at the time (CustomerContactService.
+        // update), but this check is what refuses one issued and left unrevoked
+        // some other way, or a hand-crafted request racing the retirement itself —
+        // an honest, non-oracle-shaped rejection, since a retired contact's
+        // invitation being any different from an ordinary invalid one would itself
+        // be a leak.
+        if (contact.getStatus() != ContactStatus.ACTIVE) {
+            throw new InvalidTokenException("Contact is not active");
+        }
 
         // app_user is unique on (tenant, lower(email)), so an address that already has
         // an account would fail the constraint and surface as a 500. Rejected as an

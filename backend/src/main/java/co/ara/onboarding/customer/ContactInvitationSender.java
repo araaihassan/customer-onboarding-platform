@@ -25,4 +25,17 @@ public interface ContactInvitationSender {
      * on the implementation. One name, one gated method, no way around it.
      */
     String issue(UUID contactId);
+
+    /**
+     * Revokes every outstanding, unaccepted invitation for this contact —
+     * activation and password-reset alike, since both purposes share one table.
+     *
+     * Called when a contact is retired, so a pending activation issued before the
+     * retirement cannot still be redeemed afterward. Same shape as identity's
+     * {@code UserActivationSender.revokePendingInvitations}: not re-gated at the
+     * call site in {@link CustomerContactService#update}, because the
+     * implementation carries its own {@code @RequirePermission} and re-resolves
+     * the contact through {@code AuthorizedQuery} before touching anything.
+     */
+    void revokePendingInvitations(UUID contactId);
 }

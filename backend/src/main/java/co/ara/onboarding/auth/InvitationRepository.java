@@ -17,4 +17,13 @@ public interface InvitationRepository extends JpaRepository<Invitation, UUID> {
      * closes both. Used to revoke pending credentials on deactivation.
      */
     List<Invitation> findByUserIdAndAcceptedAtIsNullAndRevokedAtIsNull(UUID userId);
+
+    /**
+     * The contact-keyed twin of the finder above, for a portal invitation that was
+     * issued before the underlying app_user ever existed — InvitationService.issue
+     * keys the row on customerContactId, not userId, because a contact may not
+     * have a linked user yet. Used to revoke an outstanding invitation when the
+     * contact it targets is retired.
+     */
+    List<Invitation> findByCustomerContactIdAndAcceptedAtIsNullAndRevokedAtIsNull(UUID customerContactId);
 }

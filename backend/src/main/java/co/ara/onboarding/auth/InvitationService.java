@@ -94,4 +94,28 @@ public class InvitationService implements ContactInvitationSender {
         return raw;
     }
 
+    /**
+     * contactId is a foreign id CustomerContactService.update passes straight
+     * through the ContactInvitationSender port, so — exactly like issue() above,
+     * and like identity.UserActivationSender.revokePendingInvitations — it must be
+     * re-resolved through AuthorizedQuery here rather than trusted just because
+     * today's one caller already resolved the same contact under the same
+     * permission a few lines earlier in its own method. ContactInvitationSender is
+     * a public customer-module interface, injectable by anything; this keeps the
+     * method's own safety self-contained rather than a property of its current
+     * caller.
+     *
+     * Delegates the actual finder call to PendingInvitationRevoker, keyed on
+     * customerContactId rather than userId — a contact invitation may predate any
+     * linked app_user (InvitationService.issue itself never sets userId), so the
+     * userId-keyed sweep Task 4 built cannot find it.
+     */
+    @Override
+    @RequirePermission(PermissionKeys.CONTACT_MANAGE)
+    @Transactional
+    public void revokePendingInvitations(UUID contactId) {
+        CustomerContact contact = authorizedQuery.getById(
+                contacts, CustomerContact.class, PermissionKeys.CONTACT_MANAGE, contactId);
+        new PendingInvitationRevoker(invitations).revokeForContact(contact.getId());
+    }
 }
