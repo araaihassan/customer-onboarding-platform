@@ -490,10 +490,27 @@ Three related defects in one area, fixed together because they share a test fixt
 2. `CustomerContactService.update` rewrites `contact.email` without touching `app_user.email`, so a corrected address leaves the portal login on the old one.
 3. `customer_contact` is unique on `(customer_id, email)` **case-sensitively** while `app_user` is unique on `(tenant_id, lower(email))` — so two contacts differing only in case are accepted and the second one's activation fails as an "invalid token".
 
+**Everything below was verified against the real code before this brief was finalized — method names differ from an earlier draft.**
+
+- `LoginService`'s method is `login(String email, String rawPassword) -> LoginOutcome` — a **sealed interface** (`Success`, `InvalidCredentials`, `MfaRequired`, `LockedOut`), not a thrown exception. There is no `authenticate(tenantSlug, email, password)`.
+- `ContactInvitationSender.issue(UUID contactId)` is the real signature — one argument, no purpose parameter (a contact invitation is always `ACTIVATION`). There is no `invitations.issue(userId, InvitationKind.ACTIVATION)` and no `InvitationKind` type at all (the enum is `InvitationPurpose`, `ACTIVATION`/`PASSWORD_RESET`).
+- There is no `invitations.redeemableFor(...)` anywhere. Assert on `Invitation.getRevokedAt()` being non-null instead, resolved via `InvitationRepository.findByTokenHash(...)`.
+- `InvitationService.issue` keys the row on `invitation.setCustomerContactId(contact.getId())`, **not** on a `userId` — a contact may not have a linked `app_user` yet (invitation precedes activation), so the finder for defect 1's half needs `findByCustomerContactIdAnd...`, a different column from Task 4's `findByUserIdAnd...`.
+- `ActivationService.activateContact` reads the contact via a bare `contacts.findById(...)` already (pre-existing code, not part of this fix) and never checks `ContactStatus` — that check is what closes the "still activatable" half of defect 1.
+
+**The email-sync and invitation-revocation fixes need the SAME extraction pattern Tasks 2 and 4 already established, for the same reason.** `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` already covers `customer..` (per CLAUDE.md), so `CustomerContactService` (ends in `Service`) cannot call `AppUserRepository.findById(...)` directly to sync the linked user's email — that would trip the same guard Task 2's `OrgUnitResolver` and Task 4's `PendingInvitationRevoker` were extracted to satisfy. Follow the identical shape: a small, package-private, non-`*Service`/`*Directory` helper class holding just the finder-and-update logic, fed only an id already authorized upstream (here, `contact.getUserId()` — read from a `CustomerContact` already resolved through `AuthorizedQuery` under `CONTACT_MANAGE` earlier in the same method, so no additional scope predicate is needed, exactly as Task 2's `OrgUnitResolver` reasoning established for department/team).
+
+Similarly, revoking a contact's outstanding invitations happens in `auth` (where `InvitationRepository` lives), not in `customer` — `customer` cannot import `auth` types directly (`auth` already depends on `customer`; the reverse would close the cycle `ModuleBoundaryTest` rejects, the same reasoning `ContactInvitationSender`'s own javadoc already states). So **extend the existing port**: add `void revokePendingInvitations(UUID contactId)` to `customer.ContactInvitationSender` (which `CustomerContactService` already injects as its `invitations` field — no new port, no new injection), implemented in `auth.InvitationService`. Inside the implementation, reuse `PendingInvitationRevoker` from Task 4 by giving it a second package-private method keyed on `customerContactId` rather than duplicating a near-identical helper class — one small `auth`-package class doing all the finder-touching for both userId- and contactId-keyed revocation.
+
 **Files:**
 - Modify: `backend/src/main/java/co/ara/onboarding/customer/CustomerContactService.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/InvitationService.java`
-- Create: `backend/src/main/resources/db/migration/V14__contact_email_ci.sql` *(if Phase 1 runs before Phase 2, this takes V14 and the feature migration becomes V15 — renumber, never edit a committed migration)*
+- Modify: `backend/src/main/java/co/ara/onboarding/customer/ContactInvitationSender.java` (add `revokePendingInvitations(UUID)`)
+- Create: `backend/src/main/java/co/ara/onboarding/customer/LinkedPortalUserEmailSync.java` (package-private, not a Spring bean — mirrors `OrgUnitResolver`/`PendingInvitationRevoker`)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/InvitationService.java` (implement the new port method)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/InvitationRepository.java` (add `findByCustomerContactIdAndAcceptedAtIsNullAndRevokedAtIsNull(UUID)`)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/PendingInvitationRevoker.java` (from Task 4 — add the contact-keyed variant)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/ActivationService.java` (status check in `activateContact`)
+- Create: `backend/src/main/resources/db/migration/V<next-free>__contact_email_ci.sql` — **list `backend/src/main/resources/db/migration/` and use whatever number is actually next when you run this task; do not assume V14.**
 - Test: `backend/src/test/java/co/ara/onboarding/customer/ContactRetirementTest.java` (new)
 
 - [ ] **Step 1: Write the failing tests**
@@ -501,21 +518,32 @@ Three related defects in one area, fixed together because they share a test fixt
 ```java
 @Test
 void aRetiredContactCannotSignIn() {
-    contacts.update(contactId, retireRequest());
-    assertThatThrownBy(() -> login.authenticate(tenantSlug, contactEmail, password))
-            .isInstanceOf(BadCredentialsException.class);
+    contacts.update(customerId, contactId, retireRequest());
+    assertThat(login.login(contactEmail, password))
+            .isInstanceOf(LoginOutcome.InvalidCredentials.class);
 }
 
 @Test
-void retiringAContactRevokesOutstandingInvitations() {
-    invitations.issue(contactUserId, InvitationKind.ACTIVATION);
-    contacts.update(contactId, retireRequest());
-    assertThat(invitations.redeemableFor(contactUserId)).isEmpty();
+void aRetiredContactCannotActivateAPendingInvitation() {
+    String rawToken = contacts.sendInvitation(contactId);
+    contacts.update(customerId, contactId, retireRequest());
+    assertThatThrownBy(() -> activation.accept(rawToken, "new-password"))
+            .isInstanceOf(InvalidTokenException.class);
+}
+
+@Test
+void retiringAContactRevokesAnOutstandingInvitation() {
+    String rawToken = contacts.sendInvitation(contactId);
+    contacts.update(customerId, contactId, retireRequest());
+
+    Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken)).orElseThrow();
+    assertThat(invitation.getRevokedAt()).isNotNull();
 }
 
 @Test
 void correctingAContactEmailMovesThePortalLoginWithIt() {
-    contacts.update(contactId, emailChangedTo("new@acme.test"));
+    // contactId's linked app_user already exists (activated in fixture setup).
+    contacts.update(customerId, contactId, emailChangedTo("new@acme.test"));
     assertThat(users.findById(contactUserId).orElseThrow().getEmail())
             .isEqualTo("new@acme.test");
 }
@@ -528,15 +556,23 @@ void twoContactsDifferingOnlyInCaseAreRefused() {
 }
 ```
 
-- [ ] **Step 2: Run to verify all four fail**
+- [ ] **Step 2: Run to verify all five fail**
 
 - [ ] **Step 3: Fix all three defects**
 
-Retirement deactivates the linked `app_user` and revokes its invitations, in the same transaction. Email correction updates both rows. The migration replaces the case-sensitive unique index with `UNIQUE (customer_id, lower(email))` to match `app_user`.
+`CustomerContactService.update` detects a retirement (the existing `previousStatus != INACTIVE && saved.getStatus() == INACTIVE` check already computes this) and, when true: deactivates the linked `app_user` if one exists (`contact.getUserId() != null`) via `LinkedPortalUserEmailSync`-style extraction (or a second small helper alongside it — your call, but it must not call `AppUserRepository` directly from `CustomerContactService` itself), and calls `invitations.revokePendingInvitations(contact.getId())` through the port. Do this in the same transaction as the status change — `update` is already `@Transactional`.
 
-The migration must handle existing rows that already violate the new index — a pre-existing case-collision pair cannot be silently dropped. Fail the migration loudly with a clear message rather than deleting data; business records are never deleted.
+Email correction: whenever `request.email()` differs from the contact's current email AND `contact.getUserId() != null`, sync `app_user.email` through the same non-`*Service` helper pattern.
 
-- [ ] **Step 4: Run to verify all four pass, then the whole suite**
+`ActivationService.activateContact` adds a status check: if `contact.getStatus() != ContactStatus.ACTIVE`, throw `InvalidTokenException` — matching the existing style of every other check in that method (an honest, non-oracle-shaped error, since a retired contact's invitation being any different from an invalid one would itself be a leak).
+
+**Watch for this making `aRetiredContactCannotActivateAPendingInvitation` accidentally vacuous.** Because this task's OTHER fix also revokes the invitation on retirement, by the time that test calls `accept`, the invitation is already revoked — `isRedeemable` (checked earlier in `accept`, before `activateContact` is ever reached) will already throw `InvalidTokenException` for the unrelated reason of `revokedAt != null`. That means the test as written could pass even if the new `ContactStatus` check were deleted entirely — exactly the vacuous-test shape a review caught in this same plan's Task 4. Either restructure this test to exercise `activateContact`'s status check in isolation from revocation (e.g. retire the contact through a path that does not also revoke the invitation, if one exists, or test `ActivationService` directly with a hand-built non-revoked invitation against an already-INACTIVE contact), or, if no such isolation is practical, say so explicitly in the commit/report rather than leaving a test that looks like it proves something it does not.
+
+The migration replaces the case-sensitive `UNIQUE (customer_id, email)` (V8) with a functional unique index on `(customer_id, lower(email))`, and the `CONTACT_EMAIL_UNIQUE` constant in `CustomerContactService` (currently `"customer_contact_customer_id_email_key"`, matched in the existing `violates(...)` helper) must be updated to whatever name the new index actually gets — Postgres auto-derives the name from a plain `UNIQUE` constraint but a `CREATE UNIQUE INDEX ... ON customer_contact (customer_id, lower(email))` needs an explicit name; give it one and use that exact string.
+
+The migration must handle existing rows that already violate the new index — a pre-existing case-collision pair cannot be silently dropped. Fail the migration loudly with a clear message rather than deleting data; business records are never deleted. (In practice, check first whether any such collision exists in this environment before deciding how elaborate the guard needs to be — a `DO` block that raises an exception if a collision is found is sufficient for a fresh schema with no such data yet.)
+
+- [ ] **Step 4: Run to verify all five pass, then the whole suite**
 
 - [ ] **Step 5: Commit**
 
@@ -545,9 +581,16 @@ git add -A
 git commit -m "fix(customer): retiring a contact ends portal access, and email rules agree
 
 Three defects sharing one fixture: a retired contact could still sign in
-and could still redeem an invitation; a corrected email left the portal
-login on the old address; and case-only-different contacts were accepted
-while app_user's lower(email) index refused the second activation."
+and could still activate a pending invitation; a corrected email left the
+portal login on the old address; and case-only-different contacts were
+accepted while app_user's lower(email) index refused the second
+activation.
+
+Two of the three fixes needed the same non-*Service extraction pattern
+Tasks 2 and 4 already established, for the same reason: customer.. and
+auth.. are both covered by AuthorizationCoverageTest's finder-call guard,
+so neither CustomerContactService nor InvitationService may call a
+repository finder directly, even for an id already authorized upstream."
 ```
 
 ### Task 6: Audit the three unaudited write paths
