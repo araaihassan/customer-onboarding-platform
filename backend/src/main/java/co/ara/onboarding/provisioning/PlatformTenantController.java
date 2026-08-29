@@ -1,5 +1,10 @@
 package co.ara.onboarding.provisioning;
 
+import co.ara.onboarding.tenancy.PathPrefixTenantResolver;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -22,7 +27,22 @@ import java.util.UUID;
 @RequestMapping("/api/platform/tenants")
 public class PlatformTenantController {
 
-    public record ProvisionRequest(String slug, String name, String adminEmail, String adminFullName) {}
+    /**
+     * {@code slug} is constrained against {@link PathPrefixTenantResolver#SLUG_PATTERN}
+     * -- the same literal the resolver itself matches incoming requests against,
+     * not a retyped copy of it. A slug that satisfies this constraint but not that
+     * resolver would be a silent reintroduction of the bug this validation exists
+     * to close: a tenant created successfully but never reachable by any request,
+     * because every request resolves no slug and answers 401 with no error at
+     * creation time.
+     */
+    public record ProvisionRequest(
+            @NotBlank @Pattern(regexp = PathPrefixTenantResolver.SLUG_PATTERN,
+                    message = "must be lowercase alphanumeric with hyphens, 1-63 characters")
+            String slug,
+            @NotBlank String name,
+            @NotBlank @Email String adminEmail,
+            @NotBlank String adminFullName) {}
 
     private final TenantProvisioningService provisioning;
 
@@ -31,7 +51,7 @@ public class PlatformTenantController {
     }
 
     @PostMapping
-    public Map<String, UUID> provision(@RequestBody ProvisionRequest request) {
+    public Map<String, UUID> provision(@Valid @RequestBody ProvisionRequest request) {
         UUID id = provisioning.provision(
                 request.slug(), request.name(), request.adminEmail(), request.adminFullName());
         return Map.of("tenantId", id);
