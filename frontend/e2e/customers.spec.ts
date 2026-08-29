@@ -72,14 +72,24 @@ test("creates a customer and sees it in the list", async ({ page }) => {
 });
 
 /**
- * Below 1024px the table stops being a table and becomes a two-line card list. A
- * table cannot be made to fit a phone by shrinking it.
+ * Below 900px the table stops being a table and becomes a two-line card list
+ * (SCREENS.md's RESPONSIVE table: "< 900px ... tables switch to stacked
+ * cards"). A table cannot be made to fit a phone by shrinking it.
+ *
+ * This was 1024px before the frontend visual refactor's Task 27 (converting
+ * CustomerTable to the DataTable primitive) deliberately moved it to match
+ * the new design system's own breakpoint -- CustomerTable.tsx's class is
+ * `min-[900px]:block`, confirmed against SCREENS.md and against the
+ * component's own git history (git log -p shows the "Below 1024px" comment
+ * this test was still asserting was replaced by "Below 900px (SCREENS.md's
+ * RESPONSIVE table)" in that same commit). This spec's own width just never
+ * got updated alongside it -- a stale spec, not a product regression.
  *
  * In Playwright rather than a unit test because jsdom does no layout: there, a
  * `lg:hidden` class is a string, and both views are "present" whatever the
  * viewport says.
  */
-test("the customer table becomes a card list below 1024px", async ({ page }) => {
+test("the customer table becomes a card list below 900px", async ({ page }) => {
   await signIn(page, tenant.slug, tenant.adminEmail);
 
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -89,7 +99,7 @@ test("the customer table becomes a card list below 1024px", async ({ page }) => 
   // The same record is reachable either way, under the same accessible name.
   await expect(page.getByRole("link", { name: "Contoso Logistics" })).toBeVisible();
 
-  await page.setViewportSize({ width: 1023, height: 900 });
+  await page.setViewportSize({ width: 899, height: 900 });
   await expect(page.locator('[data-view="table"]')).toBeHidden();
   await expect(page.locator('[data-view="cards"]')).toBeVisible();
   await expect(page.getByRole("link", { name: "Contoso Logistics" })).toBeVisible();
