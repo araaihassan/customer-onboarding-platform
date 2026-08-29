@@ -30,7 +30,10 @@ export function TimelineTab({ caseId }: { caseId: string }) {
     return <EmptyState title={t("case.timeline.emptyTitle")} description={t("case.timeline.emptyDescription")} />;
   }
 
-  const earlierEvents = Math.max(totalElements - (page * TIMELINE_PAGE_SIZE + events.length), 0);
+  // The read is oldest-first, so what lies beyond this page is LATER, not
+  // earlier -- page 0 is the start of the case's history, and the newest
+  // events sit on the last page.
+  const laterEvents = Math.max(totalElements - (page * TIMELINE_PAGE_SIZE + events.length), 0);
 
   return (
     <div className="flex flex-col" style={{ gap: "var(--ob-space-11)" }}>
@@ -74,7 +77,7 @@ export function TimelineTab({ caseId }: { caseId: string }) {
           letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
         }}
       >
-        {t("case.timeline.auditFooter", { count: String(earlierEvents) })}
+        {t("case.timeline.auditFooter", { count: String(laterEvents) })}
       </p>
     </div>
   );
