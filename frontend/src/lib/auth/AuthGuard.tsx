@@ -27,7 +27,7 @@ export function AuthGuard({ slug, children }: { slug: string; children: ReactNod
 
   if (isLoading) {
     return (
-      <div style={{ padding: "var(--ob-space-28)" }}>
+      <div style={{ padding: "var(--ob-space-26)" }}>
         <SkeletonRows rows={5} />
       </div>
     );
