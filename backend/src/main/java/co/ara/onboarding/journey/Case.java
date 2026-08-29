@@ -25,8 +25,15 @@ import java.util.UUID;
 @Table(name = "onboarding_case")
 public class Case extends TenantScopedEntity {
 
-    /** Q18: a human-readable name set at creation -- "Enterprise onboarding", "EU expansion". */
-    @Column(name = "name", nullable = false)
+    /**
+     * Q18: a human-readable name set at creation -- "Enterprise onboarding", "EU
+     * expansion". {@code length = 160} matches V15's {@code varchar(160)} --
+     * Flyway, not Hibernate, owns the actual DDL here, so this is documentation
+     * rather than enforcement; {@code @Size(max = 160)} on CreateCaseRequest/
+     * UpdateCaseRequest is what actually stops an over-length name before it
+     * reaches this column (fix round 2).
+     */
+    @Column(name = "name", nullable = false, length = 160)
     private String name;
 
     @Column(name = "customer_id", nullable = false)

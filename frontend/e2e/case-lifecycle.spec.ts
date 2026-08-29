@@ -123,6 +123,7 @@ async function createCase(page: Page, segment: "ENTERPRISE" | "SMB"): Promise<st
   await page.getByRole("button", { name: "New case" }).click();
 
   const dialog = page.getByRole("dialog", { name: "New case" });
+  await dialog.getByLabel("Case name").fill(`Fixture Case ${segment}`);
   await dialog.getByRole("radio", { name: "Client Onboarding" }).click();
   await dialog.getByLabel("Segment", { exact: false }).selectOption(segment);
   await dialog.getByRole("button", { name: "Create case" }).click();

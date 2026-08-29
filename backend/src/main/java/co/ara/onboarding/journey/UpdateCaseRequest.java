@@ -1,6 +1,7 @@
 package co.ara.onboarding.journey;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Size;
 
 import java.util.Map;
 import java.util.UUID;
@@ -18,6 +19,11 @@ import java.util.UUID;
  * here, and a 400 from bean validation is clearer than a raw NOT NULL
  * constraint violation. {@link CaseController#update} must stay {@code @Valid}
  * for this to take effect.
+ *
+ * {@code @Size(max = 160)} matches {@code onboarding_case.name}'s own
+ * {@code varchar(160)} (fix round 2) -- see {@link CreateCaseRequest}'s own
+ * javadoc for why this guards against a raw 500 rather than a clean 400.
  */
-public record UpdateCaseRequest(@NotBlank String name, UUID ownerUserId, UUID owningDepartmentId, UUID owningTeamId,
+public record UpdateCaseRequest(@NotBlank @Size(max = 160) String name, UUID ownerUserId,
+                                UUID owningDepartmentId, UUID owningTeamId,
                                 Map<String, String> attributes) {}

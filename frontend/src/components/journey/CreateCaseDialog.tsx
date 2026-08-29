@@ -26,6 +26,10 @@ import { t } from "@/lib/i18n";
  * checked on submit, not disabling the button while empty. There is no
  * fallback for an empty name anymore -- CaseService.create rejects a blank
  * one (@NotBlank), so this is the only place a name is ever supplied.
+ * `maxLength={160}` matches `onboarding_case.name`'s own `varchar(160)`
+ * (fix round 2) -- CreateCaseRequest.name carries the actual `@Size(max =
+ * 160)` enforcement; this is a client-side courtesy so the field can't even
+ * be typed past the limit, not the guard itself.
  */
 export function CreateCaseDialog({
   customerId,
@@ -94,6 +98,7 @@ export function CreateCaseDialog({
           placeholder={t("case.create.namePlaceholder")}
           value={name}
           error={nameError}
+          maxLength={160}
           onChange={(e) => {
             setName(e.target.value);
             setNameError(undefined);

@@ -301,6 +301,33 @@ class JourneyApiTest extends SecurityTestBase {
     }
 
     /**
+     * Q18 fix round 2: onboarding_case.name is varchar(160), and nothing
+     * stopped a free-text field's value from exceeding that until
+     * CreateCaseRequest.name gained @Size(max = 160) -- without it this is a
+     * raw DataIntegrityViolationException (500), not a validation error.
+     * 161 characters is the smallest over-limit value; anything shorter
+     * would prove nothing.
+     */
+    @Test
+    void aNameOver160CharactersOnCreateAnswers400NotA500() throws Exception {
+        UUID tenant = fixture.createTenant("api-create-long-name");
+        AppUser admin = fixture.createAdminUser(tenant, "createlong@example.com");
+        var templateId = new UUID[1];
+        var customerId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            templateId[0] = journey.publishedTemplate();
+            customerId[0] = fixture.createCustomer(tenant, "Acme", null, null, null);
+        });
+
+        String tooLong = "x".repeat(161);
+        mvc.perform(as(post("/api/t/api-create-long-name/cases"), admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(
+                                new CreateCaseRequest(customerId[0], templateId[0], tooLong, Map.of()))))
+           .andExpect(status().isBadRequest());
+    }
+
+    /**
      * The full-replace half of the same guard: UpdateCaseRequest.name is
      * @NotBlank too, enforced by CaseController.update's @Valid parameter --
      * a client that never read the view back before saving gets a 400, not a

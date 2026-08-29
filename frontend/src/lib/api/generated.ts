@@ -1414,10 +1414,10 @@ export interface components {
             sort?: string[];
         };
         PageCustomerView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
@@ -1435,12 +1435,12 @@ export interface components {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            pageSize?: number;
-            /** Format: int32 */
-            pageNumber?: number;
             paged?: boolean;
             unpaged?: boolean;
+            /** Format: int32 */
+            pageNumber?: number;
+            /** Format: int32 */
+            pageSize?: number;
         };
         SortObject: {
             empty?: boolean;
@@ -1463,10 +1463,10 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
@@ -1544,10 +1544,10 @@ export interface components {
             candidates?: components["schemas"]["CandidateView"][];
         };
         PageUserView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
