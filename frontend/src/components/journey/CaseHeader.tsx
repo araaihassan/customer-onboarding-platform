@@ -27,12 +27,12 @@ export function CaseHeader({ caseData, customer }: { caseData: Case; customer: C
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center flex-wrap" style={{ gap: "var(--ob-space-11)" }}>
-            <h1
+            <h2
               className="text-ink min-w-0 truncate"
               style={{ font: "600 var(--ob-type-section-heading-size)/var(--ob-type-section-heading-line) var(--ob-font-family-ui)" }}
             >
               {customer.displayName}
-            </h1>
+            </h2>
             <StatusPill status={caseData.status} />
           </div>
 
