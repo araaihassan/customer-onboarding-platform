@@ -79,6 +79,23 @@ public class SecurityConfig {
                 // TODO(task-22): decide whether to expose it outside dev — springdoc
                 // can be disabled per profile rather than secured here.
                 .requestMatchers("/v3/api-docs/**", "/v3/api-docs").permitAll()
+                // Boot's default handling of a framework-level exception this app has
+                // no @ExceptionHandler for (bean validation, malformed JSON, an
+                // unmapped route, ...) calls response.sendError(), which the servlet
+                // container turns into an internal forward to /error — a SECOND pass
+                // through this whole chain. jwtFilter is a plain OncePerRequestFilter,
+                // which skips itself on that dispatch by Spring's own default
+                // (shouldNotFilterErrorDispatch()), so the SecurityContext is empty on
+                // the forward. Without this line, .anyRequest().authenticated() then
+                // rejects THAT pass and the entry point below overwrites the real
+                // status (e.g. 400 from a validation failure) with 401 — a fully
+                // authenticated, fully authorized request whose body merely fails
+                // validation becomes indistinguishable from an expired session, which
+                // is exactly the signal the frontend's silent-refresh logic acts on.
+                // /error needs no authentication of its own: BasicErrorController
+                // reads the status the container already recorded and does not touch
+                // tenant or user data.
+                .requestMatchers("/error").permitAll()
                 .anyRequest().authenticated())
             .build();
     }
