@@ -21,11 +21,11 @@ Every task's requirements implicitly include this section. `CLAUDE.md` is loaded
 - **Base package** `co.ara.onboarding`. One new module: `co.ara.onboarding.task`. Descriptors go in `co.ara.onboarding.scoping`. Nothing else moves.
 - **`journey` must never import `task`.** It declares `journey.TaskDirectory` and `journey.TaskLifecycle`; `task` implements both. Enforced by a **named** `ModuleBoundaryTest` rule, `noJourneyDependencyOnTask` — not by the cycle rule, which a one-way import would still pass.
 - **Three new tables**, all tenant-owned: `tenant_id uuid NOT NULL REFERENCES tenant(id)`, `SELECT enable_tenant_rls('<table>')` in the same migration, and `GRANT SELECT, INSERT, UPDATE ON <table> TO onboarding_app` — never `DELETE`. `RlsCoverageTest` is deny-by-default over the live schema; **its allowlist stays at four entries.**
-- **One feature migration: `V14__task.sql`.** Phase 1 adds its own, numbered in the order the tasks land. Forward-only — never edit a committed migration, not even temporarily.
+- **The feature migration's actual filename is decided at dispatch time, not fixed here as `V14`.** Phase 1 lands first and its own migrations (Tasks 5 and 10) take whichever numbers are next when they run, so by the time Phase 2's Task 11 runs, `V14` may already be taken. **Before writing any migration in this plan, list `backend/src/main/resources/db/migration/` and use the next unused `V<n>` — never assume a number from this document's text.** Forward-only — never edit a committed migration, not even temporarily.
 - **UUIDv7 keys** via `co.ara.onboarding.platform.Uuid7.generate()`. All timestamps `timestamptz` in UTC; `due_date` is a bare `date`.
 - **Every public `*Service` and `*Engine` method carries `@RequirePermission`.**
 - **Every read of tenant business data goes through `AuthorizedQuery`**, and so does **every id a write path takes from a URL or a request body**, before it writes. **No new `AuthorizedQuery` exclusion is created in this sub-project.** The codebase has exactly one carve-out (`AuditQuery.findForResource`) and CLAUDE.md requires a second to carry its own explicit argument. This design was chosen so none is needed — if you find yourself wanting one, the design is wrong, not the rule.
-- **`task..` and `comment..` are added to `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` in the same commit that adds the services**, never afterwards.
+- **`task..` is added to `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` in the same commit that adds the services**, never afterwards. There is no separate `co.ara.onboarding.comment` package — `Comment`, `CommentService` and everything comment-related live inside `co.ara.onboarding.task` per §3.1 of the spec, so `task..` alone covers both.
 - **Out-of-scope records return 404, never 403.** `AuthorizedQuery` throws `NoSuchElementException`, which maps to 404.
 - **A `PUT` is a full replace,** so its view type must carry every field its request type accepts. Adding a field to an `Update*Request` without adding it to the matching `*View` makes every client silently erase it.
 - **Permission keys** are declared in `PermissionKeys`, catalogued in `PermissionCatalog`, and referenced as constants — never as string literals.
@@ -196,42 +196,57 @@ void anotherTenantsUserIdCannotBecomeACustomerOwner() {
 
     // A real id, but in another tenant. The FK is satisfied because RLS is
     // bypassed for referential integrity, so before the fix this answered 200.
+    // create() never takes an ownerUserId (the actor becomes the owner), but
+    // DOES take owningDepartmentId straight from the request -- that is the
+    // field under attack here.
     assertThatThrownBy(() -> fixture.runAs(tenantA, () ->
             customers.create(new CreateCustomerRequest(
-                    "Acme", null, strangerId[0], null, null))))
+                    "Acme", null, null, null, null, strangerDepartmentId[0], null))))
             .isInstanceOf(NoSuchElementException.class);
 }
 
 @Test
-void anInventedOwnerIdIsA404NotA500() {
+void anInventedDepartmentIdIsA404NotA500() {
     UUID tenant = fixture.createTenant("own-invented");
     assertThatThrownBy(() -> fixture.runAs(tenant, () ->
             customers.create(new CreateCustomerRequest(
-                    "Acme", null, Uuid7.generate(), null, null))))
+                    "Acme", null, null, null, null, Uuid7.generate(), null))))
+            .isInstanceOf(NoSuchElementException.class);
+}
+
+/**
+ * update() is the sharper case: unlike create(), it takes ownerUserId
+ * straight from the request (CustomerService.java:131), so a real user id
+ * belonging to another tenant satisfies the FK and hands ownership of this
+ * tenant's customer to a stranger who cannot even see it.
+ */
+@Test
+void updateCannotHandOwnershipToAnotherTenantsUser() {
+    UUID customerId = createOwnCustomer(tenantA);
+    assertThatThrownBy(() -> fixture.runAs(tenantA, () ->
+            customers.update(customerId, new UpdateCustomerRequest(
+                    "Acme", null, null, null, null, strangerUserId[0], null, null))))
             .isInstanceOf(NoSuchElementException.class);
 }
 ```
 
-The second test is the half that closes the oracle: **both** cases must produce the *same* outcome. A 404 for one and a 500 for the other is the leak, even after the first test passes.
+**`CreateCustomerRequest` has no `ownerUserId` field at all** — `create()` always sets the owner to the creating actor (`CustomerService.java:74`, "the creator becomes the owner by default"). The exploitable fields at creation are `owningDepartmentId` and `owningTeamId` only. `update()` is where `ownerUserId` is itself attacker-controlled (`CustomerService.java:131`), which is the more serious half of this bug — it lets an existing customer's ownership be reassigned to a stranger, not just a new one created under one. Read `CustomerService.java` in full before writing these tests; do not assume the request shapes above are exhaustive without checking the real records.
 
-- [ ] **Step 2: Run to verify both fail**
+The `anInventedDepartmentIdIsA404NotA500` test is the half that closes the oracle: **both** the foreign-tenant case and the invented-id case must produce the *same* outcome. A 404 for one and a 500 for the other is the leak, even after the cross-tenant case alone appears fixed.
+
+- [ ] **Step 2: Run to verify all three fail**
 
 ```bash
 cd backend && ./gradlew cleanTest test --tests "co.ara.onboarding.security.CrossTenantAccessTest"
 ```
 
-Expected: FAIL — the first returns a customer, the second throws `DataIntegrityViolationException`.
+Expected: FAIL — the cross-tenant cases return a customer (200), the invented-id case throws `DataIntegrityViolationException` (500).
 
-- [ ] **Step 3: Resolve all three ids through their repositories and let RLS do the tenancy work**
+- [ ] **Step 3: Resolve every foreign id through its repository and let RLS do the tenancy work**
 
-In `CustomerService`, replace the direct assignments with resolution. RLS scopes each repository to the bound tenant, so a foreign id simply is not found:
+In `CustomerService`, replace the direct assignments in both `create` and `update` with resolution through `AuthorizedQuery`. RLS scopes each repository to the bound tenant, so a foreign id simply is not found:
 
 ```java
-private UUID resolveOwner(UUID ownerUserId) {
-    if (ownerUserId == null) return null;
-    return authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId).getId();
-}
-
 private UUID resolveDepartment(UUID departmentId) {
     if (departmentId == null) return null;
     return authorizedQuery.getById(departments, Department.class,
@@ -242,9 +257,14 @@ private UUID resolveTeam(UUID teamId) {
     if (teamId == null) return null;
     return authorizedQuery.getById(teams, Team.class, PermissionKeys.TEAM_VIEW, teamId).getId();
 }
+
+private UUID resolveOwner(UUID ownerUserId) {
+    if (ownerUserId == null) return null;
+    return authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId).getId();
+}
 ```
 
-Call all three from `create` **and** `update`. `AuthorizedQuery.getById` throws `NoSuchElementException` for both the foreign id and the invented one, which is exactly the collapse the oracle needs.
+`resolveDepartment`/`resolveTeam` are called from **both** `create` and `update`; `resolveOwner` only from `update`, since `create` never reads an owner id from the request. `AuthorizedQuery.getById` throws `NoSuchElementException` for both the foreign id and the invented one, which is exactly the collapse the oracle needs. Confirm the exact repository and permission-key names (`AppUserRepository`/`USER_VIEW` or equivalent) against the real code before using them verbatim — they are not re-verified here.
 
 - [ ] **Step 4: Run to verify both pass, then the whole suite**
 
@@ -270,34 +290,44 @@ Both now resolve through AuthorizedQuery and collapse to the same 404."
 
 A slug that does not match `PathPrefixTenantResolver`'s `^[a-z0-9][a-z0-9-]{0,62}$` — `Acme`, `acme_corp` — creates a tenant that is **permanently unreachable**: every request resolves no slug and answers 401, with no error at creation time. A duplicate slug is a raw 500 from the unique constraint.
 
+**Two real corrections to check before writing anything:** `ProvisionRequest` is a **nested record inside `PlatformTenantController.java`** (`public record ProvisionRequest(String slug, String name, String adminEmail, String adminFullName) {}`), not its own file. And `TenantProvisioningService.provision` takes **four positional `String` arguments** (`provision(String slug, String name, String adminEmail, String adminFullName)`), not a request object — the controller unpacks the record before calling it. Bean validation (`@NotBlank`, `@Pattern`) only fires through `@Valid` at the web layer, so it cannot be exercised by calling the service directly with positional strings: **these tests must go through MockMvc**, the same pattern `security.DirectApiAccessTest` already uses against this exact endpoint (`mvc.perform(post("/api/platform/tenants")...)`). Read both files in full before writing the tests below.
+
 **Files:**
-- Modify: `backend/src/main/java/co/ara/onboarding/provisioning/PlatformTenantController.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/provisioning/ProvisionRequest.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/provisioning/PlatformTenantController.java` (the nested `ProvisionRequest` record, and `@Valid`)
 - Create: `backend/src/main/java/co/ara/onboarding/provisioning/DuplicateSlugException.java`
-- Test: `backend/src/test/java/co/ara/onboarding/provisioning/TenantProvisioningTest.java`
+- Test: `backend/src/test/java/co/ara/onboarding/provisioning/TenantProvisioningTest.java` (MockMvc-based, modelled on `security.DirectApiAccessTest`'s existing `/api/platform/tenants` calls)
 
 - [ ] **Step 1: Write the failing tests**
 
 ```java
 @Test
-void aSlugTheResolverCannotParseIsRejectedAtCreation() {
-    assertThatThrownBy(() -> provisioning.provision(
-            new ProvisionRequest("Acme", "Acme Corp", "a@acme.test", "Admin")))
-            .isInstanceOf(ConstraintViolationException.class);
+void aSlugTheResolverCannotParseIsRejectedAtCreation() throws Exception {
+    mvc.perform(post("/api/platform/tenants")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"slug":"Acme","name":"Acme Corp","adminEmail":"a@acme.test","adminFullName":"Admin"}"""))
+            .andExpect(status().isBadRequest());
 }
 
 @Test
-void aDuplicateSlugIsAConflictNotAServerError() {
-    provisioning.provision(new ProvisionRequest("dup", "First", "a@x.test", "A"));
-    assertThatThrownBy(() -> provisioning.provision(
-            new ProvisionRequest("dup", "Second", "b@x.test", "B")))
-            .isInstanceOf(DuplicateSlugException.class);
+void aDuplicateSlugIsAConflictNotAServerError() throws Exception {
+    String body = """
+            {"slug":"dup","name":"First","adminEmail":"a@x.test","adminFullName":"A"}""";
+    mvc.perform(post("/api/platform/tenants")
+                    .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isOk());
+
+    mvc.perform(post("/api/platform/tenants")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"slug":"dup","name":"Second","adminEmail":"b@x.test","adminFullName":"B"}"""))
+            .andExpect(status().isConflict());
 }
 ```
 
 - [ ] **Step 2: Run to verify they fail**
 
-Expected: the first creates an unreachable tenant and returns normally; the second throws `DataIntegrityViolationException`.
+Expected: the first creates an unreachable tenant and returns 200; the second's duplicate returns 500 (`DataIntegrityViolationException`), not 409.
 
 - [ ] **Step 3: Constrain the request and add `@Valid`**
 
@@ -313,9 +343,9 @@ public record ProvisionRequest(
         @NotBlank String adminFullName) {}
 ```
 
-Extract `SLUG_PATTERN` as a `public static final String` on `PathPrefixTenantResolver` and have the resolver compile *that* constant, so there is exactly one copy.
+`PathPrefixTenantResolver`'s current pattern is `Pattern.compile("^/api/t/([a-z0-9][a-z0-9-]{0,62})(/.*)?$")` — the slug shape is a capture group inside a larger path pattern, not yet its own constant. Extract just the slug sub-pattern, `^[a-z0-9][a-z0-9-]{0,62}$`, as a `public static final String SLUG_PATTERN` on `PathPrefixTenantResolver`, and have the resolver build its existing path pattern by interpolating that constant into the capture group — so there is exactly one literal, not two that happen to agree.
 
-Add `@Valid` to the controller method parameter, and catch the unique-constraint violation in `TenantProvisioningService`, rethrowing `DuplicateSlugException` mapped to 409 by the module's own `@RestControllerAdvice`.
+Add `@Valid` to the controller method's `@RequestBody ProvisionRequest request` parameter, and catch the unique-constraint violation in `TenantProvisioningService`, rethrowing `DuplicateSlugException` mapped to 409 by the module's own `@RestControllerAdvice` (check whether `provisioning` already has one before creating a second).
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -677,18 +707,20 @@ All three extend `TenantScopedEntity`. Enums are `TaskStatus`, `TaskPriority`, a
 **Interfaces:**
 - Produces: `PermissionKeys.TASK_VIEW`, `TASK_MANAGE`, `TASK_COMPLETE`, `COMMENT_CREATE`
 
+**Verify before writing:** `PermissionCatalog` has no `scopesFor` method. Scopes are read via `PermissionCatalog.byKey(key)` returning `Optional<Permission>`, and `Permission` is `record Permission(String key, String category, String resourceType, String description, Set<Scope> allowedScopes)` — so the accessor is `.allowedScopes()`, not `.scopesFor(...)`. And `RoleTemplates.RoleTemplate` is `record RoleTemplate(String name, String description, Map<String, Scope> grants)` — the map is called `grants`, not `permissions`. Read both files before writing the tests below; do not use the method names as first drafted here without checking.
+
 - [ ] **Step 1: Write the failing test**
 
 ```java
 @Test
 void taskPermissionsAreCataloguedAtTheirIntendedScopes() {
-    assertThat(catalog.scopesFor(PermissionKeys.TASK_VIEW))
+    assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_VIEW).orElseThrow().allowedScopes())
             .containsExactlyInAnyOrder(ALL, DEPARTMENT, TEAM, ASSIGNED);
-    assertThat(catalog.scopesFor(PermissionKeys.TASK_COMPLETE))
+    assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_COMPLETE).orElseThrow().allowedScopes())
             .containsExactlyInAnyOrder(ALL, DEPARTMENT, TEAM, ASSIGNED);
-    assertThat(catalog.scopesFor(PermissionKeys.TASK_MANAGE))
+    assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_MANAGE).orElseThrow().allowedScopes())
             .containsExactlyInAnyOrder(ALL, DEPARTMENT, TEAM);
-    assertThat(catalog.scopesFor(PermissionKeys.COMMENT_CREATE))
+    assertThat(PermissionCatalog.byKey(PermissionKeys.COMMENT_CREATE).orElseThrow().allowedScopes())
             .containsExactlyInAnyOrder(ALL, DEPARTMENT, TEAM);
 }
 
@@ -701,9 +733,9 @@ void taskPermissionsAreCataloguedAtTheirIntendedScopes() {
 @Test
 void everyTemplateHoldingMilestoneCompleteAlsoHoldsTaskComplete() {
     for (var template : RoleTemplates.all()) {
-        Scope milestone = template.permissions().get(PermissionKeys.MILESTONE_COMPLETE);
+        Scope milestone = template.grants().get(PermissionKeys.MILESTONE_COMPLETE);
         if (milestone == null) continue;
-        assertThat(template.permissions())
+        assertThat(template.grants())
                 .as("template %s", template.name())
                 .containsEntry(PermissionKeys.TASK_COMPLETE, milestone);
     }
@@ -1036,13 +1068,16 @@ void cancellingRecordsItsOwnAction() {
 
 ### Task 19: Instantiate tasks from requirements of kind `TASK`
 
+**Ruling from the pre-flight scan:** `journey.TaskLifecycle` (Task 14) declares TWO methods, `instantiateForCase` and `reopenForMilestone`. This task is the first to inject `journey.TaskLifecycle` into `CaseService`, which means Spring needs a **complete** bean satisfying the whole interface before this task's tests can even start the application context — a bean implementing only `instantiateForCase` does not compile. So **this task creates `TaskLifecycleAdapter.java` implementing both methods**, not just the instantiation half; `reopenForMilestone` gets its real implementation here too (it is a small, self-contained query — moving a milestone's `COMPLETED` tasks to `PENDING`, leaving `CANCELLED` ones alone), even though nothing calls it yet. Task 20 then only wires `MilestoneService.reopen` to call it and writes the reopen tests — it does **not** create the adapter, because this task already did.
+
 **Files:**
-- Create: `task/TaskInstantiation.java`
+- Create: `task/TaskInstantiation.java`, `task/TaskLifecycleAdapter.java`
 - Modify: `journey/CaseService.java` (call the port)
 - Test: `backend/src/test/java/co/ara/onboarding/task/TaskInstantiationTest.java` (new)
 
 **Interfaces:**
-- Consumes: `journey.TaskLifecycle.instantiateForCase(UUID caseId)` (declared in Task 14)
+- Consumes: `journey.TaskLifecycle` interface (declared in Task 14)
+- Produces: `TaskLifecycleAdapter implements TaskLifecycle` — both methods implemented here; Task 20 wires the second one's call site.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1084,11 +1119,12 @@ void requirementsOfOtherKindsProduceNoTask() {
 
 - [ ] **Step 5: Commit**
 
-### Task 20: `TaskLifecycleAdapter` and the reopen wiring
+### Task 20: Wire milestone reopen to `TaskLifecycleAdapter`
+
+`TaskLifecycleAdapter` and its `reopenForMilestone` logic were created in Task 19 (a Spring bean has to implement a complete interface, and Task 19 was the first task to need one). This task's job is the call site and the tests, not the adapter itself.
 
 **Files:**
-- Create: `task/TaskLifecycleAdapter.java`
-- Modify: `journey/MilestoneService.java`
+- Modify: `journey/MilestoneService.java` (call `taskLifecycle.reopenForMilestone`), `task/TaskLifecycleAdapter.java` only if the review of Task 19's implementation finds a gap
 - Test: `backend/src/test/java/co/ara/onboarding/task/TaskReopenTest.java` (new)
 
 - [ ] **Step 1: Write the failing tests**
@@ -1320,10 +1356,13 @@ void anAssignedScopeHolderCannotCompleteSomeoneElsesTask() {
 
 @Test
 void aWiderScopedHolderIsStillRefusedInsideAnOwnerOnlyStage() {
+    // StageWriteScopeGuard throws WriteScopeException (journey package) --
+    // not "WriteScopeViolationException". Confirm the name against the real
+    // class before using it.
     assertThatThrownBy(() -> fixture.runAsUser(tenant, allScopeNonOwner, () ->
             tasks.changeStatus(taskInOwnerOnlyStage,
                     new TaskStatusRequest(TaskStatus.IN_PROGRESS, null))))
-            .isInstanceOf(WriteScopeViolationException.class);
+            .isInstanceOf(WriteScopeException.class);
 }
 
 @Test
