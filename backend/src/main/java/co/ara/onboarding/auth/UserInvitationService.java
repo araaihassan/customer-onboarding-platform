@@ -78,4 +78,31 @@ public class UserInvitationService implements UserActivationSender {
 
         return raw;
     }
+
+    /**
+     * userId here has already been resolved and authorized by the immediate caller
+     * (UserAdminService.deactivate, through authorizedQuery.getById) before this is
+     * invoked in the same transaction — unlike issueForUser above, this is not a
+     * fresh caller-supplied id arriving unchecked. The write itself only ever
+     * revokes rows already scoped to the bound tenant (Invitation is
+     * TenantScopedEntity, enforced by RLS and the Hibernate filter), and touches
+     * nothing outside the one userId the caller already established it may manage.
+     *
+     * One row in Invitation covers both activation and password-reset tokens
+     * (InvitationPurpose distinguishes them, not separate tables), so a single
+     * userId-keyed revocation closes both regardless of purpose.
+     *
+     * Delegates the actual finder call to PendingInvitationRevoker rather than
+     * calling InvitationRepository.findByUserIdAnd... here directly — see that
+     * class's own javadoc for why: this class's simple name ends in "Service", so
+     * a direct call here would (correctly, structurally) trip
+     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly even
+     * though the id is already authorized by this point.
+     */
+    @Override
+    @RequirePermission(PermissionKeys.USER_MANAGE)
+    @Transactional
+    public void revokePendingInvitations(UUID userId) {
+        new PendingInvitationRevoker(invitations).revoke(userId);
+    }
 }

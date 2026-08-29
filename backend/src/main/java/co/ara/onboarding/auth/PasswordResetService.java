@@ -2,6 +2,7 @@ package co.ara.onboarding.auth;
 
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
+import co.ara.onboarding.identity.UserStatus;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -45,12 +46,18 @@ public class PasswordResetService {
      * different response — the endpoint answers 204 either way, or it becomes an
      * account-enumeration oracle. The raw token is returned for the dev email sender
      * and for tests; in production only the email carries it.
+     *
+     * A DEACTIVATED user lands in this same empty bucket, not a distinct one — the
+     * same enumeration invariant applies to "exists but is deactivated" as to
+     * "does not exist at all". A deactivated account must not be able to obtain a
+     * brand new credential after the fact, any more than it can complete one it
+     * already holds (see reset() below).
      */
     @Transactional
     public Optional<String> request(String rawEmail) {
         AppUser user = users.findByTenantIdAndEmailIgnoreCase(
                 TenantContext.getRequired(), rawEmail).orElse(null);
-        if (user == null) return Optional.empty();
+        if (user == null || user.getStatus() != UserStatus.ACTIVE) return Optional.empty();
 
         String raw = SecureTokens.generate();
 
@@ -80,6 +87,14 @@ public class PasswordResetService {
 
         AppUser user = users.findById(reset.getUserId())
                 .orElseThrow(() -> new InvalidTokenException("Reset token has no user"));
+
+        // Same InvalidTokenException as an unredeemable token, never a distinct
+        // error: a different response here would tell an attacker the address
+        // exists and is deactivated, which is exactly the oracle request() above
+        // is also built to avoid.
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new InvalidTokenException("Reset token's user is not active");
+        }
 
         user.setPasswordHash(passwords.encode(newPassword));
         users.save(user);

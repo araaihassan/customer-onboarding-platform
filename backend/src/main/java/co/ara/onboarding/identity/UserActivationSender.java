@@ -17,4 +17,13 @@ public interface UserActivationSender {
 
     /** Returns the raw activation token, which is also emailed to the user. */
     String issueForUser(UUID userId);
+
+    /**
+     * Revokes every outstanding, unaccepted invitation for this user — activation
+     * and password-reset alike, since both purposes share one table and this is
+     * keyed only on userId. Called by UserAdminService.deactivate so a deactivated
+     * account cannot be activated or have its password reset via a token issued
+     * before the deactivation, or a fresh one issued after it.
+     */
+    void revokePendingInvitations(UUID userId);
 }

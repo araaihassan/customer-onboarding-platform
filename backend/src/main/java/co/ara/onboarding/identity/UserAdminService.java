@@ -166,6 +166,12 @@ public class UserAdminService {
         user.setStatus(UserStatus.DEACTIVATED);
         repository.save(user);
         sessions.revokeAllForUser(user.getId());
+        // Ending the session is only half of "deactivation ends the account": an
+        // activation or password-reset token issued before deactivation, or a fresh
+        // password-reset request issued after it, would otherwise still be
+        // redeemable. One call, keyed only on userId, closes both -- one Invitation
+        // table covers both purposes.
+        activations.revokePendingInvitations(user.getId());
         // USER_DEACTIVATED, not USER_CREATED. This recorded a creation for years'
         // worth of deactivations with only the prose summary dissenting, and the
         // action key is the field consumers filter on. audit_event is append-only,

@@ -1,0 +1,134 @@
+package co.ara.onboarding.auth;
+
+import co.ara.onboarding.authz.PermissionKeys;
+import co.ara.onboarding.authz.RoleService;
+import co.ara.onboarding.authz.Scope;
+import co.ara.onboarding.identity.UserActivationSender;
+import co.ara.onboarding.identity.UserAdminService;
+import co.ara.onboarding.support.PostgresTestBase;
+import co.ara.onboarding.support.TenantFixture;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * Deactivation must end pending credentials, not just sessions (CLAUDE.md's own
+ * open item). PasswordResetService consulted status nowhere, so a DEACTIVATED
+ * account could both complete a reset issued before deactivation and request a
+ * brand new one afterward -- and every outstanding invitation (activation or
+ * password-reset, one table distinguished only by InvitationPurpose) stayed
+ * redeemable. Two independent bugs, not one bug with two symptoms.
+ */
+class DeactivationRevokesCredentialsTest extends PostgresTestBase {
+
+    @Autowired PasswordResetService resets;
+    @Autowired UserAdminService admin;
+    @Autowired RoleService roles;
+    @Autowired UserActivationSender activationSender;
+    @Autowired InvitationRepository invitations;
+    @Autowired TenantFixture fixture;
+
+    /** A tenant, an actor holding USER_MANAGE at ALL, and a plain target user. */
+    private record World(UUID tenant, UUID actor, UUID targetId, String email) {}
+
+    private World world(String slug, String email) {
+        UUID tenant = fixture.createTenant(slug);
+        var actor = new AtomicReference<UUID>();
+        var target = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            actor.set(fixture.createUser(tenant, "boss+" + slug + "@example.com"));
+            target.set(fixture.createUser(tenant, email));
+            UUID role = roles.createRole("User Admin", "", Map.of(
+                    PermissionKeys.USER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_MANAGE, Scope.ALL));
+            roles.assignRole(actor.get(), role);
+        });
+
+        return new World(tenant, actor.get(), target.get(), email);
+    }
+
+    @Test
+    void aDeactivatedUserCannotCompleteAPasswordReset() {
+        World w = world("deact-reset-complete", "reset-complete@example.com");
+        var token = new AtomicReference<String>();
+
+        // Token issued while ACTIVE, redeemed after deactivation.
+        fixture.runAs(w.tenant(), () -> token.set(resets.request(w.email()).orElseThrow()));
+        fixture.runAsUser(w.tenant(), w.actor(), () -> admin.deactivate(w.targetId()));
+
+        assertThatThrownBy(() -> fixture.runAs(w.tenant(),
+                () -> resets.reset(token.get(), "new-password-value")))
+                .isInstanceOf(InvalidTokenException.class);
+    }
+
+    /**
+     * The half CLAUDE.md's own wording names separately from "complete": a
+     * deactivated user must not be able to obtain a NEW token either, and the
+     * response must not distinguish "deactivated" from "no such address" -- both
+     * already collapse to Optional.empty() for the unknown-address case, and this
+     * must land in the same bucket.
+     */
+    @Test
+    void aDeactivatedUserCannotRequestANewPasswordReset() {
+        World w = world("deact-reset-request", "reset-request@example.com");
+
+        fixture.runAsUser(w.tenant(), w.actor(), () -> admin.deactivate(w.targetId()));
+
+        fixture.runAs(w.tenant(), () -> assertThat(resets.request(w.email())).isEmpty());
+    }
+
+    @Test
+    void deactivationRevokesAnOutstandingActivationInvitation() {
+        World w = world("deact-invite", "invite-target@example.com");
+        var rawToken = new AtomicReference<String>();
+
+        fixture.runAsUser(w.tenant(), w.actor(),
+                () -> rawToken.set(activationSender.issueForUser(w.targetId())));
+        fixture.runAsUser(w.tenant(), w.actor(), () -> admin.deactivate(w.targetId()));
+
+        fixture.runAs(w.tenant(), () -> {
+            Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken.get()))
+                    .orElseThrow();
+            assertThat(invitation.getRevokedAt()).isNotNull();
+        });
+    }
+
+    @Test
+    void deactivationRevokesAnOutstandingPasswordResetToken() {
+        World w = world("deact-reset-token", "reset-token@example.com");
+        var rawToken = new AtomicReference<String>();
+
+        fixture.runAs(w.tenant(), () -> rawToken.set(resets.request(w.email()).orElseThrow()));
+        fixture.runAsUser(w.tenant(), w.actor(), () -> admin.deactivate(w.targetId()));
+
+        fixture.runAs(w.tenant(), () -> {
+            Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken.get()))
+                    .orElseThrow();
+            assertThat(invitation.getRevokedAt()).isNotNull();
+        });
+    }
+
+    /**
+     * Positive control: an ACTIVE user's own reset still works end-to-end. Without
+     * this, a defect that refused every reset (not just a deactivated one's) would
+     * pass every test above.
+     */
+    @Test
+    void anActiveUsersPasswordResetStillWorks() {
+        UUID tenant = fixture.createTenant("deact-reset-control");
+        fixture.createUserWithPassword(tenant, "active-control@example.com", "old-password-value");
+        var token = new AtomicReference<String>();
+
+        fixture.runAs(tenant, () ->
+                token.set(resets.request("active-control@example.com").orElseThrow()));
+
+        fixture.runAs(tenant, () -> resets.reset(token.get(), "brand-new-password-value"));
+    }
+}
