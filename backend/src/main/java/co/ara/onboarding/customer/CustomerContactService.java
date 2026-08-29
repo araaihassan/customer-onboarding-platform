@@ -192,6 +192,17 @@ public class CustomerContactService {
         boolean retired = previousStatus != ContactStatus.INACTIVE
                 && saved.getStatus() == ContactStatus.INACTIVE;
 
+        // The symmetric transition. Without this, retiring a contact was a
+        // one-way door for its linked portal account: UserAdminService has no
+        // reactivate path, and both of ActivationService's own
+        // setStatus(ACTIVE) call sites are unreachable for an
+        // already-activated contact (activateInternalUser requires INVITED;
+        // activateContact refuses because an app_user already exists for the
+        // address). A mis-clicked retirement would otherwise be recoverable
+        // only by direct SQL.
+        boolean reactivated = previousStatus == ContactStatus.INACTIVE
+                && saved.getStatus() != ContactStatus.INACTIVE;
+
         // The portal login is app_user, not customer_contact -- LoginService and
         // ActivationService's duplicate-address check both read app_user.email, so
         // a corrected address that never reaches it leaves the account reachable
@@ -199,10 +210,15 @@ public class CustomerContactService {
         // is the finder-and-update helper, not AppUserRepository directly here,
         // because CustomerContactService ends in "Service" and
         // AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly
-        // covers customer.. — the same reason OrgUnitResolver exists. The id fed to
-        // it, saved.getUserId(), was never a fresh caller-supplied value: it comes
+        // covers customer.. -- the same reason auth's PendingInvitationRevoker
+        // needs no guard exclusion of its own. The id fed to it,
+        // saved.getUserId(), was never a fresh caller-supplied value: it comes
         // off a CustomerContact already resolved through AuthorizedQuery under
-        // CONTACT_MANAGE above, so no further scope predicate applies.
+        // CONTACT_MANAGE above, so no further scope predicate applies. The sync
+        // itself can still refuse -- PortalEmailConflictException -- if the
+        // corrected address collides with a DIFFERENT customer's already-linked
+        // account; app_user's uniqueness is tenant-wide, customer_contact's is
+        // only per-customer.
         if (!previousEmail.equals(saved.getEmail())) {
             new LinkedPortalUserEmailSync(users).syncEmail(saved.getUserId(), saved.getEmail());
         }
@@ -223,6 +239,12 @@ public class CustomerContactService {
             // and re-resolves the contact through AuthorizedQuery, exactly as
             // sendInvitation's own comment already states for issue().
             invitations.revokePendingInvitations(saved.getId());
+        } else if (reactivated) {
+            // No invitation to re-issue here -- reactivation restores the
+            // EXISTING account and its existing password, it does not invite a
+            // new one. An administrator who wants the contact to set a fresh
+            // password still has sendInvitation for that.
+            new LinkedPortalUserEmailSync(users).reactivate(saved.getUserId());
         }
 
         audit.record(retired ? AuditActions.CONTACT_DEACTIVATED : AuditActions.CONTACT_UPDATED,

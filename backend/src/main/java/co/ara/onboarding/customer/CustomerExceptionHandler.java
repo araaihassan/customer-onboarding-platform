@@ -33,4 +33,15 @@ public class CustomerExceptionHandler {
     ProblemDetail duplicateContactEmail(DuplicateContactEmailException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
+
+    /**
+     * A different collision from the one above: this is app_user's own
+     * tenant-wide (tenant_id, lower(email)) uniqueness rejecting a contact-email
+     * correction that customer_contact's per-customer check already let through.
+     * See PortalEmailConflictException's own javadoc.
+     */
+    @ExceptionHandler(PortalEmailConflictException.class)
+    ProblemDetail portalEmailConflict(PortalEmailConflictException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    }
 }

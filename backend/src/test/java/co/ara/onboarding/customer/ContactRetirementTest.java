@@ -12,6 +12,7 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.identity.AppUserRepository;
+import co.ara.onboarding.identity.UserStatus;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
@@ -53,6 +54,11 @@ class ContactRetirementTest extends PostgresTestBase {
     private static CustomerContactService.UpdateContactRequest emailChangedTo(String newEmail) {
         return new CustomerContactService.UpdateContactRequest(
                 "Corrected Person", newEmail, null, null, false, ContactStatus.ACTIVE);
+    }
+
+    private static CustomerContactService.UpdateContactRequest reactivateRequest(String email) {
+        return new CustomerContactService.UpdateContactRequest(
+                "Reactivated Person", email, null, null, false, ContactStatus.ACTIVE);
     }
 
     @Test
@@ -242,5 +248,98 @@ class ContactRetirementTest extends PostgresTestBase {
                     .as("the refusal must not have revoked anything")
                     .isNull();
         });
+    }
+
+    /**
+     * Fix round 1's own finding: before this, retiring a contact was a one-way
+     * door for its linked portal account -- UserAdminService has no reactivate
+     * path, and both of ActivationService's own setStatus(ACTIVE) sites are
+     * unreachable for an already-activated contact (activateInternalUser
+     * requires INVITED; activateContact refuses because an app_user already
+     * exists for the address). A mis-clicked retirement was recoverable only by
+     * direct SQL. This proves the symmetric transition: editing a retired
+     * contact back to ACTIVE restores its linked account's own ACTIVE status,
+     * and the ORIGINAL password (never touched by deactivate) still logs in.
+     */
+    @Test
+    void reactivatingARetiredContactRestoresPortalAccess() {
+        UUID tenant = fixture.createTenant("contact-reactivate");
+        String email = "comeback@example.com";
+        String password = "correct-password-value";
+        var customerId = new AtomicReference<UUID>();
+        var contactId = new AtomicReference<UUID>();
+        var contactUserId = new AtomicReference<UUID>();
+        var rawToken = new AtomicReference<String>();
+
+        fixture.runAs(tenant, () -> {
+            customerId.set(fixture.createCustomer(tenant, "Comeback Ltd", null, null, null));
+            contactId.set(fixture.createContact(tenant, customerId.get(), email));
+        });
+        fixture.runAs(tenant, () -> rawToken.set(fixture.issueInvitation(contactId.get())));
+        fixture.runAs(tenant, () ->
+                contactUserId.set(activation.accept(rawToken.get(), password).getId()));
+
+        // Retire, then undo -- a plain mis-click-and-fix cycle through the same
+        // PUT the product actually offers, nothing more exotic.
+        fixture.runAs(tenant, () -> contacts.update(customerId.get(), contactId.get(), retireRequest(email)));
+        fixture.runAs(tenant, () ->
+                contacts.update(customerId.get(), contactId.get(), reactivateRequest(email)));
+
+        fixture.runAs(tenant, () ->
+            assertThat(users.findById(contactUserId.get()).orElseThrow().getStatus())
+                    .isEqualTo(UserStatus.ACTIVE));
+
+        var outcome = new AtomicReference<LoginOutcome>();
+        fixture.runAs(tenant, () -> outcome.set(login.login(email, password)));
+        assertThat(outcome.get())
+                .as("the original credential still works -- reactivate never touched the password hash")
+                .isInstanceOf(LoginOutcome.Success.class);
+    }
+
+    /**
+     * Fix round 1's other finding. app_user is unique on (tenant_id,
+     * lower(email)) TENANT-WIDE, while customer_contact's own uniqueness (V14)
+     * is only PER-CUSTOMER -- so correcting one customer's contact onto an
+     * address a DIFFERENT customer's already-activated contact already holds
+     * passes CustomerContactService's own duplicate check (different
+     * customer_id) and only then collides with app_user's index. Before this
+     * fix LinkedPortalUserEmailSync.syncEmail called users.save with no flush
+     * and no translation, so this surfaced as a raw DataIntegrityViolationException
+     * at commit, outside the transaction proxy -- exactly the failure shape
+     * CustomerContactService.save's own javadoc explains saveAndFlush exists to
+     * prevent for the sibling constraint. Both contacts must already be
+     * activated for this to reach the collision at all: an unlinked contact's
+     * syncEmail call is a no-op (userId null), so nothing would ever touch
+     * app_user and nothing would ever collide.
+     */
+    @Test
+    void correctingAContactEmailOntoAnotherCustomersLinkedAccountIsAConflict() {
+        UUID tenant = fixture.createTenant("contact-email-cross-conflict");
+        String takenEmail = "taken@example.com";
+        String correctingEmail = "correcting@example.com";
+        var customerA = new AtomicReference<UUID>();
+        var customerB = new AtomicReference<UUID>();
+        var contactA = new AtomicReference<UUID>();
+        var contactB = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            customerA.set(fixture.createCustomer(tenant, "Customer A Ltd", null, null, null));
+            customerB.set(fixture.createCustomer(tenant, "Customer B Ltd", null, null, null));
+            contactA.set(fixture.createContact(tenant, customerA.get(), takenEmail));
+            contactB.set(fixture.createContact(tenant, customerB.get(), correctingEmail));
+        });
+
+        var tokenA = new AtomicReference<String>();
+        var tokenB = new AtomicReference<String>();
+        fixture.runAs(tenant, () -> tokenA.set(fixture.issueInvitation(contactA.get())));
+        fixture.runAs(tenant, () -> tokenB.set(fixture.issueInvitation(contactB.get())));
+        fixture.runAs(tenant, () -> activation.accept(tokenA.get(), "password-a-value"));
+        fixture.runAs(tenant, () -> activation.accept(tokenB.get(), "password-b-value"));
+
+        assertThatThrownBy(() -> fixture.runAs(tenant, () -> contacts.update(customerB.get(), contactB.get(),
+                new CustomerContactService.UpdateContactRequest(
+                        "Contact B", takenEmail, null, null, false, ContactStatus.ACTIVE))))
+                .as("an actionable conflict, not a raw DataIntegrityViolationException")
+                .isInstanceOf(PortalEmailConflictException.class);
     }
 }
