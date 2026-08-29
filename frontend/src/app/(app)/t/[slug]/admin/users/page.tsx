@@ -102,13 +102,16 @@ export default function UsersPage() {
               setPage(0);
             }}
             placeholder={t("admin.users.search")}
-            className="bg-bg-surface border border-border-default text-text-primary"
+            className="bg-surface border border-line text-ink"
             style={{
               height: "var(--ob-control-height)",
               width: 260,
-              borderRadius: "var(--ob-radius-control)",
-              padding: "0 var(--ob-space-11) 0 var(--ob-space-28)",
-              font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)",
+              borderRadius: "var(--ob-radius-9)",
+              // --ob-space-28 doesn't exist in the new spacing scale (it tops
+              // out at 26 before jumping to 40) -- 26 is the closest surviving
+              // step, close enough to still clear the search icon at left:10.
+              padding: "0 var(--ob-space-11) 0 var(--ob-space-26)",
+              font: "13px/1.3 var(--ob-font-family-ui)",
             }}
           />
         </div>
@@ -118,8 +121,8 @@ export default function UsersPage() {
         {/* A count is a machine-generated value, so it is mono. */}
         {!users.isLoading && (
           <span
-            className="text-text-muted whitespace-nowrap"
-            style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)" }}
+            className="text-text-subtle whitespace-nowrap"
+            style={{ font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)" }}
           >
             {t("admin.users.count", { count: String(total) })}
           </span>
@@ -167,7 +170,7 @@ export default function UsersPage() {
           {rolesUnavailable && (
             <div
               role="alert"
-              className="flex items-center flex-wrap bg-bg-surface border border-border-default rounded-card"
+              className="flex items-center flex-wrap bg-surface border border-line rounded-11"
               style={{
                 gap: "var(--ob-space-11)",
                 padding: "var(--ob-space-11) var(--ob-space-16)",
@@ -177,8 +180,8 @@ export default function UsersPage() {
               <span
                 className="flex-1 min-w-0"
                 style={{
-                  color: "var(--ob-status-blocked-fg)",
-                  font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+                  color: "var(--ob-risk-fg)",
+                  font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
                 }}
               >
                 {t("admin.users.roles.unavailable")}
@@ -261,8 +264,8 @@ export default function UsersPage() {
       {deactivating && (
         <Dialog title={t("admin.users.deactivate.title")} onClose={() => setDeactivating(null)}>
           <p
-            className="text-text-secondary"
-            style={{ font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+            className="text-text-muted"
+            style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
           >
             {t("admin.users.deactivate.confirm", { name: deactivating.fullName ?? "" })}
           </p>
@@ -270,9 +273,9 @@ export default function UsersPage() {
             <p
               role="alert"
               style={{
-                color: "var(--ob-status-blocked-fg)",
+                color: "var(--ob-risk-fg)",
                 marginTop: "var(--ob-space-11)",
-                font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+                font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
               }}
             >
               {t("common.error")}
@@ -334,7 +337,7 @@ function UserRow({
 
   return (
     <li
-      className="bg-bg-surface border border-border-default rounded-card"
+      className="bg-surface border border-line rounded-11"
       style={{ padding: "var(--ob-space-13) var(--ob-space-16)" }}
     >
       <div className="flex flex-wrap items-center" style={{ gap: "var(--ob-space-11)" }}>
@@ -343,15 +346,15 @@ function UserRow({
 
         <div className="flex-1 min-w-0">
           <p
-            className="truncate text-text-primary"
-            style={{ font: "500 var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+            className="truncate text-ink"
+            style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
           >
             {name}
           </p>
           {/* An address is a machine-readable identifier, so it is mono. */}
           <p
             className="truncate text-text-faint"
-            style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
+            style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
           >
             {user.email}
           </p>
@@ -424,11 +427,11 @@ function UserRow({
 function RoleChip({ name }: { name: string }) {
   return (
     <span
-      className="bg-bg-inset text-text-secondary whitespace-nowrap"
+      className="bg-neutral-bg text-neutral-fg whitespace-nowrap"
       style={{
-        borderRadius: "var(--ob-radius-pill)",
+        borderRadius: "var(--ob-radius-5)",
         padding: "3px 9px",
-        font: "500 var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+        font: "500 var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
       }}
     >
       {name}
@@ -440,8 +443,8 @@ function RoleChip({ name }: { name: string }) {
 function Quiet({ children }: { children: ReactNode }) {
   return (
     <span
-      className="text-text-muted"
-      style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}
+      className="text-text-subtle"
+      style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
     >
       {children}
     </span>
@@ -466,8 +469,8 @@ function RoleAssignment({ user, roles }: { user: User; roles: Role[] }) {
   if (roles.length === 0) {
     return (
       <p
-        className="text-text-muted"
-        style={{ font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}
+        className="text-text-subtle"
+        style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
       >
         {t("admin.roles.empty")}
       </p>
@@ -487,12 +490,12 @@ function RoleAssignment({ user, roles }: { user: User; roles: Role[] }) {
           return (
             <li
               key={roleId}
-              className="flex items-center border-t border-border-subtle first:border-t-0"
+              className="flex items-center border-t border-line-faint first:border-t-0"
               style={{ gap: "var(--ob-space-11)", padding: "var(--ob-space-8) 0" }}
             >
               <span
-                className="flex-1 min-w-0 truncate text-text-primary"
-                style={{ font: "var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)" }}
+                className="flex-1 min-w-0 truncate text-ink"
+                style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
               >
                 {role.name}
               </span>
@@ -524,9 +527,9 @@ function RoleAssignment({ user, roles }: { user: User; roles: Role[] }) {
         <p
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
+            color: "var(--ob-risk-fg)",
             marginTop: "var(--ob-space-11)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
           }}
         >
           {t("admin.users.roles.failed")}
@@ -590,10 +593,10 @@ function InviteForm({
       </div>
 
       <p
-        className="text-text-muted"
+        className="text-text-subtle"
         style={{
           marginTop: "var(--ob-space-11)",
-          font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+          font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
         }}
       >
         {t("admin.users.invite.hint")}
@@ -603,9 +606,9 @@ function InviteForm({
         <p
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
+            color: "var(--ob-risk-fg)",
             marginTop: "var(--ob-space-11)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
           }}
         >
           {error}

@@ -58,8 +58,8 @@ export default function RolesPage() {
         <div className="flex-1" />
         {!isLoading && (
           <span
-            className="text-text-muted whitespace-nowrap"
-            style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)" }}
+            className="text-text-subtle whitespace-nowrap"
+            style={{ font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)" }}
           >
             {t("admin.roles.count", { count: String(list.length) })}
           </span>
@@ -119,28 +119,28 @@ export default function RolesPage() {
                       type="button"
                       aria-pressed={active}
                       onClick={() => setSelectedId(role.id ?? null)}
-                      className="w-full text-left bg-bg-surface"
+                      className="w-full text-left bg-surface"
                       // Selected is the design's stage-row treatment (§12): a 1px
                       // accent border plus the accent ring. The border is what
                       // carries it — the ring alone is a tint, and a tint is not a
                       // signal anybody can name.
                       style={{
                         padding: "var(--ob-space-10) var(--ob-space-13)",
-                        borderRadius: "var(--ob-radius-row)",
-                        border: `1px solid var(${active ? "--ob-accent" : "--ob-border-default"})`,
-                        boxShadow: active ? "var(--ob-elevation-ring-accent)" : undefined,
+                        borderRadius: "var(--ob-radius-11)",
+                        border: `1px solid var(${active ? "--ob-accent-fg" : "--ob-line"})`,
+                        boxShadow: active ? "var(--ob-shadow-ring-selected)" : undefined,
                         cursor: "pointer",
                       }}
                     >
                       <span
-                        className="block truncate text-text-primary"
-                        style={{ font: `${active ? 500 : 400} var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)` }}
+                        className="block truncate text-ink"
+                        style={{ font: `${active ? 500 : 400} var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)` }}
                       >
                         {role.name}
                       </span>
                       <span
                         className="block text-text-faint"
-                        style={{ font: "var(--ob-type-10-5-size)/var(--ob-type-10-5-line) var(--ob-font-family-data)" }}
+                        style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
                       >
                         {t("admin.roles.grantCount", {
                           count: String(Object.keys(role.grants ?? {}).length),
@@ -244,9 +244,9 @@ function NewRoleForm({
         <p
           role="alert"
           style={{
-            color: "var(--ob-status-blocked-fg)",
+            color: "var(--ob-risk-fg)",
             marginTop: "var(--ob-space-11)",
-            font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
           }}
         >
           {error}

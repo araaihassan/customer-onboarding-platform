@@ -209,8 +209,8 @@ function Builder({
         style={{ gap: "var(--ob-space-11)", marginBottom: "var(--ob-space-16)" }}
       >
         <span
-          className="text-text-muted"
-          style={{ font: "var(--ob-type-11-size)/var(--ob-type-11-line) var(--ob-font-family-data)" }}
+          className="text-text-subtle"
+          style={{ font: "var(--ob-type-mono-data-size)/var(--ob-type-mono-data-line) var(--ob-font-family-data)" }}
         >
           {isPublished
             ? t("workflow.version.published", { version: String(initial.versionNo ?? "") })
@@ -295,10 +295,10 @@ function Builder({
               style={{
                 gap: "var(--ob-space-6)",
                 padding: "var(--ob-space-10) var(--ob-space-13)",
-                borderRadius: "var(--ob-radius-chip)",
-                border: "1px dashed var(--ob-border-dashed)",
-                color: "var(--ob-text-secondary)",
-                font: "var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)",
+                borderRadius: "var(--ob-radius-8)",
+                border: "1px dashed var(--ob-line-strong)",
+                color: "var(--ob-text-muted)",
+                font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
               }}
             >
               <PlusIcon size={14} />
@@ -320,7 +320,7 @@ function Builder({
         ) : (
           <p
             className="text-text-faint"
-            style={{ font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)" }}
+            style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
           >
             {t("workflow.inspector.selectStage")}
           </p>
@@ -337,17 +337,17 @@ function ProblemBanner({ title, problems }: { title: string; problems: string[] 
       style={{
         marginBottom: "var(--ob-space-16)",
         padding: "var(--ob-space-13)",
-        borderRadius: "var(--ob-radius-inner)",
-        background: "var(--ob-status-at-risk-bg)",
-        color: "var(--ob-status-at-risk-fg)",
+        borderRadius: "var(--ob-radius-10)",
+        background: "var(--ob-warn-bg)",
+        color: "var(--ob-warn-fg)",
       }}
     >
-      <p style={{ font: "600 var(--ob-type-12-5-size)/var(--ob-type-12-5-line) var(--ob-font-family-ui)" }}>
+      <p style={{ font: "600 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}>
         {title}
       </p>
       <ul style={{ marginTop: "var(--ob-space-6)", paddingLeft: "var(--ob-space-16)", listStyle: "disc" }}>
         {problems.map((problem, i) => (
-          <li key={i} style={{ font: "var(--ob-type-11-5-size)/var(--ob-type-11-5-line) var(--ob-font-family-ui)" }}>
+          <li key={i} style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}>
             {problem}
           </li>
         ))}
@@ -357,7 +357,7 @@ function ProblemBanner({ title, problems }: { title: string; problems: string[] 
 }
 
 const alertStyle = {
-  color: "var(--ob-status-blocked-fg)",
+  color: "var(--ob-risk-fg)",
   marginBottom: "var(--ob-space-13)",
-  font: "var(--ob-type-12-size)/var(--ob-type-12-line) var(--ob-font-family-ui)",
+  font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)",
 } as const;

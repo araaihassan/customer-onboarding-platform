@@ -46,7 +46,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       {tabs.length > 1 && (
         <nav
           aria-label={t("admin.nav.label")}
-          className="flex border-b border-border-default"
+          className="flex border-b border-line"
           style={{ marginBottom: "var(--ob-space-20)" }}
         >
           {tabs.map((tab) => {
@@ -56,13 +56,13 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
                 key={tab.href}
                 href={tab.href}
                 aria-current={active ? "page" : undefined}
-                className={active ? "text-text-primary" : "text-text-muted"}
+                className={active ? "text-ink" : "text-text-subtle"}
                 style={{
                   padding: "9px 15px 11px",
-                  font: `${active ? 600 : 400} var(--ob-type-13-size)/var(--ob-type-13-line) var(--ob-font-family-ui)`,
+                  font: `${active ? 600 : 400} var(--ob-type-nav-item-size)/var(--ob-type-nav-item-line) var(--ob-font-family-ui)`,
                   // The 2px accent underline is the design's active treatment;
                   // the weight change carries it too, so it is not colour alone.
-                  boxShadow: active ? "inset 0 -2px 0 var(--ob-accent)" : undefined,
+                  boxShadow: active ? "inset 0 -2px 0 var(--ob-accent-fg)" : undefined,
                 }}
               >
                 {tab.label}
