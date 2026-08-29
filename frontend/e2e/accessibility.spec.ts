@@ -48,8 +48,26 @@ test.beforeAll(async ({ playwright }) => {
   builderTemplateId = (await admin.createWorkflowTemplate("Onboarding Draft")).id;
   const draft = await admin.createDraftVersion(builderTemplateId);
   builderVersionId = draft.versionId;
+  // estimatedDurationDays is the one MilestoneRequest field the API actually
+  // validates (@Positive int) -- omitting it, as CLAUDE.md's own Playwright
+  // notes warn, 400s rather than defaulting. dependsOnMilestoneKeys and
+  // branchRules NPE if left out entirely (no null guard downstream), so both
+  // are explicit empty arrays rather than omitted.
   await admin.saveDraft(builderTemplateId, builderVersionId, {
-    stages: [{ key: "stage-1", name: "Registration", milestones: [{ key: "milestone-1", name: "Registration" }] }],
+    stages: [{
+      key: "stage-1",
+      name: "Registration",
+      milestones: [{
+        key: "milestone-1",
+        name: "Registration",
+        estimatedDurationDays: 1,
+        dependsOnMilestoneKeys: [],
+        requirements: [],
+      }],
+      branchRules: [],
+    }],
+    attributes: [],
+    lockVersion: draft.lockVersion,
   });
 
   await request.dispose();
