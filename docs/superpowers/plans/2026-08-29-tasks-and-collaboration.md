@@ -379,11 +379,24 @@ the request constraint, so the two cannot drift."
 
 ### Task 4: Deactivation invalidates pending credentials
 
-`deactivate` revokes every refresh family and `AuthorizationService` zeroes authority for a non-ACTIVE user — but `PasswordResetService` consults `status` nowhere, so a DEACTIVATED account can still request and complete a reset, and outstanding `invitation` rows stay redeemable. No authority is gained today, but "deactivation ends the account" is only half a mechanism while its pending credentials outlive it.
+`deactivate` revokes every refresh family and `AuthorizationService` zeroes authority for a non-ACTIVE user — but `PasswordResetService` consults `status` nowhere, so a DEACTIVATED account can still **request** and **complete** a reset, and outstanding `invitation` rows stay redeemable. No authority is gained today, but "deactivation ends the account" is only half a mechanism while its pending credentials outlive it. Both halves — request and complete — need their own fix; they are independent bugs, not one bug with two symptoms.
+
+**Method names below were verified against the real code and differ from earlier drafts of this brief — use these, not guesses:**
+- `PasswordResetService`'s methods are `request(String rawEmail) -> Optional<String>` and `reset(String rawToken, String newPassword) -> void` — there is no `complete` method.
+- `Invitation`'s enum is `InvitationPurpose` with values `ACTIVATION`/`PASSWORD_RESET` — there is no `InvitationKind`.
+- Internal-user activation invitations are issued through the port `identity.UserActivationSender.issueForUser(UUID userId) -> String`, implemented by `auth.UserInvitationService` — there is no `invitations.issue(userId, purpose)` call; `auth.InvitationService.issue(UUID contactId)` is a *different*, portal-contact-only method and must not be used here.
+- `Invitation` has `getAcceptedAt()`/`getRevokedAt()`/`isRedeemable(InvitationPurpose, Instant)` — there is no `findRedeemable` anywhere; assert on `getRevokedAt()` being non-null instead, resolved via `InvitationRepository.findById(...)`.
+
+**The revocation mechanism, and why it needs a new port method rather than reusing `UserSessionRevoker`:** `identity` cannot import `auth.InvitationRepository` directly (would close `identity -> auth -> identity`), so this needs a port the same way sessions do. Don't add it to `UserSessionRevoker`/`RefreshTokenService` — that class's whole job is refresh-token rotation (a single, well-scoped responsibility) and invitations are a different table it doesn't otherwise touch. Instead, **add a second method to the existing `identity.UserActivationSender` interface**: `void revokePendingInvitations(UUID userId)`. `auth.UserInvitationService` already implements this interface for `issueForUser` and already has `InvitationRepository` injected — implement the new method there. `UserAdminService` already injects `UserActivationSender activations`; `deactivate()` calls `activations.revokePendingInvitations(user.getId())` alongside its existing `sessions.revokeAllForUser(...)` call, in the same transaction.
+
+One row in `Invitation` covers BOTH activation invitations and password-reset tokens (`InvitationPurpose` is what distinguishes them, not separate tables) — so **one revocation call, keyed only on `userId`, closes both** regardless of purpose. `InvitationRepository` needs a new finder: `List<Invitation> findByUserIdAndAcceptedAtIsNullAndRevokedAtIsNull(UUID userId)`. `revokePendingInvitations` sets `revokedAt = Instant.now()` on each and saves.
 
 **Files:**
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/PasswordResetService.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/identity/UserAdminService.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/PasswordResetService.java` (both `request` and `reset`)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/InvitationRepository.java` (new finder)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/UserInvitationService.java` (implement the new port method)
+- Modify: `backend/src/main/java/co/ara/onboarding/identity/UserActivationSender.java` (add the port method)
+- Modify: `backend/src/main/java/co/ara/onboarding/identity/UserAdminService.java` (call it from `deactivate`)
 - Test: `backend/src/test/java/co/ara/onboarding/auth/DeactivationRevokesCredentialsTest.java` (new)
 
 - [ ] **Step 1: Write the failing tests**
@@ -391,26 +404,52 @@ the request constraint, so the two cannot drift."
 ```java
 @Test
 void aDeactivatedUserCannotCompleteAPasswordReset() {
-    // token issued while ACTIVE, redeemed after deactivation
-    String token = resets.request(email);
+    // Token issued while ACTIVE, redeemed after deactivation.
+    String token = resets.request(email).orElseThrow();
     admin.deactivate(userId);
-    assertThatThrownBy(() -> resets.complete(token, "new-password-value"))
+    assertThatThrownBy(() -> resets.reset(token, "new-password-value"))
             .isInstanceOf(InvalidTokenException.class);
 }
 
+/**
+ * The half CLAUDE.md's own wording names separately from "complete": a
+ * deactivated user must not be able to obtain a NEW token either, and the
+ * response must not distinguish "deactivated" from "no such address" --
+ * both already collapse to Optional.empty() for the unknown-address case,
+ * and this must land in the same bucket.
+ */
 @Test
-void deactivationRevokesOutstandingInvitations() {
-    UUID invitationId = invitations.issue(userId, InvitationKind.ACTIVATION);
+void aDeactivatedUserCannotRequestANewPasswordReset() {
     admin.deactivate(userId);
-    assertThat(invitations.findRedeemable(invitationId)).isEmpty();
+    assertThat(resets.request(email)).isEmpty();
+}
+
+@Test
+void deactivationRevokesAnOutstandingActivationInvitation() {
+    String rawToken = activationSender.issueForUser(userId);
+    admin.deactivate(userId);
+
+    Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken)).orElseThrow();
+    assertThat(invitation.getRevokedAt()).isNotNull();
+}
+
+@Test
+void deactivationRevokesAnOutstandingPasswordResetToken() {
+    String rawToken = resets.request(email).orElseThrow();
+    admin.deactivate(userId);
+
+    Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken)).orElseThrow();
+    assertThat(invitation.getRevokedAt()).isNotNull();
 }
 ```
 
 - [ ] **Step 2: Run to verify they fail**
 
-- [ ] **Step 3: Add the status check and the revocation**
+- [ ] **Step 3: Add the status checks and the revocation**
 
-`PasswordResetService.complete` reads the user and refuses a non-ACTIVE one, mapping to the same `InvalidTokenException` the unknown-token path uses — a distinct error here would tell an attacker the address exists and is deactivated. `UserAdminService.deactivate` revokes outstanding invitations in the same transaction as the status change.
+`PasswordResetService.reset` reads the user and refuses a non-ACTIVE one, mapping to the same `InvalidTokenException` the unknown-token path uses — a distinct error here would tell an attacker the address exists and is deactivated. `PasswordResetService.request` returns `Optional.empty()` for a non-ACTIVE user, exactly the same as an unknown address — the existing doc comment's "the caller must not turn that into a different response" invariant extends to this case too.
+
+`UserActivationSender.revokePendingInvitations(UUID)` is added to the interface; `UserInvitationService` implements it using the new `InvitationRepository` finder. `UserAdminService.deactivate` calls it in the same transaction as the status change and the existing `sessions.revokeAllForUser(...)` call.
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -420,9 +459,21 @@ void deactivationRevokesOutstandingInvitations() {
 git add -A
 git commit -m "fix(auth): deactivation invalidates pending resets and invitations
 
-Deactivation revoked sessions but left pending credentials redeemable.
-The reset refusal reuses InvalidTokenException rather than a distinct
-error, so it does not become an oracle for which addresses are deactivated."
+Deactivation revoked sessions but left pending credentials outstanding in
+two ways: a deactivated account could both COMPLETE a reset issued before
+deactivation and REQUEST a brand new one afterward, and every outstanding
+invitation (activation or password-reset -- one table, distinguished only
+by InvitationPurpose) stayed redeemable.
+
+request() now returns Optional.empty() for a non-ACTIVE user, identically
+to an unknown address. reset() refuses a non-ACTIVE user with the same
+InvalidTokenException an invalid token gets, so neither becomes an oracle
+for which addresses exist and are deactivated.
+
+UserActivationSender gained revokePendingInvitations(UUID), implemented
+where InvitationRepository is already injected (UserInvitationService),
+since identity cannot import auth.InvitationRepository directly without
+closing identity -> auth -> identity."
 ```
 
 ### Task 5: Contact retirement revokes portal access, and the two uniqueness rules agree
