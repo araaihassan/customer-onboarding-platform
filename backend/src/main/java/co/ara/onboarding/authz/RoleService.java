@@ -133,6 +133,9 @@ public class RoleService {
         if (!enabled) {
             audit.record(AuditActions.ROLE_DISABLED, "role", roleId,
                     "Disabled role " + role.getName(), Map.of());
+        } else {
+            audit.record(AuditActions.ROLE_ENABLED, "role", roleId,
+                    "Enabled role " + role.getName(), Map.of());
         }
     }
 
@@ -142,6 +145,9 @@ public class RoleService {
         if (userRoles.countByRoleId(roleId) > 0) {
             throw new IllegalStateException("Role still has users assigned; disable it instead");
         }
+        Role role = roles.findById(roleId).orElseThrow();
+        audit.record(AuditActions.ROLE_DELETED, "role", roleId,
+                "Deleted role " + role.getName(), Map.of());
         roles.deleteById(roleId);
     }
 

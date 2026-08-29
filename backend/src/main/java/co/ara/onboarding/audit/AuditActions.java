@@ -44,9 +44,22 @@ public final class AuditActions {
     public static final AuditAction ROLE_CREATED              = of("role.created", false);
     public static final AuditAction ROLE_UPDATED              = of("role.updated", false);
     public static final AuditAction ROLE_DISABLED             = of("role.disabled", false);
+    // The other half of ROLE_DISABLED, added as its own key rather than a
+    // boolean payload on one action -- see the pre-2026-08-16 deactivation
+    // note above: a single key distinguished only by prose is unqueryable
+    // once written, and audit_event cannot be corrected after the fact.
+    public static final AuditAction ROLE_ENABLED               = of("role.enabled", false);
+    public static final AuditAction ROLE_DELETED                = of("role.deleted", false);
     public static final AuditAction LOGIN_SUCCEEDED           = of("auth.login_succeeded", false);
     public static final AuditAction LOGIN_FAILED              = of("auth.login_failed", false);
     public static final AuditAction REFRESH_REUSE_DETECTED    = of("auth.refresh_reuse_detected", false);
+    // Compliance-only, matching every other identity/auth event above: a
+    // password reset is the tenant's own account-security event, not the
+    // customer's business. Ordinary refresh-token rotation stays unaudited
+    // (CLAUDE.md is explicit this must not change); these two are a distinct
+    // event -- the reset completing -- not the rotation it triggers.
+    public static final AuditAction PASSWORD_RESET_REQUESTED   = of("password_reset.requested", false);
+    public static final AuditAction PASSWORD_RESET_COMPLETED   = of("password_reset.completed", false);
     public static final AuditAction CUSTOMER_CREATED          = of("customer.created", true);
     public static final AuditAction CUSTOMER_UPDATED          = of("customer.updated", true);
     public static final AuditAction CUSTOMER_DEACTIVATED      = of("customer.deactivated", true);

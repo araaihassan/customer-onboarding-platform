@@ -1,5 +1,7 @@
 package co.ara.onboarding.auth;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.identity.UserStatus;
@@ -11,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -30,15 +33,17 @@ public class PasswordResetService {
     private final PasswordEncoder passwords;
     private final RefreshTokenService refreshTokens;
     private final EmailSender email;
+    private final AuditRecorder audit;
 
     public PasswordResetService(InvitationRepository invitations, AppUserRepository users,
                                 PasswordEncoder passwords, RefreshTokenService refreshTokens,
-                                EmailSender email) {
+                                EmailSender email, AuditRecorder audit) {
         this.invitations = invitations;
         this.users = users;
         this.passwords = passwords;
         this.refreshTokens = refreshTokens;
         this.email = email;
+        this.audit = audit;
     }
 
     /**
@@ -69,6 +74,9 @@ public class PasswordResetService {
         reset.setTokenHash(SecureTokens.hash(raw));
         reset.setExpiresAt(Instant.now().plus(RESET_TTL));
         invitations.save(reset);
+
+        audit.record(AuditActions.PASSWORD_RESET_REQUESTED, "app_user", user.getId(),
+                "Password reset requested", Map.of());
 
         email.send(new EmailMessage(user.getEmail(), "Reset your password",
                 "Use this token to reset your password: " + raw));
@@ -102,9 +110,14 @@ public class PasswordResetService {
         reset.setAcceptedAt(Instant.now());
         invitations.save(reset);
 
+        audit.record(AuditActions.PASSWORD_RESET_COMPLETED, "app_user", user.getId(),
+                "Password reset completed", Map.of());
+
         // Changing a password ends existing sessions. Whoever prompted the reset may
         // be the attacker, and leaving their refresh family alive would let them keep
-        // the account they were just locked out of.
+        // the account they were just locked out of. Session revocation itself stays
+        // unaudited (CLAUDE.md is explicit rotation is not), but the reset completing
+        // is a distinct event and must precede this consequence, not follow it.
         refreshTokens.revokeAllForUser(user.getId());
     }
 }
