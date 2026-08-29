@@ -111,4 +111,33 @@ describe("Rail", () => {
     expect(signOut()).toBeNull();
     outside.remove();
   });
+
+  /**
+   * Two shipped bugs, both invisible to jsdom -- it evaluates neither media
+   * queries nor stacking contexts -- so both are asserted structurally, the same
+   * way Sidebar's own breakpoint regression test is.
+   */
+  it("shows the sidebar toggle only below lg, where a drawer exists to open", () => {
+    render(<Rail onToggleSidebar={vi.fn()} />);
+    const toggle = screen.getByRole("button", { name: "Toggle navigation menu" });
+
+    // Above 1024px the sidebar is already inline, so this button has nothing to
+    // reveal. Ungated, it merely painted the drawer's scrim over the whole
+    // screen -- the user saw the page dim and nothing else happen.
+    expect(toggle.className).toContain("lg:hidden");
+  });
+
+  it("stacks the rail above the sidebar so the account popover is not painted over", () => {
+    const { container } = render(<Rail />);
+    const root = container.firstElementChild as HTMLElement;
+
+    // Sidebar is `fixed z-50` and the account popover opens `left-full`, i.e.
+    // directly into the sidebar's space. With the rail in normal flow and no
+    // stacking context, the sidebar painted over the popover and it could not
+    // be seen at all. The rail is the outermost chrome and must outrank it.
+    expect(root.className).toContain("relative");
+    const z = root.className.match(/z-\[(\d+)\]|z-(\d+)/);
+    expect(z).not.toBeNull();
+    expect(Number(z![1] ?? z![2])).toBeGreaterThan(50);
+  });
 });
