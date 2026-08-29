@@ -82,77 +82,74 @@ public class TenantProvisioningService {
      * instead. AuthorizationCoverageTest excludes this class by name for exactly
      * this reason.
      */
-    /**
-     * The whole method body is inside this single try/catch, not just the
-     * {@code tenants.save} call, because BaseEntity has no {@code @Version} and no
-     * {@code Persistable}, so an already-ID-assigned Tenant routes through
-     * {@code entityManager.merge()} rather than {@code persist()} -- and Hibernate
-     * does not necessarily flush a merge immediately. Empirically (see
-     * TenantProvisioningTest), the duplicate-slug constraint violation actually
-     * surfaces at the {@code users.saveAndFlush(admin)} call below, not at
-     * {@code tenants.save(tenant)} itself. Catching broadly here rather than
-     * chasing the exact flush point is safe: a duplicate admin email cannot occur
-     * within a single fresh call (the admin user row is always new), so the only
-     * DataIntegrityViolationException a single provision() call can produce is the
-     * tenant.slug one.
-     */
     @Transactional
     public UUID provision(String slug, String name, String adminEmail, String adminFullName) {
+        Tenant tenant = new Tenant();
+        tenant.setId(Uuid7.generate());
+        tenant.setSlug(slug);
+        tenant.setName(name);
+        tenant.setStatus(TenantStatus.ACTIVE);
+        // saveAndFlush, NOT save, and the difference is the whole point (same shape
+        // as CustomerContactService.save): BaseEntity has no @Version and no
+        // Persistable, so an already-ID-assigned Tenant routes through
+        // entityManager.merge() rather than persist(), and Hibernate does not flush
+        // a merge immediately -- plain save() would defer the INSERT to a later,
+        // unrelated flush point (e.g. users.saveAndFlush(admin) below), so a
+        // constraint violation here would surface deep inside unrelated seeding
+        // code instead of at this single, narrow, easy-to-reason-about call site.
+        // Confirmed empirically (TenantProvisioningTest): with saveAndFlush, the
+        // duplicate-slug violation now throws right here, before TenantContext is
+        // even touched.
         try {
-            Tenant tenant = new Tenant();
-            tenant.setId(Uuid7.generate());
-            tenant.setSlug(slug);
-            tenant.setName(name);
-            tenant.setStatus(TenantStatus.ACTIVE);
-            tenants.save(tenant);
-
-            // Seeding writes to RLS-protected tables, so a tenant must be bound. The
-            // previous value is captured and restored in the finally below: TenantContext
-            // is a ThreadLocal on a pooled request thread, so leaving it set would hand
-            // the next request served by this thread a tenant it never asked for --
-            // silently scoping its reads to a stranger's data.
-            UUID previous = TenantContext.getOrNull();
-            TenantContext.set(tenant.getId());
-            try {
-                binder.bind(tenant.getId());
-                seedRoles(tenant.getId());
-
-                AppUser admin = new AppUser();
-                admin.setId(Uuid7.generate());
-                admin.setTenantId(tenant.getId());
-                admin.setEmail(adminEmail);
-                admin.setFullName(adminFullName);
-                admin.setUserType(UserType.INTERNAL);
-                // INVITED, with no password hash: the administrator activates via the
-                // invitation flow (Task 18). password_hash is nullable precisely for this.
-                admin.setStatus(UserStatus.INVITED);
-                users.saveAndFlush(admin);
-
-                Role adminRole = roles.findByTenantIdAndName(tenant.getId(), "Administrator")
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Administrator template was not seeded for tenant " + slug));
-
-                // Bypasses RoleService.assignRole deliberately: that method is gated on
-                // USER_MANAGE, and during provisioning there is no actor to hold it.
-                // saveAndFlush above is what guarantees app_user exists before this row
-                // references it -- user_role.user_id is a foreign key, and without the
-                // explicit flush the insert order is left to Hibernate.
-                userRoles.save(new UserRole(tenant.getId(), admin.getId(), adminRole.getId()));
-
-                inviteAdministrator(tenant.getId(), admin.getId(), adminEmail);
-
-                audit.record(AuditActions.TENANT_CREATED, "tenant", tenant.getId(),
-                        "Provisioned tenant " + slug, Map.of("slug", slug));
-                return tenant.getId();
-            } finally {
-                if (previous == null) TenantContext.clear(); else TenantContext.set(previous);
-            }
+            tenants.saveAndFlush(tenant);
         } catch (DataIntegrityViolationException e) {
             if (violates(e, TENANT_SLUG_UNIQUE)) throw new DuplicateSlugException(e);
             // Every other constraint is rethrown untouched. Reporting an unrelated
             // violation as "that slug is taken" would send the caller hunting for a
             // duplicate that does not exist.
             throw e;
+        }
+
+        // Seeding writes to RLS-protected tables, so a tenant must be bound. The
+        // previous value is captured and restored in the finally below: TenantContext
+        // is a ThreadLocal on a pooled request thread, so leaving it set would hand
+        // the next request served by this thread a tenant it never asked for --
+        // silently scoping its reads to a stranger's data.
+        UUID previous = TenantContext.getOrNull();
+        TenantContext.set(tenant.getId());
+        try {
+            binder.bind(tenant.getId());
+            seedRoles(tenant.getId());
+
+            AppUser admin = new AppUser();
+            admin.setId(Uuid7.generate());
+            admin.setTenantId(tenant.getId());
+            admin.setEmail(adminEmail);
+            admin.setFullName(adminFullName);
+            admin.setUserType(UserType.INTERNAL);
+            // INVITED, with no password hash: the administrator activates via the
+            // invitation flow (Task 18). password_hash is nullable precisely for this.
+            admin.setStatus(UserStatus.INVITED);
+            users.saveAndFlush(admin);
+
+            Role adminRole = roles.findByTenantIdAndName(tenant.getId(), "Administrator")
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Administrator template was not seeded for tenant " + slug));
+
+            // Bypasses RoleService.assignRole deliberately: that method is gated on
+            // USER_MANAGE, and during provisioning there is no actor to hold it.
+            // saveAndFlush above is what guarantees app_user exists before this row
+            // references it -- user_role.user_id is a foreign key, and without the
+            // explicit flush the insert order is left to Hibernate.
+            userRoles.save(new UserRole(tenant.getId(), admin.getId(), adminRole.getId()));
+
+            inviteAdministrator(tenant.getId(), admin.getId(), adminEmail);
+
+            audit.record(AuditActions.TENANT_CREATED, "tenant", tenant.getId(),
+                    "Provisioned tenant " + slug, Map.of("slug", slug));
+            return tenant.getId();
+        } finally {
+            if (previous == null) TenantContext.clear(); else TenantContext.set(previous);
         }
     }
 
