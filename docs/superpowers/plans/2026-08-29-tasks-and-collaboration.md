@@ -655,17 +655,28 @@ A narrow-scoped `user.manage` holder cannot create a user through the Users scre
 
 **Invoke the `frontend-design` and `ui-ux-pro-max` skills before starting this task.**
 
-**Files:**
-- Modify: `frontend/src/lib/api/admin.ts` (add the `PUT` call that already exists server-side)
-- Modify: the Users create form component and its test
+**This is narrower than it looks, and the narrowing was found by reading the actual scope-resolution code, not guessed — read this before writing anything.**
 
-- [ ] **Step 1: Write the failing component test** — the form renders a department select, its options are the departments the actor can see, and submitting includes `departmentId`.
+**The DEPARTMENT-scope half is genuinely fixable by a picker; the TEAM-scope half is not, and this task should not claim to fix it.** `scoping/AppUserDescriptor.java`'s `teamScope` resolves TEAM scope by checking the *target* user's own `teamIds` collection (`root.join("teamIds").in(ctx.teamIds())`) — but `CreateUserRequest` has no `teamIds` field, so every newly created user starts with an empty team collection, which can never satisfy that join. **A TEAM-scoped `user.manage` holder cannot successfully create any user through this endpoint, with or without a department field, today.** `departmentScope`, by contrast, compares `ctx.departmentId()` against the new user's own `departmentId` (which `CreateUserRequest` *does* accept) — so the department picker genuinely closes the gap for a DEPARTMENT-scoped actor, but does nothing for a TEAM-scoped one. **Verify this yourself** (it follows directly from reading the descriptor, but confirm empirically with a hand-built TEAM-scoped `user.manage` role attempting a create, department field included, before relying on this claim) and **say so explicitly in the commit body and report** — do not let "added a department picker" read as "the whole bug is fixed." Whether TEAM-scoped user creation needs `CreateUserRequest` to accept `teamIds`, or a different mechanism entirely, is a real, separate, still-open gap; note it in CLAUDE.md's open-items list rather than silently absorbing or ignoring it.
+
+**No new backend endpoint or hook is needed for the picker's options — everything already exists, verified:**
+- `frontend/src/lib/api/admin.ts` already has `useDepartments()` (an existing hook, already consumed by `admin/org/page.tsx`'s team-creation form). It calls `GET /admin/departments`, gated server-side on `PermissionKeys.DEPARTMENT_MANAGE` — which is catalogued `ALL_ONLY` (`PermissionCatalog.java`). **This means `useDepartments()` will itself fail (or simply never be callable) for a DEPARTMENT-scoped `user.manage` holder who does not separately hold `department.manage`** — confirmed no seeded role template combines a non-ALL `user.manage` grant with `department.manage` at all, so this is the exact actor this task exists for. Gate the call on `useHasPermission("department.manage")`, matching this file's own existing pattern for `canView`/`canManage`/`canViewRoles`.
+- For the actor who does *not* hold `department.manage`: **`useAuth().user?.departmentId` is already available with zero new plumbing.** `AuthState.user` is the generated `Me` type (`components["schemas"]["Me"]`), which already carries `departmentId` (and `teamIds`) straight from the backend's `MeService.Me` record — no new hook, no new backend call. For this actor, the picker's option set is just their own department (the one department they are guaranteed to succeed with) — effectively pre-selected, since there is nothing else to choose from.
+- **UI pattern to mirror:** `admin/org/page.tsx`'s existing team-creation form already has a department `<select>` (hand-rolled, not the `Field` component) styled to match this codebase's tokens. Match that exact pattern rather than inventing a new one or "fixing" the `Field`-vs-hand-rolled-`select` divergence — that divergence is a separately documented, deliberately deferred design decision (CLAUDE.md), not something this task should touch.
+
+**Files:**
+- Modify: `frontend/src/lib/api/admin.ts` (add the `PUT` call that already exists server-side, for the user-edit gap named above)
+- Modify: the Users create form component (`frontend/src/app/(app)/t/[slug]/admin/users/page.tsx`'s `InviteForm`) and its test
+
+- [ ] **Step 1: Write the failing component test** — for an actor holding `department.manage`, the form renders a department select whose options come from `useDepartments()` and submitting includes the chosen `departmentId`. For an actor who does *not* hold `department.manage` but holds `user.manage` at DEPARTMENT scope, the form still submits a `departmentId` — the actor's own, from `useAuth().user.departmentId` — without requiring `useDepartments()` to have succeeded.
 
 - [ ] **Step 2: Run to verify it fails**
 
-- [ ] **Step 3: Add the picker**, options scoped to the actor. Where the actor holds `user.manage` at DEPARTMENT or TEAM, the picker must not offer a department they cannot manage into — offering an option that will 404 is worse than not offering it.
+- [ ] **Step 3: Add the picker**, options scoped to the actor as described above. Never offer a department the actor cannot manage into — offering an option that will 404 is worse than not offering it, which is exactly why the two-tier (full list vs. own-department-only) design exists rather than always showing the full list.
 
 - [ ] **Step 4: Run `npx vitest run`**
+
+- [ ] **Step 5: Commit, and be explicit in the message that this closes the DEPARTMENT half only** — name the TEAM-scope gap this task discovered but does not fix, and note it needs a separate change (likely `CreateUserRequest` gaining a `teamIds` field, or an equivalent) before a TEAM-scoped actor can create a user at all.
 
 - [ ] **Step 5: Commit**
 
