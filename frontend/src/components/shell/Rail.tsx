@@ -16,8 +16,14 @@ import { t } from "@/lib/i18n";
  */
 export function Rail({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
   return (
+    // `relative z-[60]` puts the rail above Sidebar's `z-50` and its `z-40`
+    // scrim. Without it the rail sits in normal flow with no stacking context,
+    // and the account popover -- absolutely positioned and opening `left-full`,
+    // i.e. straight into the sidebar's space -- is painted over by the sidebar
+    // and cannot be seen at all. The rail is the outermost chrome; nothing
+    // should ever cover it.
     <div
-      className="flex flex-col items-center bg-ink shrink-0"
+      className="relative z-[60] flex flex-col items-center bg-ink shrink-0"
       style={{ width: "var(--ob-rail-width)", padding: "14px 0 12px", gap: "var(--ob-space-6)" }}
     >
       <BrandMark />
@@ -26,7 +32,11 @@ export function Rail({ onToggleSidebar }: { onToggleSidebar?: () => void }) {
           type="button"
           onClick={onToggleSidebar}
           aria-label={t("shell.sidebar.toggle")}
-          className="text-line-faint"
+          // Only below `lg`, the one breakpoint where the sidebar is a drawer
+          // that needs opening. At 1024px and above the sidebar is already
+          // inline, so this button had nothing to reveal -- it just painted the
+          // drawer's scrim over the screen and appeared to do nothing.
+          className="text-line-faint lg:hidden"
           style={{
             width: 34,
             height: 34,

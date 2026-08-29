@@ -95,7 +95,11 @@ export function Sidebar({
     <>
       {isDrawer && isOpen && (
         <div
-          className="fixed inset-0 z-40"
+          // `lg:hidden` for the same reason the rail's toggle is: above 1024px
+          // the sidebar is inline, never a drawer, so a scrim there would dim
+          // the screen for nothing. Reachable by resizing a window that was
+          // narrow when the drawer was opened.
+          className="fixed inset-0 z-40 lg:hidden"
           style={{ background: "var(--ob-scrim-drawer)" }}
           onClick={onClose}
           aria-hidden="true"
