@@ -165,8 +165,7 @@ class CustomerServiceTest extends PostgresTestBase {
             UUID role = roles.createRole("Editor", "", Map.of(
                     PermissionKeys.CUSTOMER_CREATE, Scope.ALL,
                     PermissionKeys.CUSTOMER_VIEW, Scope.ALL,
-                    PermissionKeys.CUSTOMER_EDIT, Scope.ALL,
-                    PermissionKeys.USER_VIEW, Scope.ALL));
+                    PermissionKeys.CUSTOMER_EDIT, Scope.ALL));
             roles.assignRole(user.get(), role);
         });
 
@@ -220,6 +219,97 @@ class CustomerServiceTest extends PostgresTestBase {
                     .as("and it is visible at ASSIGNED scope right away")
                     .extracting(CustomerService.CustomerView::displayName)
                     .containsExactly("Fresh");
+        });
+    }
+
+    /**
+     * Proves that an ASSIGNED-scoped editor with no USER_VIEW grant can still
+     * edit a customer they own, as long as the ownerUserId in the request is
+     * unchanged from the stored value. This is the narrowest-scope write test for
+     * update() (CLAUDE.md), and it catches the regression that would happen if
+     * resolveOwner() ran on every save instead of only on ownership changes.
+     *
+     * Sales Representative holds CUSTOMER_EDIT at ASSIGNED scope and has zero
+     * USER_VIEW grant, so it would 404 if asked to resolve any owner id at all
+     * — but this test changes an unrelated field (industry) while round-tripping
+     * the ownerUserId unchanged, so resolveOwner() should be skipped and the
+     * edit should succeed.
+     */
+    @Test
+    void assignedScopedEditorWithoutUserViewCanRoundTripOwnershipUnchanged() {
+        UUID tenant = fixture.createTenant("cust-edit-noview");
+        var user = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "salesperson@example.com"));
+            UUID role = roles.createRole("Sales Representative", "", Map.of(
+                    PermissionKeys.CUSTOMER_CREATE, Scope.ALL,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ASSIGNED,
+                    PermissionKeys.CUSTOMER_EDIT, Scope.ASSIGNED
+                    // Note: no USER_VIEW grant at all
+            ));
+            roles.assignRole(user.get(), role);
+        });
+
+        // The user creates the customer (becoming the owner) and then edits an
+        // unrelated field while round-tripping the owner unchanged. Since the
+        // ownerUserId in the request equals the stored value, resolveOwner()
+        // should be skipped and the edit should succeed despite the lack of
+        // USER_VIEW permission.
+        fixture.runAsUser(tenant, user.get(), () -> {
+            customerId.set(customers.create(new CustomerService.CreateCustomerRequest(
+                    "NewCo Ltd", "NewCo", "Tech", "US",
+                    null, null, null)).id());
+
+            var loaded = customers.get(customerId.get());
+            var updated = customers.update(customerId.get(), new CustomerService.UpdateCustomerRequest(
+                    loaded.legalName(), loaded.displayName(), "Finance",
+                    loaded.country(), loaded.externalRef(), loaded.ownerUserId(),
+                    loaded.owningDepartmentId(), loaded.owningTeamId()));
+            assertThat(updated.industry()).isEqualTo("Finance");
+            assertThat(updated.ownerUserId()).isEqualTo(user.get());
+        });
+    }
+
+    /**
+     * Tests positive-path coverage for department and team resolution: verify
+     * that a customer created with a same-tenant department id and team id
+     * correctly round-trips both values on the returned view.
+     */
+    @Test
+    void departmentAndTeamIdsRoundTrip() {
+        UUID tenant = fixture.createTenant("cust-orgunit-rt");
+        var departmentId = new UUID[1];
+        var teamId = new UUID[1];
+        var customerId = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            departmentId[0] = fixture.createDepartment(tenant, "Engineering");
+            teamId[0] = fixture.createTeam(tenant, "Backend");
+
+            var created = customers.create(new CustomerService.CreateCustomerRequest(
+                    "CloudSoft Ltd", "CloudSoft", "SaaS", "US",
+                    null, departmentId[0], teamId[0]));
+
+            assertThat(created.owningDepartmentId()).isEqualTo(departmentId[0]);
+            assertThat(created.owningTeamId()).isEqualTo(teamId[0]);
+            customerId.set(created.id());
+        });
+
+        // Verify they survive a round-trip through the update path
+        fixture.runAs(tenant, () -> {
+            var loaded = customers.get(customerId.get());
+            assertThat(loaded.owningDepartmentId()).isEqualTo(departmentId[0]);
+            assertThat(loaded.owningTeamId()).isEqualTo(teamId[0]);
+
+            var updated = customers.update(customerId.get(), new CustomerService.UpdateCustomerRequest(
+                    loaded.legalName(), loaded.displayName(), "Enterprise Software",
+                    loaded.country(), loaded.externalRef(), loaded.ownerUserId(),
+                    departmentId[0], teamId[0]));
+
+            assertThat(updated.owningDepartmentId()).isEqualTo(departmentId[0]);
+            assertThat(updated.owningTeamId()).isEqualTo(teamId[0]);
         });
     }
 }

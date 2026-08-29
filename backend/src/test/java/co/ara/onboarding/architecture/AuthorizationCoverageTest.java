@@ -214,22 +214,23 @@ class AuthorizationCoverageTest {
                 .and().areNotAssignableTo(ActivationService.class)
                 .and().areNotAssignableTo(PasswordResetService.class)
                 .and().areNotAssignableTo(MeService.class)
-                // Three exclusions, category one: runs before there is an actor
-                // to authorize. IdentityActorDirectory and UserRoleDirectory supply
-                // the department and teams that scope resolution itself needs.
-                // CustomerService resolves department and team ids through plain
-                // repository lookups: the Hibernate filter and RLS provide tenancy
-                // isolation, and no permission predicates exist for these reads (only
-                // DEPARTMENT_MANAGE/TEAM_MANAGE, both ALL-only administrative
-                // permissions, not view permissions). Excluded by class rather than
-                // by name pattern: a second class that happens to end in "Directory"
-                // would not inherit the exemption.
+                // Three exclusions: two run before there is an actor to authorize
+                // (IdentityActorDirectory, UserRoleDirectory — supply the department
+                // and teams scope resolution itself needs). The third is a separate
+                // category: OrgUnitResolver resolves department and team ids through
+                // plain repository lookups because no DEPARTMENT_VIEW or TEAM_VIEW
+                // permissions exist in the catalog — only DEPARTMENT_MANAGE and
+                // TEAM_MANAGE, both ALL-only administrative permissions. Tenancy
+                // isolation is provided by Hibernate filter and RLS, both applied
+                // automatically to all TenantScopedEntity queries. Excluded by class
+                // rather than by name pattern: a second class that happens to end in
+                // "Directory" would not inherit the exemption.
                 .and().doNotHaveFullyQualifiedName(
                         "co.ara.onboarding.identity.IdentityActorDirectory")
                 .and().doNotHaveFullyQualifiedName(
                         "co.ara.onboarding.authz.UserRoleDirectory")
                 .and().doNotHaveFullyQualifiedName(
-                        "co.ara.onboarding.customer.CustomerService")
+                        "co.ara.onboarding.customer.OrgUnitResolver")
                 .should().callMethodWhere(
                         (target(name("findAll"))
                          .or(target(name("findOne")))

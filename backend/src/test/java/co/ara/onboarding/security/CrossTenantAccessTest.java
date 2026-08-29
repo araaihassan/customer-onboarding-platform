@@ -111,6 +111,22 @@ class CrossTenantAccessTest extends SecurityTestBase {
                 .isInstanceOf(NoSuchElementException.class);
     }
 
+    @Test
+    void anotherTenantsTeamIdCannotBecomeACustomersOwningTeam() {
+        UUID tenantA = fixture.createTenant("own-team-a");
+        UUID tenantB = fixture.createTenant("own-team-b");
+        var strangerTeamId = new UUID[1];
+        fixture.runAs(tenantB, () ->
+                strangerTeamId[0] = fixture.createTeam(tenantB, "B's Engineers"));
+
+        // A real id, but in another tenant. The FK is satisfied because RLS is
+        // bypassed for referential integrity, so before the fix this answered 200.
+        assertThatThrownBy(() -> fixture.runAs(tenantA, () ->
+                customers.create(new CustomerService.CreateCustomerRequest(
+                        "Acme", null, null, null, null, null, strangerTeamId[0]))))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
     /**
      * update() is the sharper case: unlike create(), it takes ownerUserId
      * straight from the request (CustomerService.java:131), so a real user id
