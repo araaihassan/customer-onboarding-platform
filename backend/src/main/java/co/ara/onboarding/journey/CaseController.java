@@ -64,6 +64,8 @@ public class CaseController {
     @ResponseStatus(CREATED)
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "Case opened, pinned to the template's current published version"),
+            @ApiResponse(responseCode = "400", description = "A blank name failed validation",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "403", description = FORBIDDEN,
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = "The customer or template is absent or out of scope",
@@ -73,7 +75,7 @@ public class CaseController {
             @ApiResponse(responseCode = "422", description = "Every attribute problem found, so the dialog can list them all",
                     content = @Content(schema = @Schema(implementation = JourneyExceptionHandler.ProblemList.class)))
     })
-    public CaseView create(@RequestBody CreateCaseRequest request) {
+    public CaseView create(@Valid @RequestBody CreateCaseRequest request) {
         return cases.create(request);
     }
 
@@ -92,6 +94,8 @@ public class CaseController {
     @PutMapping("/cases/{id}")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "The saved case"),
+            @ApiResponse(responseCode = "400", description = "A blank name failed validation",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "403", description = FORBIDDEN,
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
             @ApiResponse(responseCode = "404", description = NOT_FOUND,

@@ -299,7 +299,7 @@ class MigrationTest extends PostgresTestBase {
 
     private UUID aCaseOn(UUID tenant, UUID templateId) {
         UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
-        return cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     private UUID firstRequirementOfStage(UUID caseId, int stageIndex) {

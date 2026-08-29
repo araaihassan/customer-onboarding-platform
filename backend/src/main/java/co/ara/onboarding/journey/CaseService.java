@@ -152,13 +152,14 @@ public class CaseService {
         Case c = new Case();
         c.setId(Uuid7.generate());
         c.setTenantId(TenantContext.getRequired());
-        // Q18: falls back to the same synthetic label V15's backfill gives
-        // pre-existing rows -- template name plus the case id's own short id --
-        // when the caller supplies none, because CreateCaseDialog does not
-        // collect one yet. See CreateCaseRequest's own javadoc.
-        c.setName(request.name() == null || request.name().isBlank()
-                ? template.getName() + " " + shortId(c.getId())
-                : request.name());
+        // Q18: @NotBlank on CreateCaseRequest.name (enforced by CaseController.create's
+        // @Valid) is what guarantees this is never null/blank -- no fallback here on
+        // purpose. Fix round 1 removed a synthesized "template name + short id"
+        // fallback that lived here: it read as a real name but was identical across
+        // every case opened from the same template, sitting right next to an id
+        // already shown in the switcher's own mono chip -- worse than the
+        // stage-name label it replaced, not just incomplete.
+        c.setName(request.name());
         c.setCustomerId(customer.id());
         c.setTemplateId(template.getId());
         c.setVersionId(versionId);                 // pinned here, never reassigned except by migration
@@ -728,17 +729,5 @@ public class CaseService {
                 c.getProgressPercent(), c.getTargetCompletionDate(), c.getHeldAt(), c.getTotalHoldDays(),
                 c.getOwnerUserId(), c.getOwningDepartmentId(), c.getOwningTeamId(), attributesOf(c),
                 c.getStartedAt(), c.getCompletedAt(), engine.pendingTransition(c));
-    }
-
-    /**
-     * The last hyphen-delimited segment of a case id -- the same truncation
-     * frontend/src/lib/api/customers.ts's shortId() applies, so a synthesized
-     * name (here, and V15's backfill) matches the id fragment CaseSwitcher
-     * already showed users before Q18.
-     */
-    private static String shortId(UUID id) {
-        String s = id.toString();
-        int i = s.lastIndexOf('-');
-        return i < 0 ? s : s.substring(i + 1);
     }
 }

@@ -1,6 +1,7 @@
 package co.ara.onboarding.journey;
 
 import co.ara.onboarding.platform.BusinessCalendar;
+import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import co.ara.onboarding.workflow.AttributeType;
@@ -54,7 +55,7 @@ class TransitionTest extends PostgresTestBase {
                     stage("s2", "Stage Two", List.of(milestone("m2", "M2", 1, List.of(), List.of(manual("Do it")))))
             ), List.of(), 0L));
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             UUID s1Id = stageId(view.id(), 0);
             UUID s2Id = stageId(view.id(), 1);
@@ -78,7 +79,7 @@ class TransitionTest extends PostgresTestBase {
                     stage("s2", "Stage Two", List.of(milestone("m2", "M2", 1, List.of(), List.of(manual("Do it")))))
             ), List.of(), 0L));
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             var mandatoryReq = cases.roadmap(view.id()).stages().get(0).milestones().get(0).requirements()
                     .stream().filter(RequirementRoadmapView::mandatory).findFirst().orElseThrow();
@@ -108,7 +109,7 @@ class TransitionTest extends PostgresTestBase {
 
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             var view = cases.create(new CreateCaseRequest(
-                    customerId, journey.templateOf(versionId), Map.of("segment", "SMB")));
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of("segment", "SMB")));
 
             satisfyEveryRequirementOfCurrentStage(view.id());
 
@@ -137,7 +138,7 @@ class TransitionTest extends PostgresTestBase {
             UUID versionId = journey.publish(request);
 
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             satisfyEveryRequirementOfCurrentStage(view.id());
 
@@ -169,7 +170,7 @@ class TransitionTest extends PostgresTestBase {
 
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             var view = cases.create(new CreateCaseRequest(
-                    customerId, journey.templateOf(versionId), Map.of("segment", "SMB")));
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of("segment", "SMB")));
 
             satisfyEveryRequirementOfCurrentStage(view.id());
 
@@ -191,7 +192,7 @@ class TransitionTest extends PostgresTestBase {
 
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             var view = cases.create(new CreateCaseRequest(
-                    customerId, journey.templateOf(versionId), Map.of("segment", "SMB")));
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of("segment", "SMB")));
 
             satisfyEveryRequirementOfCurrentStage(view.id());
 
@@ -217,7 +218,7 @@ class TransitionTest extends PostgresTestBase {
                     stage("s1", "Only Stage", List.of(milestone("m1", "M1", 1, List.of(), List.of(manual("Do it")))))
             ), List.of(), 0L));
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
             UUID s1Id = stageId(view.id(), 0);
 
             satisfyEveryRequirementOfCurrentStage(view.id());
@@ -238,7 +239,7 @@ class TransitionTest extends PostgresTestBase {
 
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             var view = cases.create(new CreateCaseRequest(
-                    customerId, journey.templateOf(versionId), Map.of("segment", "SMB")));
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of("segment", "SMB")));
 
             satisfyEveryRequirementOfCurrentStage(view.id());   // s1 done -> s2 skipped -> lands on s3
             satisfyEveryRequirementOfCurrentStage(view.id());   // s3 done -> terminal
@@ -265,7 +266,7 @@ class TransitionTest extends PostgresTestBase {
             ), List.of(), 0L));
 
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
             UUID s1Id = stageId(view.id(), 0);
             UUID s2Id = stageId(view.id(), 1);
 
@@ -291,7 +292,7 @@ class TransitionTest extends PostgresTestBase {
                     stage("s1", "Stage One", List.of(milestone("m1", "M1", 1, List.of(), List.of(manual("Do it")))))
             ), List.of(), 0L));
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            caseId.set(cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of())).id());
+            caseId.set(cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id());
         });
 
         // Never assert inside the runAs lambda -- see CaseCreationTest's own note on why.
@@ -313,7 +314,7 @@ class TransitionTest extends PostgresTestBase {
             ), List.of(), 0L));
 
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
             UUID s1Id = stageId(view.id(), 0);
 
             satisfyEveryRequirementOfCurrentStage(view.id());   // stage complete, but requires approval
@@ -340,7 +341,7 @@ class TransitionTest extends PostgresTestBase {
                             milestone("m2", "M2", 3, List.of(), List.of(manual("Do it")))))
             ), List.of(), 0L));
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             var stageMilestones = cases.roadmap(view.id()).stages().get(0).milestones();
             assertThat(stageMilestones.get(0).dueDate()).isEqualTo(calendar.plusBusinessDays(LocalDate.now(), 2));

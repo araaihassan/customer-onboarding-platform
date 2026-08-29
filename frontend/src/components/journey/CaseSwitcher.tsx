@@ -75,7 +75,10 @@ export function CaseSwitcher({
                   background: dotColor(c.status),
                 }}
               />
-              <span>{c.name || t("case.header.noStage")}</span>
+              {/* No fallback: name is @NotBlank and NOT NULL from creation (Q18) --
+                  "not started" was never an honest stand-in for a missing name,
+                  it was borrowed from the stage-name label this replaced. */}
+              <span>{c.name}</span>
               <span
                 style={{
                   font: "var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",

@@ -87,6 +87,7 @@ describe("CreateCaseDialog", () => {
   it("renders each 422 problem against its own field", async () => {
     renderDialog();
     await waitFor(() => expect(screen.getByText("Standard Onboarding")).not.toBeNull());
+    fireEvent.change(screen.getByLabelText(/Case name/i), { target: { value: "Enterprise onboarding" } });
     fireEvent.click(screen.getByText("Standard Onboarding"));
     await waitFor(() => expect(screen.getByLabelText(/Industry/)).not.toBeNull());
 
@@ -100,5 +101,45 @@ describe("CreateCaseDialog", () => {
       "Attribute 'industry' is required",
     );
     expect(screen.getByTestId("attribute-field-notes").textContent).not.toContain("required");
+  });
+
+  /**
+   * Q18 fix round 1: the case's own name is required client-side, the same way
+   * HoldDialog's reason and admin/users' fullName/email already are -- trimmed
+   * and checked on submit rather than disabling the button while empty.
+   */
+  it("cannot submit without a name", async () => {
+    renderDialog();
+    await waitFor(() => expect(screen.getByText("Standard Onboarding")).not.toBeNull());
+    // A template must be selected for the button to be enabled at all -- this
+    // isolates the name check from the pre-existing "no template" guard.
+    fireEvent.click(screen.getByText("Standard Onboarding"));
+    await waitFor(() => expect(screen.getByLabelText(/Industry/)).not.toBeNull());
+
+    fetchMock.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /create case/i }));
+
+    expect(await screen.findByText("This field is required")).not.toBeNull();
+    expect(fetchMock.mock.calls.some((call: unknown[]) => (call[0] as string).endsWith("/cases"))).toBe(false);
+  });
+
+  it("submits the trimmed name alongside the template and attributes", async () => {
+    renderDialog();
+    await waitFor(() => expect(screen.getByText("Standard Onboarding")).not.toBeNull());
+    fireEvent.change(screen.getByLabelText(/Case name/i), { target: { value: "  Enterprise onboarding  " } });
+    fireEvent.click(screen.getByText("Standard Onboarding"));
+    await waitFor(() => expect(screen.getByLabelText(/Industry/)).not.toBeNull());
+    fireEvent.change(screen.getByLabelText(/Industry/), { target: { value: "Finance" } });
+
+    fireEvent.click(screen.getByRole("button", { name: /create case/i }));
+
+    await waitFor(() => {
+      const call = fetchMock.mock.calls.find((c: unknown[]) => (c[0] as string).endsWith("/cases")) as
+        | [string, RequestInit]
+        | undefined;
+      expect(call).toBeDefined();
+      const body = JSON.parse(call![1].body as string);
+      expect(body.name).toBe("Enterprise onboarding");
+    });
   });
 });

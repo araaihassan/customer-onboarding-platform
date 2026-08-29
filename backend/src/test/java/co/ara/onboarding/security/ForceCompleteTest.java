@@ -243,7 +243,7 @@ class ForceCompleteTest extends PostgresTestBase {
     private UUID caseWithOneMilestone(UUID tenant) {
         UUID templateId = journey.publishedTemplate();
         UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
-        return cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     private UUID firstMilestoneId(UUID caseId) {

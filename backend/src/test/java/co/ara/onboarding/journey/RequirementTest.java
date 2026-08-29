@@ -30,7 +30,7 @@ class RequirementTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             UUID caseId = cases.create(new CreateCaseRequest(
-                    customerId, journey.publishedTemplate(), Map.of())).id();
+                    customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of())).id();
             UUID requirementId = firstRequirementId(caseId);
 
             requirements.satisfy(requirementId, null, null);
@@ -46,7 +46,7 @@ class RequirementTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             UUID caseId = cases.create(new CreateCaseRequest(
-                    customerId, journey.publishedTemplate(), Map.of())).id();
+                    customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of())).id();
             UUID requirementId = firstRequirementId(caseId);
 
             requirements.satisfy(requirementId, null, null);
@@ -66,7 +66,7 @@ class RequirementTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             UUID caseId = cases.create(new CreateCaseRequest(
-                    customerId, journey.publishedTemplate(), Map.of())).id();
+                    customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of())).id();
             requirementId.set(firstRequirementId(caseId));
         });
 
@@ -83,7 +83,7 @@ class RequirementTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             UUID caseId = cases.create(new CreateCaseRequest(
-                    customerId, journey.publishedTemplate(), Map.of())).id();
+                    customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of())).id();
             UUID requirementId = firstRequirementId(caseId);
 
             var view = requirements.waive(requirementId, "Not applicable for this customer");
@@ -106,7 +106,7 @@ class RequirementTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             UUID caseId = cases.create(new CreateCaseRequest(
-                    customerId, journey.publishedTemplate(), Map.of())).id();
+                    customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of())).id();
             requirementId.set(firstRequirementId(caseId));
 
             // Task 18 owns the hold/resume transition; this test only needs the
@@ -132,7 +132,7 @@ class RequirementTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             UUID caseId = cases.create(new CreateCaseRequest(
-                    customerId, journey.publishedTemplate(), Map.of())).id();
+                    customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of())).id();
             UUID requirementId = firstRequirementId(caseId);
 
             UUID pretendTaskId = Uuid7.generate();

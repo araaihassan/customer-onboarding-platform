@@ -34,7 +34,7 @@ class CaseEditTest extends PostgresTestBase {
             UUID templateId = journey.publishedTemplateWithSegmentAttribute();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             var created = cases.create(new CreateCaseRequest(customerId, templateId,
-                    Map.of("segment", "ENTERPRISE")));
+                    "Fixture Case " + Uuid7.generate(), Map.of("segment", "ENTERPRISE")));
 
             UUID newOwner = fixture.createUser(tenant, "new-owner@example.com");
             UUID department = fixture.createDepartment(tenant, "Onboarding");
@@ -80,6 +80,29 @@ class CaseEditTest extends PostgresTestBase {
     }
 
     /**
+     * changingTheOwnerPreservesTheCasesName never changes the name, so it would
+     * pass identically even if CaseService.update's `c.setName(request.name())`
+     * line were deleted. This is the test that would actually catch that: it
+     * changes the name itself and confirms the new value persists on a
+     * subsequent, separate read.
+     */
+    @Test
+    void updatingTheNamePersistsIt() {
+        UUID tenant = fixture.createTenant("case-edit-rename");
+        fixture.runAs(tenant, () -> {
+            UUID templateId = journey.publishedTemplate();
+            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+            var created = cases.create(new CreateCaseRequest(customerId, templateId,
+                    "Enterprise onboarding", Map.of()));
+
+            cases.update(created.id(), new UpdateCaseRequest("EU expansion", created.ownerUserId(),
+                    created.owningDepartmentId(), created.owningTeamId(), created.attributes()));
+
+            assertThat(cases.get(created.id()).name()).isEqualTo("EU expansion");
+        });
+    }
+
+    /**
      * The field that would silently erase: attributes omitted from the body must not
      * blank the case's answers. CLAUDE.md's full-replace invariant says a PUT means
      * replace, so the request carries them and the view returns them -- there is no
@@ -94,7 +117,7 @@ class CaseEditTest extends PostgresTestBase {
             UUID templateId = journey.publishedTemplateWithSegmentAttribute();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             caseId.set(cases.create(new CreateCaseRequest(customerId, templateId,
-                    Map.of("segment", "ENTERPRISE"))).id());
+                    "Fixture Case " + Uuid7.generate(), Map.of("segment", "ENTERPRISE"))).id());
             owner.set(fixture.createUser(tenant, "owner-omit@example.com"));
         });
 
@@ -116,7 +139,7 @@ class CaseEditTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var created = cases.create(new CreateCaseRequest(customerId, templateId, Map.of()));
+            var created = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of()));
 
             UUID newOwner = fixture.createUser(tenant, "owner-added@example.com");
             cases.update(created.id(), new UpdateCaseRequest(created.name(), newOwner, null, null, Map.of()));
@@ -136,7 +159,7 @@ class CaseEditTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var created = cases.create(new CreateCaseRequest(customerId, templateId, Map.of()));
+            var created = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of()));
             caseId.set(created.id());
 
             UUID userId = fixture.createUser(tenant, "participant@example.com");
@@ -169,7 +192,7 @@ class CaseEditTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id());
+            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
 
             UUID userId = fixture.createUser(tenant, "viewer-only@example.com");
             viewer.set(userId);
@@ -192,7 +215,7 @@ class CaseEditTest extends PostgresTestBase {
         fixture.runAs(tenantA, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenantA, "Acme", null, null, null);
-            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id());
+            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
         });
 
         // the user id comes from a request body, so it resolves through AuthorizedQuery

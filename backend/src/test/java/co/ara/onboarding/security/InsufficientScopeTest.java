@@ -6,6 +6,7 @@ import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
+import co.ara.onboarding.platform.Uuid7;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -49,8 +50,8 @@ class InsufficientScopeTest extends SecurityTestBase {
             UUID templateId = journey.publishedTemplate();
             UUID myCustomer = fixture.createCustomer(tenant, "Mine", null, null, myTeam);
             UUID theirCustomer = fixture.createCustomer(tenant, "Theirs", null, null, otherTeam);
-            mine.set(cases.create(new CreateCaseRequest(myCustomer, templateId, Map.of())).id());
-            theirs.set(cases.create(new CreateCaseRequest(theirCustomer, templateId, Map.of())).id());
+            mine.set(cases.create(new CreateCaseRequest(myCustomer, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
+            theirs.set(cases.create(new CreateCaseRequest(theirCustomer, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
 
             UUID role = roles.createRole("Case Team Viewer", "",
                     Map.of(PermissionKeys.CASE_VIEW, Scope.TEAM, PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
@@ -83,7 +84,7 @@ class InsufficientScopeTest extends SecurityTestBase {
 
             UUID templateId = journey.publishedTemplate();
             UUID theirCustomer = fixture.createCustomer(tenant, "Theirs", null, null, otherTeam);
-            UUID id = cases.create(new CreateCaseRequest(theirCustomer, templateId, Map.of())).id();
+            UUID id = cases.create(new CreateCaseRequest(theirCustomer, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
             caseId.set(id);
             requirementId.set(cases.roadmap(id).stages().get(0).milestones().get(0).requirements().get(0).id());
 

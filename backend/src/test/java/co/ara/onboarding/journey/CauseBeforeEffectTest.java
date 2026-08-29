@@ -1,6 +1,7 @@
 package co.ara.onboarding.journey;
 
 import co.ara.onboarding.audit.AuditEventView;
+import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import org.junit.jupiter.api.Test;
@@ -110,7 +111,7 @@ class CauseBeforeEffectTest extends PostgresTestBase {
     private UUID openCase(UUID tenant) {
         UUID templateId = journey.publishedTemplate();
         UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-        return cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     private UUID firstRequirementId(UUID caseId) {

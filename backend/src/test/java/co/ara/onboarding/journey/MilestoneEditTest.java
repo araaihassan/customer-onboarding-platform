@@ -156,7 +156,7 @@ class MilestoneEditTest extends PostgresTestBase {
 
     private UUID simpleCase(UUID tenant) {
         UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
-        return cases.create(new CreateCaseRequest(customerId, journey.publishedTemplate(), Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     private UUID twoMilestoneCase(UUID tenant) {
@@ -165,7 +165,7 @@ class MilestoneEditTest extends PostgresTestBase {
                 milestone("m2", "Milestone Two", 3, List.of(), List.of(manual("Do it")))));
         UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(stageRequest), List.of(), 0L));
         UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
-        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     /** A single-stage, single-milestone, OWNER_ONLY-write-scope case owned by the given user. */
@@ -177,7 +177,7 @@ class MilestoneEditTest extends PostgresTestBase {
                 List.of());
         UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(stageRequest), List.of(), 0L));
         UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), ownerUserId, null, null);
-        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     private MilestoneRoadmapView firstMilestone(UUID caseId) {

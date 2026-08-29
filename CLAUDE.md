@@ -327,11 +327,6 @@ failing, same as dark — confirmed by running it, not by reading the script).
   inert: it is the mechanism §5.3 uses to skip a stage conditionally, and case-lifecycle.spec.ts's
   own workflow had to be seeded through the API rather than the builder for exactly this reason.
   Both are real product gaps, not test-writing conveniences.
-- **A journey has no name.** `onboarding_case` carries no `name` column, so every multi-journey
-  surface fakes a label: `CaseSwitcher` renders the current stage name plus a short id, which is
-  not a name and stops being right the moment the stage advances. QA Q18 (added 2026-08-29) decides
-  a journey carries a human-readable name set at creation — a schema and `CreateCaseRequest`
-  addition against this already-delivered module, not new sub-project work.
 - **`approval.decide` is seeded to `Administrator` only.** The catalog allows it at any of
   ALL/DEPARTMENT/TEAM, but none of the other eleven templates holds it — deciding a stage-exit
   approval currently requires the tenant's widest role, unlike `milestone.force_approve`, which is
@@ -348,6 +343,18 @@ failing, same as dark — confirmed by running it, not by reading the script).
   deactivation's pending-credential gap, the unvalidated tenant slug, `DB_APP_PASSWORD`'s default,
   contact email drift, the three unaudited `authz`/`auth` write paths, the mislabelled pre-2026-08-16
   deactivations, and contact retirement not revoking portal access.
+
+**Closed since sub-project 2, verified against the running system:** Q18's journey name.
+`onboarding_case.name` is `NOT NULL`; `CreateCaseRequest`/`UpdateCaseRequest` both carry it
+`@NotBlank`, so neither create nor update can leave a case unnamed or silently blank one on a
+full-replace `PUT`; `CreateCaseDialog` collects a real name at creation (the only place one is
+ever supplied — there is no synthesized fallback in application code, only in `V15`'s one-time
+backfill of rows that predate the column); and `CaseSwitcher` renders it in place of the
+stage-plus-id label this replaced. A fix round on this same task found and removed an earlier,
+worse version of the bug: the first pass let `CaseService.create` synthesize a "template name plus
+short id" label when a caller sent none, which read as a real name but was identical across every
+case opened from the same template — the reviewer's point that a fake-but-plausible name is a
+regression from a visibly-fake one, not progress toward Q18.
 
 ### Tests
 

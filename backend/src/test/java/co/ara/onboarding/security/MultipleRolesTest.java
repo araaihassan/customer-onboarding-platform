@@ -6,6 +6,7 @@ import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
+import co.ara.onboarding.platform.Uuid7;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -88,13 +89,13 @@ class MultipleRolesTest extends SecurityTestBase {
             UUID templateId = journey.publishedTemplate();
 
             UUID teamCustomer = fixture.createCustomer(tenant, "ByTeam", null, null, myTeam);
-            byTeam.set(cases.create(new CreateCaseRequest(teamCustomer, templateId, Map.of())).id());
+            byTeam.set(cases.create(new CreateCaseRequest(teamCustomer, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
 
             UUID assignedCustomer = fixture.createCustomer(tenant, "ByOwner", viewer.getId(), null, null);
-            byAssigned.set(cases.create(new CreateCaseRequest(assignedCustomer, templateId, Map.of())).id());
+            byAssigned.set(cases.create(new CreateCaseRequest(assignedCustomer, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
 
             UUID unreachableCustomer = fixture.createCustomer(tenant, "Unreachable", null, null, null);
-            unreachable.set(cases.create(new CreateCaseRequest(unreachableCustomer, templateId, Map.of())).id());
+            unreachable.set(cases.create(new CreateCaseRequest(unreachableCustomer, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
 
             UUID teamRole = roles.createRole("Case Team Grant", "", Map.of(PermissionKeys.CASE_VIEW, Scope.TEAM));
             UUID assignedRole = roles.createRole("Case Assigned Grant", "",

@@ -1254,7 +1254,7 @@ export interface components {
             customerId?: string;
             /** Format: uuid */
             templateId?: string;
-            name?: string;
+            name: string;
             attributes?: {
                 [key: string]: string;
             };
@@ -1414,38 +1414,38 @@ export interface components {
             sort?: string[];
         };
         PageCustomerView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            first?: boolean;
-            last?: boolean;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            pageable?: components["schemas"]["PageableObject"];
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
-            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         PageableObject: {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            unpaged?: boolean;
-            paged?: boolean;
             /** Format: int32 */
             pageSize?: number;
             /** Format: int32 */
             pageNumber?: number;
+            paged?: boolean;
+            unpaged?: boolean;
         };
         SortObject: {
             empty?: boolean;
-            unsorted?: boolean;
             sorted?: boolean;
+            unsorted?: boolean;
         };
         AuditEventView: {
             /** Format: uuid */
@@ -1463,21 +1463,21 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            first?: boolean;
-            last?: boolean;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            pageable?: components["schemas"]["PageableObject"];
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
-            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -1544,21 +1544,21 @@ export interface components {
             candidates?: components["schemas"]["CandidateView"][];
         };
         PageUserView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            first?: boolean;
-            last?: boolean;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            pageable?: components["schemas"]["PageableObject"];
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
-            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         TeamMemberView: {
@@ -1914,6 +1914,15 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CaseView"];
+                };
+            };
+            /** @description A blank name failed validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Caller holds no sufficient grant for this action */
@@ -2687,6 +2696,15 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["CaseView"];
+                };
+            };
+            /** @description A blank name failed validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Caller holds no sufficient grant for this action */

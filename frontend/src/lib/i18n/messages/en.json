@@ -298,6 +298,8 @@
   "workflow.migration.notEligible": "Not eligible",
   "workflow.migration.selectCase": "Select case {id}",
   "case.create.title": "New case",
+  "case.create.name": "Case name",
+  "case.create.namePlaceholder": "Enterprise onboarding",
   "case.create.template": "Workflow template",
   "case.create.submit": "Create case",
   "case.switcher.title": "Cases",

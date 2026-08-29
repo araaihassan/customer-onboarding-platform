@@ -2,6 +2,7 @@ package co.ara.onboarding.journey;
 
 import co.ara.onboarding.authz.RelationshipType;
 import co.ara.onboarding.platform.BusinessCalendar;
+import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import co.ara.onboarding.workflow.RequirementKind;
@@ -42,7 +43,7 @@ class CaseCreationTest extends PostgresTestBase {
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
 
             var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId),
-                    Map.of()));
+                    "Fixture Case " + Uuid7.generate(), Map.of()));
 
             var roadmap = cases.roadmap(view.id());
             assertThat(roadmap.stages()).hasSize(3);
@@ -75,7 +76,7 @@ class CaseCreationTest extends PostgresTestBase {
                     List.of(), 0L));
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
 
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             var roadmap = cases.roadmap(view.id());
             assertThat(roadmap.stages().get(0).milestones().get(0).status()).isEqualTo(MilestoneStatus.ACTIVE);
@@ -91,7 +92,7 @@ class CaseCreationTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID owner = fixture.createUser(tenant, "owner@example.com");
             UUID customerId = fixture.createCustomerOwnedBy(tenant, "Acme", owner);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.publishedTemplate(), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             assertThat(cases.participants(view.id()))
                     .anySatisfy(p -> {
@@ -117,7 +118,7 @@ class CaseCreationTest extends PostgresTestBase {
             UUID team = fixture.createTeam(tenant, "Onboarding Team");
             UUID customerId = fixture.createCustomer(tenant, "Acme", owner, department, team);
 
-            var view = cases.create(new CreateCaseRequest(customerId, journey.publishedTemplate(), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             assertThat(view.ownerUserId()).isEqualTo(owner);
             assertThat(view.owningDepartmentId()).isEqualTo(department);
@@ -139,7 +140,7 @@ class CaseCreationTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID versionId = journey.publishedThreeStageWorkflow();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of()));
+            var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             var firstStageMilestones = cases.roadmap(view.id()).stages().get(0).milestones();
             assertThat(firstStageMilestones).hasSize(2);
@@ -165,7 +166,7 @@ class CaseCreationTest extends PostgresTestBase {
         // transaction rollback-only, surfacing UnexpectedRollbackException instead
         // of the exception under test. Wrap the whole runAs call instead.
         assertThatThrownBy(() -> fixture.runAs(tenant, () ->
-                cases.create(new CreateCaseRequest(customerId.get(), templateId.get(), Map.of()))))
+                cases.create(new CreateCaseRequest(customerId.get(), templateId.get(), "Fixture Case " + Uuid7.generate(), Map.of()))))
                 .isInstanceOf(AttributeValidationException.class)
                 .hasMessageContaining("segment");
     }
@@ -181,7 +182,7 @@ class CaseCreationTest extends PostgresTestBase {
         });
 
         assertThatThrownBy(() -> fixture.runAs(tenant, () -> cases.create(new CreateCaseRequest(
-                customerId.get(), templateId.get(), Map.of("segment", "MIDMARKET")))))
+                customerId.get(), templateId.get(), "Fixture Case " + Uuid7.generate(), Map.of("segment", "MIDMARKET")))))
                 .isInstanceOf(AttributeValidationException.class)
                 .hasMessageContaining("segment");
     }
@@ -198,7 +199,7 @@ class CaseCreationTest extends PostgresTestBase {
 
         assertThatThrownBy(() -> fixture.runAs(tenant, () -> cases.create(new CreateCaseRequest(
                 customerId.get(), templateId.get(),
-                Map.of("segment", "ENTERPRISE", "employeeCount", "not-a-number")))))
+                "Fixture Case " + Uuid7.generate(), Map.of("segment", "ENTERPRISE", "employeeCount", "not-a-number")))))
                 .isInstanceOf(AttributeValidationException.class)
                 .hasMessageContaining("employeeCount");
     }
@@ -214,7 +215,7 @@ class CaseCreationTest extends PostgresTestBase {
         });
 
         assertThatThrownBy(() -> fixture.runAs(tenant, () -> cases.create(
-                new CreateCaseRequest(customerId.get(), templateId.get(), Map.of()))))
+                new CreateCaseRequest(customerId.get(), templateId.get(), "Fixture Case " + Uuid7.generate(), Map.of()))))
                 .isInstanceOf(TemplateNotPublishedException.class);
     }
 
@@ -230,7 +231,7 @@ class CaseCreationTest extends PostgresTestBase {
         fixture.runAs(tenantA, () -> templateId.set(journey.publishedTemplate()));
 
         assertThatThrownBy(() -> fixture.runAs(tenantA, () -> cases.create(
-                new CreateCaseRequest(tenantBCustomerId.get(), templateId.get(), Map.of()))))
+                new CreateCaseRequest(tenantBCustomerId.get(), templateId.get(), "Fixture Case " + Uuid7.generate(), Map.of()))))
                 .isInstanceOf(NoSuchElementException.class);
     }
 
@@ -251,29 +252,21 @@ class CaseCreationTest extends PostgresTestBase {
     }
 
     /**
-     * CreateCaseDialog does not collect a name yet (Phase 2 UI gap), so the
-     * 3-arg convenience constructor -- and every existing caller using it --
-     * must still produce a NOT NULL-satisfying name rather than 500ing. The
-     * fallback is the same label V15's backfill gives pre-existing rows: the
-     * template's name plus the case id's own short id.
+     * Fix round 1: CreateCaseDialog now always collects a name, so
+     * CreateCaseRequest.name is @NotBlank -- there is no fallback left to
+     * protect a nameless create with (the reviewer's own point: the removed
+     * "template name + short id" fallback was worse than the bug Q18 exists
+     * to close, since it read as real but was identical across every case
+     * opened from the same template). Bean validation runs at the controller
+     * (@Valid), so this exercises the service directly with an already-blank
+     * value, the same shape the bean-validation annotation itself checks --
+     * see JourneyApiTest for the end-to-end 400 through the controller.
      */
     @Test
-    void aCaseCreatedWithoutANameGetsTheSameSyntheticLabelTheBackfillUses() {
-        UUID tenant = fixture.createTenant("case-unnamed");
-        fixture.runAs(tenant, () -> {
-            UUID templateId = journey.publishedTemplate();
-            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-
-            var view = cases.create(new CreateCaseRequest(customerId, templateId, Map.of()));
-
-            assertThat(view.name()).isNotBlank().doesNotContain("null");
-            assertThat(view.name()).endsWith(shortIdOf(view.id()));
-        });
-    }
-
-    private static String shortIdOf(UUID id) {
-        String s = id.toString();
-        return s.substring(s.lastIndexOf('-') + 1);
+    void aBlankNameFailsBeanValidation() {
+        var violations = jakarta.validation.Validation.buildDefaultValidatorFactory().getValidator()
+                .validate(new CreateCaseRequest(UUID.randomUUID(), UUID.randomUUID(), "  ", Map.of()));
+        assertThat(violations).isNotEmpty();
     }
 
     /** Two cases on one customer are normal: the switcher exists because they coexist. */
@@ -284,8 +277,8 @@ class CaseCreationTest extends PostgresTestBase {
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             UUID templateId = journey.publishedTemplate();
 
-            var first = cases.create(new CreateCaseRequest(customerId, templateId, Map.of()));
-            var second = cases.create(new CreateCaseRequest(customerId, templateId, Map.of()));
+            var first = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of()));
+            var second = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of()));
 
             assertThat(first.id()).isNotEqualTo(second.id());
             assertThat(cases.listForCustomer(customerId)).extracting("id")
