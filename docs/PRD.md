@@ -126,6 +126,11 @@ The dashboard should update in real time without requiring manual refresh.
 
 Each customer should have a dedicated workspace representing the complete onboarding lifecycle.
 
+A customer may hold **several concurrent journeys** — separate services, regions or products —
+each with its own roadmap, progress, requirements and workspace. Every journey carries a
+human-readable name given when it is created. An internal user assigns a new journey to a
+customer; a customer contact sees every journey on their account. (QA Q18)
+
 This workspace should include:
 
 ### Customer Summary
@@ -295,6 +300,26 @@ Capabilities:
 - Secure Storage
 - Access Control
 
+### Visibility
+
+Every document carries a visibility tier, and optionally a department target. (QA Q9)
+
+Tiers — *how broadly* a document is shared:
+
+- **Company-shared** — all approved contacts at the customer, plus the case team
+- **Contact-only** — the uploading contact and permitted reviewers; other contacts at the same
+  company cannot see it
+- **Sensitive** — restricted even within the customer's own company until explicitly shared
+
+Department targeting — *which group*, narrowing within a tier and never widening one:
+
+- **Internal staff departments** — Legal, Finance, Operations, Compliance
+- **Customer-side contact labels** — a named label on each contact, set by internal staff
+
+Documents are scoped per journey, not per account. Sharing a file across two journeys of the same
+account is an explicit action. Visibility is enforced server-side: a user must never receive a
+document they may not see.
+
 ---
 
 # 11. Activity Timeline
@@ -336,6 +361,16 @@ Customers should see:
 
 Internal notes and restricted information must remain hidden.
 
+### New-Joiner Catch-Up
+
+People join a customer's team part-way through an onboarding, and today they arrive with no idea
+what has already happened. A contact granted access mid-journey should see a catch-up: what the
+journey is, where it stands, what happened before they arrived, and what is now waiting on them.
+
+It is assembled from the activity timeline rather than written by hand, and it is filtered through
+the same visibility rules as every other read — it must never reveal a document or note the joiner
+could not otherwise open. (QA Q17)
+
 ---
 
 # 13. Notifications
@@ -352,6 +387,8 @@ Automatic notifications should support:
 - Customer Comment
 - Upcoming Deadline
 - Workflow Changes
+- Stage Entered / Exited
+- Risk State Change
 
 Delivery channels:
 
@@ -360,6 +397,14 @@ Delivery channels:
 - SMS (Optional)
 - Microsoft Teams (Future)
 - Slack (Future)
+
+Delivery shape and policy (QA Q10, Q19):
+
+- Alerts may be sent **per event** or rolled up into a **daily or weekly digest**
+- **Deadline warning horizons are configurable** — a signature and a document request do not
+  deserve the same lead time
+- Every notification type is **opt-out-able**, with one exception: escalation to the assignee's
+  manager on overdue work is mandatory and cannot be disabled
 
 ---
 
