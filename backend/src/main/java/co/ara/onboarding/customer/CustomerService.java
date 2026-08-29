@@ -6,6 +6,12 @@ import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.identity.AppUser;
+import co.ara.onboarding.identity.AppUserRepository;
+import co.ara.onboarding.identity.Department;
+import co.ara.onboarding.identity.DepartmentRepository;
+import co.ara.onboarding.identity.Team;
+import co.ara.onboarding.identity.TeamRepository;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.data.domain.Page;
@@ -15,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @Service
@@ -44,13 +51,21 @@ public class CustomerService {
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
+    private final DepartmentRepository departments;
+    private final TeamRepository teams;
+    private final AppUserRepository users;
 
     public CustomerService(CustomerRepository repository, AuthorizedQuery authorizedQuery,
-                           AuthContextProvider contextProvider, AuditRecorder audit) {
+                           AuthContextProvider contextProvider, AuditRecorder audit,
+                           DepartmentRepository departments, TeamRepository teams,
+                           AppUserRepository users) {
         this.repository = repository;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.audit = audit;
+        this.departments = departments;
+        this.teams = teams;
+        this.users = users;
     }
 
     @RequirePermission(PermissionKeys.CUSTOMER_CREATE)
@@ -73,8 +88,8 @@ public class CustomerService {
         // instantly cannot see.
         c.setOwnerUserId(actor);
         c.setCreatedBy(actor);
-        c.setOwningDepartmentId(request.owningDepartmentId());
-        c.setOwningTeamId(request.owningTeamId());
+        c.setOwningDepartmentId(resolveDepartment(request.owningDepartmentId()));
+        c.setOwningTeamId(resolveTeam(request.owningTeamId()));
         repository.save(c);
 
         audit.record(AuditActions.CUSTOMER_CREATED, "customer", c.getId(),
@@ -128,9 +143,9 @@ public class CustomerService {
         c.setIndustry(request.industry());
         c.setCountry(request.country());
         c.setExternalRef(request.externalRef());
-        c.setOwnerUserId(request.ownerUserId());
-        c.setOwningDepartmentId(request.owningDepartmentId());
-        c.setOwningTeamId(request.owningTeamId());
+        c.setOwnerUserId(resolveOwner(request.ownerUserId()));
+        c.setOwningDepartmentId(resolveDepartment(request.owningDepartmentId()));
+        c.setOwningTeamId(resolveTeam(request.owningTeamId()));
         repository.save(c);
 
         audit.record(AuditActions.CUSTOMER_UPDATED, "customer", c.getId(),
@@ -150,6 +165,25 @@ public class CustomerService {
         audit.record(AuditActions.CUSTOMER_DEACTIVATED, "customer", c.getId(),
                 "Deactivated customer " + c.getDisplayName(),
                 Map.of("reason", reason == null ? "" : reason));
+    }
+
+    private UUID resolveDepartment(UUID departmentId) {
+        if (departmentId == null) return null;
+        return departments.findById(departmentId)
+                .orElseThrow(() -> new NoSuchElementException("Department not found"))
+                .getId();
+    }
+
+    private UUID resolveTeam(UUID teamId) {
+        if (teamId == null) return null;
+        return teams.findById(teamId)
+                .orElseThrow(() -> new NoSuchElementException("Team not found"))
+                .getId();
+    }
+
+    private UUID resolveOwner(UUID ownerUserId) {
+        if (ownerUserId == null) return null;
+        return authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId).getId();
     }
 
     private CustomerView toView(Customer c) {

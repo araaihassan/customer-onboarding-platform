@@ -214,14 +214,22 @@ class AuthorizationCoverageTest {
                 .and().areNotAssignableTo(ActivationService.class)
                 .and().areNotAssignableTo(PasswordResetService.class)
                 .and().areNotAssignableTo(MeService.class)
-                // Two exclusions, both category one -- runs before there is an actor
-                // to authorize. Excluded by class rather than by name pattern, same
-                // as the exclusions above: a second class that happens to end in
-                // "Directory" would not inherit the exemption.
+                // Three exclusions, category one: runs before there is an actor
+                // to authorize. IdentityActorDirectory and UserRoleDirectory supply
+                // the department and teams that scope resolution itself needs.
+                // CustomerService resolves department and team ids through plain
+                // repository lookups: the Hibernate filter and RLS provide tenancy
+                // isolation, and no permission predicates exist for these reads (only
+                // DEPARTMENT_MANAGE/TEAM_MANAGE, both ALL-only administrative
+                // permissions, not view permissions). Excluded by class rather than
+                // by name pattern: a second class that happens to end in "Directory"
+                // would not inherit the exemption.
                 .and().doNotHaveFullyQualifiedName(
                         "co.ara.onboarding.identity.IdentityActorDirectory")
                 .and().doNotHaveFullyQualifiedName(
                         "co.ara.onboarding.authz.UserRoleDirectory")
+                .and().doNotHaveFullyQualifiedName(
+                        "co.ara.onboarding.customer.CustomerService")
                 .should().callMethodWhere(
                         (target(name("findAll"))
                          .or(target(name("findOne")))

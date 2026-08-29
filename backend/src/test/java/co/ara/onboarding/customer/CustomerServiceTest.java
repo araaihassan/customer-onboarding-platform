@@ -165,7 +165,8 @@ class CustomerServiceTest extends PostgresTestBase {
             UUID role = roles.createRole("Editor", "", Map.of(
                     PermissionKeys.CUSTOMER_CREATE, Scope.ALL,
                     PermissionKeys.CUSTOMER_VIEW, Scope.ALL,
-                    PermissionKeys.CUSTOMER_EDIT, Scope.ALL));
+                    PermissionKeys.CUSTOMER_EDIT, Scope.ALL,
+                    PermissionKeys.USER_VIEW, Scope.ALL));
             roles.assignRole(user.get(), role);
         });
 

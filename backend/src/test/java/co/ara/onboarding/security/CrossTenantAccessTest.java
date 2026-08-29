@@ -1,16 +1,23 @@
 package co.ara.onboarding.security;
 
+import co.ara.onboarding.customer.CustomerService;
+import co.ara.onboarding.platform.Uuid7;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 
+import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /** Test 1 — cross-tenant access. */
 class CrossTenantAccessTest extends SecurityTestBase {
+
+    @Autowired CustomerService customers;
 
     @Test
     void tokenFromTenantACannotBeUsedAgainstTenantB() throws Exception {
@@ -74,5 +81,56 @@ class CrossTenantAccessTest extends SecurityTestBase {
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.content.length()").value(1))
            .andExpect(jsonPath("$.content[0].displayName").value("Visible B"));
+    }
+
+    @Test
+    void anotherTenantsDepartmentIdCannotBecomeACustomersOwningDepartment() {
+        UUID tenantA = fixture.createTenant("own-a");
+        UUID tenantB = fixture.createTenant("own-b");
+        var strangerDepartmentId = new UUID[1];
+        fixture.runAs(tenantB, () ->
+                strangerDepartmentId[0] = fixture.createDepartment(tenantB, "B's Ops"));
+
+        // A real id, but in another tenant. The FK is satisfied because RLS is
+        // bypassed for referential integrity, so before the fix this answered 200.
+        // create() never takes an ownerUserId (the actor becomes the owner), but
+        // DOES take owningDepartmentId straight from the request -- that is the
+        // field under attack here.
+        assertThatThrownBy(() -> fixture.runAs(tenantA, () ->
+                customers.create(new CustomerService.CreateCustomerRequest(
+                        "Acme", null, null, null, null, strangerDepartmentId[0], null))))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    void anInventedDepartmentIdIsA404NotA500() {
+        UUID tenant = fixture.createTenant("own-invented");
+        assertThatThrownBy(() -> fixture.runAs(tenant, () ->
+                customers.create(new CustomerService.CreateCustomerRequest(
+                        "Acme", null, null, null, null, Uuid7.generate(), null))))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * update() is the sharper case: unlike create(), it takes ownerUserId
+     * straight from the request (CustomerService.java:131), so a real user id
+     * belonging to another tenant satisfies the FK and hands ownership of this
+     * tenant's customer to a stranger who cannot even see it.
+     */
+    @Test
+    void updateCannotHandOwnershipToAnotherTenantsUser() {
+        UUID tenantA = fixture.createTenant("own-upd-a");
+        UUID tenantB = fixture.createTenant("own-upd-b");
+        var strangerUserId = new UUID[1];
+        fixture.runAs(tenantB, () -> strangerUserId[0] = fixture.createUser(tenantB, "stranger@b.test"));
+
+        var customerId = new UUID[1];
+        fixture.runAs(tenantA, () -> customerId[0] = customers.create(new CustomerService.CreateCustomerRequest(
+                "Acme Corp", "Acme", null, null, null, null, null)).id());
+
+        assertThatThrownBy(() -> fixture.runAs(tenantA, () ->
+                customers.update(customerId[0], new CustomerService.UpdateCustomerRequest(
+                        "Acme Corp", "Acme", null, null, null, strangerUserId[0], null, null))))
+                .isInstanceOf(NoSuchElementException.class);
     }
 }
