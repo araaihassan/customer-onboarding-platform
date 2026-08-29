@@ -222,15 +222,23 @@ closed.
 **Open at the close of sub-project 1**, verified against the running system — none of these is a
 regression to hunt:
 
-- **A narrow-scoped `user.manage` holder cannot create a user through the Users screen.** The create
-  form sends only `{email, fullName}`, so `departmentId` is null, and a department-less user is
-  outside a DEPARTMENT- or TEAM-scoped actor's own scope — `UserAdminService.create` refuses with a
-  404 rather than making them a user its author could not then manage. Correct, and fails closed,
-  but the screen offers no department field to succeed with and the 404 says nothing useful. None
-  of the twelve seeded templates is affected: only `Administrator` holds `user.manage`, at `ALL`.
-  A department picker on that form is the fix, with the options scoped to the actor. There is no
-  user-edit screen either — `PUT /admin/users/{id}` exists but `lib/api/admin.ts` never calls it —
-  so a department cannot be changed after creation from the UI at all.
+- **A narrow-scoped `user.manage` holder cannot create a user through the Users screen — fixed for
+  DEPARTMENT scope only, TEAM scope is a separate, still-open gap.** The create form now offers a
+  department picker (sub-project 3, Task 8): an actor holding `department.manage` (ALL-only) picks
+  from the tenant's full list; anyone else — the DEPARTMENT-scoped `user.manage` holder this gap was
+  about — gets no visible field and the request silently carries their own `departmentId` from
+  `useAuth().user`, the one department `scoping/AppUserDescriptor.departmentScope` guarantees they
+  can succeed with. `lib/api/admin.ts` also gained `useUpdateUser()`, and the Users screen an Edit
+  dialog, so a department can now be changed after creation too — closing the "no user-edit screen"
+  half of this gap as well.
+  **TEAM scope is untouched and cannot be fixed by a picker at all**: `AppUserDescriptor.teamScope`
+  resolves TEAM by checking the *target* user's own `teamIds` (`root.join("teamIds").in(ctx.teamIds())`),
+  but `CreateUserRequest` has no `teamIds` field and a freshly created `AppUser`'s `teamIds` starts
+  empty — so that join can never match, and a TEAM-scoped `user.manage` holder cannot create ANY
+  user today, department field or not. Confirmed empirically (a hand-built TEAM-scoped role's create
+  attempt throws `NoSuchElementException` regardless of the department supplied). Needs
+  `CreateUserRequest` to accept `teamIds`, or an equivalent mechanism, before a TEAM-scoped actor can
+  create a user at all — not attempted here.
 - **Ownership foreign keys carry no tenant component, and one is observable.** `CustomerService`
   writes `ownerUserId`, `owningDepartmentId` and `owningTeamId` straight from the request with no
   existence or tenancy check. PostgreSQL evaluates referential integrity with row security

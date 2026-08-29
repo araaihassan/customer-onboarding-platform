@@ -21,6 +21,7 @@ export type Department = components["schemas"]["DepartmentView"];
 export type Team = components["schemas"]["TeamView"];
 export type TeamMember = components["schemas"]["TeamMemberView"];
 export type CreateUserRequest = components["schemas"]["CreateUserRequest"];
+export type UpdateUserRequest = components["schemas"]["UpdateUserRequest"];
 export type RoleRequest = components["schemas"]["RoleRequest"];
 
 /** The scope vocabulary, straight off the generated grants map. */
@@ -114,6 +115,25 @@ export function useInviteUser() {
   return useMutation({
     mutationFn: (body: CreateUserRequest) =>
       apiFetch<User>("/admin/users", { method: "POST", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [...adminKeys.all, "users"] });
+    },
+  });
+}
+
+/**
+ * The other half of the create/invite gap named in CLAUDE.md's open items:
+ * `PUT /admin/users/{id}` existed server-side with nothing here to call it, so
+ * a department set at creation could never be changed afterwards. This is a
+ * full replace (spec invariant), so a caller must always send the departmentId
+ * it wants the user to end up with -- omitting it blanks it, it is never "leave
+ * unchanged" -- exactly as `UpdateUserRequest` on the Java side documents.
+ */
+export function useUpdateUser() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: UpdateUserRequest }) =>
+      apiFetch<User>(`/admin/users/${id}`, { method: "PUT", body: JSON.stringify(body) }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [...adminKeys.all, "users"] });
     },
