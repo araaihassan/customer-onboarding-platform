@@ -190,8 +190,8 @@ describe("Sidebar", () => {
    * 1024px" in this environment is a structural one: prove the fix removed
    * the *unconditional* inline transform entirely, and that the off-screen
    * positioning is now expressed solely through a className carrying the
-   * `max-[1023px]:` prefix -- the same breakpoint gate the component's own
-   * display classes already use. That prefix is what a real browser's media
+   * `max-lg:` prefix (Tailwind's `lg` is 1024px, the breakpoint this always
+   * meant). That prefix is what a real browser's media
    * query engine (which this test cannot invoke) uses to withhold the
    * translation at >=1024px; a className search proves the gate exists at
    * all, which the old code -- correct display classes, ungated inline style
@@ -206,11 +206,25 @@ describe("Sidebar", () => {
     // all. Asserting its absence is what catches a regression back to it.
     expect(aside?.style.transform).toBe("");
 
-    // The fix: the off-screen state is a className, and specifically one
-    // scoped under the same max-[1023px] prefix guarding this component's
-    // display classes -- never bare, which would reapply at every width.
-    expect(aside?.className).toContain("max-[1023px]:-translate-x-full");
-    expect(aside?.className).not.toMatch(/(?<!max-\[1023px\]:)-translate-x-full/);
+    // The fix: the off-screen state is a className, scoped under a breakpoint
+    // -- never bare, which would reapply at every width.
+    expect(aside?.className).toContain("max-lg:-translate-x-full");
+    expect(aside?.className).not.toMatch(/(?<!max-lg:)-translate-x-full/);
+
+    // A second, later bug this same line has to guard against. The gate was
+    // once written `max-[1023px]:flex hidden min-[1024px]:flex`, whose two
+    // arbitrary variants were meant to override the `hidden` at every width.
+    // Neither generated any CSS -- Tailwind extracts class names from source
+    // text, and `min-[1024px]:flex${` written flush against an interpolation
+    // boundary is not a token it can see -- so only `hidden` survived and the
+    // sidebar was `display:none` at every width, leaving the application with
+    // no navigation at all. jsdom cannot evaluate media queries, so this
+    // asserts the structural invariant instead: the drawer is never `hidden`,
+    // and its visibility never depends on an arbitrary variant that might
+    // silently fail to compile.
+    expect(aside?.className).toContain("flex");
+    expect(aside?.className).not.toContain("hidden");
+    expect(aside?.className).not.toMatch(/(?:min|max)-\[\d+px\]:/);
 
     // Opening the drawer removes the off-screen class again, same as before.
     const { container: openContainer } = render(<Sidebar slug="acme" isOpen={true} onClose={vi.fn()} />);

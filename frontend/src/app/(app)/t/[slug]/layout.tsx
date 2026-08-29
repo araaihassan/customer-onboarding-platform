@@ -48,12 +48,13 @@ export default function TenantLayout({
                 {/* Sidebar renders `position: fixed` (Task 4), so it takes no space
                     of its own in this flex row -- this spacer reserves its width
                     only at the breakpoint where Sidebar is actually inline
-                    (>=1024px), using the same breakpoint Sidebar itself keys off of,
+                    (`lg`, i.e. >=1024px), spelled the same way Sidebar spells it so
+                    the two cannot drift apart,
                     so the content column starts to its right instead of underneath
                     it. Below 1024px Sidebar is a hidden or overlay drawer, so no
                     space is reserved and content runs from the rail's edge. */}
                 <div
-                  className="hidden min-[1024px]:block shrink-0"
+                  className="hidden lg:block shrink-0"
                   style={{ width: "var(--ob-sidebar-width)" }}
                   aria-hidden="true"
                 />
