@@ -92,9 +92,11 @@ public class ApprovalService {
         approvals.save(a);
 
         if (approve) {
-            engine.reconcile(c);
+            // Cause before effects -- reconcile writes the stage entry this
+            // approval releases, and it must not precede the approval.
             audit.record(AuditActions.CASE_STAGE_EXIT_APPROVED, "onboarding_case", c.getId(),
                     "Approved stage exit", Map.of("approvalId", a.getId().toString()));
+            engine.reconcile(c);
         } else {
             audit.record(AuditActions.CASE_STAGE_EXIT_REJECTED, "onboarding_case", c.getId(),
                     "Rejected stage exit", Map.of("approvalId", a.getId().toString()));
@@ -139,11 +141,11 @@ public class ApprovalService {
             m.setCompletedBy(decider);
             m.setCompletionReason(a.getReason());      // carried from the request, not the decision
             milestones.save(m);
-            engine.reconcile(c);
             audit.record(AuditActions.MILESTONE_FORCE_COMPLETED, "onboarding_case", c.getId(),
                     "Forced completion: " + a.getReason(),
                     Map.of("milestoneId", m.getId().toString(), "approvalId", a.getId().toString(),
                             "requestedBy", a.getRequestedBy().toString()));
+            engine.reconcile(c);                       // cause before effects
         } else {
             audit.record(AuditActions.MILESTONE_FORCE_REJECTED, "onboarding_case", c.getId(),
                     "Rejected forced completion",

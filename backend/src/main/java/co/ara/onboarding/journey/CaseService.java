@@ -187,11 +187,17 @@ public class CaseService {
 
         upsertAttributes(c, declared, request.attributes());
         instantiate(c, versionId, customer.ownerUserId());
-        engine.reconcile(c);                       // statuses, progress; stage entry is Task 15
 
+        // Recorded BEFORE reconcile, which writes case.stage_entered and any
+        // milestone.completed of its own. Both events are stamped Instant.now(),
+        // so writing the cause last puts it AFTER its own effects on the
+        // timeline -- a case that reads as created after the milestones inside
+        // it completed. See AuditRecorder for the rule.
         audit.record(AuditActions.CASE_CREATED, "onboarding_case", c.getId(),
                 "Opened case on workflow " + template.getName() + " v" + versionNoOf(versionId),
                 Map.of("customerId", customer.id().toString(), "versionId", versionId.toString()));
+
+        engine.reconcile(c);                       // statuses, progress; stage entry is Task 15
         return toView(c);
     }
 
@@ -340,10 +346,10 @@ public class CaseService {
             writeParticipant(c, ownerUserId, RelationshipType.OWNER);
         }
 
-        engine.reconcile(c);
-
-        audit.record(AuditActions.CASE_UPDATED, "onboarding_case", c.getId(),
+        audit.record(AuditActions.CASE_UPDATED, "onboarding_case", c.getId(),   // cause before effects
                 "Updated case", Map.of());
+
+        engine.reconcile(c);
         return toView(c);
     }
 
@@ -427,10 +433,11 @@ public class CaseService {
         c.setStatus(CaseStatus.ACTIVE);
         cases.save(c);
 
-        engine.reconcile(c);
-        audit.record(AuditActions.CASE_RESUMED, "onboarding_case", caseId,
+        audit.record(AuditActions.CASE_RESUMED, "onboarding_case", caseId,   // cause before effects
                 "Resumed after " + heldBusinessDays + " business days on hold",
                 Map.of("totalHoldDays", String.valueOf(c.getTotalHoldDays())));
+
+        engine.reconcile(c);
         return toView(c);
     }
 

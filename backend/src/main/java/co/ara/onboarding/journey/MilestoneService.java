@@ -210,10 +210,10 @@ public class MilestoneService {
             c.setStatus(CaseStatus.ACTIVE);
             c.setCompletedAt(null);
         }
-        engine.reconcile(c);
-
-        audit.record(AuditActions.MILESTONE_REOPENED, "onboarding_case", c.getId(),
+        audit.record(AuditActions.MILESTONE_REOPENED, "onboarding_case", c.getId(),   // cause before effects
                 "Reopened milestone: " + reason, Map.of("milestoneId", m.getId().toString()));
+
+        engine.reconcile(c);
     }
 
     /** The Stage a milestone belongs to, via its definition -- both ALL-only WORKFLOW_VIEW reads. */

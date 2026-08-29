@@ -218,6 +218,15 @@ public class MigrationService {
         List<Milestone> caseMilestones = readCaseChild(milestones, Milestone.class, c.getId());
         Set<UUID> matchedTargetDefIds = new HashSet<>();
 
+        // Recorded here rather than after the work, and this one has to move
+        // further than the other cause-before-effects fixes: the loop below
+        // writes milestone.skipped, and the closing reconcile writes more still,
+        // so a case.migrated appended at the end of this method landed after
+        // BOTH. It is the first thing the migration does, so it is recorded
+        // first. See AuditRecorder.
+        audit.record(AuditActions.CASE_MIGRATED, "onboarding_case", c.getId(),
+                "Migrated to a newer workflow version", Map.of("versionId", targetVersionId.toString()));
+
         for (Milestone m : caseMilestones) {
             MilestoneDefinition oldDef = ownMilestoneDefById.get(m.getMilestoneDefinitionId());
             if (oldDef == null) continue;
@@ -290,9 +299,6 @@ public class MigrationService {
         }
 
         engine.reconcile(c);
-
-        audit.record(AuditActions.CASE_MIGRATED, "onboarding_case", c.getId(),
-                "Migrated to a newer workflow version", Map.of("versionId", targetVersionId.toString()));
     }
 
     private void remapRequirements(Case c, Milestone m, Map<UUID, RequirementDefinition> ownRequirementDefById,
