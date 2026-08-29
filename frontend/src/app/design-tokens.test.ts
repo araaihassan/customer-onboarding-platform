@@ -157,4 +157,46 @@ describe("design tokens", () => {
 
     expect([...new Set(unresolved)]).toEqual([]);
   });
+
+  /**
+   * Tailwind finds class names by scanning source *text*, so a class written
+   * flush against a `${` interpolation boundary is not a token it can see, and
+   * its rule is never generated. The class still sits in the DOM at runtime and
+   * still reads correctly to anyone reviewing the file -- it just has no CSS
+   * behind it.
+   *
+   * That shipped: `Sidebar` gated its own visibility with
+   * `max-[1023px]:flex hidden min-[1024px]:flex${`, where the two variants were
+   * meant to override the `hidden`. Neither compiled, only `hidden` survived,
+   * and the application had no navigation sidebar at any width. Nothing caught
+   * it -- not the type checker, not the build, not the unit tests (jsdom cannot
+   * evaluate media queries), and not a reviewer, because the source reads
+   * correctly.
+   */
+  it("never writes a class name flush against a template interpolation", () => {
+    const offenders: string[] = [];
+
+    for (const file of files) {
+      if (extname(file) !== ".tsx") continue;
+      readFileSync(file, "utf8")
+        .split("\n")
+        .forEach((line, i) => {
+          // Comments describing the failure are not the failure.
+          if (/^\s*(?:\/\/|\/?\*)/.test(line.trim() ? line : "")) return;
+
+          for (const m of line.matchAll(/([\w[\]:.\/-]+)\$\{/g)) {
+            const token = m[1]!;
+            // Only variant or arbitrary-value tokens (`hover:`, `min-[900px]:`,
+            // `w-[52px]`) -- those are the ones whose whole point is to override
+            // something else, so silently generating nothing is invisible AND
+            // consequential. `id={`row-${x}`}` ends in a dash and is not a class.
+            if (!token.endsWith("-") && /[:[]/.test(token)) {
+              offenders.push(`${at(file, i + 1)}  ${token}\${…}`);
+            }
+          }
+        });
+    }
+
+    expect(offenders).toEqual([]);
+  });
 });

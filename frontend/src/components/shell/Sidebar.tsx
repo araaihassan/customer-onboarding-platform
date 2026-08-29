@@ -102,11 +102,18 @@ export function Sidebar({
         />
       )}
       <aside
+        // `max-lg:`/`lg:` are named variants, not arbitrary ones, and every class
+        // here is a whole token with whitespace on both sides. Both properties
+        // matter: Tailwind extracts class names from source text, so a token
+        // written flush against a `${` interpolation boundary is never seen and
+        // its rule is never generated. That is exactly what happened here --
+        // `min-[1024px]:flex${` produced no CSS, the `hidden` beside it did, and
+        // the sidebar was `display:none` at every width, so the application had
+        // no navigation at all. Tailwind's `lg` is 1024px, the same breakpoint
+        // this always meant.
         className={
           isDrawer
-            ? `fixed inset-y-0 z-50 max-[1023px]:flex hidden min-[1024px]:flex${
-                isOpen ? "" : " max-[1023px]:-translate-x-full"
-              }`
+            ? `fixed inset-y-0 z-50 flex ${isOpen ? "" : "max-lg:-translate-x-full"}`
             : "flex"
         }
         style={{
