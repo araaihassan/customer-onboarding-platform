@@ -30,14 +30,22 @@ import java.sql.Statement;
  * migrations apply -- so the role stays reconciled indefinitely across restarts
  * and rotations alike, not just on the run that first creates it.
  *
- * The ALTER ROLE runs on context.getConnection(), the same connection Flyway
- * itself just used to run the migrations (bound to the owner credentials --
- * spring.flyway.user/password, i.e. DB_OWNER_USER/DB_OWNER_PASSWORD -- never the
- * app datasource, which may not even be able to authenticate yet). This is
- * deliberately not a second connection opened from scratch: DefaultCallbackExecutor
- * passes AFTER_MIGRATE callbacks the database's own main connection, so reusing
- * it avoids re-deriving owner connection details this class has no other reason
- * to know.
+ * The ALTER ROLE runs on context.getConnection(), which for a migrate-or-undo
+ * event Flyway's own DefaultCallbackExecutor.onMigrateOrUndoEvent resolves to
+ * Database.getEventConnection() -- a connection opened fresh, via the same
+ * connection factory Flyway itself was configured with (bound to the owner
+ * credentials -- spring.flyway.user/password, i.e. DB_OWNER_USER/DB_OWNER_PASSWORD
+ * -- never the app datasource, which may not even be able to authenticate yet),
+ * and disposed immediately after the callback returns
+ * (Database.disposeEventConnection()). This is deliberately NOT the connection
+ * Flyway used to run the migrations themselves (getMigrationConnection()):
+ * Flyway's own javadoc on getEventConnection() states why a separate one exists --
+ * "if using the migration connection instead, it may trigger an unwanted commit
+ * which breaks any ongoing migration transaction." Using the dedicated event
+ * connection means this callback's ALTER ROLE can never interfere with Flyway's
+ * own migration transaction, by Flyway's design rather than by luck; it still
+ * needs no owner-credential wiring of its own, since the event connection is
+ * already bound to them.
  *
  * Ordering: Boot's own FlywayMigrationInitializer completes Flyway's migrate()
  * call (callbacks included) during context refresh before JPA schema validation
@@ -71,6 +79,19 @@ public class AppRolePasswordReconciler implements Callback {
 
     @Override
     public void handle(Event event, Context context) {
+        // DatabaseCredentialsGuard normally refuses startup on a blank or
+        // denylisted DB_APP_PASSWORD before this callback ever runs -- but that
+        // is incidental bean-construction ordering, not an enforced dependency
+        // between the two beans (no @DependsOn, nothing wiring one to the
+        // other). If that ordering ever inverted, this callback would otherwise
+        // be the only thing standing between a misconfigured startup and
+        // silently resetting the live onboarding_app role's password back to
+        // the published literal, before the guard got a chance to fail the
+        // startup -- reopening the exact hole this task exists to close. So
+        // this callback re-checks for itself, rather than trusting the guard
+        // ran first.
+        DatabaseCredentialsGuard.requireUsablePassword(password);
+
         // Single-quotes doubled per standard SQL string-literal escaping. ALTER
         // ROLE's PASSWORD clause takes a string literal, not a bind parameter
         // position PostgreSQL's extended query protocol will accept here, so this

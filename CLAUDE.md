@@ -92,7 +92,7 @@ docker run -d --name onboarding-db -p 5432:5432 \
 
 Flyway connects as the owner (`postgres`/`postgres`) and `V2` creates the `onboarding_app` login
 role the application then connects as. Override with `DB_URL`, `DB_OWNER_USER` / `DB_OWNER_PASSWORD`,
-`DB_APP_USER` / `DB_APP_PASSWORD` (defaults in `backend/src/main/resources/application.yml`). If 5432
+`DB_APP_USER`. `DB_APP_PASSWORD` has no default (see below) — set it, on every profile. If 5432
 is already taken, map another port and set `DB_URL` to match.
 
 **Backend** on :8080 —
@@ -100,17 +100,19 @@ is already taken, map another port and set `DB_URL` to match.
 ```bash
 cd backend && SPRING_PROFILES_ACTIVE=dev \
   JWT_SECRET="$(openssl rand -base64 48)" \
+  DB_APP_PASSWORD="$(openssl rand -base64 48)" \
   APP_PLATFORM_ADMIN_EMAIL=ops@example.com APP_PLATFORM_ADMIN_PASSWORD=<pick-one> ./gradlew bootRun
 ```
 
 PowerShell — this repository is developed on Windows, and the bash form above runs on neither
-`cmd` nor PowerShell (`VAR=value cmd` prefixing and `$(…)` are bash). Omitting `JWT_SECRET` is not
-an option: the application refuses to start without it.
+`cmd` nor PowerShell (`VAR=value cmd` prefixing and `$(…)` are bash). Omitting `JWT_SECRET` or
+`DB_APP_PASSWORD` is not an option: the application refuses to start without either.
 
 ```powershell
 cd backend
 $env:SPRING_PROFILES_ACTIVE = "dev"
 $env:JWT_SECRET = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))
+$env:DB_APP_PASSWORD = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Max 256 }))
 $env:APP_PLATFORM_ADMIN_EMAIL = "ops@example.com"
 $env:APP_PLATFORM_ADMIN_PASSWORD = "<pick-one>"
 .\gradlew.bat bootRun
@@ -121,6 +123,16 @@ bytes of it, and says so naming the variable. There is no dev default: a committ
 key every reader of this repository holds, and the deployment that forgets the variable is exactly
 the one that would use it. Pick a value once and keep it in your shell; changing it between restarts
 invalidates every access token already issued, which reads as a spate of 401s.
+
+`DB_APP_PASSWORD` is likewise **required, on every profile** — `DatabaseCredentialsGuard` refuses to
+start on a blank value or on the literal `onboarding_app` (the password `V2__app_role_and_tenant.sql`
+creates the role with), naming the variable. Unlike `JWT_SECRET`, though, it does **not** need to
+stay stable across restarts, and it can be **any** value, not specifically 32+ bytes: it is not a
+signing key, and `AppRolePasswordReconciler` (a Flyway `AFTER_MIGRATE` callback) reconciles the
+`onboarding_app` role's real database password to whatever `DB_APP_PASSWORD` currently says on every
+single startup, automatically. Change it between restarts and the role is simply repointed to the
+new value each time — there is no "spate of 401s" equivalent, and no separate `ALTER ROLE` step to
+remember.
 
 Both platform-admin variables are blank by default and `PlatformAdminBootstrap` does nothing without
 them — but `/api/platform/**` is HTTP Basic behind `hasRole("PLATFORM_ADMIN")`, so without one no

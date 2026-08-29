@@ -78,10 +78,21 @@ class DatabaseCredentialsGuardTest {
             assertThat(context)
                     .as("a password readable by anyone who can read the migration is not a password")
                     .hasFailed();
+            // Pinned in full, not sampled -- the same discipline
+            // refusesToStartWhenNotSet already holds the blank-case message to.
+            // An exact match is strictly stronger than a substring check: it
+            // fails on ANY unexpected addition to the message, not just the one
+            // candidate string a substring check happens to probe for.
             assertThat(rootCauseOf(context.getStartupFailure()))
                     .isInstanceOf(IllegalStateException.class)
-                    .hasMessageContaining("DB_APP_PASSWORD")
-                    .hasMessageContaining("V2__app_role_and_tenant.sql");
+                    .hasMessage("DB_APP_PASSWORD is the literal password published in this"
+                            + " repository's own V2__app_role_and_tenant.sql migration, so anyone"
+                            + " who can read the source can connect to the database as"
+                            + " onboarding_app."
+                            + " Set the DB_APP_PASSWORD environment variable to a real password"
+                            + " (for example: openssl rand -base64 48). The application will not"
+                            + " start without one, on any profile -- it will be reconciled onto"
+                            + " the onboarding_app role automatically on every startup.");
         });
     }
 
@@ -94,40 +105,49 @@ class DatabaseCredentialsGuardTest {
         });
     }
 
-    /**
-     * The message is written to stdout and to whatever collects it, so it must
-     * never echo the rejected value back -- the same discipline
-     * JwtProperties.requireUsableSecret already holds to.
+    /*
+     * A prior version of this test asserted that the blank- and denylisted-value
+     * failure messages didn't contain an unrelated THIRD string
+     * ("some-value-that-happens-to-be-wrong") -- which could never fail, since
+     * neither real message interpolates its input at all; a future edit that
+     * added interpolation of the actual rejected value would still have passed,
+     * since it was never checking against that value.
+     *
+     * The fix is not the JwtProperties-shaped "assert the message doesn't
+     * contain the rejected value" test, though -- that shape breaks for BOTH of
+     * this guard's own branches, for two different, verified reasons, not
+     * merely a phrasing nit:
+     *
+     * - For the blank case, String.contains("") is unconditionally true for
+     *   every Java string (the empty sequence is a substring of everything), so
+     *   assertThat(message).doesNotContain("") cannot pass regardless of what
+     *   the message says. Confirmed by writing and actually running exactly
+     *   that assertion: it fails every time, for every message.
+     * - For the denylisted literal ("onboarding_app"), the failure message
+     *   legitimately names the affected role -- "...connect to the database as
+     *   onboarding_app" and "...reconciled onto the onboarding_app role..." --
+     *   which is the same string as the rejected value only because the role's
+     *   name and its committed placeholder password happen to be spelled
+     *   alike. Unlike JWT_SECRET's denylisted values (arbitrary strings with no
+     *   other reason to appear in a message), asserting this message "doesn't
+     *   contain onboarding_app" would flag the deliberate, non-secret naming of
+     *   the role as a violation. Confirmed by writing and running that
+     *   assertion too: it fails, because the message correctly contains the
+     *   string -- there is no regression to catch there.
+     *
+     * What "never echoes" actually protects against in JwtProperties is a real,
+     * otherwise-secret value being interpolated into a message after being
+     * rejected for being merely mis-sized (its "too short" branch). This guard
+     * has no equivalent branch by design -- Task 7's brief deliberately asks for
+     * no length policy -- so every rejection here is reached by either nothing
+     * (blank) or a value that is already fully public and belongs in the
+     * message. The strictly stronger property that both
+     * refusesToStartWhenNotSet and refusesToStartOnThePasswordPublishedInV2Migration
+     * already assert -- the ENTIRE message text, pinned exactly, for both
+     * branches -- subsumes "never echoes an unexpected value" categorically: an
+     * exact match leaves no room for ANY unplanned interpolation, not just the
+     * one candidate a substring check would have probed for.
      */
-    @Test
-    void theFailureNeverEchoesTheRejectedValue() {
-        String value = "some-value-that-happens-to-be-wrong";
-
-        runner.withPropertyValues("DB_APP_PASSWORD=" + value).run(context -> {
-            // This value is neither blank nor denylisted, so the guard actually
-            // accepts it -- the point here is only that requireUsablePassword's
-            // own failure messages, exercised above, never interpolate the value
-            // they are validating. Prove that directly against the method.
-            assertThatMessageNeverContainsTheValue(value);
-        });
-    }
-
-    private void assertThatMessageNeverContainsTheValue(String value) {
-        IllegalStateException blank = catchGuardFailure("");
-        assertThat(blank.getMessage()).doesNotContain(value);
-
-        IllegalStateException denylisted = catchGuardFailure(PUBLISHED_PLACEHOLDER);
-        assertThat(denylisted.getMessage()).doesNotContain(value);
-    }
-
-    private IllegalStateException catchGuardFailure(String rejected) {
-        try {
-            DatabaseCredentialsGuard.requireUsablePassword(rejected);
-            throw new AssertionError("expected requireUsablePassword to refuse " + rejected);
-        } catch (IllegalStateException e) {
-            return e;
-        }
-    }
 
     /**
      * The other half of the fix, and the half a code change cannot re-break on
