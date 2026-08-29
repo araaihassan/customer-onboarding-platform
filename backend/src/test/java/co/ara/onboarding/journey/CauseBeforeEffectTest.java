@@ -96,16 +96,15 @@ class CauseBeforeEffectTest extends PostgresTestBase {
     }
 
     /**
-     * The timeline read is newest-first (see AuditEventRepository), so reversing
-     * it gives the order things actually happened -- which is the order these
-     * assertions are written in, because "the cause came first" is much easier
-     * to read forwards.
+     * The timeline read is oldest-first (see AuditEventRepository), so this is
+     * the order things actually happened, unreversed. Kept as a named helper
+     * rather than inlined: if the read direction is ever flipped back, this is
+     * the single place these order assertions need to adapt.
      */
     private List<String> chronological(UUID caseId) {
         return timeline.forCase(caseId, Pageable.ofSize(100)).getContent().stream()
                 .map(AuditEventView::action)
-                .toList()
-                .reversed();
+                .toList();
     }
 
     private UUID openCase(UUID tenant) {

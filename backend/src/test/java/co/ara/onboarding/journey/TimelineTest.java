@@ -133,7 +133,7 @@ class TimelineTest extends PostgresTestBase {
     }
 
     @Test
-    void eventsAreNewestFirstWithMonoReadyTimestamps() {
+    void eventsAreOldestFirstWithMonoReadyTimestamps() {
         UUID tenant = fixture.createTenant("tl-order");
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
@@ -144,16 +144,15 @@ class TimelineTest extends PostgresTestBase {
             var events = timeline.forCase(caseId, Pageable.ofSize(50)).getContent();
             assertThat(events).hasSizeGreaterThanOrEqualTo(2);
 
-            // Asserts the full (occurredAt, id) contract. Note this alone does
-            // NOT prove the tiebreak works: whether these events actually share
-            // a timestamp is up to the clock, and a run of *distinct* values
-            // satisfies the comparator with or without `id DESC` in the query.
-            // eventsSharingATimestampAreOrderedById below forces the tie, and
-            // is the test that fails when the tiebreak is removed.
+            // Asserts the full (occurredAt, id) contract, ascending. Note this
+            // alone does NOT prove the tiebreak works: whether these events
+            // actually share a timestamp is up to the clock, and a run of
+            // *distinct* values satisfies the comparator with or without `id`
+            // in the query. eventsSharingATimestampAreOrderedById below forces
+            // the tie, and is the test that fails when the tiebreak is removed.
             assertThat(events).isSortedAccordingTo(
                     Comparator.comparing(AuditEventView::occurredAt)
-                            .thenComparing(AuditEventView::id, Uuid7::compareUnsigned)
-                            .reversed());
+                            .thenComparing(AuditEventView::id, Uuid7::compareUnsigned));
         });
     }
 
@@ -169,10 +168,9 @@ class TimelineTest extends PostgresTestBase {
      * precondition of an assertion: the real events above are only *likely* to
      * tie. Forcing an exact tie is what makes this deterministic.
      *
-     * Without `id DESC` in the query, ordering on occurred_at alone leaves tied
-     * rows in no defined order at all, and Postgres returns them in heap order --
-     * i.e. ascending id, i.e. oldest-first, the exact reverse of what the
-     * timeline promises.
+     * Without `id` in the query, ordering on occurred_at alone leaves tied rows
+     * in no defined order at all: Postgres may return a tied group differently
+     * on each query, so same-moment events shuffle between reads.
      */
     @Test
     void eventsSharingATimestampAreOrderedById() {
@@ -195,10 +193,10 @@ class TimelineTest extends PostgresTestBase {
 
             // Uuid7.generate() is strictly monotonic -- a 12-bit per-millisecond
             // counter, spin-waiting rather than carrying into the millis field --
-            // so insertion order IS id order, and newest-first over a tied group
-            // means exactly the reverse of the order they went in. That is why
-            // the tiebreak is *correct* and not merely *stable*.
-            assertThat(ids).containsExactlyElementsOf(inserted.reversed());
+            // so insertion order IS id order, and oldest-first over a tied group
+            // means exactly the order they went in. That is why the tiebreak is
+            // *correct* and not merely *stable*.
+            assertThat(ids).containsExactlyElementsOf(inserted);
         });
     }
 

@@ -8,10 +8,16 @@ import java.util.UUID;
 public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
 
     /**
-     * Served by audit_event_tenant_resource_idx (tenant_id, resource_type,
-     * resource_id, occurred_at DESC). Called only from AuditQuery.findForResource,
-     * never directly by a domain service -- see that class's own javadoc for why
-     * this is the one place in the codebase a read bypasses AuthorizedQuery.
+     * OLDEST FIRST. A case timeline is read as the case's story from the
+     * beginning, so page 0 is the earliest events and the newest sit on the
+     * last page. This is a product decision, not an incidental one -- flipping
+     * it back is a change to the screen, not a refactor.
+     *
+     * Called only from AuditQuery.findForResource, never directly by a domain
+     * service -- see that class's own javadoc for why this is the one place in
+     * the codebase a read bypasses AuthorizedQuery. Reversing the current page
+     * in the client instead would be wrong: it would order 20 rows within a
+     * page while the pages themselves stayed in the opposite order.
      *
      * `id` is the tiebreaker, and it is not decoration. `AuditRecorder` stamps
      * `occurred_at` with `Instant.now()`, so several events recorded inside one
@@ -20,13 +26,16 @@ public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
      * share an identical timestamp whenever the clock's resolution is coarser
      * than the work between them. Ordering on `occurred_at` alone leaves those
      * rows in no defined order at all: Postgres may return them differently on
-     * each query, so the timeline appeared to shuffle events that happened
-     * within the same moment.
+     * each query, so the timeline shuffled events from the same moment.
      *
      * Ids are UUIDv7 (`Uuid7.generate()`), whose leading bits are a millisecond
-     * timestamp, and Postgres compares `uuid` byte-wise -- so `id DESC` breaks
-     * the tie in true insertion order rather than merely making it stable.
+     * timestamp and whose per-millisecond counter is strictly monotonic, and
+     * Postgres compares `uuid` byte-wise -- so `id ASC` breaks the tie in true
+     * insertion order rather than merely making it stable.
+     *
+     * audit_event_tenant_resource_idx is (…, occurred_at DESC); Postgres scans
+     * a b-tree in either direction, so ascending order needs no new index.
      */
-    Page<AuditEvent> findByResourceTypeAndResourceIdOrderByOccurredAtDescIdDesc(
+    Page<AuditEvent> findByResourceTypeAndResourceIdOrderByOccurredAtAscIdAsc(
             String resourceType, UUID resourceId, Pageable pageable);
 }
