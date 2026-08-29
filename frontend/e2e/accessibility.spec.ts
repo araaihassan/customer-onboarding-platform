@@ -11,10 +11,11 @@ import type { Tenant } from "./support/tenant";
  * the prototype never had, the switch roles, the colour-plus-word rule — is worth
  * having only if a test fails when it erodes. This is that test.
  *
- * **Both themes.** The dark theme has never been reviewed at screen level, and the
- * shipped LIGHT tokens are measured by nothing at all: `contrast.py`'s light table
- * deliberately preserves the prototype's pre-fix values as review evidence, so a
- * run of this suite is the first real measurement the light theme has had.
+ * **Light only.** The design system this suite measures against ships no dark
+ * theme (`docs/uispecs_latest/.../README.md`'s non-negotiables) and the app no
+ * longer writes a `data-theme` attribute at all -- `next-themes` was removed
+ * along with the dark palette. Light is the only mode that exists, so it is
+ * the only one swept here.
  *
  * No rule is disabled anywhere in this file. If axe reports something, it is a
  * finding — including the two painted pairs the token audit does not cover
@@ -54,8 +55,6 @@ test.beforeAll(async ({ playwright }) => {
   await request.dispose();
 });
 
-const THEMES = ["light", "dark"] as const;
-
 /**
  * Every authenticated screen the sweeps below walk, with the <h1> each one puts
  * in the shell header via `useSetPageHeader`.
@@ -75,30 +74,14 @@ const SCREENS: { path: string; heading: string }[] = [
 ];
 
 /**
- * next-themes writes `data-theme` on <html>, not a class, and the dark tokens are
- * keyed on the attribute. Setting localStorage before the page loads is what makes
- * the first paint the theme under test — flipping it afterwards would leave axe
- * measuring whatever the transition had reached.
- */
-async function useTheme(page: Page, theme: (typeof THEMES)[number]) {
-  await page.addInitScript((value) => {
-    window.localStorage.setItem("theme", value);
-  }, theme);
-}
-
-async function assertTheme(page: Page, theme: (typeof THEMES)[number]) {
-  await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
-}
-
-/**
  * axe's full default rule set — no `withTags` filter, no `disableRules`, no
  * excluded selectors. A rule turned off to get green is the one change that turns
  * this file into decoration.
  *
  * The gate is serious and critical, which is the spec's own bar (§12 item 7). At
  * the time of writing all three screens report **zero violations at every
- * impact** in both themes, so anything that appears below the gate is new too,
- * and worth looking at rather than raising the bar to hide.
+ * impact**, so anything that appears below the gate is new too, and worth
+ * looking at rather than raising the bar to hide.
  */
 async function scan(page: Page) {
   const results = await new AxeBuilder({ page }).analyze();
@@ -111,44 +94,36 @@ function describeViolations(violations: Awaited<ReturnType<typeof scan>>): strin
     .join("\n");
 }
 
-for (const theme of THEMES) {
-  test.describe(`${theme} theme`, () => {
-    test("login has no serious or critical violations", async ({ page }) => {
-      await useTheme(page, theme);
-      await page.goto(`/t/${tenant.slug}/login`);
-      await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
-      await assertTheme(page, theme);
+test.describe("light theme", () => {
+  test("login has no serious or critical violations", async ({ page }) => {
+    await page.goto(`/t/${tenant.slug}/login`);
+    await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
 
-      const violations = await scan(page);
-      expect(describeViolations(violations)).toBe("");
-    });
-
-    test("the customer list has no serious or critical violations", async ({ page }) => {
-      await useTheme(page, theme);
-      await signIn(page, tenant.slug, tenant.adminEmail);
-      await page.goto(`/t/${tenant.slug}/customers`);
-      await expect(page.getByRole("link", { name: "Tailspin Toys" })).toBeVisible();
-      await assertTheme(page, theme);
-
-      const violations = await scan(page);
-      expect(describeViolations(violations)).toBe("");
-    });
-
-    test("the role editor has no serious or critical violations", async ({ page }) => {
-      await useTheme(page, theme);
-      await signIn(page, tenant.slug, tenant.adminEmail);
-      await page.goto(`/t/${tenant.slug}/admin/roles`);
-      // The editor, not merely the page: the catalog and the inspector are what
-      // this screen is, and they arrive after two requests.
-      await expect(page.getByRole("heading", { name: "Permissions" })).toBeVisible();
-      await expect(page.getByRole("switch").first()).toBeVisible();
-      await assertTheme(page, theme);
-
-      const violations = await scan(page);
-      expect(describeViolations(violations)).toBe("");
-    });
+    const violations = await scan(page);
+    expect(describeViolations(violations)).toBe("");
   });
-}
+
+  test("the customer list has no serious or critical violations", async ({ page }) => {
+    await signIn(page, tenant.slug, tenant.adminEmail);
+    await page.goto(`/t/${tenant.slug}/customers`);
+    await expect(page.getByRole("link", { name: "Tailspin Toys" })).toBeVisible();
+
+    const violations = await scan(page);
+    expect(describeViolations(violations)).toBe("");
+  });
+
+  test("the role editor has no serious or critical violations", async ({ page }) => {
+    await signIn(page, tenant.slug, tenant.adminEmail);
+    await page.goto(`/t/${tenant.slug}/admin/roles`);
+    // The editor, not merely the page: the catalog and the inspector are what
+    // this screen is, and they arrive after two requests.
+    await expect(page.getByRole("heading", { name: "Permissions" })).toBeVisible();
+    await expect(page.getByRole("switch").first()).toBeVisible();
+
+    const violations = await scan(page);
+    expect(describeViolations(violations)).toBe("");
+  });
+});
 
 /**
  * Task 28's own widths: 1440 (design canon), 1280 and 1024 (the two
@@ -161,37 +136,31 @@ for (const theme of THEMES) {
 const RESPONSIVE_WIDTHS = [1440, 1280, 1024, 768] as const;
 
 for (const width of RESPONSIVE_WIDTHS) {
-  for (const theme of THEMES) {
-    test.describe(`${theme} theme at ${width}px`, () => {
-      test("journey workspace has no axe violations", async ({ page }) => {
-        await useTheme(page, theme);
-        await page.setViewportSize({ width, height: 900 });
-        await signIn(page, tenant.slug, tenant.adminEmail);
-        await page.goto(`/t/${tenant.slug}/customers/${customerId}/cases/${caseId}`);
-        await expect(page.getByRole("heading", { name: "Tailspin Toys" })).toBeVisible();
-        await expect(page.getByTestId("milestone-row").first()).toBeVisible();
-        await assertTheme(page, theme);
+  test.describe(`light theme at ${width}px`, () => {
+    test("journey workspace has no axe violations", async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await signIn(page, tenant.slug, tenant.adminEmail);
+      await page.goto(`/t/${tenant.slug}/customers/${customerId}/cases/${caseId}`);
+      await expect(page.getByRole("heading", { name: "Tailspin Toys" })).toBeVisible();
+      await expect(page.getByTestId("milestone-row").first()).toBeVisible();
 
-        const violations = await scan(page);
-        expect(describeViolations(violations)).toBe("");
-      });
-
-      test("workflow builder has no axe violations", async ({ page }) => {
-        await useTheme(page, theme);
-        await page.setViewportSize({ width, height: 900 });
-        await signIn(page, tenant.slug, tenant.adminEmail);
-        await page.goto(`/t/${tenant.slug}/admin/workflows/${builderTemplateId}/versions/${builderVersionId}`);
-        await expect(page.getByText("Registration").first()).toBeVisible();
-        // The editor, not merely the list of stages: opens the inspector so
-        // its fields and switches are part of what gets swept.
-        await page.getByText("Registration").first().click();
-        await assertTheme(page, theme);
-
-        const violations = await scan(page);
-        expect(describeViolations(violations)).toBe("");
-      });
+      const violations = await scan(page);
+      expect(describeViolations(violations)).toBe("");
     });
-  }
+
+    test("workflow builder has no axe violations", async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await signIn(page, tenant.slug, tenant.adminEmail);
+      await page.goto(`/t/${tenant.slug}/admin/workflows/${builderTemplateId}/versions/${builderVersionId}`);
+      await expect(page.getByText("Registration").first()).toBeVisible();
+      // The editor, not merely the list of stages: opens the inspector so
+      // its fields and switches are part of what gets swept.
+      await page.getByText("Registration").first().click();
+
+      const violations = await scan(page);
+      expect(describeViolations(violations)).toBe("");
+    });
+  });
 }
 
 /**

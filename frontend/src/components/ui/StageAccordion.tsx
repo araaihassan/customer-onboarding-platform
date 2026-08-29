@@ -53,9 +53,8 @@ export function StageAccordion({
           type="button"
           onClick={onToggle}
           aria-expanded={isOpen}
-          className="w-full text-left hover:bg-surface-sunken"
+          className="w-full text-left bg-surface hover:bg-surface-sunken"
           style={{
-            background: "var(--ob-surface)",
             border: "1px solid var(--ob-line)",
             borderRadius: "var(--ob-radius-10)",
             padding: "12px 14px",

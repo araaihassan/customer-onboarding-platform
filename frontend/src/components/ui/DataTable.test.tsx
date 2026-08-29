@@ -23,8 +23,18 @@ describe("DataTable", () => {
 
   it("renders each row as a button when onRowClick is provided, and calls it with the row", () => {
     const onRowClick = vi.fn();
-    render(<DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} onRowClick={onRowClick} />);
-    screen.getByRole("button", { name: /acme/i }).click();
+    const { container } = render(
+      <DataTable columns={columns} rows={rows} getRowKey={(r) => r.id} onRowClick={onRowClick} />,
+    );
+    // The clickable row carries `role="row"` (ARIA table structure, Finding 3),
+    // which as an explicit role attribute wins over the element's implicit
+    // "button" role for role-query purposes -- so the row is found by its
+    // content rather than `getByRole("button")`.
+    const acmeRow = within(container)
+      .getAllByRole("row")
+      .find((row) => row.tagName === "BUTTON" && row.textContent === "Acme")!;
+    expect(acmeRow).toBeInstanceOf(HTMLButtonElement);
+    acmeRow.click();
     expect(onRowClick).toHaveBeenCalledWith(rows[0]);
   });
 

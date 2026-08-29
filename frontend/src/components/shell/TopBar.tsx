@@ -25,16 +25,17 @@ export function TopBar() {
       }}
     >
       {title && (
-        <span
+        <h1
           className="truncate min-w-0 uppercase"
           style={{
             font: `var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)`,
             letterSpacing: "var(--ob-type-breadcrumb-tracking)",
             color: "var(--ob-text-subtle)",
+            margin: 0,
           }}
         >
           {title}
-        </span>
+        </h1>
       )}
       {meta && (
         <span

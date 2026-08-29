@@ -41,14 +41,14 @@ function renderTable() {
 /**
  * `CustomerTable` now composes `DataTable` (Task 22), a generic CSS-grid table
  * primitive rather than a real `<table>` -- that architectural call was made
- * and reviewed clean in Task 22, not this task. One direct consequence: there
- * is no `table`/`columnheader`/`cell` role or `scope="col"` to assert on
- * anymore, since `DataTable`'s own markup never had them (only its header row
- * carries `role="row"`). Every query below is scoped to the `[data-view]`
- * wrapper it cares about, because `DataTable` mounts BOTH the grid and the
- * `<900px` card list at once (CSS-gated visibility, not conditional
- * rendering) -- an unscoped query would see duplicate text from whichever
- * view isn't the one under test.
+ * and reviewed clean in Task 22, not this task. `DataTable` carries the full
+ * ARIA table role set (`table`/`rowgroup`/`row`/`columnheader`/`cell`, added
+ * as a final-review fix) so the grid is ARIA-equivalent to a real table
+ * despite the CSS grid markup. Every query below is scoped to the
+ * `[data-view]` wrapper it cares about, because `DataTable` mounts BOTH the
+ * grid and the `<900px` card list at once (CSS-gated visibility, not
+ * conditional rendering) -- an unscoped query would see duplicate text from
+ * whichever view isn't the one under test.
  */
 function tableWrapper(container: HTMLElement): HTMLElement {
   return container.querySelector("[data-view='table']") as HTMLElement;
@@ -61,7 +61,11 @@ function cardsWrapper(container: HTMLElement): HTMLElement {
 describe("CustomerTable", () => {
   it("names every column across the header row", () => {
     const { container } = renderTable();
-    const headerRow = within(tableWrapper(container)).getByRole("row");
+    // Scoped to the table's header rowgroup specifically -- the body
+    // rowgroup's own rows now also carry `role="row"`, so an unscoped
+    // `getByRole("row")` would be ambiguous.
+    const headerRowgroup = within(tableWrapper(container)).getAllByRole("rowgroup")[0];
+    const headerRow = within(headerRowgroup).getByRole("row");
     const headers = Array.from(headerRow.children).map((el) => el.textContent);
     expect(headers).toEqual(["Customer", "Status", "Legal name", "Industry", "Country"]);
   });
