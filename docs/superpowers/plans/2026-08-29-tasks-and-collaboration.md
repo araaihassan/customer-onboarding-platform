@@ -839,6 +839,40 @@ All three extend `TenantScopedEntity`. Enums are `TaskStatus`, `TaskPriority`, a
 
 ### Task 12: Permission keys, catalog entries, and seeded role templates
 
+**Plan amendment (executed, see the Task 12 commit):** this task's own Step 3
+catalogues `task.view`/`task.complete` at `RECORD` and `task.manage`/`comment.create`
+at `ORG_SCOPES` — every one of the four includes a non-`ALL` scope, so
+`DescriptorRegistry.validate()` (`authz/DescriptorRegistry.java`) refuses application
+startup the instant these entries exist, for every resource type it cannot resolve.
+Task 13's own "Produces" line already names this exact failure mode, but the plan
+still sequences Task 13's descriptors *after* Task 12's catalog entries — so
+committing Task 12 alone, as written, leaves every `@SpringBootTest`-based test
+(the overwhelming majority of the backend suite) failing at context startup, not
+just `PermissionCatalogTest`. Confirmed empirically: cataloguing the four keys
+without descriptors produced exactly `Authorization configuration is incomplete:
+[permission 'task.view' targets resource type 'task' with no
+ResourceAuthorizationDescriptor, ...]` at `DescriptorRegistry.java:47`, on all four
+new keys. Fix: Task 13's Step 3 (`scoping/TaskDescriptor.java`,
+`scoping/CommentDescriptor.java`) and a version of its Step 1 tests were pulled
+forward into this same commit, so Task 12 leaves the tree green on its own — see
+Task 13 below, now marked done. There was also a second, independent drift this
+task's own Step 3 undershot: `RoleTemplateValidityTest.everyTemplateGrantUsesAValidPermissionAndScope`
+forbids granting a permission at a scope the catalog does not list for it, but
+`comment.create` is `ORG_SCOPES`-only (no `ASSIGNED`) while three templates
+(Sales Representative, Service Provider, Business Partner) hold `case.view` at
+`ASSIGNED` — so "every template holding case.view gains task.view and
+comment.create at that scope" cannot literally hold for those three. They gained
+`task.view` at `ASSIGNED` (valid, `task.view` is `RECORD`) and no `comment.create`
+grant at all, rather than an invalid one. Separately, `TASK_MANAGE` was not named
+by this task's own coupling rules for any template, but
+`RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog` (an
+existing test, not new) requires Administrator to hold every catalogued
+permission — so Administrator was given `TASK_MANAGE` at `ALL` regardless, on the
+same "Administrator-only, like ROLE_MANAGE/WORKFLOW_MANAGE" precedent the class
+already documents; no other template gained it. `TenantProvisioningTest.seededRolesCarryTheirTemplateGrants`'s
+hardcoded Administrator grant count (its own comment: "keeps this number honest")
+moved from 31 to 35 for the same reason.
+
 **Files:**
 - Modify: `authz/PermissionKeys.java`, `authz/PermissionCatalog.java`, `authz/RoleTemplates.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/PermissionCatalogTest.java`
@@ -848,7 +882,7 @@ All three extend `TenantScopedEntity`. Enums are `TaskStatus`, `TaskPriority`, a
 
 **Verify before writing:** `PermissionCatalog` has no `scopesFor` method. Scopes are read via `PermissionCatalog.byKey(key)` returning `Optional<Permission>`, and `Permission` is `record Permission(String key, String category, String resourceType, String description, Set<Scope> allowedScopes)` — so the accessor is `.allowedScopes()`, not `.scopesFor(...)`. And `RoleTemplates.RoleTemplate` is `record RoleTemplate(String name, String description, Map<String, Scope> grants)` — the map is called `grants`, not `permissions`. Read both files before writing the tests below; do not use the method names as first drafted here without checking.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```java
 @Test
@@ -883,17 +917,19 @@ void everyTemplateHoldingMilestoneCompleteAlsoHoldsTaskComplete() {
 
 The second test is the one that matters: it encodes the spec's §5.2 coupling as a rule rather than leaving it to whoever edits the templates next.
 
-- [ ] **Step 2: Run to verify both fail**
+- [x] **Step 2: Run to verify both fail**
 
-- [ ] **Step 3: Add the four keys, catalogue them, extend the templates**
+- [x] **Step 3: Add the four keys, catalogue them, extend the templates**
 
-`TASK_VIEW` and `TASK_COMPLETE` use `RECORD` (all four scopes, matching `MILESTONE_COMPLETE`); `TASK_MANAGE` and `COMMENT_CREATE` use `ORG_SCOPES`. Every template holding `milestone.complete` gains `task.complete` at the same scope; every template holding `case.view` gains `task.view` and `comment.create` at that scope.
+`TASK_VIEW` and `TASK_COMPLETE` use `RECORD` (all four scopes, matching `MILESTONE_COMPLETE`); `TASK_MANAGE` and `COMMENT_CREATE` use `ORG_SCOPES`. Every template holding `milestone.complete` gains `task.complete` at the same scope; every template holding `case.view` gains `task.view` and `comment.create` at that scope — **except** the three templates holding `case.view` at `ASSIGNED` (Sales Representative, Service Provider, Business Partner), which gain `task.view` only, per the plan amendment above.
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ### Task 13: Descriptors
+
+**Executed early, inside the Task 12 commit — see that task's plan amendment.** `DescriptorRegistry.validate()` refuses application startup the moment Task 12's four permissions are catalogued at a record scope, so this task's descriptors could not wait for their own, later turn without leaving Task 12 red on its own.
 
 **Files:**
 - Create: `scoping/TaskDescriptor.java`, `scoping/CommentDescriptor.java`
@@ -902,7 +938,7 @@ The second test is the one that matters: it encodes the spec's §5.2 coupling as
 **Interfaces:**
 - Produces: descriptor coverage for `Task` and `Comment`, without which `DescriptorRegistry.validate()` refuses to start the application.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```java
 @Test
@@ -921,15 +957,15 @@ void bothDescriptorsFailClosedWithNoDepartmentAndNoTeams() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
-- [ ] **Step 3: Write both descriptors**
+- [x] **Step 3: Write both descriptors**
 
 Both live in `scoping/`, never in `task` — a descriptor inside the module owning the entity closes a module cycle. `TaskDescriptor` resolves DEPARTMENT and TEAM through the task's `case_id` to the case's `owning_department_id` / `owning_team_id`, and **ASSIGNED through `assignee_id` alone**. `CommentDescriptor` resolves all three through `case_id`, identically to `CaseDescriptor`. Both return `cb.disjunction()` when the actor has no department and no teams.
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** — same commit as Task 12; there is no separate Task 13 commit.
 
 ### Task 14: The two ports `journey` declares
 

@@ -86,11 +86,13 @@ class TenantProvisioningTest extends PostgresTestBase {
             assertThat(administrator.getGrants())
                     // 16 through sub-project 1; sub-project 2 Task 6 added
                     // workflow.view and workflow.manage (18), and Task 11 added the
-                    // thirteen journey keys (31) -- to both the catalog and this
-                    // template (RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
+                    // thirteen journey keys (31). Sub-project 3 Task 12 added
+                    // task.view, task.manage, task.complete and comment.create (35)
+                    // -- to both the catalog and this template
+                    // (RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
                     // is the guard that keeps this number honest).
                     .as("Administrator must be seeded with its full template grant set")
-                    .hasSize(31);
+                    .hasSize(35);
         });
     }
 

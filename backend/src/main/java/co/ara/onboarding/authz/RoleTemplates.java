@@ -28,15 +28,20 @@ public final class RoleTemplates {
         // WORKFLOW_VIEW, ALL joins every operational template here: anyone working a
         // case needs to read the definition it is frozen on. WORKFLOW_MANAGE stays
         // Administrator-only, below -- the same reasoning ROLE_MANAGE already carries.
+        // TASK_VIEW only, no COMMENT_CREATE: this template's CASE_VIEW is ASSIGNED,
+        // and comment.create is not catalogued at ASSIGNED (design spec 6.1) -- there
+        // is no valid scope at which this template could hold it.
         new RoleTemplate("Sales Representative", "Owns prospects and new customers", Map.of(
             CUSTOMER_VIEW, ASSIGNED, CUSTOMER_CREATE, ALL, CUSTOMER_EDIT, ASSIGNED,
             CONTACT_VIEW, ASSIGNED, CONTACT_MANAGE, ASSIGNED, INVITATION_SEND, ASSIGNED,
-            WORKFLOW_VIEW, ALL, CASE_VIEW, ASSIGNED, CASE_CREATE, ALL)),
+            WORKFLOW_VIEW, ALL, CASE_VIEW, ASSIGNED, CASE_CREATE, ALL, TASK_VIEW, ASSIGNED)),
 
-        new RoleTemplate("Account Manager", "Owns ongoing customer relationships", Map.of(
-            CUSTOMER_VIEW, TEAM, CUSTOMER_EDIT, TEAM, CONTACT_VIEW, TEAM,
-            CONTACT_MANAGE, TEAM, INVITATION_SEND, TEAM, USER_VIEW, TEAM,
-            WORKFLOW_VIEW, ALL, CASE_VIEW, TEAM, CASE_EDIT, TEAM)),
+        // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
+        new RoleTemplate("Account Manager", "Owns ongoing customer relationships", Map.ofEntries(
+            entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
+            entry(CONTACT_MANAGE, TEAM), entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM),
+            entry(WORKFLOW_VIEW, ALL), entry(CASE_VIEW, TEAM), entry(CASE_EDIT, TEAM),
+            entry(TASK_VIEW, TEAM), entry(COMMENT_CREATE, TEAM))),
 
         // Map.ofEntries, not Map.of: sixteen grants crosses Map.of's ten-pair ceiling.
         new RoleTemplate("Project Manager", "Coordinates onboarding delivery", Map.ofEntries(
@@ -46,40 +51,53 @@ public final class RoleTemplates {
             entry(CASE_VIEW, TEAM), entry(CASE_EDIT, TEAM), entry(CASE_ADVANCE, TEAM), entry(CASE_HOLD, TEAM),
             entry(MILESTONE_EDIT, TEAM), entry(MILESTONE_COMPLETE, TEAM),
             entry(MILESTONE_REOPEN, TEAM), entry(MILESTONE_FORCE_COMPLETE, TEAM),
-            entry(REQUIREMENT_WAIVE, TEAM))),
+            entry(REQUIREMENT_WAIVE, TEAM),
+            entry(TASK_VIEW, TEAM), entry(TASK_COMPLETE, TEAM), entry(COMMENT_CREATE, TEAM))),
 
+        // TASK_COMPLETE joins MILESTONE_COMPLETE at the same ASSIGNED scope (spec
+        // 5.2); no COMMENT_CREATE, for the same reason Sales Representative has
+        // none -- CASE_VIEW here is ASSIGNED, and comment.create has no ASSIGNED scope.
         new RoleTemplate("Service Provider", "Delivers technical services", Map.of(
             CUSTOMER_VIEW, ASSIGNED, CONTACT_VIEW, ASSIGNED, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, ASSIGNED, MILESTONE_COMPLETE, ASSIGNED)),
+            CASE_VIEW, ASSIGNED, MILESTONE_COMPLETE, ASSIGNED,
+            TASK_VIEW, ASSIGNED, TASK_COMPLETE, ASSIGNED)),
 
         new RoleTemplate("Business Partner", "External delivery partner", Map.of(
             CUSTOMER_VIEW, ASSIGNED, CONTACT_VIEW, ASSIGNED, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, ASSIGNED, MILESTONE_COMPLETE, ASSIGNED)),
+            CASE_VIEW, ASSIGNED, MILESTONE_COMPLETE, ASSIGNED,
+            TASK_VIEW, ASSIGNED, TASK_COMPLETE, ASSIGNED)),
 
-        new RoleTemplate("Operations", "Runs day-to-day onboarding operations", Map.of(
-            CUSTOMER_VIEW, DEPARTMENT, CUSTOMER_EDIT, DEPARTMENT,
-            CONTACT_VIEW, DEPARTMENT, USER_VIEW, DEPARTMENT, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, DEPARTMENT, CASE_EDIT, DEPARTMENT, MILESTONE_COMPLETE, DEPARTMENT)),
+        // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
+        new RoleTemplate("Operations", "Runs day-to-day onboarding operations", Map.ofEntries(
+            entry(CUSTOMER_VIEW, DEPARTMENT), entry(CUSTOMER_EDIT, DEPARTMENT),
+            entry(CONTACT_VIEW, DEPARTMENT), entry(USER_VIEW, DEPARTMENT), entry(WORKFLOW_VIEW, ALL),
+            entry(CASE_VIEW, DEPARTMENT), entry(CASE_EDIT, DEPARTMENT), entry(MILESTONE_COMPLETE, DEPARTMENT),
+            entry(TASK_VIEW, DEPARTMENT), entry(TASK_COMPLETE, DEPARTMENT), entry(COMMENT_CREATE, DEPARTMENT))),
 
         new RoleTemplate("Legal", "Reviews agreements and legal requirements", Map.of(
             CUSTOMER_VIEW, ALL, CONTACT_VIEW, ALL, AUDIT_VIEW, ALL, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, ALL, MILESTONE_COMPLETE, ALL)),
+            CASE_VIEW, ALL, MILESTONE_COMPLETE, ALL,
+            TASK_VIEW, ALL, TASK_COMPLETE, ALL, COMMENT_CREATE, ALL)),
 
         new RoleTemplate("Finance", "Handles billing and financial verification", Map.of(
             CUSTOMER_VIEW, ALL, CONTACT_VIEW, ALL, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, ALL, MILESTONE_COMPLETE, ALL)),
+            CASE_VIEW, ALL, MILESTONE_COMPLETE, ALL,
+            TASK_VIEW, ALL, TASK_COMPLETE, ALL, COMMENT_CREATE, ALL)),
 
         new RoleTemplate("Technical", "Performs technical setup and testing", Map.of(
             CUSTOMER_VIEW, TEAM, CONTACT_VIEW, TEAM, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, TEAM, MILESTONE_COMPLETE, TEAM)),
+            CASE_VIEW, TEAM, MILESTONE_COMPLETE, TEAM,
+            TASK_VIEW, TEAM, TASK_COMPLETE, TEAM, COMMENT_CREATE, TEAM)),
 
         new RoleTemplate("Compliance", "Verifies KYC and regulatory requirements", Map.of(
             CUSTOMER_VIEW, ALL, CONTACT_VIEW, ALL, AUDIT_VIEW, ALL, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, ALL, MILESTONE_COMPLETE, ALL)),
+            CASE_VIEW, ALL, MILESTONE_COMPLETE, ALL,
+            TASK_VIEW, ALL, TASK_COMPLETE, ALL, COMMENT_CREATE, ALL)),
 
         new RoleTemplate("Support", "Assists customers post-activation", Map.of(
             CUSTOMER_VIEW, TEAM, CONTACT_VIEW, TEAM, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, TEAM, MILESTONE_COMPLETE, TEAM)),
+            CASE_VIEW, TEAM, MILESTONE_COMPLETE, TEAM,
+            TASK_VIEW, TEAM, TASK_COMPLETE, TEAM, COMMENT_CREATE, TEAM)),
 
         // Map.ofEntries, not Map.of: this covers the whole 31-permission catalog, and
         // Map.of has no overload beyond 10 key-value pairs.
@@ -101,7 +119,14 @@ public final class RoleTemplates {
             entry(MILESTONE_EDIT, ALL), entry(MILESTONE_COMPLETE, ALL),
             entry(MILESTONE_REOPEN, ALL), entry(MILESTONE_FORCE_COMPLETE, ALL),
             entry(MILESTONE_FORCE_APPROVE, ALL), entry(REQUIREMENT_WAIVE, ALL),
-            entry(APPROVAL_DECIDE, ALL)))
+            entry(APPROVAL_DECIDE, ALL),
+            // Tasks (Task 12): TASK_MANAGE is seeded Administrator-only, the same
+            // precedent ROLE_MANAGE and WORKFLOW_MANAGE already set -- a tenant
+            // cannot escalate task-reassignment authority through any other seeded
+            // role. TASK_VIEW/TASK_COMPLETE/COMMENT_CREATE follow from
+            // Administrator already holding CASE_VIEW and MILESTONE_COMPLETE at ALL.
+            entry(TASK_VIEW, ALL), entry(TASK_MANAGE, ALL),
+            entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL)))
     );
 
     private RoleTemplates() {}

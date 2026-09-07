@@ -62,4 +62,33 @@ class PermissionCatalogTest extends PostgresTestBase {
         assertThat(PermissionCatalog.byKey("made.up.permission")).isEmpty();
         assertThat(PermissionCatalog.allows("made.up.permission", Scope.ALL)).isFalse();
     }
+
+    @Test
+    void taskPermissionsAreCataloguedAtTheirIntendedScopes() {
+        assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_VIEW).orElseThrow().allowedScopes())
+                .containsExactlyInAnyOrder(Scope.ALL, Scope.DEPARTMENT, Scope.TEAM, Scope.ASSIGNED);
+        assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_COMPLETE).orElseThrow().allowedScopes())
+                .containsExactlyInAnyOrder(Scope.ALL, Scope.DEPARTMENT, Scope.TEAM, Scope.ASSIGNED);
+        assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_MANAGE).orElseThrow().allowedScopes())
+                .containsExactlyInAnyOrder(Scope.ALL, Scope.DEPARTMENT, Scope.TEAM);
+        assertThat(PermissionCatalog.byKey(PermissionKeys.COMMENT_CREATE).orElseThrow().allowedScopes())
+                .containsExactlyInAnyOrder(Scope.ALL, Scope.DEPARTMENT, Scope.TEAM);
+    }
+
+    /**
+     * Completing a requirement-linked task routes through the gated
+     * RequirementService.satisfy, so a role holding task.complete without
+     * milestone.complete is refused mid-flow. Every template that can complete a
+     * milestone must be able to complete the tasks that clear its requirements.
+     */
+    @Test
+    void everyTemplateHoldingMilestoneCompleteAlsoHoldsTaskComplete() {
+        for (var template : RoleTemplates.all()) {
+            Scope milestone = template.grants().get(PermissionKeys.MILESTONE_COMPLETE);
+            if (milestone == null) continue;
+            assertThat(template.grants())
+                    .as("template %s", template.name())
+                    .containsEntry(PermissionKeys.TASK_COMPLETE, milestone);
+        }
+    }
 }

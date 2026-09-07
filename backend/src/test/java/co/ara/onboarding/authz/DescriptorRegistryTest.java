@@ -3,10 +3,19 @@ package co.ara.onboarding.authz;
 import co.ara.onboarding.customer.Customer;
 import co.ara.onboarding.customer.CustomerRepository;
 import co.ara.onboarding.customer.CustomerStatus;
+import co.ara.onboarding.journey.Case;
+import co.ara.onboarding.journey.JourneyFixtures;
 import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
+import co.ara.onboarding.task.Comment;
+import co.ara.onboarding.task.CommentRepository;
+import co.ara.onboarding.task.CommentResourceType;
+import co.ara.onboarding.task.Task;
+import co.ara.onboarding.task.TaskPriority;
+import co.ara.onboarding.task.TaskRepository;
+import co.ara.onboarding.task.TaskStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -22,6 +31,9 @@ class DescriptorRegistryTest extends PostgresTestBase {
     @Autowired DescriptorRegistry registry;
     @Autowired CustomerRepository customers;
     @Autowired TenantFixture fixture;
+    @Autowired JourneyFixtures journeyFixtures;
+    @Autowired TaskRepository tasks;
+    @Autowired CommentRepository comments;
 
     @Test
     void everyRecordScopedPermissionHasADescriptor() {
@@ -81,6 +93,93 @@ class DescriptorRegistryTest extends PostgresTestBase {
                     new AuthContext(tenant, owner, UserType.INTERNAL, null, Set.of()));
             assertThat(customers.findAll(noDepartment))
                     .as("an actor with no department must match nothing, not everything")
+                    .isEmpty();
+        });
+    }
+
+    /**
+     * Task 13 (pulled forward into Task 12's commit -- see PermissionCatalog's own
+     * comment on TASK_VIEW/TASK_MANAGE/TASK_COMPLETE/COMMENT_CREATE: without these
+     * two descriptors, DescriptorRegistry.validate() refuses application startup
+     * the moment those four permissions are catalogued at a record scope, which
+     * the plan's own Task 13 "Produces" line already says). ASSIGNED on a task is
+     * personal, never team-mediated: an actor who merely shares the owning team
+     * with the task must not match a task assigned to someone else.
+     */
+    @Test
+    void taskAssignedScopeIsPersonalAndNotTeamMediated() {
+        UUID tenant = fixture.createTenant("task-assigned-scope");
+
+        fixture.runAs(tenant, () -> {
+            UUID team = fixture.createTeam(tenant, "Onboarding Team");
+            UUID actor = fixture.createUser(tenant, "actor@task-assigned-scope.example");
+            UUID someoneElse = fixture.createUser(tenant, "someone@task-assigned-scope.example");
+            fixture.addToTeam(tenant, actor, team);
+
+            Case c = journeyFixtures.newCase(tenant, null, null, team);
+            var milestone = journeyFixtures.newMilestone(tenant, c);
+
+            Task task = new Task();
+            task.setId(Uuid7.generate());
+            task.setTenantId(tenant);
+            task.setCaseId(c.getId());
+            task.setMilestoneId(milestone.getId());
+            task.setTitle("Fixture task");
+            task.setPriority(TaskPriority.MEDIUM);
+            task.setStatus(TaskStatus.PENDING);
+            task.setAssigneeId(someoneElse);
+            tasks.saveAndFlush(task);
+
+            var descriptor = registry.forEntity(Task.class);
+            var predicate = descriptor.assignedScope(
+                    new AuthContext(tenant, actor, UserType.INTERNAL, null, Set.of(team)));
+
+            assertThat(tasks.findAll(predicate))
+                    .as("a team-owned task assigned to someone else must not match ASSIGNED for a mere teammate")
+                    .isEmpty();
+        });
+    }
+
+    @Test
+    void bothDescriptorsFailClosedWithNoDepartmentAndNoTeams() {
+        UUID tenant = fixture.createTenant("descriptor-fail-closed");
+
+        fixture.runAs(tenant, () -> {
+            UUID actor = fixture.createUser(tenant, "actor@descriptor-fail-closed.example");
+            UUID department = fixture.createDepartment(tenant, "Ops");
+            Case c = journeyFixtures.newCase(tenant, null, department, null);
+            var milestone = journeyFixtures.newMilestone(tenant, c);
+
+            Task task = new Task();
+            task.setId(Uuid7.generate());
+            task.setTenantId(tenant);
+            task.setCaseId(c.getId());
+            task.setMilestoneId(milestone.getId());
+            task.setTitle("Fixture task");
+            task.setPriority(TaskPriority.MEDIUM);
+            task.setStatus(TaskStatus.PENDING);
+            tasks.saveAndFlush(task);
+
+            Comment comment = new Comment();
+            comment.setId(Uuid7.generate());
+            comment.setTenantId(tenant);
+            comment.setCaseId(c.getId());
+            comment.setResourceType(CommentResourceType.CASE);
+            comment.setResourceId(c.getId());
+            comment.setAuthorId(actor);
+            comment.setBody("Fixture comment");
+            comments.saveAndFlush(comment);
+
+            var bare = new AuthContext(tenant, actor, UserType.INTERNAL, null, Set.of());
+
+            var taskDescriptor = registry.forEntity(Task.class);
+            assertThat(tasks.findAll(taskDescriptor.departmentScope(bare)))
+                    .as("a task actor with no department must match nothing, not everything")
+                    .isEmpty();
+
+            var commentDescriptor = registry.forEntity(Comment.class);
+            assertThat(comments.findAll(commentDescriptor.teamScope(bare)))
+                    .as("a comment actor with no teams must match nothing, not everything")
                     .isEmpty();
         });
     }
