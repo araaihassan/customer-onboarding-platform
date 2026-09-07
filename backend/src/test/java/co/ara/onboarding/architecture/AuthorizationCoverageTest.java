@@ -200,7 +200,12 @@ class AuthorizationCoverageTest {
                                           "co.ara.onboarding.identity..",
                                           "co.ara.onboarding.auth..",
                                           "co.ara.onboarding.workflow..",
-                                          "co.ara.onboarding.journey..")
+                                          "co.ara.onboarding.journey..",
+                                          // Task 16: TaskService's own case_id/milestoneId/
+                                          // requirementId/assigneeId resolution is exactly the
+                                          // shape this rule exists to catch -- added before
+                                          // TaskService itself was written, not retrofitted.
+                                          "co.ara.onboarding.task..")
                 // Same exclusion: authentication runs with no actor and platform_admin
                 // is not tenant-scoped, so there is no scope for AuthorizedQuery to
                 // apply -- it could not be used here even in principle.
