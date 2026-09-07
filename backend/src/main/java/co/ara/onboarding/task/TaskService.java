@@ -1,5 +1,8 @@
 package co.ara.onboarding.task;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
+import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
@@ -11,6 +14,7 @@ import co.ara.onboarding.journey.Milestone;
 import co.ara.onboarding.journey.MilestoneRepository;
 import co.ara.onboarding.journey.Requirement;
 import co.ara.onboarding.journey.RequirementRepository;
+import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.MilestoneDefinition;
@@ -22,17 +26,21 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.UUID;
 
 /**
- * Create, read and full-replace update for ad-hoc and (later, Task 19)
- * requirement-instantiated tasks. Deliberately NOT a caller of
- * {@code CaseEngine.reconcile}, and takes no case-level lock: a task carries
- * no progress of its own, and completing one is Task 17's job, routed through
- * the already-gated {@code RequirementService.satisfy} rather than through
- * this class.
+ * Create, read, full-replace update, and status transitions for ad-hoc and
+ * (later, Task 19) requirement-instantiated tasks. Deliberately NOT a caller
+ * of {@code CaseEngine.reconcile}, and takes no case-level lock itself: a
+ * task carries no progress of its own, and {@code changeStatus} completing a
+ * requirement-linked task routes through the already-gated
+ * {@code RequirementService.satisfy} rather than reconciling directly.
  *
  * Every id this class receives from a URL or a request body -- caseId,
  * milestoneId, requirementId, assigneeId -- is resolved through
@@ -76,12 +84,53 @@ public class TaskService {
     private final AppUserRepository users;
     private final AuthorizedQuery authorizedQuery;
     private final StageWriteScopeGuard writeScope;
+    private final RequirementService requirements;
+    private final AuditRecorder audit;
+    private final AuthContextProvider contextProvider;
+    private final Clock clock;
+
+    /**
+     * The finite status graph drawn in the design spec's §5.1:
+     *
+     * <pre>
+     *   PENDING ──► IN_PROGRESS ──► COMPLETED
+     *      │             │
+     *      └──► WAITING ─┘
+     *   any open state ──► CANCELLED
+     * </pre>
+     *
+     * The diagram draws PENDING→IN_PROGRESS→COMPLETED as the canonical path
+     * and PENDING→WAITING→IN_PROGRESS as the one detour through it, but its
+     * own prose generalises the CANCELLED edge to "any open state" rather
+     * than drawing three separate arrows -- and the brief's own required
+     * tests (completing a freshly-created, still-PENDING task in one call,
+     * with no prior transition to IN_PROGRESS) only make sense if COMPLETED
+     * gets the same "any open state" treatment as CANCELLED: both are the
+     * two ways a task's open lifecycle can end, reachable directly from
+     * PENDING, IN_PROGRESS or WAITING alike. What the diagram's specific
+     * arrows fix is movement AMONG the three open states themselves --
+     * PENDING→IN_PROGRESS, PENDING→WAITING, WAITING→IN_PROGRESS are the only
+     * ones drawn, so IN_PROGRESS can never move back to PENDING or sideways
+     * to WAITING, and WAITING can never move back to PENDING. COMPLETED and
+     * CANCELLED map to an empty set -- both are terminal from this method's
+     * own perspective; the only route back out of COMPLETED is a milestone
+     * reopen (TaskLifecycle.reopenForMilestone), a completely separate
+     * mechanism not reachable through changeStatus.
+     */
+    private static final Map<TaskStatus, Set<TaskStatus>> TRANSITIONS = Map.of(
+            TaskStatus.PENDING, Set.of(TaskStatus.IN_PROGRESS, TaskStatus.WAITING,
+                    TaskStatus.COMPLETED, TaskStatus.CANCELLED),
+            TaskStatus.IN_PROGRESS, Set.of(TaskStatus.COMPLETED, TaskStatus.CANCELLED),
+            TaskStatus.WAITING, Set.of(TaskStatus.IN_PROGRESS, TaskStatus.COMPLETED, TaskStatus.CANCELLED),
+            TaskStatus.COMPLETED, Set.of(),
+            TaskStatus.CANCELLED, Set.of());
 
     public TaskService(TaskRepository tasks, MilestoneRepository milestones, CaseRepository cases,
                        RequirementRepository requirementRepository,
                        MilestoneDefinitionRepository milestoneDefinitions, StageRepository stages,
                        AppUserRepository users, AuthorizedQuery authorizedQuery,
-                       StageWriteScopeGuard writeScope) {
+                       StageWriteScopeGuard writeScope, RequirementService requirements,
+                       AuditRecorder audit, AuthContextProvider contextProvider, Clock clock) {
         this.tasks = tasks;
         this.milestones = milestones;
         this.cases = cases;
@@ -91,6 +140,10 @@ public class TaskService {
         this.users = users;
         this.authorizedQuery = authorizedQuery;
         this.writeScope = writeScope;
+        this.requirements = requirements;
+        this.audit = audit;
+        this.contextProvider = contextProvider;
+        this.clock = clock;
     }
 
     /**
@@ -203,6 +256,75 @@ public class TaskService {
         t.setDueDate(request.dueDate());
         tasks.save(t);
         return toView(t);
+    }
+
+    /**
+     * Transitions a task's status through the finite matrix TRANSITIONS
+     * encodes (see its own javadoc). Gated the same way every other write
+     * here is: task.complete resolves the task and (via the same permission)
+     * its case and milestone, then {@link StageWriteScopeGuard} narrows
+     * further against the milestone's own stage, exactly as update() does.
+     *
+     * Completing a requirement-linked task calls the EXISTING
+     * RequirementService.satisfy(requirementId, taskId, "task") -- already
+     * gated on milestone.complete, already taking CaseRepository.lockById's
+     * row lock via CaseEngine, already reconciling and auditing. That is the
+     * ONLY path from here to a case mutation; this method never calls
+     * CaseEngine itself, so sub-project 2's invariant 4 (every runtime
+     * mutation goes through CaseEngine.reconcile, under that lock, and
+     * nothing else calls it) holds by construction rather than by
+     * discipline. An ad-hoc task (requirementId == null) calls nothing on
+     * RequirementService at all: progress is derived from requirements
+     * alone, so there is nothing for the engine to recompute -- if a later
+     * sub-project ever makes tasks count toward progress, this is the line
+     * that must change.
+     *
+     * Design spec §5.2's authorization consequence, stated rather than
+     * discovered: because RequirementService.satisfy carries its own
+     * @RequirePermission(MILESTONE_COMPLETE) and that gate applies across the
+     * bean boundary, completing a requirement-linked task requires BOTH
+     * task.complete (this method's own gate) AND milestone.complete. An actor
+     * holding only the former is refused by satisfy's own aspect with
+     * AccessDeniedException -- not a bug, and not something this method
+     * catches or works around.
+     */
+    @RequirePermission(PermissionKeys.TASK_COMPLETE)
+    @Transactional
+    public TaskView changeStatus(UUID taskId, TaskStatusRequest request) {
+        Task t = authorizedQuery.getById(tasks, Task.class, PermissionKeys.TASK_COMPLETE, taskId);
+        guardTransition(t.getStatus(), request.status());
+
+        Milestone m = authorizedQuery.getById(
+                milestones, Milestone.class, PermissionKeys.TASK_COMPLETE, t.getMilestoneId());
+        Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.TASK_COMPLETE, m.getCaseId());
+        writeScope.check(c, m, stageOf(m));
+
+        TaskStatus previous = t.getStatus();
+        t.setStatus(request.status());
+        if (request.status() == TaskStatus.COMPLETED) {
+            t.setCompletedAt(Instant.now(clock));
+            t.setCompletedBy(contextProvider.principal().userId());
+        }
+        tasks.save(t);
+
+        // Cause before effects (AuditRecorder): this status-change event must
+        // be written before RequirementService.satisfy below, whose own
+        // audit entry and reconcile record what THIS transition triggered --
+        // never the other way round.
+        audit.record(AuditActions.TASK_STATUS_CHANGED, "onboarding_case", c.getId(),
+                "Task \"" + t.getTitle() + "\" moved from " + previous + " to " + request.status(),
+                Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
+
+        if (request.status() == TaskStatus.COMPLETED && t.getRequirementId() != null) {
+            requirements.satisfy(t.getRequirementId(), t.getId(), "task");
+        }
+        return toView(t);
+    }
+
+    private void guardTransition(TaskStatus from, TaskStatus to) {
+        if (!TRANSITIONS.getOrDefault(from, Set.of()).contains(to)) {
+            throw new IllegalTaskTransitionException(from, to);
+        }
     }
 
     /** Null for an ad-hoc task; otherwise resolved before it is written, same as every other id here. */

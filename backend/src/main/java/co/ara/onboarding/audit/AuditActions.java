@@ -123,6 +123,13 @@ public final class AuditActions {
     // vendor's own configuration, not the customer's business -- the same reasoning
     // user.created carries.
     public static final AuditAction CASE_MIGRATED              = of("case.migrated", false);
+    // Timeline-visible: tasks and comments are business records (design spec
+    // §5.5), the same reasoning as requirement.satisfied above. Only this one
+    // key is added here (Task 17) -- task.created, task.assigned,
+    // task.completed, task.cancelled, comment.added and comment.edited are
+    // each a later task's own gap to close, not this one's, per the design
+    // spec's full §5.5 list.
+    public static final AuditAction TASK_STATUS_CHANGED         = of("task.status_changed", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

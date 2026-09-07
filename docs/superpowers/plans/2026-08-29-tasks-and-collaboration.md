@@ -1112,8 +1112,27 @@ Every method carries `@RequirePermission`. Every id from the URL or body — `ca
 
 ### Task 17: Status transitions, and completion through the existing gated path
 
+**Plan amendment (found executing this task):** the file list below was one file short. Step 3's
+own code snippet calls `audit.record(AuditActions.TASK_STATUS_CHANGED, ...)`, but `AuditActions.java`
+had no `TASK_*` constant at all — Task 16's create/update never needed one. Fixed by adding
+`audit/AuditActions.java` to this task's file list and adding exactly one constant,
+`TASK_STATUS_CHANGED` (`"task.status_changed"`, `timelineVisible=true` per spec §5.5: "Tasks and
+comments are business records: visible"). The other six actions §5.5 names — `task.created`,
+`task.assigned`, `task.completed`, `task.cancelled`, `comment.added`, `comment.edited` — are
+deliberately NOT added here; each belongs to whichever later task actually writes it (Task 18 adds
+`task.cancelled` in its own `AuditActions.java` edit, already in its own file list below).
+
+Also worth recording: `TASK_STATUS_CHANGED` is audited with `resourceType="onboarding_case"` and
+`resourceId=c.getId()` (the task's own case), not `"task"`/the task's own id — matching
+`MILESTONE_REASSIGNED`, `MILESTONE_REOPENED` and every other per-milestone event in `journey`, none
+of which use the milestone's own id either. This is not cosmetic: `TimelineService.forCase` (and
+Task 18/25's own tests) reads a case's history via `AuditQuery.findForResource("onboarding_case",
+caseId, ...)` — nothing anywhere queries by a `"task"` resource type, so auditing under the task's
+own id would make `TASK_STATUS_CHANGED` real but permanently invisible to the one reader that
+exists for it.
+
 **Files:**
-- Modify: `task/TaskService.java`
+- Modify: `task/TaskService.java`, `audit/AuditActions.java`
 - Create: `task/TaskStatusRequest.java`, `task/IllegalTaskTransitionException.java`
 - Test: `backend/src/test/java/co/ara/onboarding/task/TaskCompletionTest.java` (new)
 
