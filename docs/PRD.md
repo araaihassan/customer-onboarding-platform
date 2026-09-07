@@ -563,7 +563,13 @@ The platform should be:
 - API-first
 - Accessible (WCAG compliant)
 - Multi-language ready
-- Themeable (Light/Dark Mode)
+- **Light theme only**
+
+Dark mode was dropped deliberately on 2026-08-25, not deferred. The design system at
+`docs/uispecs_latest/design_handoff_onboarding_platform/` defines no dark palette anywhere, and the
+frontend refactor for sub-projects 1–2 removed the theming mechanism, `next-themes`, the
+`ThemeProvider` and the theme toggle from the application rather than leaving them half-wired
+against tokens that no longer exist. Reintroducing a dark palette needs a design decision first.
 
 ---
 
