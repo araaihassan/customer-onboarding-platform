@@ -287,12 +287,29 @@ public class TaskService {
      * holding only the former is refused by satisfy's own aspect with
      * AccessDeniedException -- not a bug, and not something this method
      * catches or works around.
+     *
+     * A transition into CANCELLED (Task 18) is the other terminal edge and is
+     * handled entirely locally: a blank reason is refused in Java --
+     * task_cancel_reason_ck is the backstop, not the error message -- and
+     * cancelling calls neither {@code RequirementService.satisfy} nor {@code
+     * RequirementService.waive}. A requirement-linked task's requirement is
+     * left completely untouched (open, not satisfied, not waived): waiving is
+     * its own gated, reasoned action, and routing around it here would be a
+     * silent waiver under this method's weaker task.complete gate. The
+     * cancellation gets its own audit action, TASK_CANCELLED, recorded
+     * additionally alongside (never instead of) TASK_STATUS_CHANGED -- same
+     * shape as CONTACT_DEACTIVATED next to CONTACT_UPDATED.
      */
     @RequirePermission(PermissionKeys.TASK_COMPLETE)
     @Transactional
     public TaskView changeStatus(UUID taskId, TaskStatusRequest request) {
         Task t = authorizedQuery.getById(tasks, Task.class, PermissionKeys.TASK_COMPLETE, taskId);
         guardTransition(t.getStatus(), request.status());
+
+        if (request.status() == TaskStatus.CANCELLED
+                && (request.reason() == null || request.reason().isBlank())) {
+            throw new IllegalArgumentException("A cancellation reason is required");
+        }
 
         Milestone m = authorizedQuery.getById(
                 milestones, Milestone.class, PermissionKeys.TASK_COMPLETE, t.getMilestoneId());
@@ -304,6 +321,9 @@ public class TaskService {
         if (request.status() == TaskStatus.COMPLETED) {
             t.setCompletedAt(Instant.now(clock));
             t.setCompletedBy(contextProvider.principal().userId());
+        } else if (request.status() == TaskStatus.CANCELLED) {
+            t.setCancelledAt(Instant.now(clock));
+            t.setCancellationReason(request.reason());
         }
         tasks.save(t);
 
@@ -314,6 +334,12 @@ public class TaskService {
         audit.record(AuditActions.TASK_STATUS_CHANGED, "onboarding_case", c.getId(),
                 "Task \"" + t.getTitle() + "\" moved from " + previous + " to " + request.status(),
                 Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
+
+        if (request.status() == TaskStatus.CANCELLED) {
+            audit.record(AuditActions.TASK_CANCELLED, "onboarding_case", c.getId(),
+                    "Cancelled task \"" + t.getTitle() + "\": " + request.reason(),
+                    Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
+        }
 
         if (request.status() == TaskStatus.COMPLETED && t.getRequirementId() != null) {
             requirements.satisfy(t.getRequirementId(), t.getId(), "task");

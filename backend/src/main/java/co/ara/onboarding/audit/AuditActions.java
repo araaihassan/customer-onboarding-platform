@@ -130,6 +130,14 @@ public final class AuditActions {
     // each a later task's own gap to close, not this one's, per the design
     // spec's full §5.5 list.
     public static final AuditAction TASK_STATUS_CHANGED         = of("task.status_changed", true);
+    // Task 18: recorded ADDITIONALLY on the specific transition into
+    // CANCELLED, alongside (never instead of) TASK_STATUS_CHANGED above --
+    // same shape as CONTACT_DEACTIVATED next to CONTACT_UPDATED. Because
+    // audit_event is append-only, this is the only durable record that a
+    // task was deliberately cancelled (with its reason) rather than merely
+    // edited, and it must stay distinguishable on its own key rather than
+    // inferred from a status column.
+    public static final AuditAction TASK_CANCELLED               = of("task.cancelled", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

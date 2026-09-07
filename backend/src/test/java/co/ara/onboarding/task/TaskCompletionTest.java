@@ -166,14 +166,11 @@ class TaskCompletionTest extends PostgresTestBase {
     // created (still-PENDING) task in a single call, with no prior transition
     // through IN_PROGRESS at all.
     //
-    // CANCELLED is deliberately NOT exercised here, even though TRANSITIONS
-    // lists it as reachable from any open state: changeStatus does not yet
-    // write cancellationReason/cancelledAt (Task 18's own job, alongside its
-    // blank-reason validation and the task.cancelled audit action), so an
-    // actual transition into CANCELLED today violates the pre-existing
-    // task_cancel_reason_ck CHECK constraint at the database layer. That is
-    // an intentional scope boundary, not an oversight -- Task 17's own
-    // required tests never touch CANCELLED either.
+    // CANCELLED is deliberately NOT exercised here -- Task 17's own required
+    // tests never touch it either. See TaskCancellationTest (Task 18) for
+    // cancellation's own reason validation, cancelledAt/cancellationReason
+    // persistence, the task.cancelled audit action, and the requirement it
+    // must leave untouched.
 
     @Test
     void pendingMayMoveToWaitingAndWaitingMayMoveToInProgress() {
