@@ -50,9 +50,15 @@ import java.util.UUID;
  * never taken from a caller-supplied caseId directly -- the two cannot
  * disagree in what gets persisted. They CAN disagree in what a caller
  * *sends*, though (a URL nesting one case with a milestone that actually
- * belongs to another), and that mismatch is refused outright as a 404 rather
- * than silently filed under the milestone's real case: {@code create}'s own
- * caseId parameter would otherwise be decorative.
+ * belongs to another), and {@code create} refuses that mismatch outright as a
+ * 404 rather than silently filing the task under the milestone's real case.
+ * This is not URL-parameter tidiness: without the check, {@code
+ * writeScope.check(c, m, stageOf(m))} would be evaluated against a {@code c}
+ * from one case and an {@code m}/stage from a DIFFERENT case, so {@link
+ * StageWriteScopeGuard}'s OWNER_ONLY/TEAM/DEPARTMENT branches would test the
+ * actor's relationship to the WRONG case's ownership/team/department
+ * columns -- a confused-deputy write_scope bypass, the same shape as {@code
+ * update} moving a task between milestones (below).
  *
  * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly now
  * covers co.ara.onboarding.task (added in the same commit as this class) --
@@ -96,7 +102,8 @@ public class TaskService {
      * or simply out of this actor's scope -- is indistinguishable from one
      * that does not exist. If the two resolve to different cases, the
      * request is refused as not found rather than silently created under
-     * whichever case the milestone actually belongs to.
+     * whichever case the milestone actually belongs to -- see the class
+     * javadoc for why that is a write_scope-bypass guard, not decoration.
      */
     @RequirePermission(PermissionKeys.TASK_MANAGE)
     @Transactional
@@ -155,11 +162,33 @@ public class TaskService {
      * write-scope check runs against the TARGET milestone's stage, since that
      * is where the task ends up living, and case_id follows it the same way
      * create's does.
+     *
+     * When milestoneId actually changes, the task's CURRENT (pre-update)
+     * milestone/case/stage is ALSO resolved and checked, independently of the
+     * request. Without this, an actor could pull a task out of a restrictive
+     * OWNER_ONLY/TEAM stage they have no write access to by naming, as the
+     * destination, any permissive milestone/stage they can already reach
+     * under TASK_MANAGE's department/team scope -- the destination-only check
+     * would pass even though the actor never had write authority over the
+     * stage the task is actually being removed from. Same confused-deputy
+     * shape the class javadoc names for create's case/milestone mismatch
+     * guard. When milestoneId is unchanged, source and destination are the
+     * same milestone, so only one resolution/check is performed -- a second,
+     * identical one would be redundant, not more correct.
      */
     @RequirePermission(PermissionKeys.TASK_MANAGE)
     @Transactional
     public TaskView update(UUID taskId, UpdateTaskRequest request) {
         Task t = authorizedQuery.getById(tasks, Task.class, PermissionKeys.TASK_MANAGE, taskId);
+
+        if (!t.getMilestoneId().equals(request.milestoneId())) {
+            Milestone source = authorizedQuery.getById(
+                    milestones, Milestone.class, PermissionKeys.TASK_MANAGE, t.getMilestoneId());
+            Case sourceCase = authorizedQuery.getById(
+                    cases, Case.class, PermissionKeys.TASK_MANAGE, source.getCaseId());
+            writeScope.check(sourceCase, source, stageOf(source));
+        }
+
         Milestone m = authorizedQuery.getById(
                 milestones, Milestone.class, PermissionKeys.TASK_MANAGE, request.milestoneId());
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.TASK_MANAGE, m.getCaseId());
