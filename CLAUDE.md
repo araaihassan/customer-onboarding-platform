@@ -72,12 +72,33 @@ screen (stages, milestones, requirements, branch rules, publish, migration revie
 
 **Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
 `docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
-Collaboration → 4 Documents → 5 Agreements (needs 4) → 6 Notifications, SLA & Escalation (2, 3) →
-7 Customer Portal (2, 4, 5) → 8 Dashboards & Real-time (2–6) → 9 Reporting & Analytics (2–6) →
-10 Packaging & Deploy. Sub-projects 2–9 each add one module in the shape of sub-project 1's Tasks
+Collaboration → **3A Programmes & Customer-Scoped Plans** → 4 Documents → **4A Meetings (needs 4)** →
+5 Agreements (needs 4) → 6 Notifications, SLA & Escalation (2, 3) → 7 Customer Portal (2, 4, 5, 3A) →
+8 Dashboards & Real-time (2–6, 3A) → 9 Reporting & Analytics (2–6) → 10 Packaging & Deploy.
+Sub-projects 2–9 each add one module in the shape of sub-project 1's Tasks
 20–21: entity with `tenant_id`, migration calling `enable_tenant_rls`, a
 `ResourceAuthorizationDescriptor`, a service where every public method is gated and every read goes
 through `AuthorizedQuery`, and a thin controller.
+
+**3A and 4A are new as of 2026-09-08**, from nine product decisions recorded as **QA Q20–Q28** —
+read those before touching `workflow`, `journey`, the portal or the builder. In short: a `programme`
+groups a customer's parallel journeys with a derived duration-weighted rollup and no lifecycle of
+its own (Q20); `workflow_template` gains a nullable `customer_id` so a catalogue template can be
+cloned and tailored per customer, one clone per customer (Q21); the plan is approved twice — shape
+at the template version, schedule per journey — with a journey held until its first schedule
+approval, reusing `Case.held_at` and Q8's SLA pause (Q22, Q23); milestones gain portal visibility
+while progress stays **one number for every audience** (Q24); `RequirementKind` gains `MEETING`
+backed by a `meeting` module following the `TASK`-seam precedent exactly, with recurrence on the
+meeting series and never on the frozen graph (Q25, Q26); outputs are a derived rollup over
+`satisfiedRef` with no new schema (Q27); status reports are issued, dated, immutable snapshots
+(Q28). None of the nine weakens an existing invariant — each answer carries its own cross-check, and
+Q20's read-only participants are the one to watch, since a container returning journeys its viewer
+could not otherwise open would be exactly the scope-widening shape three sub-project 1 escalations
+took. Sub-projects 4–8 gain amendments rather than new scope: 4 makes meeting agendas and recordings
+real, 5 adds a `SIGNATURE` kind, 6 finally gives `stage.portal_visible` and
+`stage.notification_template_key` consumers, 7 wires the sponsor's own approve button to 3A's
+endpoints and adds the programme view, 8 builds the status-report generator and the
+department-filtered portfolio.
 
 ---
 
