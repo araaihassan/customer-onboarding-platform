@@ -72,7 +72,7 @@ public class AuditRecorder {
         try {
             return payload == null ? "{}" : json.writeValueAsString(payload);
         } catch (Exception ex) {
-            throw new IllegalArgumentException("Audit payload is not serializable", ex);
+            throw new AuditSerializationException("Audit payload is not serializable", ex);
         }
     }
 }
