@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { CommentThread } from "@/components/comment/CommentThread";
 import { Button } from "@/components/ui/Button";
 import { TextareaField } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/StatusPill";
-import { parseProblemDetail } from "@/lib/api/cases";
+import { parseProblemDetail, type Participant } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
 import { shortId } from "@/lib/api/customers";
 import { useChangeTaskStatus, type Task, type TaskStatus } from "@/lib/api/tasks";
@@ -25,10 +26,15 @@ const STATUS_OPTIONS: TaskStatus[] = ["PENDING", "IN_PROGRESS", "WAITING", "COMP
  * The status control is deliberately separate from `ChecklistEditor`: ticking
  * every checklist item never completes the task (see that component's own
  * doc comment) -- only this explicit control, calling `useChangeTaskStatus`,
- * ever changes `Task.status`. There is room below the checklist for Task 29's
- * `CommentThread` to mount alongside it -- this is not a fixed-height panel.
+ * ever changes `Task.status`. `CommentThread` mounts below the checklist,
+ * in the room this component was deliberately left with (Task 27's own doc
+ * comment) -- resourceType TASK, resourceId/caseId read straight off `task`
+ * (`Task.id`/`Task.caseId`), no new id plumbing needed beyond `participants`
+ * itself, threaded down from wherever the caller already fetches it
+ * (`useParticipants(caseId)`), the same discipline `Roadmap`/`MilestoneRow`
+ * already established.
  */
-export function TaskDetail({ task }: { task: Task }) {
+export function TaskDetail({ task, participants }: { task: Task; participants: Participant[] }) {
   const changeStatus = useChangeTaskStatus();
   const canComplete = useHasPermission("task.complete");
   const status = task.status ?? "PENDING";
@@ -166,6 +172,15 @@ export function TaskDetail({ task }: { task: Task }) {
       )}
 
       {task.id && <ChecklistEditor taskId={task.id} />}
+
+      {task.id && task.caseId && (
+        <CommentThread
+          caseId={task.caseId}
+          resourceType="TASK"
+          resourceId={task.id}
+          participants={participants}
+        />
+      )}
     </div>
   );
 }

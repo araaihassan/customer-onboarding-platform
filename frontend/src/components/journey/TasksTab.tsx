@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { Field, TextareaField } from "@/components/ui/Field";
 import { EmptyState, ErrorState, SkeletonRows } from "@/components/ui/States";
-import { parseProblemDetail, useRoadmap, type StageRoadmap } from "@/lib/api/cases";
+import { parseProblemDetail, useParticipants, useRoadmap, type StageRoadmap } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
 import { useCaseTasks, useCreateTask, type Task, type TaskPriority } from "@/lib/api/tasks";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
@@ -83,6 +83,10 @@ function groupByMilestone(tasks: Task[], milestones: MilestoneOption[]): TaskGro
 export function TasksTab({ caseId }: { caseId: string }) {
   const tasks = useCaseTasks(caseId);
   const roadmap = useRoadmap(caseId);
+  // Fetched once here, not inside TaskDetail -- CommentThread's own author
+  // resolution needs it (the MilestoneRow discipline: fetch once, thread
+  // down), and this tab had no prior reason to hold it before Task 29.
+  const participants = useParticipants(caseId);
   const canCreate = useHasPermission("task.manage");
   const [selectedId, setSelectedId] = useState<string>();
   const [creating, setCreating] = useState(false);
@@ -152,7 +156,7 @@ export function TasksTab({ caseId }: { caseId: string }) {
 
       {selected && (
         <Dialog title={selected.title ?? ""} onClose={() => setSelectedId(undefined)} maxWidth={560}>
-          <TaskDetail task={selected} />
+          <TaskDetail task={selected} participants={participants.data ?? []} />
         </Dialog>
       )}
 

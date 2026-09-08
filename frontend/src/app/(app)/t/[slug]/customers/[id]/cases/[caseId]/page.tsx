@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
+import { CommentThread } from "@/components/comment/CommentThread";
 import { ArrowRightIcon, WorkflowIcon } from "@/components/icons";
 import { CaseHeader } from "@/components/journey/CaseHeader";
 import { CaseSwitcher } from "@/components/journey/CaseSwitcher";
@@ -158,9 +159,13 @@ export default function CaseWorkspacePage() {
 
 /**
  * The journey tab's real content (Task 27): the roadmap's stage headers and
- * expandable milestone rows. `participants` and `approvals` are fetched
- * once here and threaded down rather than once per row -- the roadmap can
- * hold dozens of milestones across nine stages.
+ * expandable milestone rows, plus (Task 29) the journey's own comment
+ * thread below it -- design spec §8.3's "on the journey itself", the
+ * `CASE` half of `CommentResourceType`. `participants` and `approvals` are
+ * fetched once here and threaded down rather than once per row -- the
+ * roadmap can hold dozens of milestones across nine stages, and
+ * `CommentThread` reuses this same fetch for its author resolution rather
+ * than a second one.
  */
 function JourneyPreview({ caseId }: { caseId: string }) {
   const roadmap = useRoadmap(caseId);
@@ -171,12 +176,21 @@ function JourneyPreview({ caseId }: { caseId: string }) {
   if (roadmap.isError) return <EmptyState title={t("common.error")} />;
 
   return (
-    <Roadmap
-      caseId={caseId}
-      stages={roadmap.data?.stages ?? []}
-      participants={participants.data ?? []}
-      approvals={approvals.data ?? []}
-    />
+    <div className="flex flex-col" style={{ gap: "var(--ob-space-20)" }}>
+      <Roadmap
+        caseId={caseId}
+        stages={roadmap.data?.stages ?? []}
+        participants={participants.data ?? []}
+        approvals={approvals.data ?? []}
+      />
+
+      <CommentThread
+        caseId={caseId}
+        resourceType="CASE"
+        resourceId={caseId}
+        participants={participants.data ?? []}
+      />
+    </div>
   );
 }
 

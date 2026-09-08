@@ -69,7 +69,7 @@ beforeEach(() => {
 });
 
 function renderDetail(overrides: Partial<Task> = {}) {
-  return render(<TaskDetail task={{ ...task, ...overrides }} />, { wrapper: makeWrapper() });
+  return render(<TaskDetail task={{ ...task, ...overrides }} participants={[]} />, { wrapper: makeWrapper() });
 }
 
 describe("TaskDetail", () => {
