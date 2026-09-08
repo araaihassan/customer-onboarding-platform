@@ -7,13 +7,14 @@ import java.util.UUID;
  * The one place {@link InvitationRepository}'s userId- and contactId-keyed
  * finders are called directly, on purpose.
  *
- * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly binds to
- * classes whose simple name ends in "Service" or "Directory" in
- * co.ara.onboarding.auth, and this class deliberately is neither — the same shape
- * CLAUDE.md records for CaseEngine calling CaseRepository.lockById directly:
- * "it is never called from a *Service or *Directory, ... so the finder rule never
- * sees it," a legitimate exception the rule's own name-shape does not see, rather
- * than a special-cased clause added to the rule itself.
+ * Named as a named exclusion in
+ * AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS, not by avoiding a
+ * *Service/*Directory suffix. Sub-project 3A Task 2 rebound that rule from a
+ * name-shaped match to one that binds on repository injection, precisely
+ * because this class (among others) was invisible to the old rule purely by
+ * not being named *Service or *Directory -- an exemption a reviewer of the
+ * guard itself could not see. The substantive reason it is excluded, unchanged
+ * by the rebind:
  *
  * Both ids this acts on are never a fresh, unchecked caller-supplied value:
  * {@link #revoke}'s only caller, UserInvitationService.revokePendingInvitations,

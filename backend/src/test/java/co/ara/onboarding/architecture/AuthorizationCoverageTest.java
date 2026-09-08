@@ -14,12 +14,16 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.junit.AnalyzeClasses;
 import com.tngtech.archunit.junit.ArchTest;
 import com.tngtech.archunit.lang.ArchRule;
+import org.junit.jupiter.api.Test;
 import org.springframework.security.core.userdetails.UserDetailsService;
 
 import com.tngtech.archunit.base.DescribedPredicate;
 import com.tngtech.archunit.core.domain.JavaClass;
 
+import java.util.List;
+
 import static com.tngtech.archunit.base.DescribedPredicate.not;
+import static org.assertj.core.api.Assertions.assertThat;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith;
 import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
 import static com.tngtech.archunit.core.domain.properties.HasName.Predicates.name;
@@ -186,17 +190,109 @@ class AuthorizationCoverageTest {
      * exactly such a class (CustomerDirectory's implementation, taking a customer id
      * from a request body), so the rule widens before that class exists.
      *
-     * Two exclusions, both category one -- runs before there is an actor to
-     * authorize:
-     *   - IdentityActorDirectory: supplies the department and teams that scope
-     *     resolution itself needs. Gating it would require resolving the gate.
-     *   - UserRoleDirectory: reads a user's role rows for the same resolution.
+     * Rebound as of sub-project 3A Task 2 from a name-shaped rule
+     * (haveSimpleNameEndingWith("Service").or(haveSimpleNameEndingWith("Directory")))
+     * to an injection-shaped one: every class in the covered packages that
+     * INJECTS a repository is covered, whatever it is named. The old rule let
+     * three task classes -- TaskInstantiation, TaskDirectoryAdapter,
+     * TaskLifecycleAdapter -- fall outside it purely by being named something
+     * other than *Service/*Directory, which made their exemption invisible to
+     * a reviewer of the guard itself (TaskInstantiation's own javadoc used to
+     * say outright that this was the point of its name). It also made
+     * customer.OrgUnitResolver's exclusion clause a no-op, since that name
+     * matches neither suffix either -- it was already excluded by not
+     * matching in the first place. See FINDER_RULE_EXCLUSIONS below for the
+     * real, named exclusion list this rebind replaces both dodges with.
      */
+    private static DescribedPredicate<JavaClass> injectsARepository() {
+        return new DescribedPredicate<>("injects a repository") {
+            @Override
+            public boolean test(JavaClass c) {
+                return c.getAllFields().stream()
+                        .anyMatch(f -> f.getRawType().getSimpleName().endsWith("Repository"));
+            }
+        };
+    }
+
+    private static DescribedPredicate<JavaClass> haveFullyQualifiedNameIn(List<String> names) {
+        return new DescribedPredicate<>("fully qualified name in the exclusion list") {
+            @Override
+            public boolean test(JavaClass c) {
+                return names.contains(c.getFullName());
+            }
+        };
+    }
+
+    /**
+     * Every class in the covered packages that INJECTS a repository is covered,
+     * whatever it is named. The previous rule bound to a "Service"/"Directory" name
+     * suffix, which three task classes were deliberately named to fall outside --
+     * making their exemption invisible to a reviewer of the guard itself -- and which
+     * made customer.OrgUnitResolver's exclusion a no-op, since that name matches
+     * neither suffix. An exemption must be a line in this list, not a naming choice.
+     *
+     * Rebinding this rule (sub-project 3A Task 2) surfaced four MORE classes the
+     * name-shaped rule was equally blind to, none of them anticipated by the plan --
+     * each verified individually below rather than added reflexively:
+     *   - auth.PendingInvitationRevoker and customer.LinkedPortalUserEmailSync were,
+     *     like the three task classes, deliberately named to dodge the OLD rule --
+     *     both classes' own (now-corrected) javadocs said so outright.
+     *   - identity.PlatformAdminBootstrap was invisible for a different reason: it
+     *     never matched the name suffix in the first place, same as OrgUnitResolver.
+     *   - journey.CaseEngine was invisible because the OLD rule only ever bound to
+     *     *Service/*Directory, never *Engine -- CLAUDE.md already documents ONE of
+     *     its finder calls (CaseRepository.lockById) escaping this exact rule for
+     *     this exact reason; rebinding surfaces that its OTHER internal finder
+     *     calls (StageRepository, MilestoneDefinitionRepository, ApprovalRepository,
+     *     etc.) were equally invisible, not just the one CLAUDE.md already named.
+     */
+    static final List<String> FINDER_RULE_EXCLUSIONS = List.of(
+            // Run before there is an actor to authorize -- they SUPPLY the department
+            // and team scope that resolution itself needs.
+            "co.ara.onboarding.identity.IdentityActorDirectory",
+            "co.ara.onboarding.authz.UserRoleDirectory",
+            // Resolves department and team ids through plain repository lookups
+            // because no DEPARTMENT_VIEW or TEAM_VIEW permission exists to scope
+            // against -- only the ALL-only DEPARTMENT_MANAGE and TEAM_MANAGE.
+            // (The "RLS handles it" half of this exclusion's original justification
+            // is deleted: RLS is tenant isolation, not record scope, and restating
+            // it is the argument this rule exists to reject.)
+            "co.ara.onboarding.customer.OrgUnitResolver",
+            // Runs at application startup via ApplicationRunner, before any tenant or
+            // actor exists at all -- the identity-package twin of
+            // provisioning.TenantProvisioningService's own exclusion from
+            // serviceMethodsAreGated, for the same reason. Its one finder call is
+            // keyed on a configuration value (app.platform-admin.email), never a
+            // caller-supplied id.
+            "co.ara.onboarding.identity.PlatformAdminBootstrap",
+            // Fed only pre-authorized ids by a caller that already resolved them
+            // through AuthorizedQuery -- the CaseEngine/lockById precedent.
+            "co.ara.onboarding.task.TaskInstantiation",
+            "co.ara.onboarding.task.TaskDirectoryAdapter",
+            "co.ara.onboarding.task.TaskLifecycleAdapter",
+            // Both ids PendingInvitationRevoker acts on are resolved through
+            // AuthorizedQuery by its only callers (UserInvitationService,
+            // auth.InvitationService) before either method runs -- never a fresh
+            // caller-supplied value.
+            "co.ara.onboarding.auth.PendingInvitationRevoker",
+            // Every id LinkedPortalUserEmailSync acts on is resolved off a
+            // CustomerContact that CustomerContactService's own AuthorizedQuery call
+            // already authorized under CONTACT_MANAGE earlier in the same method.
+            "co.ara.onboarding.customer.LinkedPortalUserEmailSync",
+            // Package-private and unreachable from outside journey (CLAUDE.md's own
+            // invariant: CaseEngine.reconcile, under CaseRepository.lockById's row
+            // lock, is the only path to a runtime mutation). Every one of its finder
+            // calls is keyed off fields on a Case or Stage object its callers already
+            // resolved through AuthorizedQuery/lockById -- reconcile(Case) and
+            // pendingTransition(Case) both take the domain object, never a raw id --
+            // so there is no fresh, caller-supplied id here for AuthorizedQuery to
+            // protect against.
+            "co.ara.onboarding.journey.CaseEngine");
+
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
             noClasses().that()
-                .haveSimpleNameEndingWith("Service").or().haveSimpleNameEndingWith("Directory")
-                .and().resideInAnyPackage("co.ara.onboarding.customer..",
+                .resideInAnyPackage("co.ara.onboarding.customer..",
                                           "co.ara.onboarding.identity..",
                                           "co.ara.onboarding.auth..",
                                           "co.ara.onboarding.workflow..",
@@ -206,6 +302,7 @@ class AuthorizationCoverageTest {
                                           // shape this rule exists to catch -- added before
                                           // TaskService itself was written, not retrofitted.
                                           "co.ara.onboarding.task..")
+                .and(injectsARepository())
                 // Same exclusion: authentication runs with no actor and platform_admin
                 // is not tenant-scoped, so there is no scope for AuthorizedQuery to
                 // apply -- it could not be used here even in principle.
@@ -219,23 +316,10 @@ class AuthorizationCoverageTest {
                 .and().areNotAssignableTo(ActivationService.class)
                 .and().areNotAssignableTo(PasswordResetService.class)
                 .and().areNotAssignableTo(MeService.class)
-                // Three exclusions: two run before there is an actor to authorize
-                // (IdentityActorDirectory, UserRoleDirectory — supply the department
-                // and teams scope resolution itself needs). The third is a separate
-                // category: OrgUnitResolver resolves department and team ids through
-                // plain repository lookups because no DEPARTMENT_VIEW or TEAM_VIEW
-                // permissions exist in the catalog — only DEPARTMENT_MANAGE and
-                // TEAM_MANAGE, both ALL-only administrative permissions. Tenancy
-                // isolation is provided by Hibernate filter and RLS, both applied
-                // automatically to all TenantScopedEntity queries. Excluded by class
-                // rather than by name pattern: a second class that happens to end in
-                // "Directory" would not inherit the exemption.
-                .and().doNotHaveFullyQualifiedName(
-                        "co.ara.onboarding.identity.IdentityActorDirectory")
-                .and().doNotHaveFullyQualifiedName(
-                        "co.ara.onboarding.authz.UserRoleDirectory")
-                .and().doNotHaveFullyQualifiedName(
-                        "co.ara.onboarding.customer.OrgUnitResolver")
+                // Every exemption from the injection-shaped rule is a named line in
+                // FINDER_RULE_EXCLUSIONS above, not a naming choice that happens to
+                // dodge a suffix match.
+                .and(not(haveFullyQualifiedNameIn(FINDER_RULE_EXCLUSIONS)))
                 .should().callMethodWhere(
                         (target(name("findAll"))
                          .or(target(name("findOne")))
@@ -261,4 +345,15 @@ class AuthorizationCoverageTest {
                         .and(not(target(owner(nameEndingWith("AuditQuery"))))))
                 .because("reads must go through AuthorizedQuery so scope cannot be bypassed -- "
                         + "except journey.TimelineService's one documented carve-out through audit.AuditQuery");
+
+    @Test
+    void finderRuleBindsToRepositoryInjectionNotClassName() {
+        // TaskInstantiation injects repositories and calls finders directly. Under the
+        // name-shaped rule it is invisible. Under the rebound rule it must appear as a
+        // NAMED exclusion, never as a class the rule silently fails to see.
+        assertThat(FINDER_RULE_EXCLUSIONS)
+                .contains("co.ara.onboarding.task.TaskInstantiation",
+                          "co.ara.onboarding.task.TaskDirectoryAdapter",
+                          "co.ara.onboarding.task.TaskLifecycleAdapter");
+    }
 }

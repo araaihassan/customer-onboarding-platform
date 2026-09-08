@@ -25,6 +25,13 @@ import java.util.UUID;
  * would not be a new authorization boundary, only a second, redundant read of
  * the same case.
  *
+ * Named as a named exclusion in
+ * AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS for this reason, not by
+ * avoiding a *Service/*Directory suffix -- sub-project 3A Task 2 rebound that
+ * rule to bind on repository injection rather than class name, so this
+ * exemption is now a reviewable line in that list rather than a naming
+ * choice.
+ *
  * One query, regardless of how many milestone ids are asked for -- the whole
  * reason {@link TaskDirectory#summaryFor} takes a Collection rather than one
  * id at a time (see that interface's own javadoc). A milestone with no tasks

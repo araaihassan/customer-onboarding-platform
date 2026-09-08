@@ -31,7 +31,12 @@ import java.util.UUID;
  * binds to the CALLING class's own method bodies, not to what fields it holds,
  * so {@link CustomerContactService} may inject {@link AppUserRepository} to
  * construct this and still never itself call a {@code *Repository} finder —
- * every {@code findById} in this flow lives here instead.
+ * every {@code findById} in this flow lives here instead. This class is itself
+ * named as a named exclusion in
+ * {@code AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS}, not by avoiding a
+ * *Service/*Directory suffix -- sub-project 3A Task 2 rebound that rule to
+ * bind on repository injection rather than class name, for exactly this
+ * reason.
  */
 final class LinkedPortalUserEmailSync {
 
