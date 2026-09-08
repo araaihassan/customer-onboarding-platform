@@ -297,6 +297,19 @@ multi-journey answer, now with a container above it.
   `write_scope`; there is no branch that widens it"). A container that returned journeys its viewer
   could not otherwise open would be a scope-widening backdoor, which is precisely the shape three
   sub-project 1 escalations took.
+- **Amended 2026-09-08, sub-project 3A design §6.3.** As originally written the two bullets above
+  contradict each other: a sponsor who is *only* a programme participant can read the programme and
+  none of its journeys, so the container shows an empty list and does nothing for the person it
+  exists for. The resolution keeps the invariant rather than the convenience: **programme
+  participation grants read of the programme itself and nothing more**, and adding a participant
+  **offers to add them as a `CaseParticipant` on the programme's journeys** — an explicit, audited,
+  individually revocable write authorized by `programme.manage`, never by participation. Journey
+  access therefore still comes only from a real per-journey grant; the programme merely stops that
+  grant from being N separate manual acts.
+- **The rollup is computed over the journeys the reader can see**, and the view states the count it
+  covered. Computing it over every journey would be an aggregate over rows the viewer cannot open —
+  the same shape as the `taskSummary` leak recorded against sub-project 3. This does not contradict
+  Q24: that answer is about internal-versus-portal *rendering*, not authorization scope.
 
 **Rejected:** one journey whose stages are partitioned by responsible department — "the IT plan"
 then has no independent roadmap, completion date or progress, and one number must be sliced N ways.
@@ -313,10 +326,22 @@ only, without the edit reaching the original?
 **Decision:** **Yes — `workflow_template` gains a nullable `customer_id`.** Null means the tenant
 catalogue (every template today); set means a lineage owned by one customer.
 
-- **Cloning is a snapshot, in both directions.** Editing "Acme Onboarding" cannot reach `template1`
-  because no link back exists to follow; equally, `template1`'s later improvements do **not** flow
-  down to Acme. That second half is Q2's freeze-by-default, and the existing migration tool is the
-  deliberate, per-journey way to pull an upstream improvement down later.
+- **Cloning is a snapshot, in both directions.** Editing "Acme Onboarding" cannot reach `template1`;
+  equally, `template1`'s later improvements do **not** flow down to Acme. That second half is Q2's
+  freeze-by-default.
+- **Amended 2026-09-08, sub-project 3A design §5.2 and §11.2.** The original wording — "no link back
+  exists to follow", and "the existing migration tool is the deliberate, per-journey way to pull an
+  upstream improvement down later" — cannot both be true, and the second is false as the code
+  stands: `MigrationService.casesOnAnOldVersionOf` filters by `templateId`, so migration only moves
+  a case between versions of the **same** template. With no link back there is no path from a
+  customer clone to its catalogue source at all, and an upstream improvement can never be pulled
+  down. Corrected: `workflow_template` also gains a nullable `cloned_from_template_id`, and a
+  **refresh** action deep-copies the source's current published version into a new DRAFT version of
+  the *customer's own* template; ordinary migration then moves that customer's journeys forward
+  within it. The pointer is provenance, not a propagation path, so "edits never flow automatically,
+  in either direction" holds unchanged. **Refresh replaces rather than merges** — the customer's
+  tailoring is re-applied in the new draft before publishing. A three-way merge would need per-node
+  identity across two lineages that Q2's freeze deliberately severs, and is out of scope.
 - **The machinery already exists.** `WorkflowService.createDraftVersion` already deep-copies a
   template's current published version into a new editable draft, and `V12`'s freeze triggers
   already refuse every write to a `PUBLISHED` row. Cloning for a customer is that same deep copy
