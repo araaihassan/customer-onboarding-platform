@@ -1,5 +1,7 @@
 package co.ara.onboarding.task;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.journey.Milestone;
 import co.ara.onboarding.journey.MilestoneRepository;
 import co.ara.onboarding.journey.Requirement;
@@ -10,6 +12,7 @@ import co.ara.onboarding.workflow.RequirementDefinitionRepository;
 import co.ara.onboarding.workflow.RequirementKind;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -30,6 +33,17 @@ import java.util.UUID;
  * Nothing is copied from the requirement definition beyond its label and
  * kind -- same reasoning as {@code CaseService.instantiate}'s own milestone
  * and requirement rows: instances join their definitions, copying drifts.
+ *
+ * Task 25 adds {@code AuditActions.TASK_CREATED} recording, one event per
+ * instantiated task. This class runs strictly between {@code CaseService
+ * .create}'s own {@code CASE_CREATED} record and {@code engine.reconcile}
+ * (see that call site) -- so every event recorded here lands after the
+ * case's own creation and before anything the engine's own reconcile might
+ * itself cause, satisfying CauseBeforeEffectTest's cause-before-effect rule
+ * by construction rather than by a check added here. Task 19 (which built
+ * this class) was deliberately told not to record anything: nothing in its
+ * own scope needed it, and the design spec named task.created as a future
+ * action for whichever task actually needed it first -- this one.
  */
 @Component
 public class TaskInstantiation {
@@ -38,14 +52,17 @@ public class TaskInstantiation {
     private final RequirementDefinitionRepository requirementDefinitions;
     private final MilestoneRepository milestones;
     private final TaskRepository tasks;
+    private final AuditRecorder audit;
 
     public TaskInstantiation(RequirementRepository requirements,
                               RequirementDefinitionRepository requirementDefinitions,
-                              MilestoneRepository milestones, TaskRepository tasks) {
+                              MilestoneRepository milestones, TaskRepository tasks,
+                              AuditRecorder audit) {
         this.requirements = requirements;
         this.requirementDefinitions = requirementDefinitions;
         this.milestones = milestones;
         this.tasks = tasks;
+        this.audit = audit;
     }
 
     /**
@@ -78,6 +95,10 @@ public class TaskInstantiation {
             t.setStatus(TaskStatus.PENDING);
             t.setAssigneeId(m.getOwnerUserId());
             tasks.save(t);
+
+            audit.record(AuditActions.TASK_CREATED, "onboarding_case", caseId,
+                    "Instantiated task \"" + t.getTitle() + "\" from requirement",
+                    Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
         }
     }
 }

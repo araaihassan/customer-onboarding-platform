@@ -123,6 +123,15 @@ public final class AuditActions {
     // vendor's own configuration, not the customer's business -- the same reasoning
     // user.created carries.
     public static final AuditAction CASE_MIGRATED              = of("case.migrated", false);
+    // Task 25 closes the task.created gap the comment below (Task 17) named and
+    // deliberately left open: TaskInstantiation (Task 19) was told NOT to record
+    // it, because nothing in ITS OWN scope needed it -- CauseBeforeEffectTest's
+    // taskCreationIsRecordedBeforeTheEventsItCauses is the first consumer, and
+    // recording only starts once one exists. Timeline-visible for the same
+    // reason TASK_STATUS_CHANGED below is: a task is a business record, and its
+    // creation is the collaboration narrative the Activity Timeline exists to
+    // show, not internal administration.
+    public static final AuditAction TASK_CREATED                = of("task.created", true);
     // Timeline-visible: tasks and comments are business records (design spec
     // §5.5), the same reasoning as requirement.satisfied above. Only this one
     // key is added here (Task 17) -- task.created, task.assigned,

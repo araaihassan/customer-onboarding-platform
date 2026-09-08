@@ -4,6 +4,11 @@ import co.ara.onboarding.audit.AuditEventView;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
+import co.ara.onboarding.task.TaskRepository;
+import co.ara.onboarding.task.TaskService;
+import co.ara.onboarding.task.TaskStatus;
+import co.ara.onboarding.task.TaskStatusRequest;
+import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
@@ -12,6 +17,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
+import static co.ara.onboarding.workflow.WorkflowFixtures.stage;
+import static co.ara.onboarding.workflow.WorkflowFixtures.task;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -36,6 +44,8 @@ class CauseBeforeEffectTest extends PostgresTestBase {
     @Autowired CaseService cases;
     @Autowired RequirementService requirements;
     @Autowired TimelineService timeline;
+    @Autowired TaskService tasks;
+    @Autowired TaskRepository taskRepository;
 
     @Test
     void creatingACaseIsRecordedBeforeTheStageEntryAndMilestonesItCauses() {
@@ -94,6 +104,68 @@ class CauseBeforeEffectTest extends PostgresTestBase {
             assertThat(chronological(caseId))
                     .containsSubsequence("case.created", "case.held", "case.resumed");
         });
+    }
+
+    /**
+     * Task 25: closes the task.created gap AuditActions' own comment named as
+     * still open. TaskInstantiation runs strictly between CaseService.create's
+     * own CASE_CREATED record and engine.reconcile (see that call site's
+     * comment) -- so a case whose workflow declares a TASK-kind requirement
+     * must show its instantiated task's own event after the case's, never
+     * before it.
+     */
+    @Test
+    void taskCreationIsRecordedBeforeTheEventsItCauses() {
+        UUID tenant = fixture.createTenant("cbe-task-created");
+        fixture.runAs(tenant, () -> {
+            UUID caseId = openCaseWithATaskRequirement(tenant);
+
+            assertThat(chronological(caseId))
+                    .containsSubsequence("case.created", "task.created");
+        });
+    }
+
+    /**
+     * The full causal chain sub-project 3 introduces, asserted end to end:
+     * TaskService.changeStatus records TASK_STATUS_CHANGED before calling the
+     * already-gated RequirementService.satisfy, which itself records
+     * requirement.satisfied before the reconcile that completes the milestone
+     * -- sub-project 2's own already-proven ordering, chained onto a new
+     * caller rather than reimplemented.
+     */
+    @Test
+    void completingATaskIsRecordedBeforeTheRequirementItSatisfies() {
+        UUID tenant = fixture.createTenant("cbe-task-complete");
+        fixture.runAs(tenant, () -> {
+            UUID caseId = openCaseWithATaskRequirement(tenant);
+            UUID taskId = taskRepository.findByCaseId(caseId).get(0).getId();
+
+            tasks.changeStatus(taskId, new TaskStatusRequest(TaskStatus.COMPLETED, null));
+
+            assertThat(chronological(caseId))
+                    .containsSubsequence("task.status_changed", "requirement.satisfied",
+                            "milestone.completed");
+        });
+    }
+
+    /**
+     * A single stage/milestone whose one requirement is kind TASK, published
+     * and opened -- same shape as TaskInstantiationTest's own
+     * openCaseWhoseFirstRequirementIsKindTask, needed here too since
+     * publishedTemplate()'s own requirement is MANUAL and would never produce
+     * a task.created event to assert on.
+     */
+    private UUID openCaseWithATaskRequirement(UUID tenant) {
+        WorkflowDefinitionRequest request = new WorkflowDefinitionRequest(
+                List.of(stage("s1", "Stage One", List.of(
+                        milestone("m1", "Milestone One", 1, List.of(),
+                                List.of(task("Collect KYC pack")))))),
+                List.of(), 0L);
+        UUID versionId = journey.publish(request);
+        UUID templateId = journey.templateOf(versionId);
+        UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+        return cases.create(new CreateCaseRequest(
+                customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     /**

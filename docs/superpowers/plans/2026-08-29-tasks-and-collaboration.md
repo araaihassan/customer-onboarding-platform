@@ -1554,9 +1554,40 @@ springdoc orders schema properties nondeterministically, so back-to-back regener
 
 ### Task 25: Security negatives and cause-before-effect coverage
 
+**Plan amendment (found executing this task, 2026-09-08):** the file list below was production-code
+short, same shape as Task 17's own amendment above. Step 2's `taskCreationIsRecordedBeforeTheEventsItCauses`
+asserts `chronological(caseId)` contains the subsequence `"case.created", "task.created"` — but
+`AuditActions.TASK_CREATED` did not exist (Task 17's own amendment explicitly deferred it: "the other
+six actions §5.5 names... are deliberately NOT added here; each belongs to whichever later task
+actually writes it"), and `task/TaskInstantiation.java` called no `AuditRecorder` method at all (Task
+19 was told not to add one, for the same reason). Fixed by adding `audit/AuditActions.java` (exactly
+one constant, `TASK_CREATED`, `"task.created"`, `timelineVisible=true`, same reasoning as
+`TASK_STATUS_CHANGED`) and `task/TaskInstantiation.java` (inject `AuditRecorder`, record `TASK_CREATED`
+per instantiated task, resource `"onboarding_case"`/`caseId` — matching `TASK_STATUS_CHANGED`'s own
+resource choice, for the same `TimelineService.forCase` reason Task 17's amendment names) to this
+task's file list. `TaskService.create`'s own ad-hoc path still does not record `task.created` — that
+asymmetry is deliberately left open here, not fixed, since nothing in this task's own scope (or its
+required tests) needs it; a later task closing it should read this note rather than assume it was
+missed.
+
+**Plan amendment (found executing this task, 2026-09-08):** Step 1's own `aPortalAssigneeCannotSeeTheirOwnTask`
+predicted `NoSuchElementException`. Running it red first showed the prediction was wrong: a portal
+contact with literally zero `task.*` grants is refused by `PermissionGateAspect.enforce` — the coarse
+"does this actor hold the permission at ANY scope" gate, which throws `AccessDeniedException` BEFORE
+`AuthorizedQuery`/`TaskDescriptor`'s record-level scope resolution is ever reached — not by `AuthorizedQuery`
+collapsing to disjunction as the brief's own comment guessed. This is not a new defect: it is the exact
+shape `security.WriteScopeTest.anAnyStageStillRequiresThePermission` already proves for
+`milestone.complete` ("An actor with no milestone.complete grant at all is refused by the permission
+gate itself, before write_scope is ever consulted"). `TaskIsolationTest`'s assertion was corrected to
+`AccessDeniedException` to match this established, already-correct precedent; no production code
+changed for this one. The other three negatives (Step 1's remaining two, and Step 2's second test)
+passed as predicted with no production change.
+
 **Files:**
 - Create: `backend/src/test/java/co/ara/onboarding/task/TaskIsolationTest.java`, `TaskWriteScopeTest.java`
 - Modify: `backend/src/test/java/co/ara/onboarding/journey/CauseBeforeEffectTest.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/audit/AuditActions.java`,
+  `backend/src/main/java/co/ara/onboarding/task/TaskInstantiation.java` — see the amendment above
 
 - [ ] **Step 1: Write the negatives**
 
