@@ -70,6 +70,12 @@ approval, migration between versions), and on the frontend the journey workspace
 requirement checkboxes, approval/hold/force-complete dialogs, timeline) and the workflow builder
 screen (stages, milestones, requirements, branch rules, publish, migration review).
 
+**Sub-project 3 delivered:** the `task` module (ad-hoc and requirement-instantiated tasks,
+checklist items, status transitions with cancellation, and their wiring into `journey` via the
+`TaskDirectory`/`TaskLifecycle` ports), internal comment threads polymorphic over tasks and
+journeys with author-only editing, and on the frontend the case workspace Tasks tab, the
+cross-case "My work" board, and comment threads mounted on both a task and the journey itself.
+
 **Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
 `docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
 Collaboration → **3A Programmes & Customer-Scoped Plans** → 4 Documents → **4A Meetings (needs 4)** →
@@ -260,52 +266,6 @@ regression to hunt:
   attempt throws `NoSuchElementException` regardless of the department supplied). Needs
   `CreateUserRequest` to accept `teamIds`, or an equivalent mechanism, before a TEAM-scoped actor can
   create a user at all — not attempted here.
-- **Ownership foreign keys carry no tenant component, and one is observable.** `CustomerService`
-  writes `ownerUserId`, `owningDepartmentId` and `owningTeamId` straight from the request with no
-  existence or tenancy check. PostgreSQL evaluates referential integrity with row security
-  bypassed, so a UUID belonging to **another tenant's** `app_user` satisfies the FK and answers
-  200, while an invented UUID raises an FK violation and answers 500. That difference is a
-  cross-tenant existence oracle, and it leaves a customer owned by a stranger. Fix shape: resolve
-  all three ids through their repositories and let RLS do the tenancy work. `app_user.department_id
-  REFERENCES department(id)` has the same shape — undiscoverable through the API under RLS, but
-  `UserAdminService.create` and `update` now lean on `departmentId` for authorization decisions.
-- **Deactivation ends the session but not the pending credentials.** `deactivate` revokes every
-  refresh family and `AuthorizationService` zeroes authority for a non-ACTIVE user, but
-  `PasswordResetService` consults `status` nowhere — so a DEACTIVATED account can still request and
-  complete a reset — and outstanding `invitation` rows stay redeemable. No authority is gained
-  (`LoginService` admits only ACTIVE, rotation refuses), but if "deactivation ends the account" is
-  an invariant, invalidating its pending tokens is the missing half.
-- **The tenant slug is unvalidated at provisioning.** `PlatformTenantController` carries no
-  `@Valid` and `ProvisionRequest` no constraints. A slug that does not match
-  `PathPrefixTenantResolver`'s `^[a-z0-9][a-z0-9-]{0,62}$` — `Acme`, `acme_corp` — creates a tenant
-  that is permanently unreachable, since every request resolves no slug and answers 401, with no
-  error at creation time. A duplicate slug is a raw 500 from the unique constraint: nothing maps
-  `DataIntegrityViolationException`.
-- **`DB_APP_PASSWORD` defaults to the committed literal `onboarding_app`.** Fixed, and differently
-  than `JWT_SECRET`'s equivalent gap: `V2__app_role_and_tenant.sql` creates the `onboarding_app`
-  login role with that literal password, and migrations are forward-only, so that statement can
-  never change — a guard that simply refused the literal would leave the role's *actual* password
-  at it forever. `DatabaseCredentialsGuard` refuses to start on a blank or literal
-  `DB_APP_PASSWORD`, same as before, but `AppRolePasswordReconciler` (a Flyway `AFTER_MIGRATE`
-  callback, `backend/src/main/java/co/ara/onboarding/platform/`) now runs `ALTER ROLE
-  onboarding_app PASSWORD '<DB_APP_PASSWORD>'` against the owner connection on every startup,
-  including ones where no new migration applies — so the role stays reconciled to whatever
-  `DB_APP_PASSWORD` currently is, indefinitely. An operator sets the variable once; there is no
-  separate "rotate the role's password" step to remember. `application.yml` carries no fallback,
-  same as `JWT_SECRET`.
-- **Contact email drifts from `app_user`, and the two uniqueness rules disagree.**
-  `CustomerContactService.update` rewrites `contact.email` without touching the linked
-  `app_user.email`, so a corrected address leaves the portal login on the old one. And
-  `customer_contact` is unique on `(customer_id, email)` **case-sensitively** while `app_user` is
-  unique on `(tenant_id, lower(email))` — so two contacts differing only in case are accepted, and
-  the second one's activation fails as an "invalid token".
-- **Three write paths are still unaudited**, all in `authz`/`auth` rather than the domain modules:
-  `RoleService.deleteRole`; re-enabling a disabled role, because `setEnabled` records only on the
-  disable branch; and `PasswordResetService`, which records neither request nor completion.
-  `RoleService.unassignRole` was the fourth and is now audited — `user.role_unassigned`, written
-  inside the `ifPresent` so an idempotent no-op records nothing. Deliberately not audited:
-  refresh-token rotation (every request would write a row, and reuse detection — the security event —
-  *is* recorded) and login-throttle counters.
 - **Deactivations recorded before 2026-08-16 are mislabelled.** `UserAdminService.deactivate` wrote
   the `user.created` action key with only its prose summary dissenting. Fixed, but `audit_event` is
   append-only, so historical rows cannot be corrected — anything querying `user.created` over that
@@ -319,16 +279,6 @@ regression to hunt:
   so existing rows read wrong permanently: cases opened before that date still show milestones
   completing before the case was created. New cases read correctly. Anything that derives a
   sequence — not just a set — from historical audit rows is reading a scrambled one.
-- **Retiring a contact does not revoke portal access, and does not stop a new one being granted.**
-  `update` sets `status = INACTIVE` on the contact only; the linked `app_user` stays `ACTIVE`, and
-  `LoginService` reads the user, so a retired contact can still sign in. It can also still be
-  invited and activated: neither `InvitationService.issue` nor `ActivationService.activateContact`
-  reads `ContactStatus`, and nothing revokes outstanding invitations on retirement — so a retired
-  contact holding a live seven-day token still creates an ACTIVE `PORTAL` user.
-- **The 409 on a duplicate contact email is not in the OpenAPI document.** The behaviour is real and
-  tested (`DuplicateContactEmailException`, unique `customer_contact_customer_id_email_key`), but
-  springdoc advertises only 201 on create and 200 on update, so `generated.ts` has no 409 for a
-  client to narrow on.
 
 **Closed since sub-project 1, verified against the running system:** TEAM scope (real
 `POST /admin/teams/{teamId}/members` and its `/remove`, both gated `team.manage` and resolving
@@ -376,6 +326,39 @@ worse version of the bug: the first pass let `CaseService.create` synthesize a "
 short id" label when a caller sent none, which read as a real name but was identical across every
 case opened from the same template — the reviewer's point that a fake-but-plausible name is a
 regression from a visibly-fake one, not progress toward Q18.
+
+**Closed since sub-project 3, verified against the running system:** all eight of sub-project 1's
+remaining backlog items, all closed by this sub-project's own Phase 1 (Tasks 2–10), none of them
+feature work. `OrgUnitResolver` (Task 2) resolves `ownerUserId`/`owningDepartmentId`/
+`owningTeamId` through their repositories before `CustomerService` writes them, closing the
+cross-tenant existence oracle. `PendingInvitationRevoker` (Task 4) revokes outstanding invitations
+alongside every refresh family on deactivation. `ProvisionRequest.slug` (Task 3) now carries
+`@NotBlank @Pattern(regexp = PathPrefixTenantResolver.SLUG_PATTERN)`, and a duplicate slug maps to
+a real 409 (`DuplicateSlugException`) instead of a raw 500. `AppRolePasswordReconciler` (Task 7)
+reconciles `onboarding_app`'s real database password to `DB_APP_PASSWORD` on every startup, so the
+committed literal default in `V2__app_role_and_tenant.sql` — which can never change, migrations
+being forward-only — no longer matters. `LinkedPortalUserEmailSync` (Task 5) keeps
+`app_user.email` in step with a corrected contact address, and the same task closed the
+case-sensitivity mismatch between `customer_contact`'s and `app_user`'s uniqueness rules.
+`RoleService.deleteRole`, role re-enablement and `PasswordResetService`'s request/completion are
+now all audited (Task 6) — the fourth of the original four unaudited paths, `unassignRole`, was
+already closed at sub-project 2's own close. `CustomerContactService.update`'s retirement branch
+(Task 5) now deactivates the linked `app_user` and revokes its pending invitations, and its
+reactivation branch restores access. And `CustomerContactController` (Task 9) documents 409 on
+both contact create and update, so `generated.ts` carries it for a client to narrow on.
+
+**Open at the close of sub-project 3:** TEAM-scoped user creation is untouched — `CreateUserRequest`
+still has no `teamIds` field, and it remains the one `user.manage` gap this sub-project did not
+attempt. The workflow builder's missing attribute/entry-condition UI, `approval.decide` seeded to
+`Administrator` only, and the audit-timeline-read carve-out precedent are all sub-project 2's own
+open items, outside this sub-project's path, and none of Phase 1's tasks touched them. One item is
+new, found and left deferred by this sub-project's own Task 24 review:
+**`TaskDetail` has no assignee-picker UI.** `TaskDetail.tsx` renders `assigneeId` as a read-only
+field (`task.detail.assignee`) with no control to change it. Confirmed independently three times —
+by Task 27's and Task 28's own implementer reports, and by Task 31's `tasks.spec.ts`, whose "a task
+assigned through the API (no picker exists in the UI) displays its assignee, not Unassigned" case
+had to seed the assignment through a direct API call because no UI path exists to do it — which is
+why this gets its own bullet rather than folding into a general note.
 
 ### Tests
 
@@ -660,6 +643,37 @@ change to the design, not an implementation detail):
   publish, never detected at runtime.
 - Skipped milestones contribute to neither progress numerator nor denominator.
 
+**Sub-project 3's own ten** (design spec §10's cross-check; a change breaking one of these is a
+change to the design, not an implementation detail):
+
+- `journey` never imports a `task` type; both directions of the relationship go through
+  `TaskDirectory` / `TaskLifecycle`.
+- Task completion adds no new caller of `CaseEngine.reconcile` — it goes through the existing
+  gated `RequirementService.satisfy`.
+- A cancelled task never satisfies or waives its requirement.
+- Checklist items never enter a progress calculation.
+- `comment.resource_type` is constrained at the database and in Java; adding a value is a
+  migration.
+- Every comment carries `case_id`, so comment reads need no `AuthorizedQuery` carve-out.
+- `ASSIGNED` on a task means `assignee_id = actor`, never team-mediated.
+- Every audit action is recorded before the calls that record its consequences.
+- Out-of-scope and cross-tenant ids are 404.
+- `PUT` request and view types stay field-for-field aligned.
+
+Each was verified during this plan's own execution, not just asserted: #1 by
+`ModuleBoundaryTest.noJourneyDependencyOnTask` (Task 15, proven red-then-green by a temporary
+violation); #2 by Task 17's `changeStatus` review (confirmed no `CaseEngine`/lock call in that
+method); #3 by Task 18's review (traced the fixture chain proving cancellation structurally cannot
+reach `satisfy`/`waive`); #4 by Task 22's review; #5 by Task 11's migration + enum; #6 by Task 23's
+review ("no carve-out, which is the whole reason `case_id` is denormalised" — confirmed in the
+actual code); #7 by Task 13's `TaskDescriptor` and Task 25's dedicated negative test; #8 by Task
+25's `CauseBeforeEffectTest` additions (`task.created`/`task.status_changed`→`requirement.satisfied`
+→`milestone.completed` subsequences); #9 by Task 16's and Task 25's negative tests; #10 by Task
+16's `TaskView` review (carries every field `UpdateTaskRequest` accepts). Re-verified at
+sub-project 3's close (2026-09-08): the full backend suite (`BUILD SUCCESSFUL in 2m 15s`), vitest
+(61 files, 442 tests) and the ten-spec Playwright suite (41 passed, `tasks.spec.ts` included) all
+ran green in the same pass, so none of the ten had regressed by the time the plan finished.
+
 ---
 
 ## Where the guards live
@@ -797,6 +811,15 @@ plan's intentions for it:**
   sub-project 1 made it (above), now asked of whatever sub-project 3 can retire or cancel: a task,
   a document request, an agreement. Enumerate what a status change must invalidate before writing
   the setter.
+
+## What sub-project 4 inherits
+
+- **The `attachment_ref`/`attachment_ref_type` seam on `task`.** `V16__task.sql` (Task 11) already
+  carries both columns, nullable, and `TaskView`/`Task` already round-trip them — so a document
+  sub-project 4 builds only needs to populate the field on satisfaction or creation, not add a
+  schema migration or a new column. **Note this seam is on `task` only, not on `comment`** —
+  `comment`'s own columns in the same migration carry no equivalent pair, so a comment attachment
+  (if sub-project 4 wants one) is a real schema addition, not a caller populating an existing field.
 
 ## Plan deviations
 
