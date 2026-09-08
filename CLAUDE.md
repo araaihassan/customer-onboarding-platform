@@ -352,13 +352,62 @@ still has no `teamIds` field, and it remains the one `user.manage` gap this sub-
 attempt. The workflow builder's missing attribute/entry-condition UI, `approval.decide` seeded to
 `Administrator` only, and the audit-timeline-read carve-out precedent are all sub-project 2's own
 open items, outside this sub-project's path, and none of Phase 1's tasks touched them. One item is
-new, found and left deferred by this sub-project's own Task 24 review:
-**`TaskDetail` has no assignee-picker UI.** `TaskDetail.tsx` renders `assigneeId` as a read-only
-field (`task.detail.assignee`) with no control to change it. Confirmed independently three times —
-by Task 27's and Task 28's own implementer reports, and by Task 31's `tasks.spec.ts`, whose "a task
-assigned through the API (no picker exists in the UI) displays its assignee, not Unassigned" case
-had to seed the assignment through a direct API call because no UI path exists to do it — which is
-why this gets its own bullet rather than folding into a general note.
+new, found and left deferred by this sub-project's own Task 24 review, and broadened at the final
+whole-branch review once the actual size of the gap was clear:
+**There is no task-edit UI at all**, not just a missing assignee picker. `TaskDetail.tsx` renders
+`assigneeId` as a read-only field (`task.detail.assignee`) with no control to change it, and that
+is the narrowest part of the gap — `PUT /tasks/{taskId}` has no frontend hook at all (`tasks.ts`
+carries no `useUpdateTask`), so title, description, priority, due date and milestone are equally
+uneditable from the UI, not just the assignee. Confirmed independently three times — by Task 27's
+and Task 28's own implementer reports, and by Task 31's `tasks.spec.ts`, whose "a task assigned
+through the API (no picker exists in the UI) displays its assignee, not Unassigned" case had to
+seed the assignment through a direct API call because no UI path exists to do it.
+
+**Recorded at the final whole-branch review (2026-09-08), not fixed — real gaps, deliberately left
+for sub-project 4** rather than expanding this branch's scope after 32 individual task reviews plus
+this final pass:
+
+- **Three `task` classes are named specifically to fall outside `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly`'s name-shaped rule**, rather than being added as a
+  visible exclusion. `TaskInstantiation` (`task/TaskInstantiation.java:22-31,77-85`),
+  `TaskDirectoryAdapter` (`task/TaskDirectoryAdapter.java:16-27,55`) and `TaskLifecycleAdapter`
+  (`task/TaskLifecycleAdapter.java:52`) all call repository finders directly; `TaskInstantiation`'s
+  own javadoc states outright that it is named to dodge the rule's `*Service`/`*Directory` suffix
+  match. The substantive reasoning is sound in each case, but the mechanism makes the exemption
+  invisible to a future reviewer of the guard itself, unlike `IdentityActorDirectory`/
+  `UserRoleDirectory`'s visible per-class exclusions. Separately, Phase 1's
+  `customer.OrgUnitResolver` exclusion (`AuthorizationCoverageTest.java:~237`) is a no-op — the
+  class name matches neither suffix either, so the exclusion excludes nothing — and its stated
+  justification partly restates the argument the rule exists to reject (the "no
+  DEPARTMENT_VIEW/TEAM_VIEW scope exists" half is correct and worth keeping; the "RLS handles it"
+  half is not). This also means the plan's Global Constraint "no new `AuthorizedQuery` exclusion is
+  created in this sub-project" was technically broken by this pre-existing Phase 1 exclusion. A
+  durable fix for sub-project 4: bind the rule to any class in the covered packages that injects a
+  `*Repository`, with an explicit exclusion list, rather than a name suffix.
+- **The roadmap's `taskSummary` field is never rendered anywhere in the frontend**, and is not
+  scope-filtered by `task.view`. `journey/MilestoneRoadmapView.java:18` carries it,
+  `TaskDirectoryAdapter.summaryFor` computes it over every task on the milestone regardless of the
+  reader's scope, and `generated.ts:1729` has the field — but `Roadmap.tsx`/`MilestoneRow.tsx`
+  never read it. An ASSIGNED-scoped reader (Sales Representative, Service Provider, Business
+  Partner) sees counts including tasks they cannot open — an aggregate-only leak inside a case they
+  can already read, not severe today, but worth fixing before this seam grows from a count into a
+  list. Either wire it into the roadmap UI or drop the field until something needs it.
+- **Design spec §8.2's "Do now, sorted by due date" was never implemented.**
+  `TaskService.myWork`/`forCase` (`task/TaskService.java:385-391,204-210`) both use
+  `Pageable.unpaged()` with no `Sort`, and `WorkColumn.tsx:97` maps in whatever order the query
+  returns — so the "My work" board's most important column has no meaningful ordering, and an
+  overdue item can sit below one due next month.
+- **`task.manage` is seeded to Administrator only**, the same shape already recorded above for
+  `approval.decide`. `authz/RoleTemplates.java:119-129` catalogues it at ALL/DEPARTMENT/TEAM but
+  grants it to none of the other eleven templates — Project Manager holds `TASK_VIEW`/
+  `TASK_COMPLETE`/`COMMENT_CREATE` at TEAM but not `TASK_MANAGE`, so no seeded role can create an
+  ad-hoc task, add a checklist item, or reassign one. Worth a role review, same as `approval.decide`,
+  before any later sub-project builds on top of it.
+- **Design spec §5.5 named seven audit actions; only five exist.** `task.assigned` has no
+  `AuditActions` constant and nothing records a reassignment — sub-project 6 is specified to
+  subscribe to this action, and nothing will ever fire it. `TaskService.create`'s ad-hoc path also
+  records no `task.created` at all — only `TaskInstantiation`'s requirement-instantiated path does
+  (`TaskInstantiation.java:99`). The plan itself documents this last gap at its own line 1568; this
+  is that finding carried forward into the file a future session actually reads.
 
 ### Tests
 
@@ -426,11 +475,12 @@ prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a gr
 `org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
 cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
 
-`cd frontend && npx playwright test` is the end-to-end command: nine specs — login, activation,
+`cd frontend && npx playwright test` is the end-to-end command: ten specs — login, activation,
 refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
 900px card-list fallback, the administration screens, accessibility in the light theme at four
 widths, workflow authoring through publish, a case lifecycle (branch skip, force-complete,
-completion at 100%), and migration between versions.
+completion at 100%), migration between versions, and tasks (creation, checklist, comments,
+completion, "My work" board — `frontend/e2e/tasks.spec.ts`, added in Task 31).
 
 **First live run against the frontend visual refactor, 2026-08-29** (sub-project 3 Task 1) — every
 spec had never actually been executed against this branch before; only read/reviewed. All nine
@@ -670,9 +720,10 @@ actual code); #7 by Task 13's `TaskDescriptor` and Task 25's dedicated negative 
 25's `CauseBeforeEffectTest` additions (`task.created`/`task.status_changed`→`requirement.satisfied`
 →`milestone.completed` subsequences); #9 by Task 16's and Task 25's negative tests; #10 by Task
 16's `TaskView` review (carries every field `UpdateTaskRequest` accepts). Re-verified at
-sub-project 3's close (2026-09-08): the full backend suite (`BUILD SUCCESSFUL in 2m 15s`), vitest
-(61 files, 442 tests) and the ten-spec Playwright suite (41 passed, `tasks.spec.ts` included) all
-ran green in the same pass, so none of the ten had regressed by the time the plan finished.
+sub-project 3's close (2026-09-08): the full backend suite, vitest and the ten-spec Playwright
+suite (`tasks.spec.ts` included) all ran green in the same pass — each read from its own summary
+line, not a pinned count (see the Tests section below for why) — so none of the ten had regressed
+by the time the plan finished.
 
 ---
 
@@ -684,11 +735,18 @@ ran green in the same pass, so none of the ten had regressed by the time the pla
 - `.../security/` — the nine negative tests: `ChangedPermissionsTest`, `ConflictingGrantsTest`,
   `CrossTenantAccessTest`, `DelegationGuardTest`, `DirectApiAccessTest`, `InsufficientPermissionTest`,
   `InsufficientScopeTest`, `MultipleRolesTest`, `RoleLifecycleTest`. Sub-project 2's own negatives
-  live in-package instead: `journey.CaseIsolationTest` (cross-tenant), `journey.WriteScopeTest`
-  (a wider-scoped holder still refused inside an `OWNER_ONLY` stage), `journey.ForceCompleteTest`
-  (self-approval refused; deciding a `FORCE_COMPLETE` through the stage-approval endpoint refused,
-  not weakly gated), `journey.JourneyScopingTest` and `identity.TeamMembershipTest` (TEAM resolves
-  through real team membership, not a column).
+  live in-package instead, and — corrected here, verified against the actual code rather than
+  copied forward — three of them are in `security` too, not `journey`: `security.CaseIsolationTest`
+  (cross-tenant), `security.WriteScopeTest` (a wider-scoped holder still refused inside an
+  `OWNER_ONLY` stage), `security.ForceCompleteTest` (self-approval refused; deciding a
+  `FORCE_COMPLETE` through the stage-approval endpoint refused, not weakly gated),
+  `scoping.JourneyScopingTest` and `identity.TeamMembershipTest` (TEAM resolves through real team
+  membership, not a column). Sub-project 3's own negatives live in-package the same way:
+  `task.TaskIsolationTest` (cross-tenant, the polymorphic comment discriminator refused at the
+  database), `task.TaskWriteScopeTest` (a wider-scoped holder still refused inside an
+  `OWNER_ONLY` stage, the same shape as `security.WriteScopeTest`), `task.TaskServiceTest`
+  (the create/update case-milestone-mismatch escalation guards), and `task.CommentTest`
+  (author-only edit enforced independently of scope).
 
 **These are not to be weakened to make a change pass.** They exist precisely to fail when something
 is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
