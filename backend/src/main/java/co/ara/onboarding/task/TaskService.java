@@ -29,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -215,7 +216,8 @@ public class TaskService {
         authorizedQuery.getById(cases, Case.class, PermissionKeys.TASK_VIEW, caseId);
 
         Specification<Task> byCase = (root, query, cb) -> cb.equal(root.get("caseId"), caseId);
-        return authorizedQuery.findAll(tasks, Task.class, PermissionKeys.TASK_VIEW, byCase, Pageable.unpaged())
+        Specification<Task> ordered = byCase.and(orderByDueDateSoonestFirst());
+        return authorizedQuery.findAll(tasks, Task.class, PermissionKeys.TASK_VIEW, ordered, Pageable.unpaged())
                 .getContent().stream().map(this::toView).toList();
     }
 
@@ -424,9 +426,48 @@ public class TaskService {
     public List<TaskView> myWork(String bucket) {
         UUID self = contextProvider.principal().userId();
         Specification<Task> mine = (root, query, cb) -> cb.equal(root.get("assigneeId"), self);
-        Specification<Task> scoped = mine.and(bucketFilter(bucket));
+        Specification<Task> scoped = mine.and(bucketFilter(bucket)).and(orderByDueDateSoonestFirst());
         return authorizedQuery.findAll(tasks, Task.class, PermissionKeys.TASK_VIEW, scoped, Pageable.unpaged())
                 .getContent().stream().map(this::toView).toList();
+    }
+
+    /**
+     * Design spec Sec8.2: "Do now, sorted by due date" -- applied here, as a
+     * Specification, rather than through Sort/Pageable. Sort.Order.asc("dueDate")
+     * .nullsLast() -- the API this task started with -- throws
+     * UnsupportedOperationException ("Applying Null Precedence using Criteria
+     * Queries is not yet supported") the moment SimpleJpaRepository tries to
+     * translate it, confirmed by running it against this codebase rather than
+     * trusting the method name alone: QueryUtils.toJpaOrder hard-refuses any
+     * Sort.Order carrying a NullHandling other than NATIVE when the query path is
+     * Criteria-based, which findAll(Specification, Pageable) always is here.
+     *
+     * The CASE WHEN below buckets every null dueDate into its own last-place
+     * value (1, vs. 0 for a real date) ahead of the real ascending order and the
+     * createdAt tiebreak -- Postgres's own ASC default is NULLS FIRST, which
+     * would put every undated task ABOVE the overdue ones, the exact inversion
+     * this exists to fix. Returning cb.conjunction() keeps this an order-only
+     * side effect, never an extra filter.
+     *
+     * This relies on SimpleJpaRepository.getQuery only ever calling
+     * query.orderBy(...) itself when the caller's own Sort isSorted() -- an
+     * unpaged, unsorted Pageable (what both callers pass) leaves whatever order a
+     * Specification set untouched. getCountQuery's own "Remove all Orders the
+     * Specifications might have applied" comment is Spring Data's own
+     * acknowledgment that a Specification setting order this way is expected,
+     * not an abuse of the interface.
+     */
+    private static Specification<Task> orderByDueDateSoonestFirst() {
+        return (root, query, cb) -> {
+            var undatedLast = cb.<Integer>selectCase()
+                    .when(cb.isNull(root.get("dueDate")), 1)
+                    .otherwise(0);
+            query.orderBy(
+                    cb.asc(undatedLast),
+                    cb.asc(root.<LocalDate>get("dueDate")),
+                    cb.asc(root.<Instant>get("createdAt")));
+            return cb.conjunction();
+        };
     }
 
     private Specification<Task> bucketFilter(String bucket) {
