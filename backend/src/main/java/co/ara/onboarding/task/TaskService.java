@@ -456,6 +456,15 @@ public class TaskService {
      * Specifications might have applied" comment is Spring Data's own
      * acknowledgment that a Specification setting order this way is expected,
      * not an abuse of the interface.
+     *
+     * WARNING for the next editor: any Pageable passed alongside this
+     * specification must stay unsorted -- a Pageable whose Sort.isSorted() is
+     * true makes SimpleJpaRepository.getQuery call query.orderBy(...) again,
+     * AFTER this specification's side effect runs, which silently replaces
+     * the due-date ordering above with no error and no compiler signal. If
+     * myWork/forCase ever gain pagination or a sort-by-priority option that
+     * threads a real Sort into the same findAll call, this ordering breaks
+     * quietly -- only TaskOrderingTest catching a regression would reveal it.
      */
     private static Specification<Task> orderByDueDateSoonestFirst() {
         return (root, query, cb) -> {
