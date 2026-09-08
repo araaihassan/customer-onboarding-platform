@@ -25,7 +25,7 @@ import java.util.UUID;
  * would not be a new authorization boundary, only a second, redundant read of
  * the same case.
  *
- * Named as a named exclusion in
+ * Listed as a named exclusion in
  * AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS for this reason, not by
  * avoiding a *Service/*Directory suffix -- sub-project 3A Task 2 rebound that
  * rule to bind on repository injection rather than class name, so this

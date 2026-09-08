@@ -19,7 +19,7 @@ import java.util.UUID;
 /**
  * Creates a {@link Task} row for every requirement of kind TASK on a freshly
  * opened case -- the seam sub-project 2 deliberately left as a plain manual
- * check-off. Named as a named exclusion in
+ * check-off. Listed as a named exclusion in
  * AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS, not by avoiding a
  * *Service/*Directory suffix (sub-project 3A Task 2 rebound that rule to bind
  * on repository injection rather than class name, closing exactly that gap):

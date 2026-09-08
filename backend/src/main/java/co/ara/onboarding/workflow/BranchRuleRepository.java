@@ -16,10 +16,12 @@ public interface BranchRuleRepository
 
     /**
      * Called directly from journey.CaseEngine (Task 15) while walking a stage's
-     * branch rules in ordinal order -- first match wins. CaseEngine is exempt from
-     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly (that rule
-     * binds *Service/*Directory, not *Engine), and workflow-definition rows are
-     * ALL-only (WORKFLOW_VIEW) with no descriptor, the same reasoning CaseService's
+     * branch rules in ordinal order -- first match wins. CaseEngine is listed by
+     * fully-qualified name in AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS
+     * (sub-project 3A Task 2 rebound that rule to bind on repository injection
+     * rather than class name, so this is a reviewable line in that list, not a
+     * *Service/*Directory naming dodge), and workflow-definition rows are ALL-only
+     * (WORKFLOW_VIEW) with no descriptor, the same reasoning CaseService's
      * readDefinition already relies on.
      */
     List<BranchRule> findByStageIdOrderByOrdinal(UUID stageId);

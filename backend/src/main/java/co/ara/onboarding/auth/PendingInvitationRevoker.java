@@ -7,7 +7,7 @@ import java.util.UUID;
  * The one place {@link InvitationRepository}'s userId- and contactId-keyed
  * finders are called directly, on purpose.
  *
- * Named as a named exclusion in
+ * Listed as a named exclusion in
  * AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS, not by avoiding a
  * *Service/*Directory suffix. Sub-project 3A Task 2 rebound that rule from a
  * name-shaped match to one that binds on repository injection, precisely
