@@ -350,6 +350,7 @@
   "milestone.status.SKIPPED": "Skipped",
   "milestone.blockedBy": "Blocked by {names}",
   "milestone.noOwner": "Unassigned",
+  "milestone.taskCount": "{open} of {total} tasks open",
   "milestone.progressLabel": "{name} progress",
   "milestone.overdue": "(overdue)",
   "milestone.forceComplete": "Force complete",

@@ -151,4 +151,19 @@ describe("MilestoneRow", () => {
     expect(screen.getByText("Comments")).not.toBeNull();
     expect(screen.getByText(/comments aren't tracked here yet/i)).not.toBeNull();
   });
+
+  it("shows open and total task counts on a milestone that has tasks", () => {
+    renderRow({ ...active, taskSummary: { open: 2, total: 5 } });
+    expect(screen.getByText("2 of 5 tasks open")).not.toBeNull();
+  });
+
+  it("renders no task count at all when a milestone has none", () => {
+    renderRow({ ...active, taskSummary: { open: 0, total: 0 } });
+    expect(screen.queryByText(/tasks open/)).toBeNull();
+  });
+
+  it("renders no task count when the roadmap carries no taskSummary at all", () => {
+    renderRow(active);
+    expect(screen.queryByText(/tasks open/)).toBeNull();
+  });
 });
