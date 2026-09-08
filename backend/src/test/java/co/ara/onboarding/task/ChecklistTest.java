@@ -82,6 +82,52 @@ class ChecklistTest extends PostgresTestBase {
         });
     }
 
+    /**
+     * Task 27's own reason for existing: {@code list} is the only way {@code ChecklistEditor}
+     * can render a task's existing checklist at all, since {@link #renameChangesTheLabelWithoutTouchingDoneOrOrdinal}
+     * and its neighbours only ever return the one item just written.
+     */
+    @Test
+    void listReturnsEveryItemOrderedByOrdinal() {
+        UUID tenant = fixture.createTenant("checklist-list");
+        fixture.runAs(tenant, () -> {
+            UUID taskId = adHocTask(tenant);
+            checklists.add(taskId, new AddChecklistItemRequest("First"));
+            checklists.add(taskId, new AddChecklistItemRequest("Second"));
+            checklists.add(taskId, new AddChecklistItemRequest("Third"));
+
+            var listed = checklists.list(taskId);
+
+            assertThat(listed).hasSize(3);
+            assertThat(listed).extracting(ChecklistItemView::label).containsExactly("First", "Second", "Third");
+            assertThat(listed).extracting(ChecklistItemView::ordinal).containsExactly(0, 1, 2);
+        });
+    }
+
+    /**
+     * Gated task.view, not task.manage/task.complete -- an actor who may only view the task (never
+     * mutate it or its checklist) must still see the checklist itself, the same read/write split
+     * {@code TaskService.get} already draws for the task record.
+     */
+    @Test
+    void listIsVisibleToATaskViewOnlyHolder() {
+        UUID tenant = fixture.createTenant("checklist-list-view-only");
+        var viewOnly = new UUID[1];
+        var taskId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            taskId[0] = adHocTask(tenant);
+            checklists.add(taskId[0], new AddChecklistItemRequest("Visible to a viewer"));
+
+            viewOnly[0] = fixture.createUser(tenant, "view-only@example.com");
+            grant(viewOnly[0], Map.of(PermissionKeys.TASK_VIEW, Scope.ALL));
+        });
+
+        var listed = new java.util.ArrayList<List<ChecklistItemView>>();
+        fixture.runAsUser(tenant, viewOnly[0], () -> listed.add(checklists.list(taskId[0])));
+
+        assertThat(listed.get(0)).hasSize(1);
+    }
+
     @Test
     void addAssignsSequentialOrdinalsAcrossMultipleItems() {
         UUID tenant = fixture.createTenant("checklist-ordinals");

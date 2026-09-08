@@ -153,6 +153,25 @@ public class TaskController {
     }
 
     /**
+     * Every checklist item on a task, ordered -- closes a plan gap found building the Tasks tab
+     * (Task 27): nothing previously exposed a way to read a task's checklist except as a side
+     * effect of mutating one item, so a fresh page load had no way to show items added in an
+     * earlier session. Gated task.view (see {@link ChecklistService#list}'s own doc comment), not
+     * task.manage/task.complete -- a view-only holder must still see the checklist.
+     */
+    @GetMapping("/tasks/{taskId}/checklist")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Every checklist item on the task, ordered"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public List<ChecklistItemView> checklist(@PathVariable UUID taskId) {
+        return checklists.list(taskId);
+    }
+
+    /**
      * Adds one checklist line. Returns the new item's id rather than a full
      * {@link ChecklistItemView} -- {@link ChecklistService#add} (Task 22,
      * untouched by this task) returns only a {@link UUID}, and it has no bare

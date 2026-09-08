@@ -14,6 +14,8 @@ export type CreateTaskRequest = components["schemas"]["CreateTaskRequest"];
 export type TaskStatusRequest = components["schemas"]["TaskStatusRequest"];
 export type TaskStatus = NonNullable<Task["status"]>;
 export type TaskPriority = NonNullable<Task["priority"]>;
+export type ChecklistItem = components["schemas"]["ChecklistItemView"];
+export type UpdateChecklistItemRequest = components["schemas"]["UpdateChecklistItemRequest"];
 
 /** TaskController's own bucket vocabulary for the "My work" board (myWork's 400 doc comment names all four). */
 export type MyWorkBucket = "do_now" | "in_progress" | "waiting" | "done_this_week";
@@ -26,6 +28,7 @@ export const taskKeys = {
   all: ["tasks"] as const,
   forCase: (caseId: string) => [...taskKeys.all, "case", caseId] as const,
   mine: (filters: MyWorkFilters) => [...taskKeys.all, "mine", filters] as const,
+  checklist: (taskId: string) => [...taskKeys.all, "checklist", taskId] as const,
 };
 
 /** Every task under one case -- the Tasks tab's own source. */
@@ -78,6 +81,52 @@ export function useChangeTaskStatus() {
       if (!updated.caseId) return;
       void queryClient.invalidateQueries({ queryKey: taskKeys.forCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(updated.caseId) });
+    },
+  });
+}
+
+/**
+ * A task's checklist -- Task 27's own addition, closing a gap Task 22/24 left:
+ * `ChecklistService` exposed no way to LIST a task's items, only to add one
+ * (returns a bare id) or update one by its own itemId (a side effect of a
+ * write). `GET /tasks/{taskId}/checklist` was added in the same backend
+ * change as this hook so `ChecklistEditor` has something to read on mount.
+ */
+export function useChecklist(taskId: string) {
+  return useQuery({
+    queryKey: taskKeys.checklist(taskId),
+    queryFn: () => apiFetch<ChecklistItem[]>(`/tasks/${taskId}/checklist`),
+    enabled: Boolean(taskId),
+  });
+}
+
+/** Adds one checklist line -- the endpoint returns only the new item's id (ChecklistService.add's own doc comment), so the list is refetched rather than appended locally. */
+export function useAddChecklistItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, label }: { taskId: string; label: string }) =>
+      apiFetch<string>(`/tasks/${taskId}/checklist`, { method: "POST", body: JSON.stringify({ label }) }),
+    onSuccess: (_id, { taskId }) => {
+      void queryClient.invalidateQueries({ queryKey: taskKeys.checklist(taskId) });
+    },
+  });
+}
+
+/**
+ * Flips one item's `done` -- and only that. Never calls `useChangeTaskStatus`:
+ * ticking every item does not complete the task (the backend rule from Task
+ * 22, asserted again here so the two cannot drift -- see `ChecklistEditor`'s
+ * own doc comment). The response already carries `taskId`, so the caller
+ * needs to pass nothing beyond the item id itself.
+ */
+export function useToggleChecklistItem() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (itemId: string) =>
+      apiFetch<ChecklistItem>(`/checklist/${itemId}`, { method: "PUT", body: JSON.stringify({ toggleDone: true }) }),
+    onSuccess: (updated) => {
+      if (!updated.taskId) return;
+      void queryClient.invalidateQueries({ queryKey: taskKeys.checklist(updated.taskId) });
     },
   });
 }

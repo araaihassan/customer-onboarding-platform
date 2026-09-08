@@ -1702,6 +1702,17 @@ Binding, from CLAUDE.md and the bundle:
 - Modify: the case workspace page to render it in the existing (currently empty) Tasks tab
 - Test: `frontend/src/components/journey/TasksTab.test.tsx`, `frontend/src/components/task/TaskDetail.test.tsx` (both new)
 
+**Plan deviation, found executing this task (see `task-27-report.md` for full detail): this file
+list understated what `ChecklistEditor` needed.** Neither Task 22 nor Task 24 gave
+`ChecklistService`/`TaskController` a way to LIST a task's checklist items — `add` returns a bare
+id, `updateChecklistItem` returns one item by an id the caller must already hold, and nothing else
+reads one. That's fine for a service with no UI yet, but it means this task's own `ChecklistEditor`
+had no way to show a task's pre-existing checklist on page load — only items created in the
+current session. Closed in the same change as this task: `ChecklistService.list(UUID taskId)`
+(gated `task.view`) and `GET /tasks/{taskId}/checklist` in `backend/.../task/`, two new tests in
+`ChecklistTest.java`, plus the OpenAPI/generated-types regeneration that implies. Confirmed against
+the full backend suite (`./gradlew cleanTest test`, BUILD SUCCESSFUL) before relying on it here.
+
 **Interfaces:**
 - Consumes: `useCaseTasks`, `useChangeTaskStatus` (Task 26)
 - Produces: `TaskCard` (used by `WorkBoard` in Task 28) and `TaskDetail` (mounted by `CommentThread` in Task 29). Both are created here so no later task modifies a file that does not exist.

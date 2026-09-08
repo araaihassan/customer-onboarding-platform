@@ -175,6 +175,34 @@ public class ChecklistService {
         return toView(item);
     }
 
+    /**
+     * Every item on a task, ordered -- the read {@code ChecklistEditor} (Task 27) needs to render a
+     * task's existing checklist at all. Gated {@code task.view}, the same read permission
+     * {@code TaskService.get} uses, not {@code task.manage}/{@code task.complete} (those gate the
+     * mutations above): a caller who may only view the task must still see its checklist. The task
+     * itself is independently resolved through {@link AuthorizedQuery} under that permission first,
+     * so an out-of-scope taskId is a 404 here too, same shape as every other read in this class.
+     *
+     * This is a plan gap, not a Task 22/24 defect restated: neither task's own file list included a
+     * list-read endpoint, and {@link #add}/{@link #rename}/{@link #reorder}/{@link #toggle} never
+     * needed one since each already returns the one item it just wrote. But nothing anywhere exposed
+     * a WAY to read a task's checklist without having just mutated it -- so a page load (Task 27's
+     * {@code TaskDetail}) had no way to show items created in an earlier session. Closed here per
+     * CLAUDE.md's "Plan deviations": found while implementing the UI that is this method's only
+     * caller, fixed in the same change rather than deferred. The class javadoc's claim that
+     * {@code ChecklistService} has "no bare read one item" method still holds -- this reads every
+     * item on a TASK, never one item by its own itemId, so {@code TaskController.updateChecklistItem}'s
+     * all-fields-null refusal is unaffected.
+     */
+    @RequirePermission(PermissionKeys.TASK_VIEW)
+    @Transactional(readOnly = true)
+    public List<ChecklistItemView> list(UUID taskId) {
+        Task t = authorizedQuery.getById(tasks, Task.class, PermissionKeys.TASK_VIEW, taskId);
+        return itemsFor(t.getId(), PermissionKeys.TASK_VIEW).stream()
+                .sorted(java.util.Comparator.comparingInt(TaskChecklistItem::getOrdinal))
+                .map(this::toView).toList();
+    }
+
     /** Every item on a task, ordered, read through AuthorizedQuery under the caller's own gating permission. */
     private List<TaskChecklistItem> itemsFor(UUID taskId, String permission) {
         Specification<TaskChecklistItem> byTask = (root, query, cb) -> cb.equal(root.get("taskId"), taskId);
