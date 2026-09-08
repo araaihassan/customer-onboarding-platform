@@ -138,6 +138,11 @@ public final class AuditActions {
     // edited, and it must stay distinguishable on its own key rather than
     // inferred from a status column.
     public static final AuditAction TASK_CANCELLED               = of("task.cancelled", true);
+    // Task 23: comments are business records, same reasoning as task.* above --
+    // an internal comment on a task or a journey is exactly the collaboration
+    // narrative the Activity Timeline exists to show, not internal administration.
+    public static final AuditAction COMMENT_ADDED                = of("comment.added", true);
+    public static final AuditAction COMMENT_EDITED               = of("comment.edited", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
