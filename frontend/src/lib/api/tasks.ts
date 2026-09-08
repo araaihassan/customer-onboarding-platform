@@ -30,6 +30,13 @@ export const taskKeys = {
   all: ["tasks"] as const,
   forCase: (caseId: string) => [...taskKeys.all, "case", caseId] as const,
   mine: (filters: MyWorkFilters) => [...taskKeys.all, "mine", filters] as const,
+  /**
+   * The whole "My work" family, every filter combination at once -- a prefix
+   * of every `taskKeys.mine(filters)` key. Used to invalidate the board
+   * regardless of which bucket (or none) it currently has selected, since a
+   * write that changes a task's status can move it into or out of any bucket.
+   */
+  mineAll: () => [...taskKeys.all, "mine"] as const,
   checklist: (taskId: string) => [...taskKeys.all, "checklist", taskId] as const,
 };
 
@@ -147,9 +154,16 @@ export function useCreateTask() {
 }
 
 /**
- * Invalidates both the case's task list AND its roadmap: a requirement-linked
- * task completing can advance or complete a milestone, so the roadmap read
- * must not go stale the way it would if only the task list refreshed.
+ * Invalidates the case's task list, its roadmap, AND the whole "My work"
+ * family: a requirement-linked task completing can advance or complete a
+ * milestone, so the roadmap read must not go stale the way it would if only
+ * the task list refreshed -- and a status change moves the task between
+ * `useMyWork` buckets (Task 28's board), so every `taskKeys.mine(...)` query,
+ * whichever filter it currently holds, must go stale too. Without this,
+ * `/work` keeps showing a task in the column it just left until something
+ * unrelated remounts the query -- `QueryProvider`'s `staleTime: 30_000` and
+ * `refetchOnWindowFocus: false` mean that can persist for the rest of the
+ * session on that screen, not just "up to 30 seconds."
  */
 export function useChangeTaskStatus() {
   const queryClient = useQueryClient();
@@ -160,6 +174,7 @@ export function useChangeTaskStatus() {
       if (!updated.caseId) return;
       void queryClient.invalidateQueries({ queryKey: taskKeys.forCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(updated.caseId) });
+      void queryClient.invalidateQueries({ queryKey: taskKeys.mineAll() });
     },
   });
 }

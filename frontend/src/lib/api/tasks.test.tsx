@@ -177,6 +177,25 @@ describe("useChangeTaskStatus", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: caseKeys.roadmap("c-1") });
   });
 
+  /**
+   * Task 28 fix round 1: the cross-case "My work" board (`useMyWork`, reading
+   * `taskKeys.mine(filters)`) went stale after a status change made anywhere
+   * else, since this mutation never invalidated that key family. Asserts the
+   * whole family's prefix (`taskKeys.mineAll()`), not one specific filter
+   * combination, since the board may be showing any bucket -- or none -- when
+   * the change happens elsewhere.
+   */
+  it("invalidates the whole 'My work' key family, so the cross-case board reflects a status change made elsewhere", async () => {
+    fetchMock.mockResolvedValue(reply({ id: "t-1", caseId: "c-1", status: "COMPLETED" }));
+
+    const { client, Wrapper } = makeWrapper();
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    const { result } = renderHook(() => useChangeTaskStatus(), { wrapper: Wrapper });
+    await result.current.mutateAsync({ taskId: "t-1", status: "COMPLETED" });
+
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: taskKeys.mineAll() });
+  });
+
   it("sends a cancellation reason when provided", async () => {
     fetchMock.mockResolvedValue(reply({ id: "t-1", caseId: "c-1", status: "CANCELLED" }));
 
