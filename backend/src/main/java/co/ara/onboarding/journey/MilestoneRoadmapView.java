@@ -14,4 +14,5 @@ import java.util.UUID;
 public record MilestoneRoadmapView(UUID id, String name, MilestoneStatus status,
                                    UUID ownerUserId, LocalDate dueDate, int progressPercent,
                                    List<String> blockedByMilestoneNames,
-                                   List<RequirementRoadmapView> requirements) {}
+                                   List<RequirementRoadmapView> requirements,
+                                   TaskSummary taskSummary) {}

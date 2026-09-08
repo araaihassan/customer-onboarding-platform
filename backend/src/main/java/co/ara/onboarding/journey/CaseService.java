@@ -94,6 +94,7 @@ public class CaseService {
     private final BusinessCalendar calendar;
     private final Clock clock;
     private final TaskLifecycle taskLifecycle;
+    private final TaskDirectory taskDirectory;
 
     public CaseService(CaseRepository cases, CaseParticipantRepository participants,
                        MilestoneRepository milestones, RequirementRepository requirements,
@@ -106,7 +107,8 @@ public class CaseService {
                        AppUserRepository users, DepartmentRepository departments,
                        TeamRepository teams, AuthorizedQuery authorizedQuery,
                        AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine,
-                       BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle) {
+                       BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle,
+                       TaskDirectory taskDirectory) {
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -130,6 +132,7 @@ public class CaseService {
         this.calendar = calendar;
         this.clock = clock;
         this.taskLifecycle = taskLifecycle;
+        this.taskDirectory = taskDirectory;
     }
 
     @RequirePermission(PermissionKeys.CASE_CREATE)
@@ -249,6 +252,13 @@ public class CaseService {
         List<Milestone> milestoneRows = readCaseChild(milestones, Milestone.class, c.getId());
         List<Requirement> requirementRows = readCaseChild(requirements, Requirement.class, c.getId());
 
+        // ONE call for every milestone in the case, before the nested loops below --
+        // never per-milestone inside them. That is the whole reason TaskDirectory's
+        // signature takes a Collection rather than one id at a time (its own javadoc);
+        // a per-id call here would defeat the port's own design.
+        Map<UUID, TaskSummary> taskSummaries = taskDirectory.summaryFor(
+                milestoneRows.stream().map(Milestone::getId).toList());
+
         Map<UUID, Milestone> milestoneByDefinitionId = milestoneRows.stream()
                 .collect(toMap(Milestone::getMilestoneDefinitionId, m -> m));
         Map<UUID, List<Requirement>> requirementsByMilestoneId = requirementRows.stream()
@@ -283,8 +293,10 @@ public class CaseService {
                         .toList();
                 List<String> blockedBy = m.getStatus() != MilestoneStatus.BLOCKED ? List.of()
                         : unmetDependencyNames(def, milestoneByDefinitionId, dependencyRows, milestoneDefById);
+                TaskSummary taskSummary = taskSummaries.getOrDefault(m.getId(), new TaskSummary(0, 0));
                 milestoneViews.add(new MilestoneRoadmapView(m.getId(), def.getName(), m.getStatus(),
-                        m.getOwnerUserId(), m.getDueDate(), m.getProgressPercent(), blockedBy, requirementViews));
+                        m.getOwnerUserId(), m.getDueDate(), m.getProgressPercent(), blockedBy, requirementViews,
+                        taskSummary));
             }
             stageViews.add(new StageRoadmapView(stage.getId(), stage.getName(), stage.getOrdinal(), milestoneViews));
         }
