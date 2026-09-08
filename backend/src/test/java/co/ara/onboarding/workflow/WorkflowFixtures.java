@@ -48,6 +48,11 @@ public final class WorkflowFixtures {
         return new RequirementRequest(RequirementKind.DOCUMENT, label, 1, true, category, null);
     }
 
+    /** A requirement of kind TASK -- Task 19's own instantiation seam. */
+    public static RequirementRequest task(String label) {
+        return new RequirementRequest(RequirementKind.TASK, label, 1, true, null, null);
+    }
+
     /**
      * Appends a branch rule to the named stage: "if the ATTRIBUTE named attributeKey
      * equals value, go to targetStageKey". Rebuilds the request rather than mutating

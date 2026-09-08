@@ -93,6 +93,7 @@ public class CaseService {
     private final CaseEngine engine;
     private final BusinessCalendar calendar;
     private final Clock clock;
+    private final TaskLifecycle taskLifecycle;
 
     public CaseService(CaseRepository cases, CaseParticipantRepository participants,
                        MilestoneRepository milestones, RequirementRepository requirements,
@@ -105,7 +106,7 @@ public class CaseService {
                        AppUserRepository users, DepartmentRepository departments,
                        TeamRepository teams, AuthorizedQuery authorizedQuery,
                        AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine,
-                       BusinessCalendar calendar, Clock clock) {
+                       BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle) {
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -128,6 +129,7 @@ public class CaseService {
         this.engine = engine;
         this.calendar = calendar;
         this.clock = clock;
+        this.taskLifecycle = taskLifecycle;
     }
 
     @RequirePermission(PermissionKeys.CASE_CREATE)
@@ -204,6 +206,12 @@ public class CaseService {
         audit.record(AuditActions.CASE_CREATED, "onboarding_case", c.getId(),
                 "Opened case on workflow " + template.getName() + " v" + versionNoOf(versionId),
                 Map.of("customerId", customer.id().toString(), "versionId", versionId.toString()));
+
+        // After CASE_CREATED's own audit record, before reconcile: a requirement
+        // of kind TASK's instantiated Task row must not exist before the case
+        // itself is recorded as created (cause before effect), and any future
+        // task.created audit entry must not precede case.created either.
+        taskLifecycle.instantiateForCase(c.getId());
 
         engine.reconcile(c);                       // statuses, progress; stage entry is Task 15
         return toView(c);

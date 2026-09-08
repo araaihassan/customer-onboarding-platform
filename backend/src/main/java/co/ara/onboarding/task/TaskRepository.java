@@ -14,4 +14,7 @@ public interface TaskRepository
 
     /** "My work": a cross-case query, which is why case_id is denormalised onto task. */
     List<Task> findByAssigneeId(UUID assigneeId);
+
+    /** Every task on a milestone, for TaskLifecycle.reopenForMilestone (Task 19/20). */
+    List<Task> findByMilestoneId(UUID milestoneId);
 }
