@@ -152,6 +152,17 @@ public final class AuditActions {
     // narrative the Activity Timeline exists to show, not internal administration.
     public static final AuditAction COMMENT_ADDED                = of("comment.added", true);
     public static final AuditAction COMMENT_EDITED               = of("comment.edited", true);
+    // Sub-project 3A Task 3: closes the last of design spec §5.5's seven task
+    // actions. Timeline-visible for the same reason TASK_STATUS_CHANGED is: who
+    // a task belongs to is the collaboration narrative, not internal staffing --
+    // contrast USER_ROLE_ASSIGNED above, which is compliance-only because that
+    // one names the TENANT'S OWN staff member, not a change to the customer's
+    // record. Recorded only on an actual TRANSITION of the assignee (old != new),
+    // never on every update that merely carries the same assignee unchanged --
+    // TaskService.update captures the previous value before mutating so it can
+    // tell the difference, the same shape CONTACT_DEACTIVATED draws against a
+    // plain phone-number correction.
+    public static final AuditAction TASK_ASSIGNED                = of("task.assigned", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

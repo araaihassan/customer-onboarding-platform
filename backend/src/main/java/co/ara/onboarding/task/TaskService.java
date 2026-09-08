@@ -32,6 +32,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -183,6 +184,15 @@ public class TaskService {
         t.setAssigneeId(resolveAssigneeId(request.assigneeId()));
         t.setDueDate(request.dueDate());
         tasks.save(t);
+
+        // Ad-hoc path only: TaskInstantiation records this same action, once per
+        // instantiated task, for the requirement-instantiated path -- see its own
+        // javadoc. Recorded here, after the save and before this method returns
+        // (there is nothing else in this method left to record a consequence of).
+        audit.record(AuditActions.TASK_CREATED, "onboarding_case", c.getId(),
+                "Created task \"" + t.getTitle() + "\"",
+                Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
+
         return toView(t);
     }
 
@@ -262,14 +272,29 @@ public class TaskService {
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.TASK_MANAGE, m.getCaseId());
         writeScope.check(c, m, stageOf(m));
 
+        UUID previousAssigneeId = t.getAssigneeId();
+
         t.setCaseId(m.getCaseId());
         t.setMilestoneId(m.getId());
         t.setTitle(request.title());
         t.setDescription(request.description());
         t.setPriority(request.priority());
-        t.setAssigneeId(resolveAssigneeId(request.assigneeId()));
+        UUID newAssigneeId = resolveAssigneeId(request.assigneeId());
+        t.setAssigneeId(newAssigneeId);
         t.setDueDate(request.dueDate());
         tasks.save(t);
+
+        // Recorded only on an actual TRANSITION of the assignee (old != new),
+        // never on every update that merely carries the same assignee unchanged
+        // -- the same distinction CONTACT_DEACTIVATED draws against a plain
+        // phone-number correction. previousAssigneeId is captured above, before
+        // the mutation, since t itself no longer holds the old value once set.
+        if (!Objects.equals(previousAssigneeId, newAssigneeId)) {
+            audit.record(AuditActions.TASK_ASSIGNED, "onboarding_case", c.getId(),
+                    "Reassigned task \"" + t.getTitle() + "\"",
+                    Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
+        }
+
         return toView(t);
     }
 
