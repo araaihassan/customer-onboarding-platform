@@ -186,8 +186,31 @@ export function WorkBoard() {
         <ErrorState message={t("common.error")} onRetry={() => void work.refetch()} />
       ) : (
         <div
-          className="grid"
-          style={{ gridTemplateColumns: `repeat(${visibleColumns.length}, minmax(0, 1fr))`, gap: "var(--ob-space-11)", alignItems: "start" }}
+          data-testid="work-board-columns"
+          // Named breakpoints only -- never an arbitrary `min-[Npx]:`/`max-[Npx]:`
+          // bracket (see Sidebar.tsx's own doc comment for the exact failure mode:
+          // a class built by interpolating a variable INTO an arbitrary bracket is
+          // invisible to Tailwind's static source scan and compiles to nothing).
+          // Below `lg` (1024px) the board is a single flex column -- one column
+          // rendered after another, in order, never a horizontally-scrolling row.
+          // At `lg` and above it becomes a 2-column grid, and at `xl` (1280px) the
+          // full 4 columns SCREENS.md §5 specifies. A single filtered bucket
+          // (`visibleColumns.length === 1`) stays one column at every width --
+          // there is nothing to collapse when there is only one column to begin
+          // with, and forcing it into a 2- or 4-track grid would leave the other
+          // tracks empty for no reason.
+          //
+          // `items-start` is scoped to `lg:` only -- it is what stops the grid's
+          // columns being stretched to match each other's height once there are
+          // real tracks to align, but the same rule applied below `lg`, where the
+          // layout is a plain flex column, would shrink every column to its own
+          // content width instead of letting it stretch to fill the single track.
+          className={
+            visibleColumns.length > 1
+              ? "flex flex-col lg:grid lg:grid-cols-2 lg:items-start xl:grid-cols-4"
+              : "flex flex-col"
+          }
+          style={{ gap: "var(--ob-space-11)" }}
         >
           {visibleColumns.map((bucket) => (
             <WorkColumn
