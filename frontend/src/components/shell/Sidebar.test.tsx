@@ -96,6 +96,17 @@ describe("Sidebar", () => {
     expect(linkNamed(/dashboard/i)?.getAttribute("href")).toBe("/t/acme/dashboard");
   });
 
+  it("omits My work without task.view", () => {
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/my work/i)).toBeNull();
+  });
+
+  it("offers My work with task.view at any scope", () => {
+    permissions = { "task.view": ["ASSIGNED"] };
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/my work/i)?.getAttribute("href")).toBe("/t/acme/work");
+  });
+
   it("omits Customers without customer.view", () => {
     render(<Sidebar slug="acme" />);
     expect(linkNamed(/customers/i)).toBeNull();

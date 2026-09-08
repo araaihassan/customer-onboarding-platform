@@ -1,8 +1,10 @@
 "use client";
 
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
-import { caseKeys } from "./cases";
+import { caseKeys, type Case } from "./cases";
+import { customerKeys, type Customer } from "./customers";
 import type { components } from "./generated";
 
 /**
@@ -53,6 +55,83 @@ export function useMyWork(filters: MyWorkFilters = {}) {
     queryKey: taskKeys.mine(filters),
     queryFn: () => apiFetch<Task[]>(`/tasks?${params.toString()}`),
   });
+}
+
+export interface WorkItemContext {
+  caseName?: string;
+  customerName?: string;
+}
+
+/**
+ * Resolves each task's case name and customer name for the cross-case "My
+ * work" board (Task 28, SCREENS.md §5: "context, then a chip + customer
+ * name"). `TaskView` carries only `caseId` -- Task 26 never had a reason to
+ * denormalise a case or customer name onto it -- so this is a two-hop
+ * lookup: case (for its own `name` and `customerId`), then customer (for
+ * `displayName`). Both hops reuse `caseKeys`/`customerKeys` from
+ * cases.ts/customers.ts, so a case or customer another screen already
+ * fetched (the case workspace, the customer list) costs nothing extra here,
+ * and this board's own fetches are reusable the same way in return.
+ *
+ * Deliberately tolerant of a still-loading or failed hop: a card is never
+ * blocked on its context resolving, it just renders without the extra line
+ * until the lookup completes. No defensive re-fetch or retry logic beyond
+ * what `useQuery`'s defaults already give every other read in this file.
+ */
+export function useWorkContexts(tasks: Task[]): Map<string, WorkItemContext> {
+  const caseIds = useMemo(
+    () => Array.from(new Set(tasks.map((task) => task.caseId).filter((id): id is string => Boolean(id)))),
+    [tasks],
+  );
+
+  const caseResults = useQueries({
+    queries: caseIds.map((caseId) => ({
+      queryKey: caseKeys.detail(caseId),
+      queryFn: () => apiFetch<Case>(`/cases/${caseId}`),
+    })),
+  });
+
+  const casesById = useMemo(() => {
+    const map = new Map<string, Case>();
+    caseIds.forEach((caseId, index) => {
+      const data = caseResults[index]?.data;
+      if (data) map.set(caseId, data);
+    });
+    return map;
+  }, [caseIds, caseResults]);
+
+  const customerIds = useMemo(
+    () =>
+      Array.from(
+        new Set(Array.from(casesById.values()).map((c) => c.customerId).filter((id): id is string => Boolean(id))),
+      ),
+    [casesById],
+  );
+
+  const customerResults = useQueries({
+    queries: customerIds.map((customerId) => ({
+      queryKey: customerKeys.detail(customerId),
+      queryFn: () => apiFetch<Customer>(`/customers/${customerId}`),
+    })),
+  });
+
+  const customersById = useMemo(() => {
+    const map = new Map<string, Customer>();
+    customerIds.forEach((customerId, index) => {
+      const data = customerResults[index]?.data;
+      if (data) map.set(customerId, data);
+    });
+    return map;
+  }, [customerIds, customerResults]);
+
+  return useMemo(() => {
+    const map = new Map<string, WorkItemContext>();
+    for (const [caseId, caseData] of casesById) {
+      const customerName = caseData.customerId ? customersById.get(caseData.customerId)?.displayName : undefined;
+      map.set(caseId, { caseName: caseData.name, customerName });
+    }
+    return map;
+  }, [casesById, customersById]);
 }
 
 /** Ad-hoc creation under a case -- the requirement-instantiated path has no UI trigger of its own. */

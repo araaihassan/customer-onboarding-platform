@@ -4,7 +4,7 @@ import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import { caseKeys } from "./cases";
-import { taskKeys, useCaseTasks, useChangeTaskStatus, useCreateTask, useMyWork } from "./tasks";
+import { taskKeys, useCaseTasks, useChangeTaskStatus, useCreateTask, useMyWork, useWorkContexts, type Task } from "./tasks";
 import { useAddComment, useComments } from "./comments";
 
 const fetchMock = vi.fn();
@@ -80,6 +80,45 @@ describe("useMyWork", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(lastUrl()).toBe("/api/t/acme/tasks?assignee=me&bucket=do_now");
+  });
+});
+
+describe("useWorkContexts", () => {
+  /**
+   * Task 28's own addition: `WorkBoard` needs a case name and a customer
+   * name per task (SCREENS.md §5), and `TaskView` carries only `caseId` --
+   * so this is a two-hop lookup, case then customer. Two tasks sharing one
+   * case must resolve to one case fetch, not two -- `caseIds` is de-duplicated
+   * before it ever reaches `useQueries`.
+   */
+  it("resolves a case's name and its customer's display name, fetching each id once even when several tasks share it", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url === "/api/t/acme/cases/c-1") return reply({ id: "c-1", customerId: "cust-1", name: "Kickoff case" });
+      if (url === "/api/t/acme/customers/cust-1") return reply({ id: "cust-1", displayName: "Northwind Foods" });
+      return reply({}, 404);
+    });
+
+    const { Wrapper } = makeWrapper();
+    const tasks = [
+      { id: "t-1", caseId: "c-1" },
+      { id: "t-2", caseId: "c-1" },
+    ] as Task[];
+    const { result } = renderHook(() => useWorkContexts(tasks), { wrapper: Wrapper });
+
+    await waitFor(() =>
+      expect(result.current.get("c-1")).toEqual({ caseName: "Kickoff case", customerName: "Northwind Foods" }),
+    );
+
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/t/acme/cases/c-1")).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([url]) => url === "/api/t/acme/customers/cust-1")).toHaveLength(1);
+  });
+
+  it("returns an empty map and fires no request for an empty task list", () => {
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useWorkContexts([]), { wrapper: Wrapper });
+
+    expect(result.current.size).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 

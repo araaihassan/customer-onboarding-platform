@@ -55,8 +55,26 @@ function todayIso(): string {
  * a card so it also works as Task 28's `WorkBoard` column item). Props in,
  * no data-fetching of its own -- it must not assume it only ever renders
  * inside a Tasks-tab list.
+ *
+ * `context` and `customerName` are Task 28's own narrow addition (SCREENS.md
+ * §5: "title 12.5px/600, context 11.5px, then a chip + customer name") --
+ * both optional and both undefined in every existing call site (`TasksTab`),
+ * so a task already inside its own case's tab, where the case is implied by
+ * the screen, renders exactly as it did before this task. `WorkBoard` is the
+ * only caller that supplies them, since it is the only view spanning more
+ * than one case.
  */
-export function TaskCard({ task, onClick }: { task: Task; onClick?: () => void }) {
+export function TaskCard({
+  task,
+  context,
+  customerName,
+  onClick,
+}: {
+  task: Task;
+  context?: string;
+  customerName?: string;
+  onClick?: () => void;
+}) {
   const status = task.status ?? "PENDING";
   const overdue = isTaskOverdue(task);
   const interactive = Boolean(onClick);
@@ -97,10 +115,31 @@ export function TaskCard({ task, onClick }: { task: Task; onClick?: () => void }
         <StatusPill status={t(`task.status.${status}`)} role={ROLE_BY_TASK_STATUS[status]} />
       </div>
 
+      {/* Which case this task lives in -- only meaningful once a card can appear
+          alongside cards from OTHER cases, i.e. only on WorkBoard. */}
+      {context && (
+        <span
+          className="text-text-subtle truncate"
+          style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
+        >
+          {context}
+        </span>
+      )}
+
       <div className="flex items-center justify-between flex-wrap" style={{ gap: "var(--ob-space-8)" }}>
-        {task.priority && (
-          <StatusPill status={t(`task.priority.${task.priority}`)} role={ROLE_BY_TASK_PRIORITY[task.priority]} />
-        )}
+        <div className="flex items-center min-w-0" style={{ gap: "var(--ob-space-8)" }}>
+          {task.priority && (
+            <StatusPill status={t(`task.priority.${task.priority}`)} role={ROLE_BY_TASK_PRIORITY[task.priority]} />
+          )}
+          {customerName && (
+            <span
+              className="text-text-subtle truncate"
+              style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
+            >
+              {customerName}
+            </span>
+          )}
+        </div>
 
         {/* Due dates are machine-generated values -- Spline Sans Mono, per CLAUDE.md's data-font rule -- unlike the title above. */}
         <span

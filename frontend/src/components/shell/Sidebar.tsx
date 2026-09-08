@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
-import { LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
+import { ClipboardCheckIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
 import type { IconProps } from "@/components/icons";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
@@ -81,6 +81,7 @@ export function Sidebar({
   const canViewCustomers = useHasPermission("customer.view");
   const canViewUsers = useHasPermission("user.view");
   const canViewRoles = useHasPermission("role.view");
+  const canViewWork = useHasPermission("task.view");
 
   const items: NavItem[] = [
     {
@@ -90,6 +91,15 @@ export function Sidebar({
       Icon: LayoutDashboardIcon,
     },
   ];
+
+  if (canViewWork) {
+    items.push({
+      label: t("nav.work"),
+      href: `/t/${slug}/work`,
+      section: `/t/${slug}/work`,
+      Icon: ClipboardCheckIcon,
+    });
+  }
 
   if (canViewCustomers) {
     items.push({
