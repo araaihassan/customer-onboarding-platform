@@ -229,6 +229,17 @@ public class TaskService {
      * guard. When milestoneId is unchanged, source and destination are the
      * same milestone, so only one resolution/check is performed -- a second,
      * identical one would be redundant, not more correct.
+     *
+     * milestoneId may NOT move the task to a different CASE, though -- the
+     * same confused-deputy shape create's own case/milestone mismatch guard
+     * closes (see that javadoc), checked here against the task's own current
+     * caseId rather than a URL-supplied one, since update has no separate
+     * caseId path parameter. Without this, a cross-case move would split the
+     * task from its requirement (requirementId is deliberately not part of
+     * this request, so it would keep pointing at a requirement in the OLD
+     * case) and orphan its comments (comment.case_id is denormalised at
+     * creation and never follows the task, so the old case_id matches
+     * nothing in the new one).
      */
     @RequirePermission(PermissionKeys.TASK_MANAGE)
     @Transactional
@@ -245,6 +256,9 @@ public class TaskService {
 
         Milestone m = authorizedQuery.getById(
                 milestones, Milestone.class, PermissionKeys.TASK_MANAGE, request.milestoneId());
+        if (!m.getCaseId().equals(t.getCaseId())) {
+            throw new NoSuchElementException("Not found");
+        }
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.TASK_MANAGE, m.getCaseId());
         writeScope.check(c, m, stageOf(m));
 

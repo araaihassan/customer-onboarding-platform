@@ -106,13 +106,12 @@ function tasksForBucket(tasks: Task[], status: TaskStatus): Task[] {
  * the back button returns to the unfiltered board.
  *
  * Cards render read-only here (no `onClick`, unlike `TasksTab`'s use of the
- * same `TaskCard`): `useChangeTaskStatus`'s own cache invalidation only
- * covers the task's case list and roadmap, not this board's `taskKeys.mine`
- * query, so wiring a status-change control in from here would leave a task
- * showing in a column it just left until something else happened to
- * refetch this screen. Fixing that cache gap is a `tasks.ts` change outside
- * this task's own scope, not a `WorkBoard` concern -- worth revisiting
- * before this board grows a status control of its own.
+ * same `TaskCard`) -- not because of a cache gap: commit `7b34c24` widened
+ * `useChangeTaskStatus`'s invalidation to `taskKeys.mineAll()`
+ * (`tasks.ts:33-39,177`), so a status change now invalidates this board's
+ * own query family along with the task's case list and roadmap. A status
+ * control wired in here would be safe to add, cache-wise, if this board
+ * ever needs one -- it was simply never built for Task 28.
  */
 export function WorkBoard() {
   const router = useRouter();

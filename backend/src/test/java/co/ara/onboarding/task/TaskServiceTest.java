@@ -191,6 +191,36 @@ class TaskServiceTest extends PostgresTestBase {
                 .isInstanceOf(NoSuchElementException.class);
     }
 
+    /**
+     * Final whole-branch review, issue 1: create's case/milestone mismatch
+     * guard (above) has no equivalent in update -- update resolves the
+     * destination milestone from the request body and blindly follows its
+     * caseId, with no check against the task's OWN current case. A cross-case
+     * move would split the task from its requirement (requirementId is not
+     * part of UpdateTaskRequest, so it keeps pointing at a requirement in the
+     * old case) and orphan its comments (comment.case_id never follows the
+     * task). Both sides are still write-scope-checked, so this is a
+     * data-integrity guard, not an authorization one -- same as create's.
+     */
+    @Test
+    void updateRefusesMovingATaskToAMilestoneInADifferentCase() {
+        UUID tenant = fixture.createTenant("task-update-cross-case");
+        var taskId = new UUID[1];
+        var otherCaseMilestoneId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            UUID caseAId = simpleCase(tenant);
+            taskId[0] = tasks.create(caseAId, new CreateTaskRequest(
+                    firstMilestone(caseAId), null, "Stays in case A", null,
+                    TaskPriority.MEDIUM, null, null)).id();
+            otherCaseMilestoneId[0] = firstMilestone(simpleCase(tenant));
+        });
+
+        assertThatThrownBy(() -> fixture.runAs(tenant, () -> tasks.update(taskId[0],
+                new UpdateTaskRequest("Cross-case move attempt", null, TaskPriority.HIGH, null, null,
+                        otherCaseMilestoneId[0]))))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
     private void grant(UUID userId, Map<String, Scope> grants) {
         UUID role = roles.createRole("Fixture Role " + Uuid7.generate(), "", grants);
         roles.assignRole(userId, role);

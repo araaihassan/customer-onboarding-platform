@@ -108,7 +108,9 @@ export function CommentThread({
         </ul>
       )}
 
-      <CommentComposer caseId={caseId} resourceType={resourceType} resourceId={resourceId} />
+      {canEdit && (
+        <CommentComposer caseId={caseId} resourceType={resourceType} resourceId={resourceId} />
+      )}
     </div>
   );
 }

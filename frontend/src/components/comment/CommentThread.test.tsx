@@ -186,4 +186,19 @@ describe("CommentThread", () => {
 
     await waitFor(() => expect(textarea.value).toBe(""));
   });
+
+  // Final whole-branch review, issue 2: three seeded role templates (Sales
+  // Representative, Service Provider, Business Partner) hold case.view but
+  // not comment.create, so an actor with no comment.create at all must not
+  // get a compose box that can only ever 403. All the other cases in this
+  // file set comment.create -- this is the one that would have caught the
+  // regression.
+  it("does not render the composer when the actor holds no comment.create", async () => {
+    permissions = {};
+    renderThread([]);
+    await waitFor(() => expect(screen.getByText("No comments yet")).not.toBeNull());
+
+    expect(screen.queryByLabelText("Add a comment")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Post comment" })).toBeNull();
+  });
 });
