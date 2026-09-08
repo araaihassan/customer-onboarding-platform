@@ -291,8 +291,18 @@ class AuthorizationCoverageTest {
             "co.ara.onboarding.identity.PlatformAdminBootstrap",
             // Fed only pre-authorized ids by a caller that already resolved them
             // through AuthorizedQuery -- the CaseEngine/lockById precedent.
+            //
+            // TaskDirectoryAdapter is deliberately NOT on this list any more
+            // (sub-project 3A Task 5): it bypassed AuthorizedQuery on the
+            // reasoning that CaseService.roadmap() already resolved every
+            // milestone id under CASE_VIEW before summaryFor saw it -- but
+            // CASE_VIEW and TASK_VIEW are different permissions held at
+            // different scopes, so an ASSIGNED-scoped task.view holder's
+            // count leaked tasks assigned to somebody else. Its summaryFor
+            // now calls authorizedQuery.findAll under TASK_VIEW, the same
+            // sanctioned wrapper every other class here reaches through, so
+            // it needs no exclusion at all.
             "co.ara.onboarding.task.TaskInstantiation",
-            "co.ara.onboarding.task.TaskDirectoryAdapter",
             "co.ara.onboarding.task.TaskLifecycleAdapter",
             // Both ids PendingInvitationRevoker acts on are resolved through
             // AuthorizedQuery by its only callers (UserInvitationService,
@@ -394,12 +404,16 @@ class AuthorizationCoverageTest {
 
     @Test
     void finderRuleBindsToRepositoryInjectionNotClassName() {
-        // TaskInstantiation injects repositories and calls finders directly. Under the
-        // name-shaped rule it is invisible. Under the rebound rule it must appear as a
-        // NAMED exclusion, never as a class the rule silently fails to see.
+        // TaskInstantiation and TaskLifecycleAdapter inject repositories and call
+        // finders directly. Under the name-shaped rule they were invisible. Under
+        // the rebound rule each must appear as a NAMED exclusion, never as a class
+        // the rule silently fails to see. TaskDirectoryAdapter is deliberately NOT
+        // asserted here any more (sub-project 3A Task 5): it no longer calls a
+        // finder outside AuthorizedQuery, so it carries no exclusion at all --
+        // see FINDER_RULE_EXCLUSIONS' own comment for why.
         assertThat(FINDER_RULE_EXCLUSIONS)
                 .contains("co.ara.onboarding.task.TaskInstantiation",
-                          "co.ara.onboarding.task.TaskDirectoryAdapter",
-                          "co.ara.onboarding.task.TaskLifecycleAdapter");
+                          "co.ara.onboarding.task.TaskLifecycleAdapter")
+                .doesNotContain("co.ara.onboarding.task.TaskDirectoryAdapter");
     }
 }
