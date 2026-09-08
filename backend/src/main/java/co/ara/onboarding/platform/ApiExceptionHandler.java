@@ -43,4 +43,30 @@ public class ApiExceptionHandler {
     ProblemDetail conflict(IllegalStateException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
+
+    /**
+     * 400 for a request that was well-formed JSON but semantically invalid in
+     * a way no single field-level bean validation constraint could express --
+     * task.TaskService.changeStatus's "a cancellation reason is required
+     * (only when status is CANCELLED)" is the case that surfaced this gap
+     * (sub-project 3, Task 24): every OTHER conditionally-required reason in
+     * the codebase (CaseService.hold, MilestoneService.reopen/
+     * requestForceComplete, RequirementService.waive) is unconditional on its
+     * own request type, so its own {@code @NotBlank} already 400s it via
+     * Spring's default MethodArgumentNotValidException handling before the
+     * service's own IllegalArgumentException backstop is ever reached
+     * through real HTTP. TaskStatusRequest.reason is the first field that is
+     * required only conditionally, so it is the first path where this
+     * exception actually needed a mapping of its own -- until now, one
+     * submitted through the real API would have 500'd.
+     *
+     * IllegalArgumentException is a plain java.lang type, so mapping it here
+     * names no domain module and introduces no dependency -- same reasoning
+     * as IllegalStateException just above, and the message is echoed
+     * deliberately for the same reason that one's is.
+     */
+    @ExceptionHandler(IllegalArgumentException.class)
+    ProblemDetail badRequest(IllegalArgumentException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
 }

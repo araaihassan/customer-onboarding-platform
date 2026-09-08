@@ -1492,9 +1492,44 @@ void aCrossTenantCaseIdYieldsNoComments() {
 ### Task 24: Controllers, exception handler, and the generated client
 
 **Files:**
-- Create: `task/TaskController.java`, `task/CommentController.java`, `task/TaskExceptionHandler.java`
+- Create: `task/TaskController.java`, `task/CommentController.java`, `task/TaskExceptionHandler.java`,
+  `task/UpdateChecklistItemRequest.java`
+- Modify: `task/TaskService.java` (add `myWork`), `platform/ApiExceptionHandler.java` (add an
+  `IllegalArgumentException` mapping) -- both are plan gaps this task closed, not scope creep; see
+  the amendment note below.
 - Regenerate: `frontend/src/lib/api/generated.ts`
-- Test: `backend/src/test/java/co/ara/onboarding/architecture/DirectApiAccessTest.java`
+- Test: `backend/src/test/java/co/ara/onboarding/security/DirectApiAccessTest.java` (the plan named
+  `architecture/DirectApiAccessTest.java`; the real file has always lived in `co.ara.onboarding.security`)
+
+**Plan amendment (found executing this task, 2026-09-08):** three things this task's own file list
+didn't anticipate, each closed here rather than deferred:
+
+1. **`GET /tasks?assignee=me&bucket=…` had no service-layer query anywhere.** Tasks 16-23 gave
+   `TaskService` `create`/`get`/`forCase`/`update`/`changeStatus` only -- nothing cross-case by
+   assignee. Added `TaskService.myWork(String bucket)`, gated `task.view`, assignee pinned to the
+   calling principal (never a caller-supplied user id -- the spec's URL has no cross-user variant),
+   filtered through `AuthorizedQuery` same as every other read here. `bucket` partitions spec
+   §8.2's four non-CANCELLED columns (`do_now`/`in_progress`/`waiting`/`done_this_week`); an
+   unrecognised value or `assignee` other than `me` is refused as `IllegalArgumentException` (400).
+2. **The checklist endpoint's shape.** `ChecklistService` (Task 22) exposes three separately-gated
+   methods (`rename`/`reorder` under `task.manage`, `toggle` under `task.complete`) behind the
+   single `PUT /checklist/{itemId}` the spec names. `UpdateChecklistItemRequest` carries three
+   nullable fields (`label`, `ordinal`, `toggleDone`); `TaskController` calls whichever service
+   methods the non-null fields imply, each under its own gate. `toggleDone` rather than a target
+   `done` boolean deliberately: `toggle()` inverts current state and takes no target, so modelling
+   the field as "set done to X" would misrepresent a contract the service doesn't offer without a
+   read-then-decide check that would either duplicate or bypass its gate. A request with every
+   field null is refused (400) rather than silently returning the item unchanged, since
+   `ChecklistService` has no bare read to fall back on.
+3. **`IllegalArgumentException` had no HTTP mapping anywhere**, so `TaskService.changeStatus`'s
+   blank-cancellation-reason check (Task 18) would have 500'd through the real API -- invisible
+   until this task's controller made it reachable via HTTP for the first time (every other
+   conditionally-worded reason check in the codebase is guarded by an unconditional `@NotBlank` on
+   its own request type, so bean validation always intercepted it first). Mapped in
+   `platform.ApiExceptionHandler` (400), next to the existing `IllegalStateException` precedent --
+   both are plain `java.lang` types naming no domain module. `TaskExceptionHandler` maps only
+   `IllegalTaskTransitionException` (409, `journey.JourneyExceptionHandler`'s own pattern), the one
+   type this module defines that `platform` cannot name.
 
 - [ ] **Step 1: Write the controllers** per §7 of the spec — thin, no logic beyond binding and delegation.
 

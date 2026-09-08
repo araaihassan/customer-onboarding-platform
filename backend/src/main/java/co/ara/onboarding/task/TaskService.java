@@ -27,6 +27,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -345,6 +346,69 @@ public class TaskService {
             requirements.satisfy(t.getRequirementId(), t.getId(), "task");
         }
         return toView(t);
+    }
+
+    /**
+     * "My work" (design spec §7/§8.2): a cross-case board scoped to the
+     * CALLING actor's own assignments, added here rather than left to
+     * {@code TaskController} because it is a read of tenant business data
+     * (CLAUDE.md's Global Constraints -- every such read goes through
+     * {@link AuthorizedQuery}) and needs its own {@code @RequirePermission}
+     * gate, neither of which a controller may carry. This method was not in
+     * Task 24's own file list (which named only the controllers, the
+     * exception handler and the generated client) -- the spec's endpoint
+     * needs a service-layer query no earlier task added, so this is a plan
+     * gap closed here rather than deferred, the same shape CLAUDE.md's
+     * "Plan deviations" section describes.
+     *
+     * assigneeId is pinned to the calling principal regardless of whatever
+     * wider record-scope the actor's own task.view grant would otherwise
+     * resolve -- an ALL-scoped administrator's own work board must show only
+     * THEIR assignments, not the whole tenant's. The spec's URL is literally
+     * {@code assignee=me}; there is no cross-user variant, so {@code
+     * TaskController} is the only caller and always means the current
+     * principal -- there is nothing here for a caller-supplied user id to
+     * escalate through in the first place.
+     *
+     * bucket partitions spec §8.2's four non-CANCELLED columns ("do_now",
+     * "in_progress", "waiting", "done_this_week"); a value outside those four
+     * is refused as {@link IllegalArgumentException} (400) rather than
+     * silently returning nothing, and a null bucket returns the union of all
+     * four -- still excluding CANCELLED, "which is what makes the headline
+     * true rather than decorative" (spec §8.2). "Done this week" is completed
+     * status BUT completedAt within the trailing 7 days, matching the
+     * column's own name; it is deliberately not a rolling requirement/task
+     * completion count, since progress is derived from requirements alone.
+     */
+    @RequirePermission(PermissionKeys.TASK_VIEW)
+    @Transactional(readOnly = true)
+    public List<TaskView> myWork(String bucket) {
+        UUID self = contextProvider.principal().userId();
+        Specification<Task> mine = (root, query, cb) -> cb.equal(root.get("assigneeId"), self);
+        Specification<Task> scoped = mine.and(bucketFilter(bucket));
+        return authorizedQuery.findAll(tasks, Task.class, PermissionKeys.TASK_VIEW, scoped, Pageable.unpaged())
+                .getContent().stream().map(this::toView).toList();
+    }
+
+    private Specification<Task> bucketFilter(String bucket) {
+        Instant weekAgo = Instant.now(clock).minus(Duration.ofDays(7));
+        if (bucket == null) {
+            return (root, query, cb) -> cb.or(
+                    cb.equal(root.get("status"), TaskStatus.PENDING),
+                    cb.equal(root.get("status"), TaskStatus.IN_PROGRESS),
+                    cb.equal(root.get("status"), TaskStatus.WAITING),
+                    cb.and(cb.equal(root.get("status"), TaskStatus.COMPLETED),
+                            cb.greaterThanOrEqualTo(root.get("completedAt"), weekAgo)));
+        }
+        return switch (bucket) {
+            case "do_now" -> (root, query, cb) -> cb.equal(root.get("status"), TaskStatus.PENDING);
+            case "in_progress" -> (root, query, cb) -> cb.equal(root.get("status"), TaskStatus.IN_PROGRESS);
+            case "waiting" -> (root, query, cb) -> cb.equal(root.get("status"), TaskStatus.WAITING);
+            case "done_this_week" -> (root, query, cb) -> cb.and(
+                    cb.equal(root.get("status"), TaskStatus.COMPLETED),
+                    cb.greaterThanOrEqualTo(root.get("completedAt"), weekAgo));
+            default -> throw new IllegalArgumentException("Unknown bucket: " + bucket);
+        };
     }
 
     private void guardTransition(TaskStatus from, TaskStatus to) {
