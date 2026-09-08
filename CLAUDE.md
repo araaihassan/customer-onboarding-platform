@@ -521,6 +521,22 @@ and Playwright gives a test no way to read a `webServer`'s stdout. Override the 
 way the backend does: `DB_URL=… npx playwright test`. It provisions a tenant per spec file and
 never truncates, so point it at a scratch database.
 
+**Sub-project 3A baseline, 2026-09-09** (Task 1) — all three suites run green before any of 3A's
+feature work touches the codebase: backend `cleanTest test` reported `BUILD SUCCESSFUL` (502
+tests, none skipped), `npx vitest run` reported 61 files / 443 tests all passing, and `npx
+playwright test` against the scratch database reported 41 passed in 2.2m, all specs including the
+new-since-sub-project-3 `tasks.spec.ts`. The first run surfaced two backend failures, both the same
+defect in different tests, neither a product bug: `CaseCreationTest.dueDatesAccumulateInBusinessDaysWithinAStage`
+and `TransitionTest.enteringAStageSchedulesItsMilestones` each asserted a due date against the
+bare, zero-arg `LocalDate.now()` (the JVM's default time zone) instead of `LocalDate.now(clock)`
+(the injected `Clock` — `Clock.systemUTC()` in production, the UTC-backed `MutableClock` in
+tests — which is what `CaseEngine` actually computes due dates from). On this host, whose default
+zone is UTC+3, the two disagree for the few hours after local midnight but before UTC midnight,
+which is exactly the window the suite happened to run in. `MigrationTest` already used the correct
+`LocalDate.now(clock)` pattern; both failing call sites were brought in line with it. No assertion
+was weakened. Full detail is in
+`.superpowers/sdd/2026-09-08-programmes-and-customer-plans/task-1-report.md`.
+
 API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
 during `:test`; `./gradlew openApiSpec` is the wrapper that produces it and says where it is. `npm run
 generate:api` then regenerates `frontend/src/lib/api/generated.ts` from it, and
