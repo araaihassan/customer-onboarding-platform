@@ -52,13 +52,14 @@ public class MilestoneService {
     private final CaseEngine engine;
     private final StageWriteScopeGuard writeScope;
     private final Clock clock;
+    private final TaskLifecycle taskLifecycle;
 
     public MilestoneService(MilestoneRepository milestones, RequirementRepository requirements,
                             ApprovalRepository approvals, CaseParticipantRepository participants,
                             MilestoneDefinitionRepository milestoneDefinitions, StageRepository stages,
                             AppUserRepository users, AuthorizedQuery authorizedQuery,
                             AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine,
-                            StageWriteScopeGuard writeScope, Clock clock) {
+                            StageWriteScopeGuard writeScope, Clock clock, TaskLifecycle taskLifecycle) {
         this.milestones = milestones;
         this.requirements = requirements;
         this.approvals = approvals;
@@ -72,6 +73,7 @@ public class MilestoneService {
         this.engine = engine;
         this.writeScope = writeScope;
         this.clock = clock;
+        this.taskLifecycle = taskLifecycle;
     }
 
     /**
@@ -212,6 +214,13 @@ public class MilestoneService {
         }
         audit.record(AuditActions.MILESTONE_REOPENED, "onboarding_case", c.getId(),   // cause before effects
                 "Reopened milestone: " + reason, Map.of("milestoneId", m.getId().toString()));
+
+        // After MILESTONE_REOPENED's own audit record, before reconcile -- same
+        // cause-before-effect position as CaseService.create's
+        // taskLifecycle.instantiateForCase call. Completed tasks on this
+        // milestone return to PENDING; cancelled tasks are left alone
+        // (TaskLifecycleAdapter.reopenForMilestone, Task 19).
+        taskLifecycle.reopenForMilestone(m.getId());
 
         engine.reconcile(c);
     }

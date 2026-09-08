@@ -5,6 +5,7 @@ import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.hibernate.exception.ConstraintViolationException;
@@ -37,17 +38,20 @@ public class CustomerContactService {
     private final CustomerRepository customers;
     private final AuthorizedQuery authorizedQuery;
     private final ContactInvitationSender invitations;
+    private final AppUserRepository users;
     private final AuditRecorder audit;
 
     public CustomerContactService(CustomerContactRepository repository,
                                   CustomerRepository customers,
                                   AuthorizedQuery authorizedQuery,
                                   ContactInvitationSender invitations,
+                                  AppUserRepository users,
                                   AuditRecorder audit) {
         this.repository = repository;
         this.customers = customers;
         this.authorizedQuery = authorizedQuery;
         this.invitations = invitations;
+        this.users = users;
         this.audit = audit;
     }
 
@@ -161,9 +165,10 @@ public class CustomerContactService {
             throw new NoSuchElementException("Not found");
         }
 
-        // Captured BEFORE the setters: the entity is managed, so after setStatus
-        // the previous value is gone and the transition is unrecoverable.
+        // Captured BEFORE the setters: the entity is managed, so after the setters
+        // run the previous values are gone and both transitions are unrecoverable.
         ContactStatus previousStatus = c.getStatus();
+        String previousEmail = c.getEmail();
 
         c.setFullName(request.fullName());
         c.setEmail(request.email());
@@ -186,6 +191,61 @@ public class CustomerContactService {
         // single click never appears twice on the timeline.
         boolean retired = previousStatus != ContactStatus.INACTIVE
                 && saved.getStatus() == ContactStatus.INACTIVE;
+
+        // The symmetric transition. Without this, retiring a contact was a
+        // one-way door for its linked portal account: UserAdminService has no
+        // reactivate path, and both of ActivationService's own
+        // setStatus(ACTIVE) call sites are unreachable for an
+        // already-activated contact (activateInternalUser requires INVITED;
+        // activateContact refuses because an app_user already exists for the
+        // address). A mis-clicked retirement would otherwise be recoverable
+        // only by direct SQL.
+        boolean reactivated = previousStatus == ContactStatus.INACTIVE
+                && saved.getStatus() != ContactStatus.INACTIVE;
+
+        // The portal login is app_user, not customer_contact -- LoginService and
+        // ActivationService's duplicate-address check both read app_user.email, so
+        // a corrected address that never reaches it leaves the account reachable
+        // only under the address the contact no longer uses. LinkedPortalUserEmailSync
+        // is the finder-and-update helper, not AppUserRepository directly here,
+        // because CustomerContactService ends in "Service" and
+        // AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly
+        // covers customer.. -- the same reason auth's PendingInvitationRevoker
+        // needs no guard exclusion of its own. The id fed to it,
+        // saved.getUserId(), was never a fresh caller-supplied value: it comes
+        // off a CustomerContact already resolved through AuthorizedQuery under
+        // CONTACT_MANAGE above, so no further scope predicate applies. The sync
+        // itself can still refuse -- PortalEmailConflictException -- if the
+        // corrected address collides with a DIFFERENT customer's already-linked
+        // account; app_user's uniqueness is tenant-wide, customer_contact's is
+        // only per-customer.
+        if (!previousEmail.equals(saved.getEmail())) {
+            new LinkedPortalUserEmailSync(users).syncEmail(saved.getUserId(), saved.getEmail());
+        }
+
+        if (retired) {
+            // Ends the linked portal account so a retired contact cannot still sign
+            // in (LoginService admits only ACTIVE), same helper and same reasoning
+            // as the email sync above.
+            new LinkedPortalUserEmailSync(users).deactivate(saved.getUserId());
+
+            // And a retired contact must not still be ACTIVATABLE either: an
+            // outstanding invitation is a live credential nobody has redeemed yet.
+            // Delegated through the ContactInvitationSender port rather than
+            // touching InvitationRepository here, for the same module-cycle reason
+            // sendInvitation already delegates below — auth already depends on
+            // customer, so the reverse import would close a cycle. Not re-gated
+            // here either: the implementation carries its own @RequirePermission
+            // and re-resolves the contact through AuthorizedQuery, exactly as
+            // sendInvitation's own comment already states for issue().
+            invitations.revokePendingInvitations(saved.getId());
+        } else if (reactivated) {
+            // No invitation to re-issue here -- reactivation restores the
+            // EXISTING account and its existing password, it does not invite a
+            // new one. An administrator who wants the contact to set a fresh
+            // password still has sendInvitation for that.
+            new LinkedPortalUserEmailSync(users).reactivate(saved.getUserId());
+        }
 
         audit.record(retired ? AuditActions.CONTACT_DEACTIVATED : AuditActions.CONTACT_UPDATED,
                 "contact", saved.getId(),
@@ -216,8 +276,13 @@ public class CustomerContactService {
         }
     }
 
-    /** Postgres's generated name for {@code UNIQUE (customer_id, email)} in V8. */
-    private static final String CONTACT_EMAIL_UNIQUE = "customer_contact_customer_id_email_key";
+    /**
+     * The explicit name V14 gives {@code CREATE UNIQUE INDEX ... (customer_id,
+     * lower(email))} — a functional index has no auto-derived name the way V8's
+     * plain {@code UNIQUE (customer_id, email)} constraint did, so this must match
+     * whatever the migration actually calls it.
+     */
+    private static final String CONTACT_EMAIL_UNIQUE = "customer_contact_customer_id_lower_email_idx";
 
     /**
      * Matched on the constraint name Hibernate reports rather than on the message

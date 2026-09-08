@@ -1,6 +1,11 @@
 package co.ara.onboarding.customer;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,17 +22,36 @@ import java.util.UUID;
 @RequestMapping("/api/t/{tenantSlug}/customers/{customerId}/contacts")
 public class CustomerContactController {
 
+    private static final String FORBIDDEN = "Caller holds no sufficient contact.view / contact.manage / invitation.send grant";
+    private static final String NOT_FOUND = "Absent, or out of the caller's scope (spec 6.8: identical response either way)";
+
     private final CustomerContactService contacts;
 
     public CustomerContactController(CustomerContactService contacts) { this.contacts = contacts; }
 
     @GetMapping
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "All contacts for the customer"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public List<CustomerContactService.ContactView> list(@PathVariable UUID customerId) {
         return contacts.list(customerId);
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Contact created"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "A contact with this email already exists for this customer",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public CustomerContactService.ContactView create(
             @PathVariable UUID customerId,
             @RequestBody CustomerContactService.CreateContactRequest request) {
@@ -40,6 +64,15 @@ public class CustomerContactController {
      * nothing verifies is one a later caller will assume means something.
      */
     @PutMapping("/{contactId}")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Contact updated"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "A contact with this email already exists for this customer",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public CustomerContactService.ContactView update(
             @PathVariable UUID customerId,
             @PathVariable UUID contactId,
@@ -54,6 +87,13 @@ public class CustomerContactController {
      */
     @PostMapping("/{contactId}/invitations")
     @ResponseStatus(HttpStatus.NO_CONTENT)
+    @ApiResponses({
+            @ApiResponse(responseCode = "204", description = "Invitation sent to contact"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
     public void invite(@PathVariable UUID contactId) {
         contacts.sendInvitation(contactId);
     }

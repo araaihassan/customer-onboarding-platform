@@ -287,9 +287,14 @@ export class Api {
    * `attributes` defaults to `{}`, never omitted -- CaseService's own attribute
    * validation reads it with no null guard, so a request that leaves the key out
    * entirely NPEs server-side rather than answering the empty case cleanly.
+   *
+   * `name` defaults to a fixed fixture label -- CreateCaseRequest.name is
+   * @NotBlank since Q18's fix round 1, and none of this helper's callers are
+   * testing the name itself, so a constant is fine (unlike attributes, which
+   * genuinely varies per caller).
    */
-  createCase(customerId: string, templateId: string, attributes: Record<string, string> = {}) {
-    return this.post<{ id: string }>("/cases", { customerId, templateId, attributes }, 201);
+  createCase(customerId: string, templateId: string, name = "Fixture Case", attributes: Record<string, string> = {}) {
+    return this.post<{ id: string }>("/cases", { customerId, templateId, name, attributes }, 201);
   }
 
   createUser(email: string, fullName: string) {

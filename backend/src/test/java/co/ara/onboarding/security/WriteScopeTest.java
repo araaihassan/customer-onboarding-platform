@@ -202,7 +202,7 @@ class WriteScopeTest extends PostgresTestBase {
         UUID customerId = fixture.createCustomer(
                 tenant, "Acme " + Uuid7.generate(), ownerUserId, departmentId, teamId);
         return cases.create(new CreateCaseRequest(
-                customerId, journey.templateOf(versionId), Map.of())).id();
+                customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     private UUID firstRequirementId(UUID caseId) {

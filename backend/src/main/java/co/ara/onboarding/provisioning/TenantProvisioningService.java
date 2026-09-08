@@ -27,6 +27,8 @@ import co.ara.onboarding.tenancy.TenantConnectionCustomizer;
 import co.ara.onboarding.tenancy.TenantContext;
 import co.ara.onboarding.tenancy.TenantRepository;
 import co.ara.onboarding.tenancy.TenantStatus;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -87,7 +89,26 @@ public class TenantProvisioningService {
         tenant.setSlug(slug);
         tenant.setName(name);
         tenant.setStatus(TenantStatus.ACTIVE);
-        tenants.save(tenant);
+        // saveAndFlush, NOT save, and the difference is the whole point (same shape
+        // as CustomerContactService.save): BaseEntity has no @Version and no
+        // Persistable, so an already-ID-assigned Tenant routes through
+        // entityManager.merge() rather than persist(), and Hibernate does not flush
+        // a merge immediately -- plain save() would defer the INSERT to a later,
+        // unrelated flush point (e.g. users.saveAndFlush(admin) below), so a
+        // constraint violation here would surface deep inside unrelated seeding
+        // code instead of at this single, narrow, easy-to-reason-about call site.
+        // Confirmed empirically (TenantProvisioningTest): with saveAndFlush, the
+        // duplicate-slug violation now throws right here, before TenantContext is
+        // even touched.
+        try {
+            tenants.saveAndFlush(tenant);
+        } catch (DataIntegrityViolationException e) {
+            if (violates(e, TENANT_SLUG_UNIQUE)) throw new DuplicateSlugException(e);
+            // Every other constraint is rethrown untouched. Reporting an unrelated
+            // violation as "that slug is taken" would send the caller hunting for a
+            // duplicate that does not exist.
+            throw e;
+        }
 
         // Seeding writes to RLS-protected tables, so a tenant must be bound. The
         // previous value is captured and restored in the finally below: TenantContext
@@ -130,6 +151,23 @@ public class TenantProvisioningService {
         } finally {
             if (previous == null) TenantContext.clear(); else TenantContext.set(previous);
         }
+    }
+
+    /** Postgres's generated name for {@code UNIQUE} on tenant.slug in V2. */
+    private static final String TENANT_SLUG_UNIQUE = "tenant_slug_key";
+
+    /**
+     * Matched on the constraint name Hibernate reports rather than on the message
+     * text, which is Postgres's to reword.
+     */
+    private static boolean violates(Throwable failure, String constraintName) {
+        for (Throwable t = failure; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof ConstraintViolationException cve
+                    && constraintName.equals(cve.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

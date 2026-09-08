@@ -6,6 +6,8 @@ import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.identity.AppUser;
+import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.data.domain.Page;
@@ -15,6 +17,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -44,13 +48,18 @@ public class CustomerService {
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
+    private final OrgUnitResolver orgUnitResolver;
+    private final AppUserRepository users;
 
     public CustomerService(CustomerRepository repository, AuthorizedQuery authorizedQuery,
-                           AuthContextProvider contextProvider, AuditRecorder audit) {
+                           AuthContextProvider contextProvider, AuditRecorder audit,
+                           OrgUnitResolver orgUnitResolver, AppUserRepository users) {
         this.repository = repository;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.audit = audit;
+        this.orgUnitResolver = orgUnitResolver;
+        this.users = users;
     }
 
     @RequirePermission(PermissionKeys.CUSTOMER_CREATE)
@@ -73,8 +82,8 @@ public class CustomerService {
         // instantly cannot see.
         c.setOwnerUserId(actor);
         c.setCreatedBy(actor);
-        c.setOwningDepartmentId(request.owningDepartmentId());
-        c.setOwningTeamId(request.owningTeamId());
+        c.setOwningDepartmentId(orgUnitResolver.resolveDepartment(request.owningDepartmentId()));
+        c.setOwningTeamId(orgUnitResolver.resolveTeam(request.owningTeamId()));
         repository.save(c);
 
         audit.record(AuditActions.CUSTOMER_CREATED, "customer", c.getId(),
@@ -128,9 +137,17 @@ public class CustomerService {
         c.setIndustry(request.industry());
         c.setCountry(request.country());
         c.setExternalRef(request.externalRef());
-        c.setOwnerUserId(request.ownerUserId());
-        c.setOwningDepartmentId(request.owningDepartmentId());
-        c.setOwningTeamId(request.owningTeamId());
+        // Only resolve owner if the value actually changed. Clients round-trip the
+        // read value on every save (load, modify one field, save), and ownership
+        // resolution checks permissions that narrow-scoped editors may not hold
+        // (USER_VIEW at ASSIGNED scope has no grant at all in Sales Rep, for example).
+        // A no-op round-trip must succeed, but a real ownership handoff (including
+        // to a cross-tenant id) must go through the security check.
+        if (!Objects.equals(request.ownerUserId(), c.getOwnerUserId())) {
+            c.setOwnerUserId(resolveOwner(request.ownerUserId()));
+        }
+        c.setOwningDepartmentId(orgUnitResolver.resolveDepartment(request.owningDepartmentId()));
+        c.setOwningTeamId(orgUnitResolver.resolveTeam(request.owningTeamId()));
         repository.save(c);
 
         audit.record(AuditActions.CUSTOMER_UPDATED, "customer", c.getId(),
@@ -150,6 +167,11 @@ public class CustomerService {
         audit.record(AuditActions.CUSTOMER_DEACTIVATED, "customer", c.getId(),
                 "Deactivated customer " + c.getDisplayName(),
                 Map.of("reason", reason == null ? "" : reason));
+    }
+
+    private UUID resolveOwner(UUID ownerUserId) {
+        if (ownerUserId == null) return null;
+        return authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId).getId();
     }
 
     private CustomerView toView(Customer c) {

@@ -14,9 +14,17 @@ import org.springframework.stereotype.Component;
  *
  * A separate class rather than a method on the service so there is exactly one
  * place to read, and so a reviewer can see that it has no positive branch.
+ *
+ * Public (Task 16): co.ara.onboarding.task.TaskService, a different package,
+ * needs to gate its own writes through the same stage write_scope a case's
+ * other mutations already go through, rather than re-deriving the check or
+ * skipping it. Widening visibility is safe precisely because the class is
+ * subtractive only -- it has no branch that grants, so exposing it cannot
+ * hand out authority it didn't already have inside journey. Case, Milestone
+ * and Stage (the parameter types) are themselves public already.
  */
 @Component
-class StageWriteScopeGuard {
+public class StageWriteScopeGuard {
 
     private final AuthContextProvider contextProvider;
 
@@ -24,7 +32,7 @@ class StageWriteScopeGuard {
         this.contextProvider = contextProvider;
     }
 
-    void check(Case c, Milestone m, Stage stage) {
+    public void check(Case c, Milestone m, Stage stage) {
         AuthContext ctx = contextProvider.current();
         boolean allowed = switch (stage.getWriteScope()) {
             case ANY        -> true;

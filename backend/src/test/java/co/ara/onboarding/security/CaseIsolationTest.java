@@ -109,7 +109,7 @@ class CaseIsolationTest extends SecurityTestBase {
         return mvc.perform(as(post("/api/t/iso-oracle-a/cases"), admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"customerId\":\"" + customerId + "\",\"templateId\":\"" + templateId
-                                + "\",\"attributes\":{}}"))
+                                + "\",\"name\":\"Fixture Case " + Uuid7.generate() + "\",\"attributes\":{}}"))
                 .andReturn().getResponse().getStatus();
     }
 
@@ -127,7 +127,7 @@ class CaseIsolationTest extends SecurityTestBase {
             UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(stageRequest), List.of(), 0L));
             UUID templateId = journey.templateOf(versionId);
             UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
-            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
 
             var roadmap = cases.roadmap(caseId);
             UUID milestoneId = roadmap.stages().get(0).milestones().get(0).id();

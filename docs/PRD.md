@@ -131,6 +131,21 @@ each with its own roadmap, progress, requirements and workspace. Every journey c
 human-readable name given when it is created. An internal user assigns a new journey to a
 customer; a customer contact sees every journey on their account. (QA Q18)
 
+### Programmes
+
+Concurrent journeys are usually parallel plans for one engagement, run by different internal teams:
+IT works the IT plan, onboarding works theirs, legal works theirs. A **programme** groups them under
+the customer and gives two people the whole picture — the account manager internally, and the
+customer's project sponsor in the portal. Each team still works its own journey.
+
+A programme has a name, a customer, and participants. It has **no lifecycle of its own** — no
+status, no hold, no approval. Hold and completion happen on the individual journeys. Its progress is
+derived by weighting each journey's progress by that journey's total estimated duration, the same
+rule §6's milestones already use within a journey.
+
+Programme participation grants **read across the journeys, never write**, and never access a viewer
+could not otherwise obtain: an out-of-scope journey stays invisible. (QA Q20)
+
 This workspace should include:
 
 ### Customer Summary
@@ -192,8 +207,41 @@ Each milestone should display:
 - Comments
 - Activity History
 - Completion Percentage
+- Outputs produced
+- Whether it is internal-only or shared with the customer
 
 Users should be able to expand milestones to view details without leaving the page.
+
+### Milestone Kinds
+
+A milestone is completed by satisfying its requirements, and a requirement has a kind. The kinds are
+**task**, **document**, **approval**, **signature**, **meeting**, and a plain manual check-off. So a
+"Kickoff" milestone is not a special kind of milestone — it is a milestone holding a *meeting*
+requirement.
+
+A **meeting** requirement carries a proposed time the customer accepts or rejects, an agenda, and
+afterwards the recording, any documents produced, and the notes taken. A meeting may **recur** — a
+weekly status call is one milestone holding one recurring meeting requirement that spawns a dated
+occurrence per period, each with its own agenda, notes and recording. Recurrence never multiplies
+milestones, so a journey's progress denominator stays fixed and a journey can still reach 100%.
+(QA Q25, Q26)
+
+### Internal and Shared Milestones
+
+A milestone may be **internal-only** — work the provider's team does that the customer has no need
+to see — or **shared**, appearing on the customer's roadmap. Stages carry the same flag.
+
+**Progress remains a single number for every audience.** It is computed over every milestone,
+internal ones included, so the customer's roadmap may show seven rows while the bar reflects ten.
+This is deliberate: one truth about how far along a journey is, with status reports, dashboards,
+rollups and SLA figures that all agree. (QA Q24)
+
+### Outputs
+
+Every stage and milestone shows the **outputs** it produced: the documents, agreements, signed
+records, meeting notes and completed tasks that actually satisfied its requirements. Outputs are not
+a separately maintained list of promises — they are what the journey has genuinely delivered so far,
+and they feed both the customer portal and the status report. (QA Q27)
 
 ---
 
@@ -211,8 +259,41 @@ Administrators should be able to:
 - Configure automatic transitions
 - Assign responsible departments
 - Create reusable workflow templates
+- Clone a template for one customer and tailor it
 
 No software development should be required to modify business workflows.
+
+### Customer-Specific Templates
+
+Templates live in a tenant-wide catalogue, and any of them may be **cloned for one customer** and
+then edited for that customer alone. The clone is a snapshot: editing the customer's copy never
+reaches the original, and equally the original's later improvements do not flow down to the customer
+— catching up is the deliberate, per-journey act of migrating a journey to a newer version (QA Q2).
+
+One clone serves that customer: all of their journeys draw from it, so a change made once is
+available to every future journey for them. (QA Q21)
+
+### The Project Plan, and Approving It
+
+A plan is authored internally and sent to the customer for approval, and it is **approved twice**,
+because a plan's two halves live at different levels:
+
+- **The shape** — stages, milestones, requirements, estimated durations — is approved once per
+  version of the customer's template. Every journey pinned to that version inherits the approval.
+- **The schedule** — calendar dates and named owners — is approved per journey, as a dated snapshot
+  revision. Two journeys built on the same approved shape still approve their own dates.
+
+Every subsequent edit must declare which gate it reopens: a shape change reopens the first and
+ordinarily the second with it, a date or owner change reopens only the second.
+
+**A journey waits until its first schedule is approved.** It sits on hold — no requirement can be
+satisfied and no stage exits — and the SLA clock is paused for exactly the days the customer took,
+which is the treatment §Q8 already gives every other wait on the customer. Later revisions do not
+block: the team keeps working and the approval is recorded when it arrives, because an internal date
+correction must not be able to freeze a live project.
+
+The plan a customer approves is the **customer-visible** plan, filtered by the internal/shared flag
+above. The internal plan and the approved plan are two renderings of one journey. (QA Q22, Q23)
 
 ---
 
@@ -358,8 +439,24 @@ Customers should see:
 - Agreements
 - Notifications
 - Estimated Completion
+- Every journey on their account, and the programme rolling them up
+- Outputs delivered so far
+- Status reports issued to them
+- Plans awaiting their approval
 
 Internal notes and restricted information must remain hidden.
+
+### What the Sponsor Sees
+
+A customer's project sponsor sees the **whole programme** — every parallel journey the provider is
+running for them, and the rolled-up progress across all of it. This is the customer-side answer to
+the same need the account manager has internally: complete visibility of every service being
+delivered, in one place, rather than one journey at a time. (QA Q20)
+
+The sponsor is also the person who **approves plans** — the shape of the customer's template, and
+each journey's schedule (§7). Until the portal exists, that approval is recorded internally by the
+account manager on the sponsor's behalf; the decision, its date and its approver are captured
+identically either way. (QA Q22)
 
 ### New-Joiner Catch-Up
 
@@ -426,6 +523,17 @@ Examples include:
 
 Reports should support export to PDF, Excel, and CSV.
 
+### Status Reports
+
+Distinct from the analytics above, a **status report** is an artifact issued to a customer rather
+than a screen queried by staff. Generated on demand or on a schedule, each one captures progress and
+how it moved since the last report, milestones closed in the interval, outputs produced, what is
+open with the customer and what is open with the provider, and current risk state.
+
+A status report is **dated and immutable once issued**, and past reports remain readable. The reason
+is history, not convenience: *"what did we report on 15 October?"* must have an answer, for
+governance packs and for disputes. A live screen cannot answer it. (QA Q28)
+
 ---
 
 # 15. Security
@@ -455,7 +563,13 @@ The platform should be:
 - API-first
 - Accessible (WCAG compliant)
 - Multi-language ready
-- Themeable (Light/Dark Mode)
+- **Light theme only**
+
+Dark mode was dropped deliberately on 2026-08-25, not deferred. The design system at
+`docs/uispecs_latest/design_handoff_onboarding_platform/` defines no dark palette anywhere, and the
+frontend refactor for sub-projects 1–2 removed the theming mechanism, `next-themes`, the
+`ThemeProvider` and the theme toggle from the application rather than leaving them half-wired
+against tokens that no longer exist. Reintroducing a dark palette needs a design decision first.
 
 ---
 

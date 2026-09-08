@@ -137,7 +137,7 @@ class ApprovalTest extends PostgresTestBase {
                 new WorkflowDefinitionRequest(List.of(stageOne, stageTwo), List.of(), 0L));
 
         UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
-        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     private UUID firstRequirementId(UUID caseId) {

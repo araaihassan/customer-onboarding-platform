@@ -44,9 +44,22 @@ public final class AuditActions {
     public static final AuditAction ROLE_CREATED              = of("role.created", false);
     public static final AuditAction ROLE_UPDATED              = of("role.updated", false);
     public static final AuditAction ROLE_DISABLED             = of("role.disabled", false);
+    // The other half of ROLE_DISABLED, added as its own key rather than a
+    // boolean payload on one action -- see the pre-2026-08-16 deactivation
+    // note above: a single key distinguished only by prose is unqueryable
+    // once written, and audit_event cannot be corrected after the fact.
+    public static final AuditAction ROLE_ENABLED               = of("role.enabled", false);
+    public static final AuditAction ROLE_DELETED                = of("role.deleted", false);
     public static final AuditAction LOGIN_SUCCEEDED           = of("auth.login_succeeded", false);
     public static final AuditAction LOGIN_FAILED              = of("auth.login_failed", false);
     public static final AuditAction REFRESH_REUSE_DETECTED    = of("auth.refresh_reuse_detected", false);
+    // Compliance-only, matching every other identity/auth event above: a
+    // password reset is the tenant's own account-security event, not the
+    // customer's business. Ordinary refresh-token rotation stays unaudited
+    // (CLAUDE.md is explicit this must not change); these two are a distinct
+    // event -- the reset completing -- not the rotation it triggers.
+    public static final AuditAction PASSWORD_RESET_REQUESTED   = of("password_reset.requested", false);
+    public static final AuditAction PASSWORD_RESET_COMPLETED   = of("password_reset.completed", false);
     public static final AuditAction CUSTOMER_CREATED          = of("customer.created", true);
     public static final AuditAction CUSTOMER_UPDATED          = of("customer.updated", true);
     public static final AuditAction CUSTOMER_DEACTIVATED      = of("customer.deactivated", true);
@@ -110,6 +123,35 @@ public final class AuditActions {
     // vendor's own configuration, not the customer's business -- the same reasoning
     // user.created carries.
     public static final AuditAction CASE_MIGRATED              = of("case.migrated", false);
+    // Task 25 closes the task.created gap the comment below (Task 17) named and
+    // deliberately left open: TaskInstantiation (Task 19) was told NOT to record
+    // it, because nothing in ITS OWN scope needed it -- CauseBeforeEffectTest's
+    // taskCreationIsRecordedBeforeTheEventsItCauses is the first consumer, and
+    // recording only starts once one exists. Timeline-visible for the same
+    // reason TASK_STATUS_CHANGED below is: a task is a business record, and its
+    // creation is the collaboration narrative the Activity Timeline exists to
+    // show, not internal administration.
+    public static final AuditAction TASK_CREATED                = of("task.created", true);
+    // Timeline-visible: tasks and comments are business records (design spec
+    // §5.5), the same reasoning as requirement.satisfied above. Only this one
+    // key is added here (Task 17) -- task.created, task.assigned,
+    // task.completed, task.cancelled, comment.added and comment.edited are
+    // each a later task's own gap to close, not this one's, per the design
+    // spec's full §5.5 list.
+    public static final AuditAction TASK_STATUS_CHANGED         = of("task.status_changed", true);
+    // Task 18: recorded ADDITIONALLY on the specific transition into
+    // CANCELLED, alongside (never instead of) TASK_STATUS_CHANGED above --
+    // same shape as CONTACT_DEACTIVATED next to CONTACT_UPDATED. Because
+    // audit_event is append-only, this is the only durable record that a
+    // task was deliberately cancelled (with its reason) rather than merely
+    // edited, and it must stay distinguishable on its own key rather than
+    // inferred from a status column.
+    public static final AuditAction TASK_CANCELLED               = of("task.cancelled", true);
+    // Task 23: comments are business records, same reasoning as task.* above --
+    // an internal comment on a task or a journey is exactly the collaboration
+    // narrative the Activity Timeline exists to show, not internal administration.
+    public static final AuditAction COMMENT_ADDED                = of("comment.added", true);
+    public static final AuditAction COMMENT_EDITED               = of("comment.edited", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

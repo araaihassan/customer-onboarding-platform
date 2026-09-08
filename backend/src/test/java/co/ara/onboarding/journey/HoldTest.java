@@ -160,7 +160,7 @@ class HoldTest extends PostgresTestBase {
 
     private UUID simpleCase(UUID tenant) {
         UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
-        return cases.create(new CreateCaseRequest(customerId, journey.publishedTemplate(), Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, journey.publishedTemplate(), "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     /** One stage, two equally-weighted mandatory-manual-requirement milestones. */
@@ -170,7 +170,7 @@ class HoldTest extends PostgresTestBase {
                 milestone("m2", "Milestone Two", 1, List.of(), List.of(manual("Do it")))));
         UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(stageRequest), List.of(), 0L));
         UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
-        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), Map.of())).id();
+        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     private UUID firstRequirementId(UUID caseId) {

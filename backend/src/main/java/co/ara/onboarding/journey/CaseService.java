@@ -93,6 +93,8 @@ public class CaseService {
     private final CaseEngine engine;
     private final BusinessCalendar calendar;
     private final Clock clock;
+    private final TaskLifecycle taskLifecycle;
+    private final TaskDirectory taskDirectory;
 
     public CaseService(CaseRepository cases, CaseParticipantRepository participants,
                        MilestoneRepository milestones, RequirementRepository requirements,
@@ -105,7 +107,8 @@ public class CaseService {
                        AppUserRepository users, DepartmentRepository departments,
                        TeamRepository teams, AuthorizedQuery authorizedQuery,
                        AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine,
-                       BusinessCalendar calendar, Clock clock) {
+                       BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle,
+                       TaskDirectory taskDirectory) {
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -128,6 +131,8 @@ public class CaseService {
         this.engine = engine;
         this.calendar = calendar;
         this.clock = clock;
+        this.taskLifecycle = taskLifecycle;
+        this.taskDirectory = taskDirectory;
     }
 
     @RequirePermission(PermissionKeys.CASE_CREATE)
@@ -152,6 +157,14 @@ public class CaseService {
         Case c = new Case();
         c.setId(Uuid7.generate());
         c.setTenantId(TenantContext.getRequired());
+        // Q18: @NotBlank on CreateCaseRequest.name (enforced by CaseController.create's
+        // @Valid) is what guarantees this is never null/blank -- no fallback here on
+        // purpose. Fix round 1 removed a synthesized "template name + short id"
+        // fallback that lived here: it read as a real name but was identical across
+        // every case opened from the same template, sitting right next to an id
+        // already shown in the switcher's own mono chip -- worse than the
+        // stage-name label it replaced, not just incomplete.
+        c.setName(request.name());
         c.setCustomerId(customer.id());
         c.setTemplateId(template.getId());
         c.setVersionId(versionId);                 // pinned here, never reassigned except by migration
@@ -197,6 +210,12 @@ public class CaseService {
                 "Opened case on workflow " + template.getName() + " v" + versionNoOf(versionId),
                 Map.of("customerId", customer.id().toString(), "versionId", versionId.toString()));
 
+        // After CASE_CREATED's own audit record, before reconcile: a requirement
+        // of kind TASK's instantiated Task row must not exist before the case
+        // itself is recorded as created (cause before effect), and any future
+        // task.created audit entry must not precede case.created either.
+        taskLifecycle.instantiateForCase(c.getId());
+
         engine.reconcile(c);                       // statuses, progress; stage entry is Task 15
         return toView(c);
     }
@@ -233,6 +252,13 @@ public class CaseService {
         List<Milestone> milestoneRows = readCaseChild(milestones, Milestone.class, c.getId());
         List<Requirement> requirementRows = readCaseChild(requirements, Requirement.class, c.getId());
 
+        // ONE call for every milestone in the case, before the nested loops below --
+        // never per-milestone inside them. That is the whole reason TaskDirectory's
+        // signature takes a Collection rather than one id at a time (its own javadoc);
+        // a per-id call here would defeat the port's own design.
+        Map<UUID, TaskSummary> taskSummaries = taskDirectory.summaryFor(
+                milestoneRows.stream().map(Milestone::getId).toList());
+
         Map<UUID, Milestone> milestoneByDefinitionId = milestoneRows.stream()
                 .collect(toMap(Milestone::getMilestoneDefinitionId, m -> m));
         Map<UUID, List<Requirement>> requirementsByMilestoneId = requirementRows.stream()
@@ -267,8 +293,10 @@ public class CaseService {
                         .toList();
                 List<String> blockedBy = m.getStatus() != MilestoneStatus.BLOCKED ? List.of()
                         : unmetDependencyNames(def, milestoneByDefinitionId, dependencyRows, milestoneDefById);
+                TaskSummary taskSummary = taskSummaries.getOrDefault(m.getId(), new TaskSummary(0, 0));
                 milestoneViews.add(new MilestoneRoadmapView(m.getId(), def.getName(), m.getStatus(),
-                        m.getOwnerUserId(), m.getDueDate(), m.getProgressPercent(), blockedBy, requirementViews));
+                        m.getOwnerUserId(), m.getDueDate(), m.getProgressPercent(), blockedBy, requirementViews,
+                        taskSummary));
             }
             stageViews.add(new StageRoadmapView(stage.getId(), stage.getName(), stage.getOrdinal(), milestoneViews));
         }
@@ -307,6 +335,11 @@ public class CaseService {
     @Transactional
     public CaseView update(UUID caseId, UpdateCaseRequest request) {
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.CASE_EDIT, caseId);
+
+        // Full replace: @NotBlank on UpdateCaseRequest.name (enforced by
+        // CaseController.update's @Valid) is what rejects a client that never
+        // read the view back before saving -- see that record's own javadoc.
+        c.setName(request.name());
 
         List<AttributeDefinition> declared = readDefinition(attributeDefinitions,
                 AttributeDefinition.class, c.getVersionId(), "ordinal");
@@ -711,7 +744,7 @@ public class CaseService {
     private CaseView toView(Case c) {
         String currentStageName = c.getCurrentStageId() == null ? null
                 : readOneDefinition(stages, Stage.class, c.getCurrentStageId()).getName();
-        return new CaseView(c.getId(), c.getCustomerId(), c.getTemplateId(), c.getVersionId(),
+        return new CaseView(c.getId(), c.getName(), c.getCustomerId(), c.getTemplateId(), c.getVersionId(),
                 versionNoOf(c.getVersionId()), c.getStatus(), c.getCurrentStageId(), currentStageName,
                 c.getProgressPercent(), c.getTargetCompletionDate(), c.getHeldAt(), c.getTotalHoldDays(),
                 c.getOwnerUserId(), c.getOwningDepartmentId(), c.getOwningTeamId(), attributesOf(c),

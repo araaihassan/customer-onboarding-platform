@@ -7,6 +7,7 @@ import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
 import co.ara.onboarding.journey.RequirementService;
+import co.ara.onboarding.platform.Uuid7;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -49,7 +50,7 @@ class ChangedPermissionsTest extends SecurityTestBase {
 
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            UUID id = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            UUID id = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
             caseId.set(id);
             // Satisfied so advance() actually succeeds (200) rather than 409 -- the
             // "before" side must be something other than 403 for the revoke to prove
@@ -100,7 +101,7 @@ class ChangedPermissionsTest extends SecurityTestBase {
 
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id());
+            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
 
             UUID role = roles.createRole("Case Viewer", "", Map.of(
                     PermissionKeys.CASE_VIEW, Scope.ALL, PermissionKeys.WORKFLOW_VIEW, Scope.ALL));

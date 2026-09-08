@@ -54,7 +54,14 @@ const child = spawn(command, [...leadingArgs, "bootRun", "--console=plain"], {
     DB_OWNER_USER: process.env.DB_OWNER_USER ?? "postgres",
     DB_OWNER_PASSWORD: process.env.DB_OWNER_PASSWORD ?? "postgres",
     DB_APP_USER: process.env.DB_APP_USER ?? "onboarding_app",
-    DB_APP_PASSWORD: process.env.DB_APP_PASSWORD ?? "onboarding_app",
+    // Generated per run, not written down -- the same reasoning JWT_SECRET below
+    // already applies. V2__app_role_and_tenant.sql creates the onboarding_app
+    // role with the committed literal password 'onboarding_app', but
+    // DatabaseCredentialsGuard now denylists that literal and refuses to start,
+    // so the harness cannot run on it. AppRolePasswordReconciler's AFTER_MIGRATE
+    // callback reconciles the role's real password to whatever value is supplied
+    // here, automatically, before the backend opens its first real connection.
+    DB_APP_PASSWORD: process.env.DB_APP_PASSWORD ?? randomBytes(48).toString("base64url"),
     // Without a platform administrator, /api/platform/tenants cannot be called
     // and the suite has no tenant to run against.
     APP_PLATFORM_ADMIN_EMAIL: process.env.APP_PLATFORM_ADMIN_EMAIL ?? "ops@example.com",

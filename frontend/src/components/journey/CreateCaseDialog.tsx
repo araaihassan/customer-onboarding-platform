@@ -20,6 +20,16 @@ import { t } from "@/lib/i18n";
  * its own field -- required ones marked, a closed list rendered as a select --
  * and a 422's problems, all shaped "Attribute '{key}' ...", are matched back
  * to the field they name rather than dumped as one undifferentiated list.
+ *
+ * The case's own name (Q18) is collected here, required client-side exactly
+ * as HoldDialog's reason and admin/users' fullName/email are: trimmed and
+ * checked on submit, not disabling the button while empty. There is no
+ * fallback for an empty name anymore -- CaseService.create rejects a blank
+ * one (@NotBlank), so this is the only place a name is ever supplied.
+ * `maxLength={160}` matches `onboarding_case.name`'s own `varchar(160)`
+ * (fix round 2) -- CreateCaseRequest.name carries the actual `@Size(max =
+ * 160)` enforcement; this is a client-side courtesy so the field can't even
+ * be typed past the limit, not the guard itself.
  */
 export function CreateCaseDialog({
   customerId,
@@ -30,6 +40,8 @@ export function CreateCaseDialog({
   onCreated: (caseId: string) => void;
   onCancel: () => void;
 }) {
+  const [name, setName] = useState("");
+  const [nameError, setNameError] = useState<string>();
   const [templateId, setTemplateId] = useState("");
   const [values, setValues] = useState<Record<string, string>>({});
   const [problems, setProblems] = useState<string[]>([]);
@@ -56,10 +68,15 @@ export function CreateCaseDialog({
   );
 
   function submit() {
+    const trimmedName = name.trim();
+    if (!trimmedName) {
+      setNameError(t("customer.form.required"));
+      return;
+    }
     if (!templateId) return;
     setProblems([]);
     createCase.mutate(
-      { customerId, templateId, attributes: values },
+      { customerId, templateId, name: trimmedName, attributes: values },
       {
         onSuccess: (created) => {
           if (created.id) onCreated(created.id);
@@ -76,6 +93,18 @@ export function CreateCaseDialog({
   return (
     <Dialog title={t("case.create.title")} onClose={onCancel}>
       <div className="flex flex-col" style={{ gap: "var(--ob-space-13)" }}>
+        <Field
+          label={t("case.create.name")}
+          placeholder={t("case.create.namePlaceholder")}
+          value={name}
+          error={nameError}
+          maxLength={160}
+          onChange={(e) => {
+            setName(e.target.value);
+            setNameError(undefined);
+          }}
+        />
+
         <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
           <span
             className="text-text-muted"

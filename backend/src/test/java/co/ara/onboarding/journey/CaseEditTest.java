@@ -34,19 +34,71 @@ class CaseEditTest extends PostgresTestBase {
             UUID templateId = journey.publishedTemplateWithSegmentAttribute();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             var created = cases.create(new CreateCaseRequest(customerId, templateId,
-                    Map.of("segment", "ENTERPRISE")));
+                    "Fixture Case " + Uuid7.generate(), Map.of("segment", "ENTERPRISE")));
 
             UUID newOwner = fixture.createUser(tenant, "new-owner@example.com");
             UUID department = fixture.createDepartment(tenant, "Onboarding");
             UUID team = fixture.createTeam(tenant, "Onboarding Team");
 
-            var updated = cases.update(created.id(), new UpdateCaseRequest(newOwner, department, team,
+            var updated = cases.update(created.id(), new UpdateCaseRequest(created.name(), newOwner, department, team,
                     Map.of("segment", "SMB")));
 
             assertThat(updated.ownerUserId()).isEqualTo(newOwner);
             assertThat(updated.owningDepartmentId()).isEqualTo(department);
             assertThat(updated.owningTeamId()).isEqualTo(team);
             assertThat(updated.attributes()).containsEntry("segment", "SMB");
+        });
+    }
+
+    /**
+     * Not in the plan. UpdateCaseRequest gaining `name` means CaseView must carry
+     * `name` too, or every PUT from an existing client silently blanks it -- the
+     * exact shape CaseView's own javadoc already documents for `attributes`
+     * (CustomerServiceTest.editingOneFieldPreservesTheExternalReference is the
+     * template this follows). Written as a client would behave: read, copy the
+     * view into an update request, change one unrelated field, save -- nothing
+     * here knows the name is at risk, which is the point.
+     */
+    @Test
+    void changingTheOwnerPreservesTheCasesName() {
+        UUID tenant = fixture.createTenant("case-edit-name-roundtrip");
+        fixture.runAs(tenant, () -> {
+            UUID templateId = journey.publishedTemplate();
+            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+            var created = cases.create(new CreateCaseRequest(customerId, templateId,
+                    "Enterprise onboarding", Map.of()));
+
+            UUID newOwner = fixture.createUser(tenant, "renamed-owner@example.com");
+            var loaded = cases.get(created.id());
+
+            var updated = cases.update(created.id(), new UpdateCaseRequest(loaded.name(), newOwner,
+                    loaded.owningDepartmentId(), loaded.owningTeamId(), loaded.attributes()));
+
+            assertThat(updated.name()).isEqualTo("Enterprise onboarding");
+            assertThat(updated.ownerUserId()).isEqualTo(newOwner);
+        });
+    }
+
+    /**
+     * changingTheOwnerPreservesTheCasesName never changes the name, so it would
+     * pass identically even if CaseService.update's `c.setName(request.name())`
+     * line were deleted. This is the test that would actually catch that: it
+     * changes the name itself and confirms the new value persists on a
+     * subsequent, separate read.
+     */
+    @Test
+    void updatingTheNamePersistsIt() {
+        UUID tenant = fixture.createTenant("case-edit-rename");
+        fixture.runAs(tenant, () -> {
+            UUID templateId = journey.publishedTemplate();
+            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+            var created = cases.create(new CreateCaseRequest(customerId, templateId,
+                    "Enterprise onboarding", Map.of()));
+
+            cases.update(created.id(), new UpdateCaseRequest("EU expansion", created.ownerUserId(),
+                    created.owningDepartmentId(), created.owningTeamId(), created.attributes()));
+
+            assertThat(cases.get(created.id()).name()).isEqualTo("EU expansion");
         });
     }
 
@@ -65,14 +117,14 @@ class CaseEditTest extends PostgresTestBase {
             UUID templateId = journey.publishedTemplateWithSegmentAttribute();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
             caseId.set(cases.create(new CreateCaseRequest(customerId, templateId,
-                    Map.of("segment", "ENTERPRISE"))).id());
+                    "Fixture Case " + Uuid7.generate(), Map.of("segment", "ENTERPRISE"))).id());
             owner.set(fixture.createUser(tenant, "owner-omit@example.com"));
         });
 
         // Never assert inside the runAs lambda -- see aMissingRequiredAttributeIsRejected
         // in CaseCreationTest for why: the whole runAs call is wrapped instead.
         assertThatThrownBy(() -> fixture.runAs(tenant, () -> cases.update(caseId.get(),
-                new UpdateCaseRequest(owner.get(), null, null, Map.of()))))
+                new UpdateCaseRequest("Renamed", owner.get(), null, null, Map.of()))))
                 .isInstanceOf(AttributeValidationException.class);
     }
 
@@ -87,10 +139,10 @@ class CaseEditTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var created = cases.create(new CreateCaseRequest(customerId, templateId, Map.of()));
+            var created = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of()));
 
             UUID newOwner = fixture.createUser(tenant, "owner-added@example.com");
-            cases.update(created.id(), new UpdateCaseRequest(newOwner, null, null, Map.of()));
+            cases.update(created.id(), new UpdateCaseRequest(created.name(), newOwner, null, null, Map.of()));
 
             assertThat(cases.participants(created.id())).anySatisfy(p -> {
                 assertThat(p.userId()).isEqualTo(newOwner);
@@ -107,7 +159,7 @@ class CaseEditTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            var created = cases.create(new CreateCaseRequest(customerId, templateId, Map.of()));
+            var created = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of()));
             caseId.set(created.id());
 
             UUID userId = fixture.createUser(tenant, "participant@example.com");
@@ -140,7 +192,7 @@ class CaseEditTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id());
+            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
 
             UUID userId = fixture.createUser(tenant, "viewer-only@example.com");
             viewer.set(userId);
@@ -163,7 +215,7 @@ class CaseEditTest extends PostgresTestBase {
         fixture.runAs(tenantA, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenantA, "Acme", null, null, null);
-            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id());
+            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id());
         });
 
         // the user id comes from a request body, so it resolves through AuthorizedQuery

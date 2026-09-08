@@ -1,7 +1,10 @@
 package co.ara.onboarding.auth;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
+import co.ara.onboarding.identity.UserStatus;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -10,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -29,15 +33,17 @@ public class PasswordResetService {
     private final PasswordEncoder passwords;
     private final RefreshTokenService refreshTokens;
     private final EmailSender email;
+    private final AuditRecorder audit;
 
     public PasswordResetService(InvitationRepository invitations, AppUserRepository users,
                                 PasswordEncoder passwords, RefreshTokenService refreshTokens,
-                                EmailSender email) {
+                                EmailSender email, AuditRecorder audit) {
         this.invitations = invitations;
         this.users = users;
         this.passwords = passwords;
         this.refreshTokens = refreshTokens;
         this.email = email;
+        this.audit = audit;
     }
 
     /**
@@ -45,12 +51,18 @@ public class PasswordResetService {
      * different response — the endpoint answers 204 either way, or it becomes an
      * account-enumeration oracle. The raw token is returned for the dev email sender
      * and for tests; in production only the email carries it.
+     *
+     * A DEACTIVATED user lands in this same empty bucket, not a distinct one — the
+     * same enumeration invariant applies to "exists but is deactivated" as to
+     * "does not exist at all". A deactivated account must not be able to obtain a
+     * brand new credential after the fact, any more than it can complete one it
+     * already holds (see reset() below).
      */
     @Transactional
     public Optional<String> request(String rawEmail) {
         AppUser user = users.findByTenantIdAndEmailIgnoreCase(
                 TenantContext.getRequired(), rawEmail).orElse(null);
-        if (user == null) return Optional.empty();
+        if (user == null || user.getStatus() != UserStatus.ACTIVE) return Optional.empty();
 
         String raw = SecureTokens.generate();
 
@@ -62,6 +74,9 @@ public class PasswordResetService {
         reset.setTokenHash(SecureTokens.hash(raw));
         reset.setExpiresAt(Instant.now().plus(RESET_TTL));
         invitations.save(reset);
+
+        audit.record(AuditActions.PASSWORD_RESET_REQUESTED, "app_user", user.getId(),
+                "Password reset requested", Map.of());
 
         email.send(new EmailMessage(user.getEmail(), "Reset your password",
                 "Use this token to reset your password: " + raw));
@@ -81,15 +96,28 @@ public class PasswordResetService {
         AppUser user = users.findById(reset.getUserId())
                 .orElseThrow(() -> new InvalidTokenException("Reset token has no user"));
 
+        // Same InvalidTokenException as an unredeemable token, never a distinct
+        // error: a different response here would tell an attacker the address
+        // exists and is deactivated, which is exactly the oracle request() above
+        // is also built to avoid.
+        if (user.getStatus() != UserStatus.ACTIVE) {
+            throw new InvalidTokenException("Reset token's user is not active");
+        }
+
         user.setPasswordHash(passwords.encode(newPassword));
         users.save(user);
 
         reset.setAcceptedAt(Instant.now());
         invitations.save(reset);
 
+        audit.record(AuditActions.PASSWORD_RESET_COMPLETED, "app_user", user.getId(),
+                "Password reset completed", Map.of());
+
         // Changing a password ends existing sessions. Whoever prompted the reset may
         // be the attacker, and leaving their refresh family alive would let them keep
-        // the account they were just locked out of.
+        // the account they were just locked out of. Session revocation itself stays
+        // unaudited (CLAUDE.md is explicit rotation is not), but the reset completing
+        // is a distinct event and must precede this consequence, not follow it.
         refreshTokens.revokeAllForUser(user.getId());
     }
 }

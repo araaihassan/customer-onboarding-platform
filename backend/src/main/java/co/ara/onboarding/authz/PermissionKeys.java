@@ -43,6 +43,10 @@ public final class PermissionKeys {
     public static final String MILESTONE_FORCE_APPROVE  = "milestone.force_approve";
     public static final String REQUIREMENT_WAIVE     = "requirement.waive";
     public static final String APPROVAL_DECIDE       = "approval.decide";
+    public static final String TASK_VIEW             = "task.view";
+    public static final String TASK_MANAGE           = "task.manage";
+    public static final String TASK_COMPLETE         = "task.complete";
+    public static final String COMMENT_CREATE        = "comment.create";
 
     private PermissionKeys() {}
 }

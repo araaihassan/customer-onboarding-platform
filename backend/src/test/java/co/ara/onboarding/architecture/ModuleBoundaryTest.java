@@ -71,4 +71,17 @@ class ModuleBoundaryTest {
             noClasses().that().resideInAPackage("..journey..")
                 .should().dependOnClassesThat().resideInAPackage("..customer..")
                 .because("journey consumes CustomerDirectory, never customer's entities or repositories");
+
+    /**
+     * Its own named rule rather than folded into the cycle check: a one-way
+     * journey -> task import would still pass a plain no-cycles test, and the whole
+     * reason TaskDirectory and TaskLifecycle exist is to make that import
+     * unnecessary. Same reasoning as noWorkflowDependencyOnJourney.
+     */
+    @ArchTest
+    static final ArchRule noJourneyDependencyOnTask =
+            noClasses().that().resideInAPackage("co.ara.onboarding.journey..")
+                .should().dependOnClassesThat().resideInAPackage("co.ara.onboarding.task..")
+                .because("a one-way journey -> task import would still pass a plain no-cycles test; "
+                        + "TaskDirectory and TaskLifecycle exist precisely to make that import unnecessary");
 }

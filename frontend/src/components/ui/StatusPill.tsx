@@ -5,11 +5,17 @@
  * fit — colour is never the only signal, and review finding 10 flags three places
  * in the prototype that still break that rule. Do not add a fourth.
  *
- * Every status in the system maps to one of five roles. A status with no mapping
+ * Every status in the system maps to one of these roles. A status with no mapping
  * falls back to neutral rather than going uncoloured, so an unmapped value is
  * legible rather than invisible.
+ *
+ * `info` and `automation` were added for Task 27's priority chip (DESIGN_TOKENS.md
+ * defines both pairs; nothing before this needed them through this component --
+ * `BuilderNode`/`BranchRuleCard`/`StageRow` reach `--ob-automation-*` directly).
+ * The component's own rendering was already generic over the role name, so
+ * this is purely additive: no branch anywhere here is keyed to "one of five".
  */
-export type StatusRole = "ok" | "accent" | "warn" | "risk" | "neutral";
+export type StatusRole = "ok" | "accent" | "warn" | "risk" | "neutral" | "info" | "automation";
 
 const ROLE_BY_STATUS: Record<string, StatusRole> = {
   // customer

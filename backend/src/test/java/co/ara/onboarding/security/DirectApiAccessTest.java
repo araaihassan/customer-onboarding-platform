@@ -3,6 +3,17 @@ package co.ara.onboarding.security;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.identity.AppUser;
+import co.ara.onboarding.journey.CaseService;
+import co.ara.onboarding.journey.CreateCaseRequest;
+import co.ara.onboarding.journey.JourneyFixtures;
+import co.ara.onboarding.task.AddChecklistItemRequest;
+import co.ara.onboarding.task.CommentResourceType;
+import co.ara.onboarding.task.CommentService;
+import co.ara.onboarding.task.CreateCommentRequest;
+import co.ara.onboarding.task.CreateTaskRequest;
+import co.ara.onboarding.task.ChecklistService;
+import co.ara.onboarding.task.TaskPriority;
+import co.ara.onboarding.task.TaskService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -31,6 +42,14 @@ class DirectApiAccessTest extends SecurityTestBase {
 
     @Autowired
     private org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping handlerMapping;
+
+    // Sub-project 3, Task 24: fixtures for the eleven task/comment endpoints
+    // this task adds to everyEndpointRefusesAnonymousAndResolvesForAnAdministrator.
+    @Autowired private CaseService cases;
+    @Autowired private JourneyFixtures journeyFixtures;
+    @Autowired private TaskService tasks;
+    @Autowired private ChecklistService checklists;
+    @Autowired private CommentService comments;
 
     /**
      * Derived, not typed. Sub-project 1's hand-written list of this test's endpoints
@@ -182,11 +201,30 @@ class DirectApiAccessTest extends SecurityTestBase {
         var admin = new AtomicReference<AppUser>();
         var customerId = new AtomicReference<UUID>();
         var userId = new AtomicReference<UUID>();
+        var caseId = new AtomicReference<UUID>();
+        var taskId = new AtomicReference<UUID>();
+        var checklistItemId = new AtomicReference<UUID>();
+        var commentId = new AtomicReference<UUID>();
 
         fixture.runAs(tenant, () -> {
             admin.set(fixture.createAdminUser(tenant, "sweep@example.com"));
             customerId.set(fixture.createCustomer(tenant, "Anon", null, null, null));
             userId.set(fixture.createUser(tenant, "anon@example.com"));
+
+            // Sub-project 3, Task 24: a case/task/checklist-item/comment for
+            // the eleven task/comment endpoints below -- created as the
+            // fixture admin so every path resolves for the same admin used
+            // to sweep the whole list further down.
+            UUID cid = cases.create(new CreateCaseRequest(customerId.get(),
+                    journeyFixtures.publishedTemplate(), "Anon Sweep Case", Map.of())).id();
+            caseId.set(cid);
+            UUID milestoneId = cases.roadmap(cid).stages().get(0).milestones().get(0).id();
+            UUID tid = tasks.create(cid, new CreateTaskRequest(
+                    milestoneId, null, "Anon sweep task", null, TaskPriority.LOW, null, null)).id();
+            taskId.set(tid);
+            checklistItemId.set(checklists.add(tid, new AddChecklistItemRequest("Anon sweep item")));
+            commentId.set(comments.create(cid, new CreateCommentRequest(
+                    CommentResourceType.CASE, cid, "Anon sweep comment")).id());
         });
 
         String base = "/api/t/anon-sweep";
@@ -207,7 +245,19 @@ class DirectApiAccessTest extends SecurityTestBase {
                 () -> post(base + "/admin/departments"),
                 () -> get(base + "/admin/teams"),
                 () -> post(base + "/admin/teams"),
-                () -> get(base + "/admin/permissions"));
+                () -> get(base + "/admin/permissions"),
+                // Sub-project 3, Task 24 -- the eleven endpoints spec §7 adds.
+                () -> get(base + "/cases/" + caseId.get() + "/tasks"),
+                () -> post(base + "/cases/" + caseId.get() + "/tasks"),
+                () -> get(base + "/tasks/" + taskId.get()),
+                () -> MockMvcRequestBuilders.put(base + "/tasks/" + taskId.get()),
+                () -> post(base + "/tasks/" + taskId.get() + "/status"),
+                () -> get(base + "/tasks?assignee=me"),
+                () -> post(base + "/tasks/" + taskId.get() + "/checklist"),
+                () -> MockMvcRequestBuilders.put(base + "/checklist/" + checklistItemId.get()),
+                () -> get(base + "/cases/" + caseId.get() + "/comments?resourceType=CASE&resourceId=" + caseId.get()),
+                () -> post(base + "/cases/" + caseId.get() + "/comments"),
+                () -> MockMvcRequestBuilders.put(base + "/comments/" + commentId.get()));
 
         for (var path : paths) {
             mvc.perform(path.get().contentType(MediaType.APPLICATION_JSON).content("{}"))

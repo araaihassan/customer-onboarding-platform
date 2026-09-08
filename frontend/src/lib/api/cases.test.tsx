@@ -149,13 +149,14 @@ describe("useCreateCase", () => {
     fetchMock.mockResolvedValue(reply({ id: "c-9" }, 201));
 
     const { result } = renderHook(() => useCreateCase(), { wrapper: makeWrapper() });
-    await result.current.mutateAsync({ customerId: "cust-1", templateId: "t-1", attributes: {} });
+    await result.current.mutateAsync({ customerId: "cust-1", templateId: "t-1", name: "Enterprise onboarding", attributes: {} });
 
     expect(lastUrl()).toBe("/api/t/acme/cases");
     expect(lastInit().method).toBe("POST");
     expect(JSON.parse(lastInit().body as string)).toEqual({
       customerId: "cust-1",
       templateId: "t-1",
+      name: "Enterprise onboarding",
       attributes: {},
     });
   });
@@ -166,7 +167,7 @@ describe("useCreateCase", () => {
 
     const { result } = renderHook(() => useCreateCase(), { wrapper: makeWrapper() });
     await expect(
-      result.current.mutateAsync({ customerId: "cust-1", templateId: "t-1", attributes: {} }),
+      result.current.mutateAsync({ customerId: "cust-1", templateId: "t-1", name: "Enterprise onboarding", attributes: {} }),
     ).rejects.toBeInstanceOf(ApiError);
   });
 });

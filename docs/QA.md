@@ -250,3 +250,271 @@ or product, each with its own roadmap, progress and requirements.
 **Q10 is unchanged.** Escalation to the assignee's manager stays mandatory; everything added here
 is opt-out-able. Each new alert type needs its own deliberate `timeline_visible` decision when it
 is built — customer-visible or compliance-only is a choice, not a default.
+
+---
+
+## PROJECT-BASED DELIVERY — PROGRAMMES, CUSTOMER PLANS, MEETINGS
+
+*Added 2026-09-08. Nine decisions taken together, reframing the platform for project-based
+delivery: a customer holds a programme of parallel journeys, runs them against a plan cloned and
+tailored for them, and approves that plan twice — once as a shape, once as a schedule.*
+
+**None of these weakens an existing invariant.** Q2's freeze-by-default, "a published version never
+mutates", "a case has exactly one pinned version" and "progress is derived by the engine, never
+accepted from a request" all hold unchanged — see each answer's own cross-check.
+
+**Where they are built:** Q20–Q24 in sub-project **3A** (Programmes & Customer-Scoped Plans, new,
+after 3). Q25–Q26 in **4A** (Meetings, new, after 4 — the agenda and the recording are documents).
+Q27 grows across 4 and 5 as new satisfying record types land. Q28 in **8**. The customer-facing half
+of Q22's approval lands in **7**; see Q22.
+
+---
+
+### Q20 · Programmes above journeys
+
+**Question:** Several internal teams each run their own plan for one customer engagement — IT sees
+the IT plan, onboarding sees theirs, legal theirs. The account manager and the customer's sponsor
+need to see the whole thing. What is "the whole thing", structurally?
+
+**Decision:** **A `programme` record grouping several journeys under one customer.** Each team's
+plan stays a `Case` with its own roadmap, pinned version, progress and completion date — Q18's
+multi-journey answer, now with a container above it.
+
+- **The programme has no lifecycle of its own** — no status, no hold, no approval, no engine. Hold
+  and completion happen on the individual journeys. This is deliberate: a second orchestration
+  layer above `CaseEngine` would need cascade rules ("programme held but case active"?) that nobody
+  has a use for yet.
+- **Programme progress is derived, never stored** — weighted across its cases by their total
+  estimated duration, consistent with Q6's rule for milestones within a case. Sub-project 2's
+  invariant "progress is derived and stored by the engine; no request type accepts one" is
+  unaffected: the engine still owns per-case progress, and the rollup is a read.
+- **A programme carries participants** — the account manager (internal, full view) and the customer's
+  project sponsor (portal, full view). This is the reason it is a record and not a label: a label
+  has nowhere to hang the sponsor, so "the sponsor sees the whole project" would have to be granted
+  journey by journey.
+- **Participants grant read, never write.** A programme read must still go through `AuthorizedQuery`
+  and an out-of-scope journey must still 404 (invariant: "authorization narrows at a stage's
+  `write_scope`; there is no branch that widens it"). A container that returned journeys its viewer
+  could not otherwise open would be a scope-widening backdoor, which is precisely the shape three
+  sub-project 1 escalations took.
+
+**Rejected:** one journey whose stages are partitioned by responsible department — "the IT plan"
+then has no independent roadmap, completion date or progress, and one number must be sliced N ways.
+**Rejected:** a nullable programme name on `onboarding_case` — no home for participants, and a typo
+silently splits a programme in two.
+
+---
+
+### Q21 · Customer-scoped workflow templates
+
+**Question:** May a general template be cloned for one customer and then edited for that customer
+only, without the edit reaching the original?
+
+**Decision:** **Yes — `workflow_template` gains a nullable `customer_id`.** Null means the tenant
+catalogue (every template today); set means a lineage owned by one customer.
+
+- **Cloning is a snapshot, in both directions.** Editing "Acme Onboarding" cannot reach `template1`
+  because no link back exists to follow; equally, `template1`'s later improvements do **not** flow
+  down to Acme. That second half is Q2's freeze-by-default, and the existing migration tool is the
+  deliberate, per-journey way to pull an upstream improvement down later.
+- **The machinery already exists.** `WorkflowService.createDraftVersion` already deep-copies a
+  template's current published version into a new editable draft, and `V12`'s freeze triggers
+  already refuse every write to a `PUBLISHED` row. Cloning for a customer is that same deep copy
+  with a different owner on the resulting template.
+- **One clone per customer, reused across that customer's journeys.** An edit made once is available
+  to every future Acme journey. A change wanted on one journey only is not supported by this answer
+  — see the note under Q22.
+
+**Rejected:** one clone per journey (a private lineage per case) — an Acme-wide change would have to
+be made once per journey. **Rejected:** both tiers with promotion between them — three
+freeze-and-approval interactions instead of one, and "which tier does the customer approve?" gains
+no good answer.
+
+---
+
+### Q22 · The plan is approved twice — shape, then schedule
+
+**Question:** An internal user builds a project plan and sends it to the customer for approval. When
+the plan changes, the version must be captured. What exactly is the customer approving?
+
+**Decision:** **Two gates, because the two halves of a plan live at different levels.**
+
+- **Gate 1 — shape, at the customer template version.** Stages, milestones, requirements and
+  estimated durations. Approved once per version; every journey pinned to that version inherits the
+  approval.
+- **Gate 2 — schedule, per journey.** Calendar due dates and named owners, captured as a dated
+  snapshot revision of the journey's instantiated plan and approved per journey.
+
+The split is forced by where the data lives: `MilestoneDefinition` carries only
+`estimatedDurationDays`, while `Milestone.due_date` and `Milestone.owner_user_id` are runtime
+columns on the running case. A customer approving a template version is therefore approving a shape
+and a duration, not a schedule — and in project-based delivery dates are precisely what a sponsor
+argues about. Two journeys on the same approved shape still approve their schedules separately.
+
+- **Every edit must declare which gate it reopens.** A change to the customer template's shape
+  reopens gate 1 and, because dates shift with it, ordinarily gate 2 as well. A change to one
+  journey's dates or owners reopens gate 2 only. This is the cost of two gates and it is paid
+  explicitly, per edit, not inferred.
+- **A journey-only change to the *shape*** — as opposed to the schedule — is out of scope for Q21's
+  one-clone-per-customer answer. If it becomes necessary, the honest fix is a per-case lineage
+  (Q21's rejected option), not a second editing path bolted onto the customer tier.
+- **The approver is internal until sub-project 7.** Both gates need a customer to press approve, and
+  the portal is four sub-projects later. 3A builds the model with the decision **recorded**
+  internally — "the sponsor approved by email, logged by the account manager" — and 7 wires the
+  sponsor's own button to the same endpoint. The gate is real from the day it ships; only who
+  presses it changes.
+- **The approved artifact is the filtered view.** Because Q24 lets a milestone be internal-only, the
+  plan a sponsor approves is the portal-visible plan, not the internal one. The internal plan and
+  the approved plan are two renderings of one journey, and the approval records which one was sent.
+
+---
+
+### Q23 · A pending first schedule approval holds the journey
+
+**Question:** A journey is open and its schedule is sitting unapproved with the customer's sponsor.
+May the internal team work the first milestone?
+
+**Decision:** **No — the journey waits on hold until its first schedule approval lands. Later
+revisions are advisory and do not block.**
+
+- **Mapped onto the existing hold**, not a new pause: `Case.held_at` / `total_hold_days`,
+  `CaseOnHoldException` already refuses every satisfy while held, and Q8 already decided the SLA
+  clock pauses while waiting on the customer. Waiting for a sponsor to approve a plan *is* waiting
+  on the customer, so the SLA accounting is correct for free rather than invented twice.
+- **Revisions do not re-block.** When dates shift mid-flight a new revision is issued and the team
+  keeps working; the approval is recorded when it arrives. The alternative — re-holding on every
+  revision — means an internal typo correction freezes a live project until the customer replies.
+- **Rejected:** never blocking. Approval would be a decoration, and work could proceed to completion
+  against a plan the customer had explicitly refused.
+
+---
+
+### Q24 · Internal-only milestones, and one progress number
+
+**Question:** Some milestones are internal team work the customer should not see. If three of ten
+are hidden, what progress does the customer's portal show?
+
+**Decision:** **Milestones gain portal visibility, and progress stays one number for everyone.**
+
+- `stage.portal_visible` already exists in the schema but **is read by nothing** — authored in the
+  builder and inert, like `notification_template_key`. Sub-project 3A adds the milestone-level flag;
+  sub-project 7 becomes the first consumer of both.
+- **Progress is computed once, over every milestone**, exactly as `CaseEngine` does today, and every
+  audience sees the same figure. The customer's roadmap shows seven rows while the bar reflects ten,
+  so the arithmetic is not reconstructable from their screen. That is the accepted cost: one truth
+  about "how far along are we", and status reports, dashboards, rollups and SLA figures that all
+  agree. No engine change.
+- **Rejected:** recomputing over visible milestones only — the same journey then reads 40% internally
+  and 29% externally, forever, and every report needs an audience flag. **Rejected:** giving
+  internal milestones zero weight — a week of internal staging would move the bar 0%, and marking
+  work internal would silently change Q6's denominator.
+
+---
+
+### Q25 · Meetings are a requirement kind
+
+**Question:** A kickoff meeting needs a proposed time the customer accepts or rejects, an agenda, and
+afterwards a recording, documents and notes. How is it modelled?
+
+**Decision:** **`RequirementKind.MEETING`, backed by a `meeting` record.** It carries the proposed
+time, the customer's decision on that time, an agenda reference, `held_at`, notes and attachment
+references.
+
+- **Follows the `TASK` precedent exactly.** `RequirementKind.TASK` was added in sub-project 2 as an
+  empty seam and sub-project 3 fills it with a real module; `SatisfyRequest.satisfiedRef` /
+  `satisfiedRefType` exist for precisely this. A meeting held and its notes captured satisfies its
+  requirement through the same gated `CaseEngine.reconcile` under the same row lock — **no second
+  write path into a case**, which is what invariant 4 and `ReconcileConcurrencyTest` protect.
+- **A "Kickoff" milestone is a milestone with a MEETING requirement**, not a new kind of milestone.
+  The other kinds in the original brief map onto what already exists or is already scheduled: task
+  → `TASK` (sub-project 3), file → `DOCUMENT` (4), approval → `APPROVAL`, signature → a `SIGNATURE`
+  kind added by 5, agenda → a document belonging to the meeting.
+- **Needs sub-project 4.** The agenda and the recording are documents, so `meeting` carries nullable
+  attachment references until 4 lands — the same seam sub-project 3's tasks and comments carry.
+- **Rejected:** a first-class `meeting` hanging off a milestone independently of any requirement.
+  More expressive (a series, an ad-hoc meeting that gates nothing), but it becomes a second thing
+  that mutates a case, "does a meeting completing advance the milestone?" needs an answer, and it
+  must route through `reconcile` regardless. **Rejected:** composing a kickoff from an `APPROVAL`
+  plus three `DOCUMENT` requirements — nothing then holds an actual date and time, so there is
+  nothing to put on a calendar, remind against, or reschedule.
+
+---
+
+### Q26 · Recurrence lives on the meeting series, never the graph
+
+**Question:** A weekly status meeting runs for the life of the project. How is "every week"
+represented?
+
+**Decision:** **A recurrence rule on the meeting, spawning occurrences.** One milestone, one MEETING
+requirement, many occurrences — each with its own proposed time, agenda, notes and recording. The
+milestone completes when the series ends.
+
+The frozen graph never changes and the progress denominator never moves. **A recurring *milestone*
+was rejected for a structural reason:** a workflow version is a frozen graph at publish and Q6
+weights progress by `estimated_duration_days`, so a milestone spawning a new instance every week
+grows the denominator without bound — progress would drift *downward* week over week and the journey
+could never reach 100% while the series ran. Excluding such milestones from progress weight fixes
+the arithmetic but makes them contribute nothing, at which point they need not be milestones at all.
+
+**Rejected:** a recurrence rule on sub-project 3's ad-hoc `task` — simplest, but a task has no
+scheduled time, agenda, attendees, recording or customer-visible occurrence, so it does not model a
+weekly status call.
+
+---
+
+### Q27 · Outputs are derived, not declared
+
+**Question:** Stages and milestones have outputs — the deliverables produced. Are these a new
+tracked concept?
+
+**Decision:** **No new schema. An Outputs view rolls up `satisfiedRef`.**
+
+Satisfying a requirement already records `satisfiedRef` / `satisfiedRefType` — a pointer to the
+record that satisfied it: the task, the document, the agreement, the meeting. **That pointer is the
+output.** A stage's or milestone's outputs are a query over its requirements' satisfied references,
+surfaced on the portal as "what we have delivered" and in Q28's status report. It grows on its own
+as sub-projects 4 and 5 add satisfying record types — no list to extend.
+
+**Rejected:** declaring expected outputs in the template alongside requirements — a `DOCUMENT`
+requirement labelled "Signed MSA" already declares exactly that deliverable, so this is a second
+list to keep consistent with the first and a second editor in the builder. **Rejected:** declaring
+and then matching them ("3 of 4 promised deliverables produced") — a third tracking axis beside
+requirement status and progress, for reporting nobody has asked for yet.
+
+---
+
+### Q28 · Status reports are issued snapshots
+
+**Question:** Is a status report a document you issue, or a screen the customer can always look at?
+
+**Decision:** **An issued, dated, immutable snapshot**, generated on demand or on a schedule.
+
+Each report captures progress and its change since the previous report, milestones closed in the
+interval, outputs produced (Q27), what is open with the customer and what is open with the provider,
+and current risk state. Published to the portal as a numbered artifact and emailable.
+
+- **Reuses Q22's snapshot mechanism** rather than inventing a second one.
+- The deciding argument is history: *"what did we report on 15 October?"* has to have an answer, for
+  governance packs and for disputes. A live screen cannot answer it.
+- **Depends on 4, 5 and 6** for outputs to be rich and for risk state to exist, so it is built in
+  sub-project 8, not 3A.
+- **Rejected:** a live composed screen only — nothing to generate or store, always current, but no
+  record of what the customer was told last month. **Rejected:** both — workable, but the live view
+  and the generator must then share one computation or they drift into disagreeing about the same
+  journey.
+
+---
+
+### What these nine did *not* change
+
+Three items from the same discussion needed no decision, and one needed no model:
+
+- **Journeys for prospects** already work. `CustomerStatus.PROSPECT` exists and nothing gates case
+  creation on `ACTIVE`. This needs a test proving it, not a feature.
+- **Customer–provider messaging** is already specced — design screen 19 `cmsg`, and Q9 already grants
+  customers commenting with attachments. Sub-project 3's spec defers it to the portal deliberately.
+- **Customer dashboard insights** are Q16 (per-role dashboards) plus design screens 1 and 12,
+  sub-projects 8–9.
+- **"Legal sees every legal engagement across customers"** is a read, not a model. Q4's record-level
+  scope and `stage.responsible_department_id` already hold the data; it is a department filter on the
+  portfolio screens (6, 7, 12), in sub-project 8.

@@ -6,6 +6,7 @@ import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
+import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
 import co.ara.onboarding.workflow.WriteScope;
 import org.junit.jupiter.api.Test;
@@ -51,7 +52,7 @@ class InsufficientPermissionTest extends SecurityTestBase {
             UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(stageRequest), List.of(), 0L));
             UUID templateId = journey.templateOf(versionId);
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
             var roadmap = cases.roadmap(caseId);
             UUID milestoneId = roadmap.stages().get(0).milestones().get(0).id();
             UUID requirementId = roadmap.stages().get(0).milestones().get(0).requirements().get(0).id();

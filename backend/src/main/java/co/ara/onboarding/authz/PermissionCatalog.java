@@ -72,6 +72,18 @@ public final class PermissionCatalog {
         add(MILESTONE_FORCE_APPROVE, "journey", null,              "Approve a forced completion",   ALL_ONLY);
         add(REQUIREMENT_WAIVE,       "journey", "requirement",     "Waive a requirement",           ORG_SCOPES);
         add(APPROVAL_DECIDE,         "journey", "approval",        "Decide a stage-exit approval",  ORG_SCOPES);
+        // Task 12 (sub-project 3): task.view/task.complete match milestone.complete's
+        // RECORD scope set (an assignee finishes their own work); task.manage and
+        // comment.create are ORG_SCOPES only -- comment.create deliberately excludes
+        // ASSIGNED (design spec 6.1), so a template holding case.view at ASSIGNED
+        // cannot be granted comment.create at all, only task.view. Both resource
+        // types need scoping/TaskDescriptor and scoping/CommentDescriptor, added in
+        // the same commit as these entries so DescriptorRegistry.validate() does not
+        // refuse to start (see the plan's Task 13, whose own text already says so).
+        add(TASK_VIEW,               "task",    "task",            "View tasks",                    RECORD);
+        add(TASK_MANAGE,             "task",    "task",            "Create, edit, assign and cancel tasks", ORG_SCOPES);
+        add(TASK_COMPLETE,           "task",    "task",            "Transition a task's status",    RECORD);
+        add(COMMENT_CREATE,          "task",    "comment",         "Post a comment",                ORG_SCOPES);
     }
 
     /**

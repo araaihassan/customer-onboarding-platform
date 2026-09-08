@@ -57,7 +57,7 @@ class JourneyApiTest extends SecurityTestBase {
         String created = mvc.perform(as(post("/api/t/api-open/cases"), admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(
-                                new CreateCaseRequest(customerId[0], templateId[0], Map.of()))))
+                                new CreateCaseRequest(customerId[0], templateId[0], "Fixture Case " + Uuid7.generate(), Map.of()))))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         UUID caseId = UUID.fromString(JsonPath.read(created, "$.id"));
@@ -146,7 +146,7 @@ class JourneyApiTest extends SecurityTestBase {
         mvc.perform(as(post("/api/t/api-attrs/cases"), admin)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(mapper.writeValueAsString(
-                                new CreateCaseRequest(customerId[0], templateId[0], Map.of()))))
+                                new CreateCaseRequest(customerId[0], templateId[0], "Fixture Case " + Uuid7.generate(), Map.of()))))
            .andExpect(status().isUnprocessableEntity())
            .andExpect(jsonPath("$.problems.length()").value(1));
     }
@@ -277,10 +277,84 @@ class JourneyApiTest extends SecurityTestBase {
            .andExpect(status().isConflict());
     }
 
+    /**
+     * Q18 fix round 1: CreateCaseRequest.name is @NotBlank -- there is no
+     * fallback left to catch a caller that omits it, so bean validation is
+     * the only thing standing between a blank name and the NOT NULL column.
+     */
+    @Test
+    void aBlankNameOnCreateAnswers400() throws Exception {
+        UUID tenant = fixture.createTenant("api-create-blank-name");
+        AppUser admin = fixture.createAdminUser(tenant, "createblank@example.com");
+        var templateId = new UUID[1];
+        var customerId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            templateId[0] = journey.publishedTemplate();
+            customerId[0] = fixture.createCustomer(tenant, "Acme", null, null, null);
+        });
+
+        mvc.perform(as(post("/api/t/api-create-blank-name/cases"), admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(
+                                new CreateCaseRequest(customerId[0], templateId[0], "  ", Map.of()))))
+           .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Q18 fix round 2: onboarding_case.name is varchar(160), and nothing
+     * stopped a free-text field's value from exceeding that until
+     * CreateCaseRequest.name gained @Size(max = 160) -- without it this is a
+     * raw DataIntegrityViolationException (500), not a validation error.
+     * 161 characters is the smallest over-limit value; anything shorter
+     * would prove nothing.
+     */
+    @Test
+    void aNameOver160CharactersOnCreateAnswers400NotA500() throws Exception {
+        UUID tenant = fixture.createTenant("api-create-long-name");
+        AppUser admin = fixture.createAdminUser(tenant, "createlong@example.com");
+        var templateId = new UUID[1];
+        var customerId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            templateId[0] = journey.publishedTemplate();
+            customerId[0] = fixture.createCustomer(tenant, "Acme", null, null, null);
+        });
+
+        String tooLong = "x".repeat(161);
+        mvc.perform(as(post("/api/t/api-create-long-name/cases"), admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(
+                                new CreateCaseRequest(customerId[0], templateId[0], tooLong, Map.of()))))
+           .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * The full-replace half of the same guard: UpdateCaseRequest.name is
+     * @NotBlank too, enforced by CaseController.update's @Valid parameter --
+     * a client that never read the view back before saving gets a 400, not a
+     * silently-blanked NOT NULL column.
+     */
+    @Test
+    void aBlankNameOnUpdateAnswers400() throws Exception {
+        UUID tenant = fixture.createTenant("api-update-blank-name");
+        AppUser admin = fixture.createAdminUser(tenant, "updateblank@example.com");
+        var templateId = new UUID[1];
+        var customerId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            templateId[0] = journey.publishedTemplate();
+            customerId[0] = fixture.createCustomer(tenant, "Acme", null, null, null);
+        });
+        String caseId = createCase(admin, "api-update-blank-name", customerId[0], templateId[0]);
+
+        mvc.perform(as(put("/api/t/api-update-blank-name/cases/" + caseId), admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"  \",\"attributes\":{}}"))
+           .andExpect(status().isBadRequest());
+    }
+
     private String createCase(AppUser admin, String tenantSlug, UUID customerId, UUID templateId) throws Exception {
         String created = mvc.perform(as(post("/api/t/" + tenantSlug + "/cases"), admin)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(mapper.writeValueAsString(new CreateCaseRequest(customerId, templateId, Map.of()))))
+                        .content(mapper.writeValueAsString(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of()))))
                 .andExpect(status().isCreated())
                 .andReturn().getResponse().getContentAsString();
         return JsonPath.read(created, "$.id");

@@ -76,6 +76,27 @@ public abstract class PostgresTestBase {
     static { POSTGRES.start(); }
 
     /**
+     * The suite's onboarding_app password, generated per JVM run rather than
+     * written down -- the same reasoning jwtSecret() below already applies to
+     * app.jwt.secret. V2__app_role_and_tenant.sql creates the role with the
+     * committed literal password 'onboarding_app', but DatabaseCredentialsGuard
+     * now denylists that literal, so the suite cannot run on it: this is what
+     * AppRolePasswordReconciler's AFTER_MIGRATE callback reconciles the role's
+     * real password to instead, before appDatasourceProperties() below is ever
+     * used to open a connection. A single static field, generated once, is
+     * shared by every place that used to hardcode the literal --
+     * appDatasourceProperties() and withAppConnection() both reference it, so
+     * they cannot drift from each other the way two independent literals could.
+     */
+    private static final String APP_PASSWORD = generateAppPassword();
+
+    private static String generateAppPassword() {
+        byte[] secret = new byte[32];
+        new java.security.SecureRandom().nextBytes(secret);
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
+    }
+
+    /**
      * Flyway runs as the container's superuser (the schema owner).
      * The application datasource is repointed to onboarding_app in Task 2,
      * once the migration that creates that role exists.
@@ -97,7 +118,11 @@ public abstract class PostgresTestBase {
     static void appDatasourceProperties(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", () -> "onboarding_app");
-        registry.add("spring.datasource.password", () -> "onboarding_app");
+        registry.add("spring.datasource.password", () -> APP_PASSWORD);
+        // DatabaseCredentialsGuard and AppRolePasswordReconciler both bind
+        // DB_APP_PASSWORD directly (not spring.datasource.password), so the
+        // suite has to supply it under this key too.
+        registry.add("DB_APP_PASSWORD", () -> APP_PASSWORD);
     }
 
     /**
@@ -163,7 +188,7 @@ public abstract class PostgresTestBase {
 
     /** {@link #withHeldConnection} bound to onboarding_app. */
     protected static void withAppConnection(Consumer<JdbcTemplate> sequence) {
-        withHeldConnection("onboarding_app", "onboarding_app", sequence);
+        withHeldConnection("onboarding_app", APP_PASSWORD, sequence);
     }
 
     /**

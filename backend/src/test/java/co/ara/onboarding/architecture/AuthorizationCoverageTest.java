@@ -200,7 +200,12 @@ class AuthorizationCoverageTest {
                                           "co.ara.onboarding.identity..",
                                           "co.ara.onboarding.auth..",
                                           "co.ara.onboarding.workflow..",
-                                          "co.ara.onboarding.journey..")
+                                          "co.ara.onboarding.journey..",
+                                          // Task 16: TaskService's own case_id/milestoneId/
+                                          // requirementId/assigneeId resolution is exactly the
+                                          // shape this rule exists to catch -- added before
+                                          // TaskService itself was written, not retrofitted.
+                                          "co.ara.onboarding.task..")
                 // Same exclusion: authentication runs with no actor and platform_admin
                 // is not tenant-scoped, so there is no scope for AuthorizedQuery to
                 // apply -- it could not be used here even in principle.
@@ -214,14 +219,23 @@ class AuthorizationCoverageTest {
                 .and().areNotAssignableTo(ActivationService.class)
                 .and().areNotAssignableTo(PasswordResetService.class)
                 .and().areNotAssignableTo(MeService.class)
-                // Two exclusions, both category one -- runs before there is an actor
-                // to authorize. Excluded by class rather than by name pattern, same
-                // as the exclusions above: a second class that happens to end in
+                // Three exclusions: two run before there is an actor to authorize
+                // (IdentityActorDirectory, UserRoleDirectory — supply the department
+                // and teams scope resolution itself needs). The third is a separate
+                // category: OrgUnitResolver resolves department and team ids through
+                // plain repository lookups because no DEPARTMENT_VIEW or TEAM_VIEW
+                // permissions exist in the catalog — only DEPARTMENT_MANAGE and
+                // TEAM_MANAGE, both ALL-only administrative permissions. Tenancy
+                // isolation is provided by Hibernate filter and RLS, both applied
+                // automatically to all TenantScopedEntity queries. Excluded by class
+                // rather than by name pattern: a second class that happens to end in
                 // "Directory" would not inherit the exemption.
                 .and().doNotHaveFullyQualifiedName(
                         "co.ara.onboarding.identity.IdentityActorDirectory")
                 .and().doNotHaveFullyQualifiedName(
                         "co.ara.onboarding.authz.UserRoleDirectory")
+                .and().doNotHaveFullyQualifiedName(
+                        "co.ara.onboarding.customer.OrgUnitResolver")
                 .should().callMethodWhere(
                         (target(name("findAll"))
                          .or(target(name("findOne")))

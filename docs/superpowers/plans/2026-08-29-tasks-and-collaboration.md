@@ -21,11 +21,11 @@ Every task's requirements implicitly include this section. `CLAUDE.md` is loaded
 - **Base package** `co.ara.onboarding`. One new module: `co.ara.onboarding.task`. Descriptors go in `co.ara.onboarding.scoping`. Nothing else moves.
 - **`journey` must never import `task`.** It declares `journey.TaskDirectory` and `journey.TaskLifecycle`; `task` implements both. Enforced by a **named** `ModuleBoundaryTest` rule, `noJourneyDependencyOnTask` — not by the cycle rule, which a one-way import would still pass.
 - **Three new tables**, all tenant-owned: `tenant_id uuid NOT NULL REFERENCES tenant(id)`, `SELECT enable_tenant_rls('<table>')` in the same migration, and `GRANT SELECT, INSERT, UPDATE ON <table> TO onboarding_app` — never `DELETE`. `RlsCoverageTest` is deny-by-default over the live schema; **its allowlist stays at four entries.**
-- **One feature migration: `V14__task.sql`.** Phase 1 adds its own, numbered in the order the tasks land. Forward-only — never edit a committed migration, not even temporarily.
+- **The feature migration's actual filename is decided at dispatch time, not fixed here as `V14`.** Phase 1 lands first and its own migrations (Tasks 5 and 10) take whichever numbers are next when they run, so by the time Phase 2's Task 11 runs, `V14` may already be taken. **Before writing any migration in this plan, list `backend/src/main/resources/db/migration/` and use the next unused `V<n>` — never assume a number from this document's text.** Forward-only — never edit a committed migration, not even temporarily.
 - **UUIDv7 keys** via `co.ara.onboarding.platform.Uuid7.generate()`. All timestamps `timestamptz` in UTC; `due_date` is a bare `date`.
 - **Every public `*Service` and `*Engine` method carries `@RequirePermission`.**
 - **Every read of tenant business data goes through `AuthorizedQuery`**, and so does **every id a write path takes from a URL or a request body**, before it writes. **No new `AuthorizedQuery` exclusion is created in this sub-project.** The codebase has exactly one carve-out (`AuditQuery.findForResource`) and CLAUDE.md requires a second to carry its own explicit argument. This design was chosen so none is needed — if you find yourself wanting one, the design is wrong, not the rule.
-- **`task..` and `comment..` are added to `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` in the same commit that adds the services**, never afterwards.
+- **`task..` is added to `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` in the same commit that adds the services**, never afterwards. There is no separate `co.ara.onboarding.comment` package — `Comment`, `CommentService` and everything comment-related live inside `co.ara.onboarding.task` per §3.1 of the spec, so `task..` alone covers both.
 - **Out-of-scope records return 404, never 403.** `AuthorizedQuery` throws `NoSuchElementException`, which maps to 404.
 - **A `PUT` is a full replace,** so its view type must carry every field its request type accepts. Adding a field to an `Update*Request` without adding it to the matching `*View` makes every client silently erase it.
 - **Permission keys** are declared in `PermissionKeys`, catalogued in `PermissionCatalog`, and referenced as constants — never as string literals.
@@ -188,63 +188,99 @@ The highest-severity open item. `CustomerService` writes `ownerUserId`, `owningD
 
 ```java
 @Test
-void anotherTenantsUserIdCannotBecomeACustomerOwner() {
+void anotherTenantsDepartmentIdCannotBecomeACustomersOwningDepartment() {
     UUID tenantA = fixture.createTenant("own-a");
     UUID tenantB = fixture.createTenant("own-b");
-    var strangerId = new UUID[1];
-    fixture.runAs(tenantB, () -> strangerId[0] = fixture.createUser(tenantB, "stranger@b.test"));
+    var strangerDepartmentId = new UUID[1];
+    fixture.runAs(tenantB, () ->
+            strangerDepartmentId[0] = fixture.createDepartment(tenantB, "B's Ops"));
 
     // A real id, but in another tenant. The FK is satisfied because RLS is
     // bypassed for referential integrity, so before the fix this answered 200.
+    // create() never takes an ownerUserId (the actor becomes the owner), but
+    // DOES take owningDepartmentId straight from the request -- that is the
+    // field under attack here.
     assertThatThrownBy(() -> fixture.runAs(tenantA, () ->
             customers.create(new CreateCustomerRequest(
-                    "Acme", null, strangerId[0], null, null))))
+                    "Acme", null, null, null, null, strangerDepartmentId[0], null))))
             .isInstanceOf(NoSuchElementException.class);
 }
 
 @Test
-void anInventedOwnerIdIsA404NotA500() {
+void anInventedDepartmentIdIsA404NotA500() {
     UUID tenant = fixture.createTenant("own-invented");
     assertThatThrownBy(() -> fixture.runAs(tenant, () ->
             customers.create(new CreateCustomerRequest(
-                    "Acme", null, Uuid7.generate(), null, null))))
+                    "Acme", null, null, null, null, Uuid7.generate(), null))))
+            .isInstanceOf(NoSuchElementException.class);
+}
+
+/**
+ * update() is the sharper case: unlike create(), it takes ownerUserId
+ * straight from the request (CustomerService.java:131), so a real user id
+ * belonging to another tenant satisfies the FK and hands ownership of this
+ * tenant's customer to a stranger who cannot even see it.
+ */
+@Test
+void updateCannotHandOwnershipToAnotherTenantsUser() {
+    UUID tenantA = fixture.createTenant("own-upd-a");
+    UUID tenantB = fixture.createTenant("own-upd-b");
+    var strangerUserId = new UUID[1];
+    fixture.runAs(tenantB, () -> strangerUserId[0] = fixture.createUser(tenantB, "stranger@b.test"));
+
+    var customerId = new UUID[1];
+    fixture.runAs(tenantA, () -> customerId[0] = customers.create(new CreateCustomerRequest(
+            "Acme", null, null, null, null, null, null)).id());
+
+    assertThatThrownBy(() -> fixture.runAs(tenantA, () ->
+            customers.update(customerId[0], new UpdateCustomerRequest(
+                    "Acme", null, null, null, null, strangerUserId[0], null, null))))
             .isInstanceOf(NoSuchElementException.class);
 }
 ```
 
-The second test is the half that closes the oracle: **both** cases must produce the *same* outcome. A 404 for one and a 500 for the other is the leak, even after the first test passes.
+**`CreateCustomerRequest` has no `ownerUserId` field at all** — `create()` always sets the owner to the creating actor (`CustomerService.java:74`, "the creator becomes the owner by default"). The exploitable fields at creation are `owningDepartmentId` and `owningTeamId` only. `update()` is where `ownerUserId` is itself attacker-controlled (`CustomerService.java:131`), which is the more serious half of this bug — it lets an existing customer's ownership be reassigned to a stranger, not just a new one created under one. Read `CustomerService.java` in full before writing these tests; do not assume the request shapes above are exhaustive without checking the real records.
 
-- [ ] **Step 2: Run to verify both fail**
+The `anInventedDepartmentIdIsA404NotA500` test is the half that closes the oracle: **both** the foreign-tenant case and the invented-id case must produce the *same* outcome. A 404 for one and a 500 for the other is the leak, even after the cross-tenant case alone appears fixed.
+
+- [ ] **Step 2: Run to verify all three fail**
 
 ```bash
 cd backend && ./gradlew cleanTest test --tests "co.ara.onboarding.security.CrossTenantAccessTest"
 ```
 
-Expected: FAIL — the first returns a customer, the second throws `DataIntegrityViolationException`.
+Expected: FAIL — the cross-tenant cases return a customer (200), the invented-id case throws `DataIntegrityViolationException` (500).
 
-- [ ] **Step 3: Resolve all three ids through their repositories and let RLS do the tenancy work**
+- [ ] **Step 3: Resolve every foreign id, but through two different mechanisms — read this before writing any code**
 
-In `CustomerService`, replace the direct assignments with resolution. RLS scopes each repository to the bound tenant, so a foreign id simply is not found:
+**`PermissionKeys` has no `DEPARTMENT_VIEW` or `TEAM_VIEW`.** The only permissions gating `Department`/`Team` are `DEPARTMENT_MANAGE` and `TEAM_MANAGE`, and both are catalogued `ALL_ONLY` (`PermissionCatalog.java`, "Manage departments"/"Manage teams") — an administrative permission for editing the org chart itself, not a permission for merely referencing an existing unit. `CUSTOMER_CREATE` is also `ALL_ONLY`, but `CUSTOMER_EDIT` is `RECORD` (all four scopes) — so gating department/team resolution on `DEPARTMENT_MANAGE`/`TEAM_MANAGE` would mean a customer editor holding `customer.edit` at TEAM scope (a real, plausible role) could no longer save **any** edit to a customer that has an owning department set, including edits that don't touch the department at all, unless they also separately hold `department.manage`. That is a real regression, not a hardening.
+
+So: **department and team are resolved through a plain, tenant-scoped repository lookup, not through `AuthorizedQuery`.** This is safe, not a bypass: the Hibernate `tenantFilter` (`TenantScopedEntity`) is enabled automatically per-session by `TenantConnectionCustomizer` for every query on a tenant-bound connection — it is not something `AuthorizedQuery` turns on per-call. A bare `repository.findById(id)` is already tenant-scoped at both the Hibernate-filter layer and the Postgres RLS layer. What `AuthorizedQuery` adds beyond that is the intra-tenant DEPARTMENT/TEAM/ASSIGNED *scope* predicate — and department/team have no such predicate to add, since the only permission that exists for them is `ALL_ONLY`. The actual defect here is a **tenancy** leak, not a **scope** leak, so the tenancy-only guarantee RLS already provides is the correct and sufficient fix.
+
+`ownerUserId` (in `update()` only) is different: `PermissionKeys.USER_VIEW` exists, is a real view permission, and is catalogued `ORG_SCOPES` (`PermissionCatalog.java`, "View users"). Resolving it through `AuthorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId)` is both correct and desirable: it means an actor can only hand ownership to a user they can actually see, which is a real tightening worth having, not an unrelated coupling — unlike the department/team case, `user.view` is exactly the permission this operation should require.
 
 ```java
-private UUID resolveOwner(UUID ownerUserId) {
-    if (ownerUserId == null) return null;
-    return authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId).getId();
-}
-
 private UUID resolveDepartment(UUID departmentId) {
     if (departmentId == null) return null;
-    return authorizedQuery.getById(departments, Department.class,
-            PermissionKeys.DEPARTMENT_VIEW, departmentId).getId();
+    return departments.findById(departmentId)
+            .orElseThrow(() -> new NoSuchElementException("Department not found"))
+            .getId();
 }
 
 private UUID resolveTeam(UUID teamId) {
     if (teamId == null) return null;
-    return authorizedQuery.getById(teams, Team.class, PermissionKeys.TEAM_VIEW, teamId).getId();
+    return teams.findById(teamId)
+            .orElseThrow(() -> new NoSuchElementException("Team not found"))
+            .getId();
+}
+
+private UUID resolveOwner(UUID ownerUserId) {
+    if (ownerUserId == null) return null;
+    return authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId).getId();
 }
 ```
 
-Call all three from `create` **and** `update`. `AuthorizedQuery.getById` throws `NoSuchElementException` for both the foreign id and the invented one, which is exactly the collapse the oracle needs.
+`resolveDepartment`/`resolveTeam` are called from **both** `create` and `update`; `resolveOwner` only from `update`, since `create` never reads an owner id from the request. Both mechanisms collapse the foreign-tenant case and the invented-id case to the same `NoSuchElementException` — the Hibernate filter/RLS pair for department/team, `AuthorizedQuery` for the user — which is exactly the collapse the oracle needs. Confirm `DepartmentRepository`/`TeamRepository`/`AppUserRepository`'s actual field names against `CustomerService`'s existing constructor injection before wiring these in — the service does not currently inject any of the three.
 
 - [ ] **Step 4: Run to verify both pass, then the whole suite**
 
@@ -270,34 +306,44 @@ Both now resolve through AuthorizedQuery and collapse to the same 404."
 
 A slug that does not match `PathPrefixTenantResolver`'s `^[a-z0-9][a-z0-9-]{0,62}$` — `Acme`, `acme_corp` — creates a tenant that is **permanently unreachable**: every request resolves no slug and answers 401, with no error at creation time. A duplicate slug is a raw 500 from the unique constraint.
 
+**Two real corrections to check before writing anything:** `ProvisionRequest` is a **nested record inside `PlatformTenantController.java`** (`public record ProvisionRequest(String slug, String name, String adminEmail, String adminFullName) {}`), not its own file. And `TenantProvisioningService.provision` takes **four positional `String` arguments** (`provision(String slug, String name, String adminEmail, String adminFullName)`), not a request object — the controller unpacks the record before calling it. Bean validation (`@NotBlank`, `@Pattern`) only fires through `@Valid` at the web layer, so it cannot be exercised by calling the service directly with positional strings: **these tests must go through MockMvc**, the same pattern `security.DirectApiAccessTest` already uses against this exact endpoint (`mvc.perform(post("/api/platform/tenants")...)`). Read both files in full before writing the tests below.
+
 **Files:**
-- Modify: `backend/src/main/java/co/ara/onboarding/provisioning/PlatformTenantController.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/provisioning/ProvisionRequest.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/provisioning/PlatformTenantController.java` (the nested `ProvisionRequest` record, and `@Valid`)
 - Create: `backend/src/main/java/co/ara/onboarding/provisioning/DuplicateSlugException.java`
-- Test: `backend/src/test/java/co/ara/onboarding/provisioning/TenantProvisioningTest.java`
+- Test: `backend/src/test/java/co/ara/onboarding/provisioning/TenantProvisioningTest.java` (MockMvc-based, modelled on `security.DirectApiAccessTest`'s existing `/api/platform/tenants` calls)
 
 - [ ] **Step 1: Write the failing tests**
 
 ```java
 @Test
-void aSlugTheResolverCannotParseIsRejectedAtCreation() {
-    assertThatThrownBy(() -> provisioning.provision(
-            new ProvisionRequest("Acme", "Acme Corp", "a@acme.test", "Admin")))
-            .isInstanceOf(ConstraintViolationException.class);
+void aSlugTheResolverCannotParseIsRejectedAtCreation() throws Exception {
+    mvc.perform(post("/api/platform/tenants")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"slug":"Acme","name":"Acme Corp","adminEmail":"a@acme.test","adminFullName":"Admin"}"""))
+            .andExpect(status().isBadRequest());
 }
 
 @Test
-void aDuplicateSlugIsAConflictNotAServerError() {
-    provisioning.provision(new ProvisionRequest("dup", "First", "a@x.test", "A"));
-    assertThatThrownBy(() -> provisioning.provision(
-            new ProvisionRequest("dup", "Second", "b@x.test", "B")))
-            .isInstanceOf(DuplicateSlugException.class);
+void aDuplicateSlugIsAConflictNotAServerError() throws Exception {
+    String body = """
+            {"slug":"dup","name":"First","adminEmail":"a@x.test","adminFullName":"A"}""";
+    mvc.perform(post("/api/platform/tenants")
+                    .contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isOk());
+
+    mvc.perform(post("/api/platform/tenants")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"slug":"dup","name":"Second","adminEmail":"b@x.test","adminFullName":"B"}"""))
+            .andExpect(status().isConflict());
 }
 ```
 
 - [ ] **Step 2: Run to verify they fail**
 
-Expected: the first creates an unreachable tenant and returns normally; the second throws `DataIntegrityViolationException`.
+Expected: the first creates an unreachable tenant and returns 200; the second's duplicate returns 500 (`DataIntegrityViolationException`), not 409.
 
 - [ ] **Step 3: Constrain the request and add `@Valid`**
 
@@ -313,9 +359,9 @@ public record ProvisionRequest(
         @NotBlank String adminFullName) {}
 ```
 
-Extract `SLUG_PATTERN` as a `public static final String` on `PathPrefixTenantResolver` and have the resolver compile *that* constant, so there is exactly one copy.
+`PathPrefixTenantResolver`'s current pattern is `Pattern.compile("^/api/t/([a-z0-9][a-z0-9-]{0,62})(/.*)?$")` — the slug shape is a capture group inside a larger path pattern, not yet its own constant. Extract just the slug sub-pattern, `^[a-z0-9][a-z0-9-]{0,62}$`, as a `public static final String SLUG_PATTERN` on `PathPrefixTenantResolver`, and have the resolver build its existing path pattern by interpolating that constant into the capture group — so there is exactly one literal, not two that happen to agree.
 
-Add `@Valid` to the controller method parameter, and catch the unique-constraint violation in `TenantProvisioningService`, rethrowing `DuplicateSlugException` mapped to 409 by the module's own `@RestControllerAdvice`.
+Add `@Valid` to the controller method's `@RequestBody ProvisionRequest request` parameter, and catch the unique-constraint violation in `TenantProvisioningService`, rethrowing `DuplicateSlugException` mapped to 409 by the module's own `@RestControllerAdvice` (check whether `provisioning` already has one before creating a second).
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -333,11 +379,25 @@ the request constraint, so the two cannot drift."
 
 ### Task 4: Deactivation invalidates pending credentials
 
-`deactivate` revokes every refresh family and `AuthorizationService` zeroes authority for a non-ACTIVE user — but `PasswordResetService` consults `status` nowhere, so a DEACTIVATED account can still request and complete a reset, and outstanding `invitation` rows stay redeemable. No authority is gained today, but "deactivation ends the account" is only half a mechanism while its pending credentials outlive it.
+`deactivate` revokes every refresh family and `AuthorizationService` zeroes authority for a non-ACTIVE user — but `PasswordResetService` consults `status` nowhere, so a DEACTIVATED account can still **request** and **complete** a reset, and outstanding `invitation` rows stay redeemable. No authority is gained today, but "deactivation ends the account" is only half a mechanism while its pending credentials outlive it. Both halves — request and complete — need their own fix; they are independent bugs, not one bug with two symptoms.
+
+**Method names below were verified against the real code and differ from earlier drafts of this brief — use these, not guesses:**
+- `PasswordResetService`'s methods are `request(String rawEmail) -> Optional<String>` and `reset(String rawToken, String newPassword) -> void` — there is no `complete` method.
+- `Invitation`'s enum is `InvitationPurpose` with values `ACTIVATION`/`PASSWORD_RESET` — there is no `InvitationKind`.
+- Internal-user activation invitations are issued through the port `identity.UserActivationSender.issueForUser(UUID userId) -> String`, implemented by `auth.UserInvitationService` — there is no `invitations.issue(userId, purpose)` call; `auth.InvitationService.issue(UUID contactId)` is a *different*, portal-contact-only method and must not be used here.
+- `Invitation` has `getAcceptedAt()`/`getRevokedAt()`/`isRedeemable(InvitationPurpose, Instant)` — there is no `findRedeemable` anywhere; assert on `getRevokedAt()` being non-null instead, resolved via `InvitationRepository.findById(...)`.
+
+**The revocation mechanism, and why it needs a new port method rather than reusing `UserSessionRevoker`:** `identity` cannot import `auth.InvitationRepository` directly (would close `identity -> auth -> identity`), so this needs a port the same way sessions do. Don't add it to `UserSessionRevoker`/`RefreshTokenService` — that class's whole job is refresh-token rotation (a single, well-scoped responsibility) and invitations are a different table it doesn't otherwise touch. Instead, **add a second method to the existing `identity.UserActivationSender` interface**: `void revokePendingInvitations(UUID userId)`. `auth.UserInvitationService` already implements this interface for `issueForUser` and already has `InvitationRepository` injected — implement the new method there. `UserAdminService` already injects `UserActivationSender activations`; `deactivate()` calls `activations.revokePendingInvitations(user.getId())` alongside its existing `sessions.revokeAllForUser(...)` call, in the same transaction.
+
+One row in `Invitation` covers BOTH activation invitations and password-reset tokens (`InvitationPurpose` is what distinguishes them, not separate tables) — so **one revocation call, keyed only on `userId`, closes both** regardless of purpose. `InvitationRepository` needs a new finder: `List<Invitation> findByUserIdAndAcceptedAtIsNullAndRevokedAtIsNull(UUID userId)`. `revokePendingInvitations` sets `revokedAt = Instant.now()` on each and saves.
 
 **Files:**
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/PasswordResetService.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/identity/UserAdminService.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/PasswordResetService.java` (both `request` and `reset`)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/InvitationRepository.java` (new finder)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/UserInvitationService.java` (implement the new port method)
+- Modify: `backend/src/main/java/co/ara/onboarding/identity/UserActivationSender.java` (add the port method)
+- Modify: `backend/src/main/java/co/ara/onboarding/identity/UserAdminService.java` (call it from `deactivate`)
+- Add: `backend/src/main/java/co/ara/onboarding/auth/PendingInvitationRevoker.java` — **not anticipated by this plan; see the amendment below Step 3.**
 - Test: `backend/src/test/java/co/ara/onboarding/auth/DeactivationRevokesCredentialsTest.java` (new)
 
 - [ ] **Step 1: Write the failing tests**
@@ -345,26 +405,57 @@ the request constraint, so the two cannot drift."
 ```java
 @Test
 void aDeactivatedUserCannotCompleteAPasswordReset() {
-    // token issued while ACTIVE, redeemed after deactivation
-    String token = resets.request(email);
+    // Token issued while ACTIVE, redeemed after deactivation.
+    String token = resets.request(email).orElseThrow();
     admin.deactivate(userId);
-    assertThatThrownBy(() -> resets.complete(token, "new-password-value"))
+    assertThatThrownBy(() -> resets.reset(token, "new-password-value"))
             .isInstanceOf(InvalidTokenException.class);
 }
 
+/**
+ * The half CLAUDE.md's own wording names separately from "complete": a
+ * deactivated user must not be able to obtain a NEW token either, and the
+ * response must not distinguish "deactivated" from "no such address" --
+ * both already collapse to Optional.empty() for the unknown-address case,
+ * and this must land in the same bucket.
+ */
 @Test
-void deactivationRevokesOutstandingInvitations() {
-    UUID invitationId = invitations.issue(userId, InvitationKind.ACTIVATION);
+void aDeactivatedUserCannotRequestANewPasswordReset() {
     admin.deactivate(userId);
-    assertThat(invitations.findRedeemable(invitationId)).isEmpty();
+    assertThat(resets.request(email)).isEmpty();
+}
+
+@Test
+void deactivationRevokesAnOutstandingActivationInvitation() {
+    String rawToken = activationSender.issueForUser(userId);
+    admin.deactivate(userId);
+
+    Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken)).orElseThrow();
+    assertThat(invitation.getRevokedAt()).isNotNull();
+}
+
+@Test
+void deactivationRevokesAnOutstandingPasswordResetToken() {
+    String rawToken = resets.request(email).orElseThrow();
+    admin.deactivate(userId);
+
+    Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken)).orElseThrow();
+    assertThat(invitation.getRevokedAt()).isNotNull();
 }
 ```
 
 - [ ] **Step 2: Run to verify they fail**
 
-- [ ] **Step 3: Add the status check and the revocation**
+- [ ] **Step 3: Add the status checks and the revocation**
 
-`PasswordResetService.complete` reads the user and refuses a non-ACTIVE one, mapping to the same `InvalidTokenException` the unknown-token path uses — a distinct error here would tell an attacker the address exists and is deactivated. `UserAdminService.deactivate` revokes outstanding invitations in the same transaction as the status change.
+`PasswordResetService.reset` reads the user and refuses a non-ACTIVE one, mapping to the same `InvalidTokenException` the unknown-token path uses — a distinct error here would tell an attacker the address exists and is deactivated. `PasswordResetService.request` returns `Optional.empty()` for a non-ACTIVE user, exactly the same as an unknown address — the existing doc comment's "the caller must not turn that into a different response" invariant extends to this case too.
+
+`UserActivationSender.revokePendingInvitations(UUID)` is added to the interface; `UserInvitationService` implements it using the new `InvitationRepository` finder. `UserAdminService.deactivate` calls it in the same transaction as the status change and the existing `sessions.revokeAllForUser(...)` call.
+
+**Amendment (as-executed, both found during implementation, not anticipated above — see commit `73044b4` and its fix-round-1 follow-up for the full reasoning):**
+
+1. **The literal mechanism above — `UserInvitationService` calling `InvitationRepository.findByUserIdAndAcceptedAtIsNullAndRevokedAtIsNull` directly — does not compile cleanly against the architecture guards.** Verified red: `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` fails, because it binds to any class whose simple name ends in `Service`/`Directory` in `co.ara.onboarding.auth` calling a `findBy*` method outside `AuthorizedQuery`/`AuditQuery`, and `UserInvitationService` matches that shape regardless of whether the id reaching it is already authorized. Fix: the finder call was extracted into a new `PendingInvitationRevoker` (`co.ara.onboarding.auth`) — package-private, **not a Spring bean**, holding only the finder-and-revoke loop. Its name deliberately does not end in `Service`/`Directory`, so the guard's own name-shaped predicate does not see the call at all — the same structural exception CLAUDE.md already documents for `CaseEngine` calling `CaseRepository.lockById` directly ("it is never called from a `*Service` or `*Directory` ... so the finder rule never sees it"). Verified green after the extraction. No exclusion was added to the guard itself.
+2. **`revokePendingInvitations(UUID userId)` must resolve `userId` through `AuthorizedQuery` itself, exactly like its sibling `issueForUser`, rather than trusting that its one current caller (`UserAdminService.deactivate`) already resolved it.** `UserActivationSender` is a public `identity`-module interface, injectable by anything; a future second caller passing a raw request-body id straight through would otherwise be an unguarded cross-tenant/cross-scope escalation invisible to every structural guard in the codebase (the ArchUnit finder rule above sees a port call, not a raw finder call). Fixed by adding `authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_MANAGE, userId)` at the top of `revokePendingInvitations`, before delegating to `PendingInvitationRevoker` with the resolved id — the method now defends itself independently of what any caller does. Covered by two new tests: `departmentScopedActorCannotRevokeInvitationsForAUserOutsideTheirDepartment` (refusal, `NoSuchElementException`, nothing revoked) and its positive control `departmentScopedActorCanRevokeInvitationsWithinTheirDepartment`.
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -374,9 +465,21 @@ void deactivationRevokesOutstandingInvitations() {
 git add -A
 git commit -m "fix(auth): deactivation invalidates pending resets and invitations
 
-Deactivation revoked sessions but left pending credentials redeemable.
-The reset refusal reuses InvalidTokenException rather than a distinct
-error, so it does not become an oracle for which addresses are deactivated."
+Deactivation revoked sessions but left pending credentials outstanding in
+two ways: a deactivated account could both COMPLETE a reset issued before
+deactivation and REQUEST a brand new one afterward, and every outstanding
+invitation (activation or password-reset -- one table, distinguished only
+by InvitationPurpose) stayed redeemable.
+
+request() now returns Optional.empty() for a non-ACTIVE user, identically
+to an unknown address. reset() refuses a non-ACTIVE user with the same
+InvalidTokenException an invalid token gets, so neither becomes an oracle
+for which addresses exist and are deactivated.
+
+UserActivationSender gained revokePendingInvitations(UUID), implemented
+where InvitationRepository is already injected (UserInvitationService),
+since identity cannot import auth.InvitationRepository directly without
+closing identity -> auth -> identity."
 ```
 
 ### Task 5: Contact retirement revokes portal access, and the two uniqueness rules agree
@@ -387,10 +490,27 @@ Three related defects in one area, fixed together because they share a test fixt
 2. `CustomerContactService.update` rewrites `contact.email` without touching `app_user.email`, so a corrected address leaves the portal login on the old one.
 3. `customer_contact` is unique on `(customer_id, email)` **case-sensitively** while `app_user` is unique on `(tenant_id, lower(email))` — so two contacts differing only in case are accepted and the second one's activation fails as an "invalid token".
 
+**Everything below was verified against the real code before this brief was finalized — method names differ from an earlier draft.**
+
+- `LoginService`'s method is `login(String email, String rawPassword) -> LoginOutcome` — a **sealed interface** (`Success`, `InvalidCredentials`, `MfaRequired`, `LockedOut`), not a thrown exception. There is no `authenticate(tenantSlug, email, password)`.
+- `ContactInvitationSender.issue(UUID contactId)` is the real signature — one argument, no purpose parameter (a contact invitation is always `ACTIVATION`). There is no `invitations.issue(userId, InvitationKind.ACTIVATION)` and no `InvitationKind` type at all (the enum is `InvitationPurpose`, `ACTIVATION`/`PASSWORD_RESET`).
+- There is no `invitations.redeemableFor(...)` anywhere. Assert on `Invitation.getRevokedAt()` being non-null instead, resolved via `InvitationRepository.findByTokenHash(...)`.
+- `InvitationService.issue` keys the row on `invitation.setCustomerContactId(contact.getId())`, **not** on a `userId` — a contact may not have a linked `app_user` yet (invitation precedes activation), so the finder for defect 1's half needs `findByCustomerContactIdAnd...`, a different column from Task 4's `findByUserIdAnd...`.
+- `ActivationService.activateContact` reads the contact via a bare `contacts.findById(...)` already (pre-existing code, not part of this fix) and never checks `ContactStatus` — that check is what closes the "still activatable" half of defect 1.
+
+**The email-sync and invitation-revocation fixes need the SAME extraction pattern Tasks 2 and 4 already established, for the same reason.** `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` already covers `customer..` (per CLAUDE.md), so `CustomerContactService` (ends in `Service`) cannot call `AppUserRepository.findById(...)` directly to sync the linked user's email — that would trip the same guard Task 2's `OrgUnitResolver` and Task 4's `PendingInvitationRevoker` were extracted to satisfy. Follow the identical shape: a small, package-private, non-`*Service`/`*Directory` helper class holding just the finder-and-update logic, fed only an id already authorized upstream (here, `contact.getUserId()` — read from a `CustomerContact` already resolved through `AuthorizedQuery` under `CONTACT_MANAGE` earlier in the same method, so no additional scope predicate is needed, exactly as Task 2's `OrgUnitResolver` reasoning established for department/team).
+
+Similarly, revoking a contact's outstanding invitations happens in `auth` (where `InvitationRepository` lives), not in `customer` — `customer` cannot import `auth` types directly (`auth` already depends on `customer`; the reverse would close the cycle `ModuleBoundaryTest` rejects, the same reasoning `ContactInvitationSender`'s own javadoc already states). So **extend the existing port**: add `void revokePendingInvitations(UUID contactId)` to `customer.ContactInvitationSender` (which `CustomerContactService` already injects as its `invitations` field — no new port, no new injection), implemented in `auth.InvitationService`. Inside the implementation, reuse `PendingInvitationRevoker` from Task 4 by giving it a second package-private method keyed on `customerContactId` rather than duplicating a near-identical helper class — one small `auth`-package class doing all the finder-touching for both userId- and contactId-keyed revocation.
+
 **Files:**
 - Modify: `backend/src/main/java/co/ara/onboarding/customer/CustomerContactService.java`
-- Modify: `backend/src/main/java/co/ara/onboarding/auth/InvitationService.java`
-- Create: `backend/src/main/resources/db/migration/V14__contact_email_ci.sql` *(if Phase 1 runs before Phase 2, this takes V14 and the feature migration becomes V15 — renumber, never edit a committed migration)*
+- Modify: `backend/src/main/java/co/ara/onboarding/customer/ContactInvitationSender.java` (add `revokePendingInvitations(UUID)`)
+- Create: `backend/src/main/java/co/ara/onboarding/customer/LinkedPortalUserEmailSync.java` (package-private, not a Spring bean — mirrors `OrgUnitResolver`/`PendingInvitationRevoker`)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/InvitationService.java` (implement the new port method)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/InvitationRepository.java` (add `findByCustomerContactIdAndAcceptedAtIsNullAndRevokedAtIsNull(UUID)`)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/PendingInvitationRevoker.java` (from Task 4 — add the contact-keyed variant)
+- Modify: `backend/src/main/java/co/ara/onboarding/auth/ActivationService.java` (status check in `activateContact`)
+- Create: `backend/src/main/resources/db/migration/V<next-free>__contact_email_ci.sql` — **list `backend/src/main/resources/db/migration/` and use whatever number is actually next when you run this task; do not assume V14.**
 - Test: `backend/src/test/java/co/ara/onboarding/customer/ContactRetirementTest.java` (new)
 
 - [ ] **Step 1: Write the failing tests**
@@ -398,21 +518,32 @@ Three related defects in one area, fixed together because they share a test fixt
 ```java
 @Test
 void aRetiredContactCannotSignIn() {
-    contacts.update(contactId, retireRequest());
-    assertThatThrownBy(() -> login.authenticate(tenantSlug, contactEmail, password))
-            .isInstanceOf(BadCredentialsException.class);
+    contacts.update(customerId, contactId, retireRequest());
+    assertThat(login.login(contactEmail, password))
+            .isInstanceOf(LoginOutcome.InvalidCredentials.class);
 }
 
 @Test
-void retiringAContactRevokesOutstandingInvitations() {
-    invitations.issue(contactUserId, InvitationKind.ACTIVATION);
-    contacts.update(contactId, retireRequest());
-    assertThat(invitations.redeemableFor(contactUserId)).isEmpty();
+void aRetiredContactCannotActivateAPendingInvitation() {
+    String rawToken = contacts.sendInvitation(contactId);
+    contacts.update(customerId, contactId, retireRequest());
+    assertThatThrownBy(() -> activation.accept(rawToken, "new-password"))
+            .isInstanceOf(InvalidTokenException.class);
+}
+
+@Test
+void retiringAContactRevokesAnOutstandingInvitation() {
+    String rawToken = contacts.sendInvitation(contactId);
+    contacts.update(customerId, contactId, retireRequest());
+
+    Invitation invitation = invitations.findByTokenHash(SecureTokens.hash(rawToken)).orElseThrow();
+    assertThat(invitation.getRevokedAt()).isNotNull();
 }
 
 @Test
 void correctingAContactEmailMovesThePortalLoginWithIt() {
-    contacts.update(contactId, emailChangedTo("new@acme.test"));
+    // contactId's linked app_user already exists (activated in fixture setup).
+    contacts.update(customerId, contactId, emailChangedTo("new@acme.test"));
     assertThat(users.findById(contactUserId).orElseThrow().getEmail())
             .isEqualTo("new@acme.test");
 }
@@ -425,15 +556,23 @@ void twoContactsDifferingOnlyInCaseAreRefused() {
 }
 ```
 
-- [ ] **Step 2: Run to verify all four fail**
+- [ ] **Step 2: Run to verify all five fail**
 
 - [ ] **Step 3: Fix all three defects**
 
-Retirement deactivates the linked `app_user` and revokes its invitations, in the same transaction. Email correction updates both rows. The migration replaces the case-sensitive unique index with `UNIQUE (customer_id, lower(email))` to match `app_user`.
+`CustomerContactService.update` detects a retirement (the existing `previousStatus != INACTIVE && saved.getStatus() == INACTIVE` check already computes this) and, when true: deactivates the linked `app_user` if one exists (`contact.getUserId() != null`) via `LinkedPortalUserEmailSync`-style extraction (or a second small helper alongside it — your call, but it must not call `AppUserRepository` directly from `CustomerContactService` itself), and calls `invitations.revokePendingInvitations(contact.getId())` through the port. Do this in the same transaction as the status change — `update` is already `@Transactional`.
 
-The migration must handle existing rows that already violate the new index — a pre-existing case-collision pair cannot be silently dropped. Fail the migration loudly with a clear message rather than deleting data; business records are never deleted.
+Email correction: whenever `request.email()` differs from the contact's current email AND `contact.getUserId() != null`, sync `app_user.email` through the same non-`*Service` helper pattern.
 
-- [ ] **Step 4: Run to verify all four pass, then the whole suite**
+`ActivationService.activateContact` adds a status check: if `contact.getStatus() != ContactStatus.ACTIVE`, throw `InvalidTokenException` — matching the existing style of every other check in that method (an honest, non-oracle-shaped error, since a retired contact's invitation being any different from an invalid one would itself be a leak).
+
+**Watch for this making `aRetiredContactCannotActivateAPendingInvitation` accidentally vacuous.** Because this task's OTHER fix also revokes the invitation on retirement, by the time that test calls `accept`, the invitation is already revoked — `isRedeemable` (checked earlier in `accept`, before `activateContact` is ever reached) will already throw `InvalidTokenException` for the unrelated reason of `revokedAt != null`. That means the test as written could pass even if the new `ContactStatus` check were deleted entirely — exactly the vacuous-test shape a review caught in this same plan's Task 4. Either restructure this test to exercise `activateContact`'s status check in isolation from revocation (e.g. retire the contact through a path that does not also revoke the invitation, if one exists, or test `ActivationService` directly with a hand-built non-revoked invitation against an already-INACTIVE contact), or, if no such isolation is practical, say so explicitly in the commit/report rather than leaving a test that looks like it proves something it does not.
+
+The migration replaces the case-sensitive `UNIQUE (customer_id, email)` (V8) with a functional unique index on `(customer_id, lower(email))`, and the `CONTACT_EMAIL_UNIQUE` constant in `CustomerContactService` (currently `"customer_contact_customer_id_email_key"`, matched in the existing `violates(...)` helper) must be updated to whatever name the new index actually gets — Postgres auto-derives the name from a plain `UNIQUE` constraint but a `CREATE UNIQUE INDEX ... ON customer_contact (customer_id, lower(email))` needs an explicit name; give it one and use that exact string.
+
+The migration must handle existing rows that already violate the new index — a pre-existing case-collision pair cannot be silently dropped. Fail the migration loudly with a clear message rather than deleting data; business records are never deleted. (In practice, check first whether any such collision exists in this environment before deciding how elaborate the guard needs to be — a `DO` block that raises an exception if a collision is found is sufficient for a fresh schema with no such data yet.)
+
+- [ ] **Step 4: Run to verify all five pass, then the whole suite**
 
 - [ ] **Step 5: Commit**
 
@@ -442,9 +581,16 @@ git add -A
 git commit -m "fix(customer): retiring a contact ends portal access, and email rules agree
 
 Three defects sharing one fixture: a retired contact could still sign in
-and could still redeem an invitation; a corrected email left the portal
-login on the old address; and case-only-different contacts were accepted
-while app_user's lower(email) index refused the second activation."
+and could still activate a pending invitation; a corrected email left the
+portal login on the old address; and case-only-different contacts were
+accepted while app_user's lower(email) index refused the second
+activation.
+
+Two of the three fixes needed the same non-*Service extraction pattern
+Tasks 2 and 4 already established, for the same reason: customer.. and
+auth.. are both covered by AuthorizationCoverageTest's finder-call guard,
+so neither CustomerContactService nor InvitationService may call a
+repository finder directly, even for an id already authorized upstream."
 ```
 
 ### Task 6: Audit the three unaudited write paths
@@ -473,21 +619,33 @@ Deliberately still **not** audited, and this must not change: refresh-token rota
 
 `V2__app_role_and_tenant.sql` creates the login role with the committed literal `onboarding_app` and `application.yml` defaults to it, with no guard — the same failure shape `JwtProperties` was built to prevent for `JWT_SECRET`.
 
-Migrations are forward-only, so **the role's password must be rotated operationally**; the code half is to drop the default and refuse to start without the variable.
+**This is a harder fix than `JWT_SECRET`'s, and the earlier brief text underestimated why — read this before writing anything.** `JWT_SECRET` is a pure application-side value with nothing on the other end to keep in sync. `DB_APP_PASSWORD` is not: it must match an *actual PostgreSQL role's password*, and `V2` already created that role with the literal `'onboarding_app'` baked in (`CREATE ROLE onboarding_app LOGIN PASSWORD 'onboarding_app'`, guarded `IF NOT EXISTS`). Migrations are forward-only, so `V2` cannot be edited. **Verified directly: `PostgresTestBase.appDatasourceProperties()` (the fixture every single backend test runs through) currently sets `spring.datasource.password` to that exact literal `"onboarding_app"`**, because that's genuinely the role's password after a fresh migration — and `withAppConnection()` hardcodes the same literal a second time. A guard that unconditionally rejects `"onboarding_app"` would break every backend test the moment it lands, not just the ones this task adds.
+
+**The fix that actually works: reconcile the role's password to match `DB_APP_PASSWORD` automatically, on every startup, rather than asking every caller of the database to somehow already know a value nothing told them.** This also happens to fully automate the "rotated operationally" language an earlier draft of this task used — a real deployment that sets a new `DB_APP_PASSWORD` no longer needs a DBA to separately run `ALTER ROLE`; the application does it itself, idempotently, every time it starts.
+
+Mechanism: a Flyway `Callback` (`org.flywaydb.core.api.callback.Callback`, registered as a `@Bean`) firing on `Event.AFTER_MIGRATE`, which runs `ALTER ROLE onboarding_app PASSWORD '<value>'` — where `<value>` is `DB_APP_PASSWORD`'s current value — using the **owner** connection (the same credentials Flyway itself connects with: `spring.flyway.user`/`spring.flyway.password`, i.e. `DB_OWNER_USER`/`DB_OWNER_PASSWORD`), not the app datasource. This is the Spring-Boot-sanctioned extension point for "run something after Flyway migrates, before the rest of the app matters" — Boot's own `FlywayMigrationInitializer` completes Flyway's `migrate()` call (callbacks included) during context refresh, before JPA schema validation or any business-logic bean does real work, which is the same ordering guarantee that already makes `hibernate.ddl-auto: validate` reliable. The callback fires on every startup, including one where zero new versioned migrations apply — Flyway's callback lifecycle runs around every `migrate()` invocation, not only ones that do something — so the role stays reconciled to whatever `DB_APP_PASSWORD` currently is, indefinitely, across restarts and rotations alike.
+
+**This ordering has not been empirically proven in this codebase — verify it as you build, don't assume it.** Run the targeted test as soon as the callback exists and confirm the app datasource actually connects with the rotated password on a fresh database. If Spring Boot's bean-initialization order doesn't behave as described (the app datasource somehow attempts a connection before the callback runs), the fix is to make the callback's owning bean `@DependsOn` whatever Flyway's own bean is named (check via `context.getBeanDefinitionNames()` or Spring's actuator/debug logging if needed) — don't guess at the exact bean name without checking.
+
+Once this callback exists, **`PostgresTestBase` and `backend.mjs` no longer need any manual `ALTER ROLE` step of their own** — they only need to stop hardcoding the literal and instead supply a per-run value, exactly mirroring the existing `jwtSecret()` pattern in `PostgresTestBase` and the existing `JWT_SECRET` line in `backend.mjs`. The application's own callback keeps the real database role in sync with whatever value they supply.
 
 **Files:**
-- Modify: `backend/src/main/resources/application.yml`
-- Create: `backend/src/main/java/co/ara/onboarding/platform/DatabaseCredentialsGuard.java`
-- Test: `backend/src/test/java/co/ara/onboarding/platform/DatabaseCredentialsGuardTest.java` (new)
-- Modify: `CLAUDE.md` — the rotation is an operational step a reader must know about
+- Modify: `backend/src/main/resources/application.yml` — drop the `:onboarding_app` default from `spring.datasource.password`
+- Create: `backend/src/main/java/co/ara/onboarding/platform/DatabaseCredentialsGuard.java` — refuses startup on a blank or denylisted value (mirror `JwtProperties`' shape: a `@Value("${DB_APP_PASSWORD:}") String password` field, `@PostConstruct` validation, a `PUBLISHED_PLACEHOLDERS`-style single-entry denylist for `"onboarding_app"`, an actionable `REMEDY` message). This guard is deliberately narrower in scope than `JwtProperties` — no minimum-length rule is asked for here, just non-blank and not-the-published-literal; don't invent a length policy CLAUDE.md doesn't ask for.
+- Create: `backend/src/main/java/co/ara/onboarding/platform/AppRolePasswordReconciler.java` (or similar name) — the Flyway `Callback` described above.
+- Modify: `backend/src/test/java/co/ara/onboarding/support/PostgresTestBase.java` — `appDatasourceProperties()` and `withAppConnection()` both currently hardcode the literal `"onboarding_app"` as the password (verified: lines ~100 and ~166 as of this writing). Replace with a randomly generated value, following the exact shape `jwtSecret()` already uses in the same file (a `SecureRandom`-backed value, generated once, reused everywhere it's needed — you'll need a shared field or equivalent, since two separate methods currently reference the literal independently).
+- Modify: `frontend/e2e/support/backend.mjs` — the `DB_APP_PASSWORD: process.env.DB_APP_PASSWORD ?? "onboarding_app"` line (verified present) becomes a generated value, following the exact pattern the `JWT_SECRET` line two lines below it already uses (`randomBytes(48).toString("base64url")` or similar).
+- Test: `backend/src/test/java/co/ara/onboarding/platform/DatabaseCredentialsGuardTest.java` (new) — the guard half.
+- Test: a new or extended integration test proving the reconciler half actually works end-to-end (a fresh Testcontainers database, a non-default `DB_APP_PASSWORD`, and the app datasource successfully connecting) — this is the test that would have caught the ordering risk above if it existed from the start.
+- Modify: `CLAUDE.md` — replace the "rotated operationally" language with what actually happens now: the application reconciles it automatically on every startup, and an operator only needs to set `DB_APP_PASSWORD` to something real once.
 
-- [ ] **Step 1: Write the failing test** — the guard refuses to start when the property is absent, blank, or equal to the published literal `onboarding_app`, modelled on `JwtSecretGuardTest`.
+- [ ] **Step 1: Write the failing tests** — the guard test (blank / denylisted value refuses startup, modelled on `JwtSecretGuardTest`), and the reconciler test (a fresh database, a real non-default password, successful connection).
 
-- [ ] **Step 2: Run to verify it fails**
+- [ ] **Step 2: Run to verify both fail**
 
-- [ ] **Step 3: Add the guard and drop the default.** Deliberately **not** keyed on profile — a "unless dev" check misses the deployment that forgot the profile too. The test harness (`PostgresTestBase`) and the e2e harness (`e2e/support/backend.mjs`) must generate or set a value per run, exactly as they already do for `JWT_SECRET`; no literal is committed anywhere.
+- [ ] **Step 3: Add the guard, the reconciler, and drop the yml default.** Guard is deliberately **not** keyed on profile — a "unless dev" check misses the deployment that forgot the profile too, same reasoning `JwtProperties` already states. Update `PostgresTestBase` and `backend.mjs` to stop hardcoding the literal.
 
-- [ ] **Step 4: Run the whole suite** — this one can break every test at once if the harness is missed, which is the point of running it here.
+- [ ] **Step 4: Run the whole suite** — this is the step that proves the reconciler ordering actually works, since every test depends on `PostgresTestBase` connecting successfully with a value that is no longer the literal `V2` created the role with.
 
 - [ ] **Step 5: Commit**
 
@@ -497,17 +655,28 @@ A narrow-scoped `user.manage` holder cannot create a user through the Users scre
 
 **Invoke the `frontend-design` and `ui-ux-pro-max` skills before starting this task.**
 
-**Files:**
-- Modify: `frontend/src/lib/api/admin.ts` (add the `PUT` call that already exists server-side)
-- Modify: the Users create form component and its test
+**This is narrower than it looks, and the narrowing was found by reading the actual scope-resolution code, not guessed — read this before writing anything.**
 
-- [ ] **Step 1: Write the failing component test** — the form renders a department select, its options are the departments the actor can see, and submitting includes `departmentId`.
+**The DEPARTMENT-scope half is genuinely fixable by a picker; the TEAM-scope half is not, and this task should not claim to fix it.** `scoping/AppUserDescriptor.java`'s `teamScope` resolves TEAM scope by checking the *target* user's own `teamIds` collection (`root.join("teamIds").in(ctx.teamIds())`) — but `CreateUserRequest` has no `teamIds` field, so every newly created user starts with an empty team collection, which can never satisfy that join. **A TEAM-scoped `user.manage` holder cannot successfully create any user through this endpoint, with or without a department field, today.** `departmentScope`, by contrast, compares `ctx.departmentId()` against the new user's own `departmentId` (which `CreateUserRequest` *does* accept) — so the department picker genuinely closes the gap for a DEPARTMENT-scoped actor, but does nothing for a TEAM-scoped one. **Verify this yourself** (it follows directly from reading the descriptor, but confirm empirically with a hand-built TEAM-scoped `user.manage` role attempting a create, department field included, before relying on this claim) and **say so explicitly in the commit body and report** — do not let "added a department picker" read as "the whole bug is fixed." Whether TEAM-scoped user creation needs `CreateUserRequest` to accept `teamIds`, or a different mechanism entirely, is a real, separate, still-open gap; note it in CLAUDE.md's open-items list rather than silently absorbing or ignoring it.
+
+**No new backend endpoint or hook is needed for the picker's options — everything already exists, verified:**
+- `frontend/src/lib/api/admin.ts` already has `useDepartments()` (an existing hook, already consumed by `admin/org/page.tsx`'s team-creation form). It calls `GET /admin/departments`, gated server-side on `PermissionKeys.DEPARTMENT_MANAGE` — which is catalogued `ALL_ONLY` (`PermissionCatalog.java`). **This means `useDepartments()` will itself fail (or simply never be callable) for a DEPARTMENT-scoped `user.manage` holder who does not separately hold `department.manage`** — confirmed no seeded role template combines a non-ALL `user.manage` grant with `department.manage` at all, so this is the exact actor this task exists for. Gate the call on `useHasPermission("department.manage")`, matching this file's own existing pattern for `canView`/`canManage`/`canViewRoles`.
+- For the actor who does *not* hold `department.manage`: **`useAuth().user?.departmentId` is already available with zero new plumbing.** `AuthState.user` is the generated `Me` type (`components["schemas"]["Me"]`), which already carries `departmentId` (and `teamIds`) straight from the backend's `MeService.Me` record — no new hook, no new backend call. For this actor, the picker's option set is just their own department (the one department they are guaranteed to succeed with) — effectively pre-selected, since there is nothing else to choose from.
+- **UI pattern to mirror:** `admin/org/page.tsx`'s existing team-creation form already has a department `<select>` (hand-rolled, not the `Field` component) styled to match this codebase's tokens. Match that exact pattern rather than inventing a new one or "fixing" the `Field`-vs-hand-rolled-`select` divergence — that divergence is a separately documented, deliberately deferred design decision (CLAUDE.md), not something this task should touch.
+
+**Files:**
+- Modify: `frontend/src/lib/api/admin.ts` (add the `PUT` call that already exists server-side, for the user-edit gap named above)
+- Modify: the Users create form component (`frontend/src/app/(app)/t/[slug]/admin/users/page.tsx`'s `InviteForm`) and its test
+
+- [ ] **Step 1: Write the failing component test** — for an actor holding `department.manage`, the form renders a department select whose options come from `useDepartments()` and submitting includes the chosen `departmentId`. For an actor who does *not* hold `department.manage` but holds `user.manage` at DEPARTMENT scope, the form still submits a `departmentId` — the actor's own, from `useAuth().user.departmentId` — without requiring `useDepartments()` to have succeeded.
 
 - [ ] **Step 2: Run to verify it fails**
 
-- [ ] **Step 3: Add the picker**, options scoped to the actor. Where the actor holds `user.manage` at DEPARTMENT or TEAM, the picker must not offer a department they cannot manage into — offering an option that will 404 is worse than not offering it.
+- [ ] **Step 3: Add the picker**, options scoped to the actor as described above. Never offer a department the actor cannot manage into — offering an option that will 404 is worse than not offering it, which is exactly why the two-tier (full list vs. own-department-only) design exists rather than always showing the full list.
 
 - [ ] **Step 4: Run `npx vitest run`**
+
+- [ ] **Step 5: Commit, and be explicit in the message that this closes the DEPARTMENT half only** — name the TEAM-scope gap this task discovered but does not fix, and note it needs a separate change (likely `CreateUserRequest` gaining a `teamIds` field, or an equivalent) before a TEAM-scoped actor can create a user at all.
 
 - [ ] **Step 5: Commit**
 
@@ -670,6 +839,40 @@ All three extend `TenantScopedEntity`. Enums are `TaskStatus`, `TaskPriority`, a
 
 ### Task 12: Permission keys, catalog entries, and seeded role templates
 
+**Plan amendment (executed, see the Task 12 commit):** this task's own Step 3
+catalogues `task.view`/`task.complete` at `RECORD` and `task.manage`/`comment.create`
+at `ORG_SCOPES` — every one of the four includes a non-`ALL` scope, so
+`DescriptorRegistry.validate()` (`authz/DescriptorRegistry.java`) refuses application
+startup the instant these entries exist, for every resource type it cannot resolve.
+Task 13's own "Produces" line already names this exact failure mode, but the plan
+still sequences Task 13's descriptors *after* Task 12's catalog entries — so
+committing Task 12 alone, as written, leaves every `@SpringBootTest`-based test
+(the overwhelming majority of the backend suite) failing at context startup, not
+just `PermissionCatalogTest`. Confirmed empirically: cataloguing the four keys
+without descriptors produced exactly `Authorization configuration is incomplete:
+[permission 'task.view' targets resource type 'task' with no
+ResourceAuthorizationDescriptor, ...]` at `DescriptorRegistry.java:47`, on all four
+new keys. Fix: Task 13's Step 3 (`scoping/TaskDescriptor.java`,
+`scoping/CommentDescriptor.java`) and a version of its Step 1 tests were pulled
+forward into this same commit, so Task 12 leaves the tree green on its own — see
+Task 13 below, now marked done. There was also a second, independent drift this
+task's own Step 3 undershot: `RoleTemplateValidityTest.everyTemplateGrantUsesAValidPermissionAndScope`
+forbids granting a permission at a scope the catalog does not list for it, but
+`comment.create` is `ORG_SCOPES`-only (no `ASSIGNED`) while three templates
+(Sales Representative, Service Provider, Business Partner) hold `case.view` at
+`ASSIGNED` — so "every template holding case.view gains task.view and
+comment.create at that scope" cannot literally hold for those three. They gained
+`task.view` at `ASSIGNED` (valid, `task.view` is `RECORD`) and no `comment.create`
+grant at all, rather than an invalid one. Separately, `TASK_MANAGE` was not named
+by this task's own coupling rules for any template, but
+`RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog` (an
+existing test, not new) requires Administrator to hold every catalogued
+permission — so Administrator was given `TASK_MANAGE` at `ALL` regardless, on the
+same "Administrator-only, like ROLE_MANAGE/WORKFLOW_MANAGE" precedent the class
+already documents; no other template gained it. `TenantProvisioningTest.seededRolesCarryTheirTemplateGrants`'s
+hardcoded Administrator grant count (its own comment: "keeps this number honest")
+moved from 31 to 35 for the same reason.
+
 **Files:**
 - Modify: `authz/PermissionKeys.java`, `authz/PermissionCatalog.java`, `authz/RoleTemplates.java`
 - Test: `backend/src/test/java/co/ara/onboarding/authz/PermissionCatalogTest.java`
@@ -677,18 +880,20 @@ All three extend `TenantScopedEntity`. Enums are `TaskStatus`, `TaskPriority`, a
 **Interfaces:**
 - Produces: `PermissionKeys.TASK_VIEW`, `TASK_MANAGE`, `TASK_COMPLETE`, `COMMENT_CREATE`
 
-- [ ] **Step 1: Write the failing test**
+**Verify before writing:** `PermissionCatalog` has no `scopesFor` method. Scopes are read via `PermissionCatalog.byKey(key)` returning `Optional<Permission>`, and `Permission` is `record Permission(String key, String category, String resourceType, String description, Set<Scope> allowedScopes)` — so the accessor is `.allowedScopes()`, not `.scopesFor(...)`. And `RoleTemplates.RoleTemplate` is `record RoleTemplate(String name, String description, Map<String, Scope> grants)` — the map is called `grants`, not `permissions`. Read both files before writing the tests below; do not use the method names as first drafted here without checking.
+
+- [x] **Step 1: Write the failing test**
 
 ```java
 @Test
 void taskPermissionsAreCataloguedAtTheirIntendedScopes() {
-    assertThat(catalog.scopesFor(PermissionKeys.TASK_VIEW))
+    assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_VIEW).orElseThrow().allowedScopes())
             .containsExactlyInAnyOrder(ALL, DEPARTMENT, TEAM, ASSIGNED);
-    assertThat(catalog.scopesFor(PermissionKeys.TASK_COMPLETE))
+    assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_COMPLETE).orElseThrow().allowedScopes())
             .containsExactlyInAnyOrder(ALL, DEPARTMENT, TEAM, ASSIGNED);
-    assertThat(catalog.scopesFor(PermissionKeys.TASK_MANAGE))
+    assertThat(PermissionCatalog.byKey(PermissionKeys.TASK_MANAGE).orElseThrow().allowedScopes())
             .containsExactlyInAnyOrder(ALL, DEPARTMENT, TEAM);
-    assertThat(catalog.scopesFor(PermissionKeys.COMMENT_CREATE))
+    assertThat(PermissionCatalog.byKey(PermissionKeys.COMMENT_CREATE).orElseThrow().allowedScopes())
             .containsExactlyInAnyOrder(ALL, DEPARTMENT, TEAM);
 }
 
@@ -701,9 +906,9 @@ void taskPermissionsAreCataloguedAtTheirIntendedScopes() {
 @Test
 void everyTemplateHoldingMilestoneCompleteAlsoHoldsTaskComplete() {
     for (var template : RoleTemplates.all()) {
-        Scope milestone = template.permissions().get(PermissionKeys.MILESTONE_COMPLETE);
+        Scope milestone = template.grants().get(PermissionKeys.MILESTONE_COMPLETE);
         if (milestone == null) continue;
-        assertThat(template.permissions())
+        assertThat(template.grants())
                 .as("template %s", template.name())
                 .containsEntry(PermissionKeys.TASK_COMPLETE, milestone);
     }
@@ -712,17 +917,19 @@ void everyTemplateHoldingMilestoneCompleteAlsoHoldsTaskComplete() {
 
 The second test is the one that matters: it encodes the spec's §5.2 coupling as a rule rather than leaving it to whoever edits the templates next.
 
-- [ ] **Step 2: Run to verify both fail**
+- [x] **Step 2: Run to verify both fail**
 
-- [ ] **Step 3: Add the four keys, catalogue them, extend the templates**
+- [x] **Step 3: Add the four keys, catalogue them, extend the templates**
 
-`TASK_VIEW` and `TASK_COMPLETE` use `RECORD` (all four scopes, matching `MILESTONE_COMPLETE`); `TASK_MANAGE` and `COMMENT_CREATE` use `ORG_SCOPES`. Every template holding `milestone.complete` gains `task.complete` at the same scope; every template holding `case.view` gains `task.view` and `comment.create` at that scope.
+`TASK_VIEW` and `TASK_COMPLETE` use `RECORD` (all four scopes, matching `MILESTONE_COMPLETE`); `TASK_MANAGE` and `COMMENT_CREATE` use `ORG_SCOPES`. Every template holding `milestone.complete` gains `task.complete` at the same scope; every template holding `case.view` gains `task.view` and `comment.create` at that scope — **except** the three templates holding `case.view` at `ASSIGNED` (Sales Representative, Service Provider, Business Partner), which gain `task.view` only, per the plan amendment above.
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ### Task 13: Descriptors
+
+**Executed early, inside the Task 12 commit — see that task's plan amendment.** `DescriptorRegistry.validate()` refuses application startup the moment Task 12's four permissions are catalogued at a record scope, so this task's descriptors could not wait for their own, later turn without leaving Task 12 red on its own.
 
 **Files:**
 - Create: `scoping/TaskDescriptor.java`, `scoping/CommentDescriptor.java`
@@ -731,7 +938,7 @@ The second test is the one that matters: it encodes the spec's §5.2 coupling as
 **Interfaces:**
 - Produces: descriptor coverage for `Task` and `Comment`, without which `DescriptorRegistry.validate()` refuses to start the application.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```java
 @Test
@@ -750,15 +957,15 @@ void bothDescriptorsFailClosedWithNoDepartmentAndNoTeams() {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
-- [ ] **Step 3: Write both descriptors**
+- [x] **Step 3: Write both descriptors**
 
 Both live in `scoping/`, never in `task` — a descriptor inside the module owning the entity closes a module cycle. `TaskDescriptor` resolves DEPARTMENT and TEAM through the task's `case_id` to the case's `owning_department_id` / `owning_team_id`, and **ASSIGNED through `assignee_id` alone**. `CommentDescriptor` resolves all three through `case_id`, identically to `CaseDescriptor`. Both return `cb.disjunction()` when the actor has no department and no teams.
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit** — same commit as Task 12; there is no separate Task 13 commit.
 
 ### Task 14: The two ports `journey` declares
 
@@ -905,8 +1112,27 @@ Every method carries `@RequirePermission`. Every id from the URL or body — `ca
 
 ### Task 17: Status transitions, and completion through the existing gated path
 
+**Plan amendment (found executing this task):** the file list below was one file short. Step 3's
+own code snippet calls `audit.record(AuditActions.TASK_STATUS_CHANGED, ...)`, but `AuditActions.java`
+had no `TASK_*` constant at all — Task 16's create/update never needed one. Fixed by adding
+`audit/AuditActions.java` to this task's file list and adding exactly one constant,
+`TASK_STATUS_CHANGED` (`"task.status_changed"`, `timelineVisible=true` per spec §5.5: "Tasks and
+comments are business records: visible"). The other six actions §5.5 names — `task.created`,
+`task.assigned`, `task.completed`, `task.cancelled`, `comment.added`, `comment.edited` — are
+deliberately NOT added here; each belongs to whichever later task actually writes it (Task 18 adds
+`task.cancelled` in its own `AuditActions.java` edit, already in its own file list below).
+
+Also worth recording: `TASK_STATUS_CHANGED` is audited with `resourceType="onboarding_case"` and
+`resourceId=c.getId()` (the task's own case), not `"task"`/the task's own id — matching
+`MILESTONE_REASSIGNED`, `MILESTONE_REOPENED` and every other per-milestone event in `journey`, none
+of which use the milestone's own id either. This is not cosmetic: `TimelineService.forCase` (and
+Task 18/25's own tests) reads a case's history via `AuditQuery.findForResource("onboarding_case",
+caseId, ...)` — nothing anywhere queries by a `"task"` resource type, so auditing under the task's
+own id would make `TASK_STATUS_CHANGED` real but permanently invisible to the one reader that
+exists for it.
+
 **Files:**
-- Modify: `task/TaskService.java`
+- Modify: `task/TaskService.java`, `audit/AuditActions.java`
 - Create: `task/TaskStatusRequest.java`, `task/IllegalTaskTransitionException.java`
 - Test: `backend/src/test/java/co/ara/onboarding/task/TaskCompletionTest.java` (new)
 
@@ -1036,13 +1262,16 @@ void cancellingRecordsItsOwnAction() {
 
 ### Task 19: Instantiate tasks from requirements of kind `TASK`
 
+**Ruling from the pre-flight scan:** `journey.TaskLifecycle` (Task 14) declares TWO methods, `instantiateForCase` and `reopenForMilestone`. This task is the first to inject `journey.TaskLifecycle` into `CaseService`, which means Spring needs a **complete** bean satisfying the whole interface before this task's tests can even start the application context — a bean implementing only `instantiateForCase` does not compile. So **this task creates `TaskLifecycleAdapter.java` implementing both methods**, not just the instantiation half; `reopenForMilestone` gets its real implementation here too (it is a small, self-contained query — moving a milestone's `COMPLETED` tasks to `PENDING`, leaving `CANCELLED` ones alone), even though nothing calls it yet. Task 20 then only wires `MilestoneService.reopen` to call it and writes the reopen tests — it does **not** create the adapter, because this task already did.
+
 **Files:**
-- Create: `task/TaskInstantiation.java`
+- Create: `task/TaskInstantiation.java`, `task/TaskLifecycleAdapter.java`
 - Modify: `journey/CaseService.java` (call the port)
 - Test: `backend/src/test/java/co/ara/onboarding/task/TaskInstantiationTest.java` (new)
 
 **Interfaces:**
-- Consumes: `journey.TaskLifecycle.instantiateForCase(UUID caseId)` (declared in Task 14)
+- Consumes: `journey.TaskLifecycle` interface (declared in Task 14)
+- Produces: `TaskLifecycleAdapter implements TaskLifecycle` — both methods implemented here; Task 20 wires the second one's call site.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1084,11 +1313,12 @@ void requirementsOfOtherKindsProduceNoTask() {
 
 - [ ] **Step 5: Commit**
 
-### Task 20: `TaskLifecycleAdapter` and the reopen wiring
+### Task 20: Wire milestone reopen to `TaskLifecycleAdapter`
+
+`TaskLifecycleAdapter` and its `reopenForMilestone` logic were created in Task 19 (a Spring bean has to implement a complete interface, and Task 19 was the first task to need one). This task's job is the call site and the tests, not the adapter itself.
 
 **Files:**
-- Create: `task/TaskLifecycleAdapter.java`
-- Modify: `journey/MilestoneService.java`
+- Modify: `journey/MilestoneService.java` (call `taskLifecycle.reopenForMilestone`), `task/TaskLifecycleAdapter.java` only if the review of Task 19's implementation finds a gap
 - Test: `backend/src/test/java/co/ara/onboarding/task/TaskReopenTest.java` (new)
 
 - [ ] **Step 1: Write the failing tests**
@@ -1262,9 +1492,44 @@ void aCrossTenantCaseIdYieldsNoComments() {
 ### Task 24: Controllers, exception handler, and the generated client
 
 **Files:**
-- Create: `task/TaskController.java`, `task/CommentController.java`, `task/TaskExceptionHandler.java`
+- Create: `task/TaskController.java`, `task/CommentController.java`, `task/TaskExceptionHandler.java`,
+  `task/UpdateChecklistItemRequest.java`
+- Modify: `task/TaskService.java` (add `myWork`), `platform/ApiExceptionHandler.java` (add an
+  `IllegalArgumentException` mapping) -- both are plan gaps this task closed, not scope creep; see
+  the amendment note below.
 - Regenerate: `frontend/src/lib/api/generated.ts`
-- Test: `backend/src/test/java/co/ara/onboarding/architecture/DirectApiAccessTest.java`
+- Test: `backend/src/test/java/co/ara/onboarding/security/DirectApiAccessTest.java` (the plan named
+  `architecture/DirectApiAccessTest.java`; the real file has always lived in `co.ara.onboarding.security`)
+
+**Plan amendment (found executing this task, 2026-09-08):** three things this task's own file list
+didn't anticipate, each closed here rather than deferred:
+
+1. **`GET /tasks?assignee=me&bucket=…` had no service-layer query anywhere.** Tasks 16-23 gave
+   `TaskService` `create`/`get`/`forCase`/`update`/`changeStatus` only -- nothing cross-case by
+   assignee. Added `TaskService.myWork(String bucket)`, gated `task.view`, assignee pinned to the
+   calling principal (never a caller-supplied user id -- the spec's URL has no cross-user variant),
+   filtered through `AuthorizedQuery` same as every other read here. `bucket` partitions spec
+   §8.2's four non-CANCELLED columns (`do_now`/`in_progress`/`waiting`/`done_this_week`); an
+   unrecognised value or `assignee` other than `me` is refused as `IllegalArgumentException` (400).
+2. **The checklist endpoint's shape.** `ChecklistService` (Task 22) exposes three separately-gated
+   methods (`rename`/`reorder` under `task.manage`, `toggle` under `task.complete`) behind the
+   single `PUT /checklist/{itemId}` the spec names. `UpdateChecklistItemRequest` carries three
+   nullable fields (`label`, `ordinal`, `toggleDone`); `TaskController` calls whichever service
+   methods the non-null fields imply, each under its own gate. `toggleDone` rather than a target
+   `done` boolean deliberately: `toggle()` inverts current state and takes no target, so modelling
+   the field as "set done to X" would misrepresent a contract the service doesn't offer without a
+   read-then-decide check that would either duplicate or bypass its gate. A request with every
+   field null is refused (400) rather than silently returning the item unchanged, since
+   `ChecklistService` has no bare read to fall back on.
+3. **`IllegalArgumentException` had no HTTP mapping anywhere**, so `TaskService.changeStatus`'s
+   blank-cancellation-reason check (Task 18) would have 500'd through the real API -- invisible
+   until this task's controller made it reachable via HTTP for the first time (every other
+   conditionally-worded reason check in the codebase is guarded by an unconditional `@NotBlank` on
+   its own request type, so bean validation always intercepted it first). Mapped in
+   `platform.ApiExceptionHandler` (400), next to the existing `IllegalStateException` precedent --
+   both are plain `java.lang` types naming no domain module. `TaskExceptionHandler` maps only
+   `IllegalTaskTransitionException` (409, `journey.JourneyExceptionHandler`'s own pattern), the one
+   type this module defines that `platform` cannot name.
 
 - [ ] **Step 1: Write the controllers** per §7 of the spec — thin, no logic beyond binding and delegation.
 
@@ -1289,9 +1554,40 @@ springdoc orders schema properties nondeterministically, so back-to-back regener
 
 ### Task 25: Security negatives and cause-before-effect coverage
 
+**Plan amendment (found executing this task, 2026-09-08):** the file list below was production-code
+short, same shape as Task 17's own amendment above. Step 2's `taskCreationIsRecordedBeforeTheEventsItCauses`
+asserts `chronological(caseId)` contains the subsequence `"case.created", "task.created"` — but
+`AuditActions.TASK_CREATED` did not exist (Task 17's own amendment explicitly deferred it: "the other
+six actions §5.5 names... are deliberately NOT added here; each belongs to whichever later task
+actually writes it"), and `task/TaskInstantiation.java` called no `AuditRecorder` method at all (Task
+19 was told not to add one, for the same reason). Fixed by adding `audit/AuditActions.java` (exactly
+one constant, `TASK_CREATED`, `"task.created"`, `timelineVisible=true`, same reasoning as
+`TASK_STATUS_CHANGED`) and `task/TaskInstantiation.java` (inject `AuditRecorder`, record `TASK_CREATED`
+per instantiated task, resource `"onboarding_case"`/`caseId` — matching `TASK_STATUS_CHANGED`'s own
+resource choice, for the same `TimelineService.forCase` reason Task 17's amendment names) to this
+task's file list. `TaskService.create`'s own ad-hoc path still does not record `task.created` — that
+asymmetry is deliberately left open here, not fixed, since nothing in this task's own scope (or its
+required tests) needs it; a later task closing it should read this note rather than assume it was
+missed.
+
+**Plan amendment (found executing this task, 2026-09-08):** Step 1's own `aPortalAssigneeCannotSeeTheirOwnTask`
+predicted `NoSuchElementException`. Running it red first showed the prediction was wrong: a portal
+contact with literally zero `task.*` grants is refused by `PermissionGateAspect.enforce` — the coarse
+"does this actor hold the permission at ANY scope" gate, which throws `AccessDeniedException` BEFORE
+`AuthorizedQuery`/`TaskDescriptor`'s record-level scope resolution is ever reached — not by `AuthorizedQuery`
+collapsing to disjunction as the brief's own comment guessed. This is not a new defect: it is the exact
+shape `security.WriteScopeTest.anAnyStageStillRequiresThePermission` already proves for
+`milestone.complete` ("An actor with no milestone.complete grant at all is refused by the permission
+gate itself, before write_scope is ever consulted"). `TaskIsolationTest`'s assertion was corrected to
+`AccessDeniedException` to match this established, already-correct precedent; no production code
+changed for this one. The other three negatives (Step 1's remaining two, and Step 2's second test)
+passed as predicted with no production change.
+
 **Files:**
 - Create: `backend/src/test/java/co/ara/onboarding/task/TaskIsolationTest.java`, `TaskWriteScopeTest.java`
 - Modify: `backend/src/test/java/co/ara/onboarding/journey/CauseBeforeEffectTest.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/audit/AuditActions.java`,
+  `backend/src/main/java/co/ara/onboarding/task/TaskInstantiation.java` — see the amendment above
 
 - [ ] **Step 1: Write the negatives**
 
@@ -1320,10 +1616,13 @@ void anAssignedScopeHolderCannotCompleteSomeoneElsesTask() {
 
 @Test
 void aWiderScopedHolderIsStillRefusedInsideAnOwnerOnlyStage() {
+    // StageWriteScopeGuard throws WriteScopeException (journey package) --
+    // not "WriteScopeViolationException". Confirm the name against the real
+    // class before using it.
     assertThatThrownBy(() -> fixture.runAsUser(tenant, allScopeNonOwner, () ->
             tasks.changeStatus(taskInOwnerOnlyStage,
                     new TaskStatusRequest(TaskStatus.IN_PROGRESS, null))))
-            .isInstanceOf(WriteScopeViolationException.class);
+            .isInstanceOf(WriteScopeException.class);
 }
 
 @Test
@@ -1402,6 +1701,17 @@ Binding, from CLAUDE.md and the bundle:
 - Create: `frontend/src/components/journey/TasksTab.tsx`, `frontend/src/components/task/TaskCard.tsx`, `frontend/src/components/task/TaskDetail.tsx`, `frontend/src/components/task/ChecklistEditor.tsx`
 - Modify: the case workspace page to render it in the existing (currently empty) Tasks tab
 - Test: `frontend/src/components/journey/TasksTab.test.tsx`, `frontend/src/components/task/TaskDetail.test.tsx` (both new)
+
+**Plan deviation, found executing this task (see `task-27-report.md` for full detail): this file
+list understated what `ChecklistEditor` needed.** Neither Task 22 nor Task 24 gave
+`ChecklistService`/`TaskController` a way to LIST a task's checklist items — `add` returns a bare
+id, `updateChecklistItem` returns one item by an id the caller must already hold, and nothing else
+reads one. That's fine for a service with no UI yet, but it means this task's own `ChecklistEditor`
+had no way to show a task's pre-existing checklist on page load — only items created in the
+current session. Closed in the same change as this task: `ChecklistService.list(UUID taskId)`
+(gated `task.view`) and `GET /tasks/{taskId}/checklist` in `backend/.../task/`, two new tests in
+`ChecklistTest.java`, plus the OpenAPI/generated-types regeneration that implies. Confirmed against
+the full backend suite (`./gradlew cleanTest test`, BUILD SUCCESSFUL) before relying on it here.
 
 **Interfaces:**
 - Consumes: `useCaseTasks`, `useChangeTaskStatus` (Task 26)

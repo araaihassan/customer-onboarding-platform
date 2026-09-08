@@ -59,7 +59,7 @@ class TimelineTest extends PostgresTestBase {
             UUID team = fixture.createTeam(tenant, "Onboarding Team");
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, team);
-            caseId[0] = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            caseId[0] = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
             requirements.satisfy(firstRequirementId(caseId[0]), null, null);   // completes the case too
 
             pm[0] = fixture.createUser(tenant, "pm@example.com");
@@ -86,7 +86,7 @@ class TimelineTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            caseId[0] = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            caseId[0] = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
             outsider[0] = fixture.createUser(tenant, "outsider@example.com");
             UUID role = roles.createRole("Fixture Outsider " + Uuid7.generate(), "",
                     Map.of(PermissionKeys.CASE_VIEW, Scope.ASSIGNED));
@@ -105,8 +105,8 @@ class TimelineTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            UUID caseA = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
-            UUID caseB = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            UUID caseA = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            UUID caseB = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
 
             Page<AuditEventView> eventsA = timeline.forCase(caseA, Pageable.ofSize(50));
             assertThat(eventsA).isNotEmpty();
@@ -124,7 +124,7 @@ class TimelineTest extends PostgresTestBase {
         fixture.runAs(tenantA, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenantA, "Acme", null, null, null);
-            caseId[0] = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            caseId[0] = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
         });
 
         assertThatThrownBy(() -> fixture.runAs(tenantB, () ->
@@ -138,7 +138,7 @@ class TimelineTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
             requirements.satisfy(firstRequirementId(caseId), null, null);
 
             var events = timeline.forCase(caseId, Pageable.ofSize(50)).getContent();
@@ -178,7 +178,7 @@ class TimelineTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             UUID templateId = journey.publishedTemplate();
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
 
             Instant sameMoment = Instant.now();
             List<UUID> inserted = new ArrayList<>();
@@ -234,7 +234,7 @@ class TimelineTest extends PostgresTestBase {
                     java.util.List.of(), 0L));
             UUID templateId = journey.templateOf(v1);
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
-            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, Map.of())).id();
+            UUID caseId = cases.create(new CreateCaseRequest(customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
 
             UUID v2 = journey.publishNewVersion(templateId, new co.ara.onboarding.workflow.WorkflowDefinitionRequest(
                     java.util.List.of(co.ara.onboarding.workflow.WorkflowFixtures.stage("s1", "Stage One",
