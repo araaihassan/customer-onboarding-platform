@@ -344,9 +344,15 @@ class TransitionTest extends PostgresTestBase {
             var view = cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of()));
 
             var stageMilestones = cases.roadmap(view.id()).stages().get(0).milestones();
-            assertThat(stageMilestones.get(0).dueDate()).isEqualTo(calendar.plusBusinessDays(LocalDate.now(), 2));
-            assertThat(stageMilestones.get(1).dueDate()).isEqualTo(calendar.plusBusinessDays(LocalDate.now(), 5));
-            assertThat(view.targetCompletionDate()).isEqualTo(calendar.plusBusinessDays(LocalDate.now(), 5));
+            // LocalDate.now(clock) here, not the bare zero-arg overload: CaseEngine computes
+            // due dates from the injected Clock (Clock.systemUTC() in production, MutableClock
+            // -- itself UTC-backed -- in tests), while the bare LocalDate.now() reads the JVM's
+            // default zone. On a host whose local zone is ahead of UTC, the two disagree for the
+            // few hours after local midnight but before UTC midnight, which is exactly what made
+            // this assertion flake here.
+            assertThat(stageMilestones.get(0).dueDate()).isEqualTo(calendar.plusBusinessDays(LocalDate.now(clock), 2));
+            assertThat(stageMilestones.get(1).dueDate()).isEqualTo(calendar.plusBusinessDays(LocalDate.now(clock), 5));
+            assertThat(view.targetCompletionDate()).isEqualTo(calendar.plusBusinessDays(LocalDate.now(clock), 5));
         });
     }
 
