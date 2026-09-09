@@ -298,12 +298,6 @@ failing, same as dark — confirmed by running it, not by reading the script).
   inert: it is the mechanism §5.3 uses to skip a stage conditionally, and case-lifecycle.spec.ts's
   own workflow had to be seeded through the API rather than the builder for exactly this reason.
   Both are real product gaps, not test-writing conveniences.
-- **`approval.decide` is seeded to `Administrator` only.** The catalog allows it at any of
-  ALL/DEPARTMENT/TEAM, but none of the other eleven templates holds it — deciding a stage-exit
-  approval currently requires the tenant's widest role, unlike `milestone.force_approve`, which is
-  ALL-only in the catalog itself and so cannot be any narrower by construction. Not a bug (absence
-  of a grant is the denial, same as everywhere else), but worth a role review before sub-project 6
-  builds SLA escalation on top of an approval nobody but the administrator can clear.
 - **The audit timeline read is a known, deliberate carve-out, not yet a pattern to repeat.** It
   bypasses `AuthorizedQuery` by design (spec §7.3) — narrowed to one resource id behind a
   `case.view` resolution and carries a commented exclusion in `AuthorizationCoverageTest` — but it
@@ -349,9 +343,9 @@ both contact create and update, so `generated.ts` carries it for a client to nar
 
 **Open at the close of sub-project 3:** TEAM-scoped user creation is untouched — `CreateUserRequest`
 still has no `teamIds` field, and it remains the one `user.manage` gap this sub-project did not
-attempt. The workflow builder's missing attribute/entry-condition UI, `approval.decide` seeded to
-`Administrator` only, and the audit-timeline-read carve-out precedent are all sub-project 2's own
-open items, outside this sub-project's path, and none of Phase 1's tasks touched them. One item is
+attempt. The workflow builder's missing attribute/entry-condition UI and the audit-timeline-read
+carve-out precedent are both sub-project 2's own open items, outside this sub-project's path, and
+neither was touched by Phase 1's tasks. One item is
 new, found and left deferred by this sub-project's own Task 24 review, and broadened at the final
 whole-branch review once the actual size of the gap was clear:
 **There is no task-edit UI at all**, not just a missing assignee picker. `TaskDetail.tsx` renders
@@ -396,18 +390,31 @@ this final pass:
   `Pageable.unpaged()` with no `Sort`, and `WorkColumn.tsx:97` maps in whatever order the query
   returns — so the "My work" board's most important column has no meaningful ordering, and an
   overdue item can sit below one due next month.
-- **`task.manage` is seeded to Administrator only**, the same shape already recorded above for
-  `approval.decide`. `authz/RoleTemplates.java:119-129` catalogues it at ALL/DEPARTMENT/TEAM but
-  grants it to none of the other eleven templates — Project Manager holds `TASK_VIEW`/
-  `TASK_COMPLETE`/`COMMENT_CREATE` at TEAM but not `TASK_MANAGE`, so no seeded role can create an
-  ad-hoc task, add a checklist item, or reassign one. Worth a role review, same as `approval.decide`,
-  before any later sub-project builds on top of it.
 - **Design spec §5.5 named seven audit actions; only five exist.** `task.assigned` has no
   `AuditActions` constant and nothing records a reassignment — sub-project 6 is specified to
   subscribe to this action, and nothing will ever fire it. `TaskService.create`'s ad-hoc path also
   records no `task.created` at all — only `TaskInstantiation`'s requirement-instantiated path does
   (`TaskInstantiation.java:99`). The plan itself documents this last gap at its own line 1568; this
   is that finding carried forward into the file a future session actually reads.
+
+**Closed since sub-project 3A Phase 1 (Task 8), verified against the running system:**
+`approval.decide` and `task.manage` are no longer Administrator-only. Operations (the
+department-lead-shaped template) now holds `APPROVAL_DECIDE` at DEPARTMENT, so deciding a
+stage-exit approval no longer requires the tenant's widest role; Project Manager now holds
+`TASK_MANAGE` at TEAM, alongside the `TASK_VIEW`/`TASK_COMPLETE` it already had, so a role that can
+complete a task can now also create, edit and reassign one. `RoleTemplateCoverageTest` guards this
+derivably rather than by name — it fails whenever a permission catalogued at more than one scope is
+held by no template but Administrator, not just for these two keys — and Phase 2 of this same plan
+relies on it staying red until `programme.manage` and its siblings are seeded too.
+Not `MILESTONE_FORCE_APPROVE`: it is ALL-only in the catalog itself (Q5), so it cannot be any
+narrower by construction and the guard does not flag it.
+The guard's first run also flagged two permissions outside this task's scope, both still
+Administrator-only and both excluded from it by name pending a real role review, not fixed here:
+`user.manage` (granting it at TEAM to any template today would seed a role that holds the
+permission but 404s on every create — see the still-open TEAM-scoped-user-creation gap above) and
+`customer.deactivate` (no scope decision for it exists anywhere in `docs/QA.md` or the PRD). The
+exclusion list lives in `RoleTemplateCoverageTest` itself, the same shape as `RlsCoverageTest`'s
+allowlist — a deliberate, commented entry, not a silent skip.
 
 ### Tests
 
