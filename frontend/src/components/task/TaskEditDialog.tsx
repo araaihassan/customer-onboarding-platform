@@ -4,21 +4,31 @@ import { useId, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { Field, TextareaField } from "@/components/ui/Field";
+import type { User } from "@/lib/api/admin";
+import { shortId } from "@/lib/api/customers";
 import type { MilestoneOption, Task, TaskPriority, UpdateTaskRequest } from "@/lib/api/tasks";
 import { t } from "@/lib/i18n";
 
 const PRIORITIES: TaskPriority[] = ["LOW", "MEDIUM", "HIGH"];
 
 /**
- * The edit half of the gap CLAUDE.md's "no task-edit UI at all" item names:
- * title, description, priority, due date and milestone, all editable here --
- * the assignee is round-tripped but not yet, Task 7 adds that picker on top
- * of this same form.
+ * The full gap CLAUDE.md's "no task-edit UI at all" item named: title,
+ * description, priority, due date, milestone and (Task 7) assignee, all
+ * editable here.
  *
  * `UpdateTaskRequest` is a full replace (`title`/`priority`/`milestoneId` are
  * all non-optional on the wire): every field is seeded from `task` on mount,
  * so a field the user never touches still submits its CURRENT value rather
  * than going missing from the body and being written as null.
+ *
+ * `users` is the tenant's user list for the assignee picker -- the caller's
+ * responsibility to fetch (`TaskDetail` uses `useUsers("", 0, ...)`, the same
+ * hook `TeamMembers` already uses for the same purpose) and gate behind
+ * `user.view`, since `GET /admin/users` is. Defaulted to `[]` so a caller
+ * without that permission, or this component's own pre-Task-7 tests, still
+ * render: the picker then offers only "Unassigned" plus a fallback entry for
+ * the task's current assignee (see below), never a blank, empty-looking
+ * control.
  *
  * Deliberately takes `onSubmit` rather than calling `useUpdateTask()` itself,
  * unlike `CreateTaskDialog` -- the same split `admin/users/page.tsx`'s
@@ -31,6 +41,7 @@ const PRIORITIES: TaskPriority[] = ["LOW", "MEDIUM", "HIGH"];
 export function TaskEditDialog({
   task,
   milestones,
+  users = [],
   onSubmit,
   onClose,
   pending = false,
@@ -38,6 +49,7 @@ export function TaskEditDialog({
 }: {
   task: Task;
   milestones: MilestoneOption[];
+  users?: User[];
   onSubmit: (body: UpdateTaskRequest) => void;
   onClose: () => void;
   pending?: boolean;
@@ -45,6 +57,7 @@ export function TaskEditDialog({
 }) {
   const milestoneFieldId = useId();
   const priorityFieldId = useId();
+  const assigneeFieldId = useId();
 
   const [title, setTitle] = useState(task.title ?? "");
   const [titleError, setTitleError] = useState<string>();
@@ -52,6 +65,14 @@ export function TaskEditDialog({
   const [priority, setPriority] = useState<TaskPriority>(task.priority ?? "MEDIUM");
   const [dueDate, setDueDate] = useState(task.dueDate ?? "");
   const [milestoneId, setMilestoneId] = useState(task.milestoneId ?? "");
+  const [assigneeId, setAssigneeId] = useState(task.assigneeId ?? "");
+
+  // `users` is a page, not a guaranteed-complete tenant roster (Task 7's own
+  // documented concern) -- if the task's current assignee isn't in it, the
+  // picker still needs an option for that id so the control shows the real
+  // current assignee selected, rather than silently falling back to blank.
+  const currentAssigneeMissing =
+    Boolean(task.assigneeId) && !users.some((user) => user.id === task.assigneeId);
 
   function submit() {
     const trimmedTitle = title.trim();
@@ -67,9 +88,11 @@ export function TaskEditDialog({
       priority,
       dueDate: dueDate || undefined,
       milestoneId,
-      // Not editable here yet (Task 7) -- carried forward unchanged so a PUT
-      // never silently unassigns the task.
-      assigneeId: task.assigneeId,
+      // An explicit `null`, not an omitted key or an empty string -- Task 7's
+      // "Unassigned" option must be reachable, and a full-replace PUT treats
+      // "absent" and "null" the same, but only `null` is what this state
+      // actually means once the user has picked it.
+      assigneeId: assigneeId || null,
     });
   }
 
@@ -117,6 +140,30 @@ export function TaskEditDialog({
             {PRIORITIES.map((option) => (
               <option key={option} value={option}>
                 {t(`task.priority.${option}`)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col">
+          <label htmlFor={assigneeFieldId} style={labelStyle}>
+            {t("task.detail.assignee")}
+          </label>
+          <select
+            id={assigneeFieldId}
+            value={assigneeId}
+            onChange={(event) => setAssigneeId(event.target.value)}
+            style={selectStyle}
+          >
+            {/* Explicit and distinct from the select simply having nothing
+                chosen -- selecting this is what submits `assigneeId: null`. */}
+            <option value="">{t("task.detail.unassigned")}</option>
+            {currentAssigneeMissing && (
+              <option value={task.assigneeId}>{shortId(task.assigneeId!)}</option>
+            )}
+            {users.map((user) => (
+              <option key={user.id} value={user.id}>
+                {user.fullName ?? user.email ?? shortId(user.id ?? "")}
               </option>
             ))}
           </select>

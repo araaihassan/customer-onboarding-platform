@@ -14,7 +14,20 @@ import type { components } from "./generated";
 export type Task = components["schemas"]["TaskView"];
 export type CreateTaskRequest = components["schemas"]["CreateTaskRequest"];
 export type TaskStatusRequest = components["schemas"]["TaskStatusRequest"];
-export type UpdateTaskRequest = components["schemas"]["UpdateTaskRequest"];
+/**
+ * The generated schema types `assigneeId` as `string | undefined` -- springdoc
+ * never emits `nullable: true` for an optional property, so codegen has no way
+ * to say "and also null" even though the backend field is a plain unannotated
+ * `UUID assigneeId` (`task/UpdateTaskRequest.java:21`) that Jackson deserializes
+ * a JSON `null` into just fine. Widened here, at the re-export, rather than
+ * hand-edited in `generated.ts` itself (regenerated wholesale and would lose
+ * the change): `assigneeId: null` is exactly what Task 7's picker needs to
+ * send to clear an assignment -- omitting the key would rely on "absent means
+ * null" holding for a full-replace PUT rather than saying so.
+ */
+export type UpdateTaskRequest = Omit<components["schemas"]["UpdateTaskRequest"], "assigneeId"> & {
+  assigneeId?: string | null;
+};
 export type TaskStatus = NonNullable<Task["status"]>;
 export type TaskPriority = NonNullable<Task["priority"]>;
 export type ChecklistItem = components["schemas"]["ChecklistItemView"];

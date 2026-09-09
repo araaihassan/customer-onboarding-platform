@@ -5,6 +5,7 @@ import { CommentThread } from "@/components/comment/CommentThread";
 import { Button } from "@/components/ui/Button";
 import { TextareaField } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { useUsers } from "@/lib/api/admin";
 import { parseProblemDetail, type Participant } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
 import { shortId } from "@/lib/api/customers";
@@ -46,7 +47,10 @@ const STATUS_OPTIONS: TaskStatus[] = ["PENDING", "IN_PROGRESS", "WAITING", "COMP
  * roadmap into this shape for its own "New task" dialog, so this is a caller
  * passing along data it already has, not a new fetch. Defaulted rather than
  * required so this component's own existing tests, which never open the
- * edit dialog, are unaffected.
+ * edit dialog, are unaffected. The assignee picker's user list (Task 7), by
+ * contrast, IS a new fetch (`useUsers("", 0, ...)`, gated on `user.view`
+ * alongside `task.manage`) -- unlike the roadmap, nothing upstream of this
+ * component already holds a tenant user list to pass down.
  */
 export function TaskDetail({
   task,
@@ -64,6 +68,12 @@ export function TaskDetail({
   // carries @RequirePermission(TASK_MANAGE), so a reader who cannot ever
   // succeed at the write is not shown a button that can only 403.
   const canManage = useHasPermission("task.manage");
+  // GET /admin/users is gated by user.view (UserAdminService), independently
+  // of task.manage -- the same pairing TeamMembers already uses for its own
+  // member picker. Without it the edit dialog still opens (assignee is still
+  // clearable to Unassigned), just with no other names to pick from.
+  const canViewUsers = useHasPermission("user.view");
+  const users = useUsers("", 0, canManage && canViewUsers);
   const status = task.status ?? "PENDING";
   const overdue = isTaskOverdue(task);
 
@@ -226,6 +236,7 @@ export function TaskDetail({
         <TaskEditDialog
           task={task}
           milestones={milestones}
+          users={users.data?.content ?? []}
           pending={updateTask.isPending}
           error={
             updateTask.isError

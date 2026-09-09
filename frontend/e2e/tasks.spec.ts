@@ -19,19 +19,12 @@ import type { Tenant } from "./support/tenant";
  * requirementId already set -- that is what "watch the milestone advance"
  * actually exercises, not a UI affordance this suite invents.
  *
- * ADAPTATION FROM THE BRIEF, confirmed by reading the code directly before
- * writing this spec: there is no UI anywhere in this codebase to assign a
- * task to someone. `TaskDetail.tsx` only ever DISPLAYS
- * `task.assigneeId ? shortId(task.assigneeId) : "Unassigned"` -- the sole
- * `<select>` in that file is the status control, not an assignee picker.
- * Tasks 27 and 28's own reports both independently flagged this exact gap.
- * Building that picker is new product scope, not this task's job, so "assign
- * it" is adapted to: seed the assignment with a direct API call
- * (`PUT /tasks/{taskId}`, a full replace per UpdateTaskRequest's own doc
- * comment -- every field the request accepts is supplied, not just
- * assigneeId, using the values the create response itself returned), then
- * verify through the UI that the resulting task genuinely displays as
- * assigned in TaskDetail, not "Unassigned".
+ * UPDATED for sub-project 3A Task 7: `TaskEditDialog` now carries an actual
+ * assignee picker (`TaskDetail.tsx`'s "Edit" button opens it), closing the
+ * gap Tasks 27 and 28's own reports independently flagged and this spec's
+ * own comment used to name here. The assignment test below now drives that
+ * picker through the UI rather than seeding the assignment with a direct
+ * `PUT /tasks/{taskId}` call.
  */
 let tenant: Tenant;
 let customerId: string;
@@ -98,8 +91,11 @@ test.beforeAll(async ({ playwright }) => {
   await admin.publishVersion(templateId, versionId);
 
   // Exists purely as an assignment target -- never signed in as, so it needs
-  // no role or activation. resolveAssigneeId (TaskService) only requires the
-  // CALLER to hold user.view; Administrator holds it at ALL.
+  // no role or activation. It is also the picker's own proof that the
+  // assignee list is real: the option the UI test below selects is this
+  // user's fullName, not a hand-typed id, so the tenant's user list
+  // (`GET /admin/users`, gated `user.view` -- Administrator holds it at ALL)
+  // has to have actually round-tripped this account for the test to pass.
   const colleague = await admin.createUser(`colleague@${tenant.slug}.test`, "Colleague Person");
   colleagueUserId = colleague.id;
 
@@ -153,7 +149,7 @@ test("an ad-hoc task can be created through the Tasks tab", async ({ page }) => 
   await expect(taskCard(page, "Send welcome packet")).toBeVisible();
 });
 
-test("a task assigned through the API (no picker exists in the UI) displays its assignee, not Unassigned", async ({
+test("assigning a task to a colleague through the edit dialog's picker displays that colleague, not Unassigned", async ({
   page,
   request,
 }) => {
@@ -165,36 +161,25 @@ test("a task assigned through the API (no picker exists in the UI) displays its 
   const roadmap = await admin.get<RoadmapResponse>(`/cases/${apiCaseId}/roadmap`);
   const kickoffMilestoneId = roadmap.stages[0]!.milestones.find((m) => m.name === "Kickoff")!.id;
 
-  const created = await admin.post<{
-    id: string;
-    title: string;
-    description?: string;
-    priority: string;
-    milestoneId: string;
-    dueDate?: string;
-  }>(
+  await admin.post(
     `/cases/${apiCaseId}/tasks`,
     { milestoneId: kickoffMilestoneId, title: "Chase signed contract", priority: "MEDIUM" },
     201,
   );
-
-  // UpdateTaskRequest is a full replace (CLAUDE.md's own invariant): every
-  // field it accepts is supplied here, using exactly what create returned,
-  // not just the one field this test cares about.
-  await admin.put(`/tasks/${created.id}`, {
-    title: created.title,
-    description: created.description,
-    priority: created.priority,
-    milestoneId: created.milestoneId,
-    dueDate: created.dueDate,
-    assigneeId: colleagueUserId,
-  });
 
   await signIn(page, tenant.slug, tenant.adminEmail);
   await page.goto(`/t/${tenant.slug}/customers/${customerId}/cases/${apiCaseId}?tab=tasks`);
 
   await taskCard(page, "Chase signed contract").click();
   const dialog = page.getByRole("dialog", { name: "Chase signed contract" });
+  await expect(dialog.getByText("Unassigned")).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Edit" }).click();
+  const editDialog = page.getByRole("dialog", { name: "Edit task" });
+  await editDialog.getByLabel("Assignee").selectOption({ label: "Colleague Person" });
+  await editDialog.getByRole("button", { name: "Save" }).click();
+
+  await expect(editDialog).toBeHidden();
   await expect(dialog.getByText("Unassigned")).toHaveCount(0);
   // shortId is the last dash-segment of the UUID (lib/api/customers.ts).
   await expect(dialog.getByText(colleagueUserId.split("-").pop()!)).toBeVisible();
