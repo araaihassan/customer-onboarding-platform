@@ -131,6 +131,65 @@ public class CustomerTemplateService {
     }
 
     /**
+     * Replaces, never merges (QA Q21, spec 5.2): deep-copies the SOURCE catalogue
+     * template's current published version into a brand-new DRAFT of the
+     * CUSTOMER's OWN template -- the same {@code WorkflowTemplate} row, just a
+     * new version on it, not a new template. Any tailoring the customer
+     * previously made to their own template's graph is NOT carried across: it
+     * lived in a different lineage of versions this operation never touches. A
+     * three-way merge would need per-node identity across two lineages that
+     * Q2's freeze deliberately severs, which is the stated cost of this answer.
+     *
+     * Refuses two ways, reusing {@link #clone}'s own exception types rather than
+     * inventing new ones:
+     * <ul>
+     *   <li>{@code customerTemplateId} already has an open DRAFT
+     *       ({@link DraftAlreadyExistsException}, via
+     *       {@link WorkflowService#refreshDraftFromVersion} -- the same guard
+     *       {@link WorkflowService#createDraft} applies to itself);</li>
+     *   <li>{@code customerTemplateId} has no source to refresh from at all --
+     *       {@code clonedFromTemplateId} is null, meaning this is a catalogue
+     *       template, not a clone ({@link NotCloneableException}, a different
+     *       reason from the two {@link #clone} already throws it for, same type).</li>
+     * </ul>
+     * A source that has itself never been published (its own
+     * {@code currentVersionId} is null) is refused the same way {@link #clone}
+     * refuses that source in the first place -- it should not be reachable in
+     * practice (a template cannot be cloned before it is published), but this
+     * does not trust that invariant silently.
+     */
+    @RequirePermission(PermissionKeys.WORKFLOW_MANAGE)
+    @Transactional
+    public WorkflowDefinitionView refreshFromSource(UUID customerTemplateId) {
+        WorkflowTemplate customerTemplate = authorizedQuery.getById(
+                templates, WorkflowTemplate.class, PermissionKeys.WORKFLOW_MANAGE, customerTemplateId);
+
+        if (customerTemplate.getClonedFromTemplateId() == null) {
+            throw new NotCloneableException(customerTemplateId,
+                    "it has no source to refresh from -- it is a catalogue template, not a clone");
+        }
+
+        WorkflowTemplate source = authorizedQuery.getById(templates, WorkflowTemplate.class,
+                PermissionKeys.WORKFLOW_MANAGE, customerTemplate.getClonedFromTemplateId());
+        if (source.getCurrentVersionId() == null) {
+            throw new NotCloneableException(source.getId(), "it has never been published");
+        }
+
+        UUID draftId = workflows.refreshDraftFromVersion(
+                customerTemplateId, customerTemplate.getName(), source.getCurrentVersionId());
+
+        audit.record(AuditActions.WORKFLOW_REFRESHED_FROM_SOURCE, "workflow_version", draftId,
+                "Refreshed " + customerTemplate.getName() + " from its catalogue source " + source.getName(),
+                Map.of("customerTemplateId", customerTemplateId.toString(), "sourceTemplateId", source.getId().toString()));
+
+        // Built under WORKFLOW_MANAGE -- the permission this method's own gate
+        // already checked -- not re-read via WORKFLOW_VIEW, the same
+        // manage-without-view reason WorkflowController.newDraft's own comment
+        // gives for calling getDefinitionAs instead of getDefinition.
+        return workflows.getDefinitionAs(draftId, PermissionKeys.WORKFLOW_MANAGE);
+    }
+
+    /**
      * A real service-level check anticipating V18's own partial unique index
      * ({@code workflow_template_customer_clone_uq} on
      * {@code (cloned_from_template_id, customer_id) WHERE customer_id IS NOT NULL}),

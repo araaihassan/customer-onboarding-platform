@@ -188,6 +188,10 @@ public final class AuditActions {
     // tailored from is tenant configuration, not the customer's own business, the
     // same reasoning WORKFLOW_TEMPLATE_CREATED already carries.
     public static final AuditAction WORKFLOW_CLONED_FOR_CUSTOMER  = of("workflow.cloned_for_customer", false);
+    // Sub-project 3A Task 17 (QA Q21 / spec 5.2): same compliance-only reasoning
+    // as WORKFLOW_CLONED_FOR_CUSTOMER above -- which catalogue version a
+    // customer's clone was last refreshed from is tenant configuration.
+    public static final AuditAction WORKFLOW_REFRESHED_FROM_SOURCE = of("workflow.refreshed_from_source", false);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

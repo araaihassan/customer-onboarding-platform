@@ -160,6 +160,40 @@ public class WorkflowService {
         WorkflowTemplate template = authorizedQuery.getById(templates, WorkflowTemplate.class,
                 PermissionKeys.WORKFLOW_MANAGE, templateId);
 
+        WorkflowVersion draft = newDraftVersion(templateId);
+
+        // Only the deep-copy path calls replaceDraft: an empty draft has nothing to
+        // write, and going through replaceDraft anyway would bump lockVersion from 0
+        // to 1 before the caller ever sees it. Each branch records its own
+        // creation event -- replaceDraft's own workflow.draft_saved event (fired
+        // below, inside it, for the copy branch) is a true record that the graph
+        // was written, but says nothing about the draft having been *created by
+        // copying* a specific version, and the empty branch never calls
+        // replaceDraft at all, so without a call here that path is silently
+        // unaudited.
+        if (template.getCurrentVersionId() != null) {
+            WorkflowVersion published = authorizedQuery.getById(versions, WorkflowVersion.class,
+                    PermissionKeys.WORKFLOW_MANAGE, template.getCurrentVersionId());
+            copyVersionInto(draft, published, template.getName());
+        } else {
+            audit.record(AuditActions.WORKFLOW_DRAFT_SAVED, "workflow_version", draft.getId(),
+                    "Created empty draft v" + draft.getVersionNo() + " of " + template.getName(),
+                    Map.of());
+        }
+        return draft.getId();
+    }
+
+    /**
+     * Shared by {@link #createDraft} and {@link #refreshDraftFromVersion}: refuses
+     * a second concurrent draft (DraftAlreadyExistsException, anticipating V12's
+     * partial unique index the same way createDraft's own comment already
+     * explains) and assigns the template's next version number. Deciding WHAT --
+     * if anything -- gets copied into the new row is left to each caller: createDraft
+     * copies the SAME template's own current published version (or leaves it empty);
+     * refreshDraftFromVersion copies a DIFFERENT template's (the catalogue source's)
+     * current published version instead.
+     */
+    private WorkflowVersion newDraftVersion(UUID templateId) {
         Optional<WorkflowVersion> openDraft = authorizedQuery.findAll(versions, WorkflowVersion.class,
                         PermissionKeys.WORKFLOW_MANAGE,
                         (root, query, cb) -> cb.and(
@@ -184,26 +218,7 @@ public class WorkflowService {
         draft.setVersionNo(nextVersionNo);
         draft.setStatus(VersionStatus.DRAFT);
         versions.saveAndFlush(draft);
-
-        // Only the deep-copy path calls replaceDraft: an empty draft has nothing to
-        // write, and going through replaceDraft anyway would bump lockVersion from 0
-        // to 1 before the caller ever sees it. Each branch records its own
-        // creation event -- replaceDraft's own workflow.draft_saved event (fired
-        // below, inside it, for the copy branch) is a true record that the graph
-        // was written, but says nothing about the draft having been *created by
-        // copying* a specific version, and the empty branch never calls
-        // replaceDraft at all, so without a call here that path is silently
-        // unaudited.
-        if (template.getCurrentVersionId() != null) {
-            WorkflowVersion published = authorizedQuery.getById(versions, WorkflowVersion.class,
-                    PermissionKeys.WORKFLOW_MANAGE, template.getCurrentVersionId());
-            copyVersionInto(draft, published, template.getName());
-        } else {
-            audit.record(AuditActions.WORKFLOW_DRAFT_SAVED, "workflow_version", draft.getId(),
-                    "Created empty draft v" + draft.getVersionNo() + " of " + template.getName(),
-                    Map.of());
-        }
-        return draft.getId();
+        return draft;
     }
 
     /**
@@ -263,6 +278,38 @@ public class WorkflowService {
         WorkflowVersion published = authorizedQuery.getById(versions, WorkflowVersion.class,
                 PermissionKeys.WORKFLOW_MANAGE, sourceVersionId);
         copyVersionInto(draft, published, targetTemplateName);
+        return draft.getId();
+    }
+
+    /**
+     * Package-private: lets {@link CustomerTemplateService#refreshFromSource}
+     * replace a customer template's own tailoring with a fresh deep copy of its
+     * catalogue source's current published version (sub-project 3A, Task 17 / QA
+     * Q21) -- REPLACES, never merges: any tailoring the customer previously made
+     * to their own template's graph is simply not present in the new draft.
+     *
+     * Reuses exactly the same {@link #newDraftVersion}/{@link #copyVersionInto}
+     * machinery {@link #createDraft} and {@link #createDraftCopyingVersion} use --
+     * refuses a concurrent draft the same way createDraft does, but unlike
+     * createDraftCopyingVersion (which always starts a brand-new template at
+     * version 1), this targets templateId's own NEXT version number, because the
+     * customer keeps their existing WorkflowTemplate row across a refresh.
+     *
+     * sourceVersionId must already be resolved and authorized by the caller --
+     * refreshFromSource reads it off the source template's own currentVersionId,
+     * itself fetched through AuthorizedQuery -- the same "fed only pre-authorized
+     * ids" shape createDraftCopyingVersion's own javadoc already explains.
+     *
+     * @Transactional in its own right, not merely relying on the caller's: this is
+     * a cross-bean call from CustomerTemplateService, the same reason
+     * createDraftCopyingVersion carries its own boundary above.
+     */
+    @Transactional
+    UUID refreshDraftFromVersion(UUID templateId, String templateName, UUID sourceVersionId) {
+        WorkflowVersion draft = newDraftVersion(templateId);
+        WorkflowVersion source = authorizedQuery.getById(versions, WorkflowVersion.class,
+                PermissionKeys.WORKFLOW_MANAGE, sourceVersionId);
+        copyVersionInto(draft, source, templateName);
         return draft.getId();
     }
 

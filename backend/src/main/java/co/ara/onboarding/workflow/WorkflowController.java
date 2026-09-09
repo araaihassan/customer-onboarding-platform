@@ -202,4 +202,29 @@ public class WorkflowController {
     public WorkflowTemplateView clone(@PathVariable UUID id, @Valid @RequestBody CloneTemplateRequest r) {
         return customerTemplates.clone(id, r);
     }
+
+    /**
+     * Sub-project 3A, Task 17 (QA Q21). Distinct from {@code /versions}, the same
+     * way {@code /clone} above is: this REPLACES the customer template's graph
+     * with a fresh deep copy of its catalogue source's current published
+     * version, on the SAME template row -- see
+     * {@link CustomerTemplateService#refreshFromSource} for why the customer's
+     * own prior tailoring is not carried across.
+     */
+    @PostMapping("/{id}/refresh")
+    @ResponseStatus(CREATED)
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "A new DRAFT, deep-copied from the catalogue source's current published version"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "This customer template already has an open draft",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "Not a clone (no source), or the source has never been published",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public WorkflowDefinitionView refresh(@PathVariable UUID id) {
+        return customerTemplates.refreshFromSource(id);
+    }
 }
