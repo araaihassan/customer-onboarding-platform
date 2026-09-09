@@ -572,6 +572,7 @@ public class WorkflowService {
         definition.setName(m.name());
         definition.setDescription(m.description());
         definition.setEstimatedDurationDays(m.estimatedDurationDays());
+        definition.setPortalVisible(m.portalVisible() == null ? true : m.portalVisible());
         return definition;
     }
 
@@ -751,7 +752,8 @@ public class WorkflowService {
         List<RequirementView> requirementViews = requirements.stream().map(this::toRequirementView).toList();
         List<String> dependsOnKeys = dependsOnIds.stream().map(UUID::toString).toList();
         return new MilestoneView(m.getId(), m.getId().toString(), m.getName(), m.getDescription(),
-                m.getEstimatedDurationDays(), dependsOnKeys, dependsOnIds, requirementViews);
+                m.getEstimatedDurationDays(), dependsOnKeys, dependsOnIds, requirementViews,
+                m.isPortalVisible());
     }
 
     private RequirementView toRequirementView(RequirementDefinition r) {
@@ -805,7 +807,8 @@ public class WorkflowService {
     private MilestoneRequest toMilestoneRequest(MilestoneView m) {
         return new MilestoneRequest(m.key(), m.name(), m.description(), m.estimatedDurationDays(),
                 m.dependsOnMilestoneKeys(),
-                m.requirements().stream().map(this::toRequirementRequest).toList());
+                m.requirements().stream().map(this::toRequirementRequest).toList(),
+                m.portalVisible());
     }
 
     private RequirementRequest toRequirementRequest(RequirementView r) {

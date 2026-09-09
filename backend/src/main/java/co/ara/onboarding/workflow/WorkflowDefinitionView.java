@@ -51,7 +51,8 @@ public record WorkflowDefinitionView(
             int estimatedDurationDays,
             List<String> dependsOnMilestoneKeys,
             List<UUID> dependsOnMilestoneIds,
-            List<RequirementView> requirements) {}
+            List<RequirementView> requirements,
+            boolean portalVisible) {}
 
     public record RequirementView(
             UUID id,
