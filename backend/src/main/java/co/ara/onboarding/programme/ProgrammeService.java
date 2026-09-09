@@ -10,6 +10,7 @@ import co.ara.onboarding.customer.Customer;
 import co.ara.onboarding.customer.CustomerRepository;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
+import co.ara.onboarding.journey.CaseWeightReader;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.data.domain.Pageable;
@@ -69,18 +70,21 @@ public class ProgrammeService {
     private final CustomerRepository customers;
     private final ProgrammeCaseRepository programmeCases;
     private final CaseRepository cases;
+    private final CaseWeightReader caseWeights;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
 
     public ProgrammeService(ProgrammeRepository programmes, CustomerRepository customers,
                             ProgrammeCaseRepository programmeCases, CaseRepository cases,
+                            CaseWeightReader caseWeights,
                             AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
                             AuditRecorder audit) {
         this.programmes = programmes;
         this.customers = customers;
         this.programmeCases = programmeCases;
         this.cases = cases;
+        this.caseWeights = caseWeights;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.audit = audit;
@@ -142,12 +146,35 @@ public class ProgrammeService {
      * the security invariant that computation exists to hold (design spec
      * §6.3, Q20's non-negotiable): a programme's participant list must never
      * be a backdoor to journey access.
+     *
+     * Task 14: also returns the duration-weighted rollup
+     * ({@code rolledUpProgressPercent}/{@code journeysCovered}), computed by
+     * {@link ProgrammeRollup#of} over {@link CaseWeightReader#weightsFor} fed
+     * EXACTLY the case ids {@link #journeysFor} already resolved -- never a
+     * wider, unfiltered {@code programme_case} set. That is the only place
+     * visibility filtering happens for either field, so the rollup can never
+     * drift from what {@code journeys()} itself shows: the identical
+     * "aggregate-only leak" shape CLAUDE.md records for the {@code taskSummary}
+     * gap this sub-project's own Phase 1 closed. When {@code journeysFor}
+     * returns no journeys, {@link CaseWeightReader#weightsFor} is never
+     * called at all -- its {@code @RequirePermission(CASE_VIEW)} gate runs
+     * BEFORE the method body's own empty-collection short-circuit, so a
+     * caller holding no {@code case.view} grant whatsoever would otherwise be
+     * refused outright instead of correctly seeing 0% over 0 journeys.
      */
     @RequirePermission(PermissionKeys.PROGRAMME_VIEW)
     @Transactional(readOnly = true)
     public ProgrammeDetailView get(UUID programmeId) {
         Programme p = authorizedQuery.getById(programmes, Programme.class, PermissionKeys.PROGRAMME_VIEW, programmeId);
-        return new ProgrammeDetailView(toView(p, customerOf(p)), journeysFor(p));
+        List<ProgrammeJourneyView> journeys = journeysFor(p);
+
+        ProgrammeRollup.Result rollup = journeys.isEmpty()
+                ? ProgrammeRollup.NONE
+                : ProgrammeRollup.of(caseWeights.weightsFor(
+                        journeys.stream().map(ProgrammeJourneyView::caseId).toList()));
+
+        return new ProgrammeDetailView(toView(p, customerOf(p)), journeys,
+                rollup.rolledUpProgressPercent(), rollup.journeysCovered());
     }
 
     /**

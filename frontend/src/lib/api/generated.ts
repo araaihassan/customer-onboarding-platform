@@ -36,7 +36,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/t/{tenantSlug}/customers/{id}": {
+    "/api/t/{tenantSlug}/programmes/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -52,6 +52,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/customers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_2"];
+        put: operations["update_2"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/customers/{customerId}/contacts/{contactId}": {
         parameters: {
             query?: never;
@@ -60,7 +76,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put: operations["update_2"];
+        put: operations["update_3"];
         post?: never;
         delete?: never;
         options?: never;
@@ -76,7 +92,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put: operations["update_3"];
+        put: operations["update_4"];
         post?: never;
         delete?: never;
         options?: never;
@@ -107,8 +123,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_2"];
-        put: operations["update_4"];
+        get: operations["get_3"];
+        put: operations["update_5"];
         post?: never;
         delete?: never;
         options?: never;
@@ -124,7 +140,7 @@ export interface paths {
             cookie?: never;
         };
         get?: never;
-        put: operations["update_5"];
+        put: operations["update_6"];
         post?: never;
         delete?: never;
         options?: never;
@@ -139,8 +155,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_3"];
-        put: operations["update_6"];
+        get: operations["get_4"];
+        put: operations["update_7"];
         post?: never;
         delete?: never;
         options?: never;
@@ -276,14 +292,14 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/t/{tenantSlug}/customers": {
+    "/api/t/{tenantSlug}/programmes": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["list_1"];
+        get?: never;
         put?: never;
         post: operations["create_1"];
         delete?: never;
@@ -292,7 +308,71 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/t/{tenantSlug}/customers/{id}/deactivate": {
+    "/api/t/{tenantSlug}/programmes/{id}/participants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addParticipant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/programmes/{id}/participants/{userId}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["removeParticipant"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/programmes/{id}/journeys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addJourney"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/programmes/{id}/journeys/{caseId}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["removeJourney"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/programmes/{id}/deactivate": {
         parameters: {
             query?: never;
             header?: never;
@@ -308,6 +388,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/customers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_1"];
+        put?: never;
+        post: operations["create_2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/customers/{id}/deactivate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["deactivate_2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/customers/{customerId}/contacts": {
         parameters: {
             query?: never;
@@ -317,7 +429,7 @@ export interface paths {
         };
         get: operations["list_2"];
         put?: never;
-        post: operations["create_2"];
+        post: operations["create_3"];
         delete?: never;
         options?: never;
         head?: never;
@@ -349,7 +461,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["create_3"];
+        post: operations["create_4"];
         delete?: never;
         options?: never;
         head?: never;
@@ -381,7 +493,7 @@ export interface paths {
         };
         get: operations["participants"];
         put?: never;
-        post: operations["addParticipant"];
+        post: operations["addParticipant_1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -397,7 +509,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["removeParticipant"];
+        post: operations["removeParticipant_1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -445,7 +557,7 @@ export interface paths {
         };
         get: operations["forCase"];
         put?: never;
-        post: operations["create_4"];
+        post: operations["create_5"];
         delete?: never;
         options?: never;
         head?: never;
@@ -557,7 +669,7 @@ export interface paths {
         };
         get: operations["forResource"];
         put?: never;
-        post: operations["create_5"];
+        post: operations["create_6"];
         delete?: never;
         options?: never;
         head?: never;
@@ -685,7 +797,7 @@ export interface paths {
         };
         get: operations["list_3"];
         put?: never;
-        post: operations["create_6"];
+        post: operations["create_7"];
         delete?: never;
         options?: never;
         head?: never;
@@ -717,7 +829,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["deactivate_2"];
+        post: operations["deactivate_3"];
         delete?: never;
         options?: never;
         head?: never;
@@ -781,7 +893,7 @@ export interface paths {
         };
         get: operations["list_4"];
         put?: never;
-        post: operations["create_7"];
+        post: operations["create_8"];
         delete?: never;
         options?: never;
         head?: never;
@@ -859,7 +971,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_4"];
+        get: operations["get_5"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1226,6 +1338,33 @@ export interface components {
             cancelledAt?: string;
             cancellationReason?: string;
         };
+        UpdateProgrammeRequest: {
+            name: string;
+            description?: string;
+            /** Format: uuid */
+            ownerUserId?: string;
+            /** Format: uuid */
+            owningDepartmentId?: string;
+            /** Format: uuid */
+            owningTeamId?: string;
+        };
+        ProgrammeView: {
+            /** Format: uuid */
+            id?: string;
+            name?: string;
+            /** Format: uuid */
+            customerId?: string;
+            customerName?: string;
+            description?: string;
+            /** Format: uuid */
+            ownerUserId?: string;
+            /** Format: uuid */
+            owningDepartmentId?: string;
+            /** Format: uuid */
+            owningTeamId?: string;
+            /** @enum {string} */
+            status?: "ACTIVE" | "INACTIVE";
+        };
         UpdateCustomerRequest: {
             legalName?: string;
             displayName?: string;
@@ -1442,6 +1581,29 @@ export interface components {
         AddChecklistItemRequest: {
             label: string;
         };
+        CreateProgrammeRequest: {
+            name: string;
+            /** Format: uuid */
+            customerId: string;
+            description?: string;
+            /** Format: uuid */
+            ownerUserId?: string;
+            /** Format: uuid */
+            owningDepartmentId?: string;
+            /** Format: uuid */
+            owningTeamId?: string;
+        };
+        AddProgrammeParticipantRequest: {
+            /** Format: uuid */
+            userId: string;
+            /** @enum {string} */
+            relationshipType: "OWNER" | "ASSIGNEE" | "PARTICIPANT" | "APPROVER" | "CREATOR";
+            alsoGrantJourneyAccess?: boolean;
+        };
+        AddJourneyRequest: {
+            /** Format: uuid */
+            caseId: string;
+        };
         CreateCustomerRequest: {
             legalName?: string;
             displayName?: string;
@@ -1624,6 +1786,23 @@ export interface components {
             adminEmail: string;
             adminFullName: string;
         };
+        ProgrammeDetailView: {
+            programme?: components["schemas"]["ProgrammeView"];
+            journeys?: components["schemas"]["ProgrammeJourneyView"][];
+            /** Format: int32 */
+            rolledUpProgressPercent?: number;
+            /** Format: int32 */
+            journeysCovered?: number;
+        };
+        ProgrammeJourneyView: {
+            /** Format: uuid */
+            caseId?: string;
+            name?: string;
+            /** @enum {string} */
+            status?: "ACTIVE" | "ON_HOLD" | "COMPLETED" | "CANCELLED";
+            /** Format: int32 */
+            progressPercent?: number;
+        };
         Me: {
             /** Format: uuid */
             id?: string;
@@ -1656,10 +1835,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -1668,11 +1847,11 @@ export interface components {
             offset?: number;
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
-            pageNumber?: number;
-            /** Format: int32 */
             pageSize?: number;
-            unpaged?: boolean;
+            /** Format: int32 */
+            pageNumber?: number;
             paged?: boolean;
+            unpaged?: boolean;
         };
         SortObject: {
             empty?: boolean;
@@ -1705,10 +1884,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -1793,10 +1972,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2075,6 +2254,126 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The programme, its visible journeys, and the duration-weighted rollup over them */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProgrammeDetailView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    update_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProgrammeRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved programme */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProgrammeView"];
+                };
+            };
+            /** @description A blank name failed validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme is deactivated */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    get_2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
             /** @description OK */
             200: {
                 headers: {
@@ -2095,7 +2394,7 @@ export interface operations {
             };
         };
     };
-    update_1: {
+    update_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -2130,7 +2429,7 @@ export interface operations {
             };
         };
     };
-    update_2: {
+    update_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -2193,7 +2492,7 @@ export interface operations {
             };
         };
     };
-    update_3: {
+    update_4: {
         parameters: {
             query?: never;
             header?: never;
@@ -2317,7 +2616,7 @@ export interface operations {
             };
         };
     };
-    get_2: {
+    get_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -2366,7 +2665,7 @@ export interface operations {
             };
         };
     };
-    update_4: {
+    update_5: {
         parameters: {
             query?: never;
             header?: never;
@@ -2428,7 +2727,7 @@ export interface operations {
             };
         };
     };
-    update_5: {
+    update_6: {
         parameters: {
             query?: never;
             header?: never;
@@ -2482,7 +2781,7 @@ export interface operations {
             };
         };
     };
-    get_3: {
+    get_4: {
         parameters: {
             query?: never;
             header?: never;
@@ -2513,7 +2812,7 @@ export interface operations {
             };
         };
     };
-    update_6: {
+    update_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -3073,6 +3372,347 @@ export interface operations {
             };
         };
     };
+    create_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProgrammeRequest"];
+            };
+        };
+        responses: {
+            /** @description Programme created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProgrammeView"];
+                };
+            };
+            /** @description A blank name failed validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The customer is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    addParticipant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddProgrammeParticipantRequest"];
+            };
+        };
+        responses: {
+            /** @description Added -- read of the programme container only unless alsoGrantJourneyAccess is set (design spec §6.3) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme or the user is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme is deactivated, or the user is already an active participant */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    removeParticipant: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                userId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed (status set to REMOVED, never deleted) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme or the participant is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme is deactivated */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    addJourney: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddJourneyRequest"];
+            };
+        };
+        responses: {
+            /** @description Linked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme or the case is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme is deactivated, or the case is already actively linked to a programme */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    removeJourney: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Removed (removed_at set, never deleted) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme or the link is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The programme is deactivated */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    deactivate_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deactivated (status set to INACTIVE, never deleted) */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     list_1: {
         parameters: {
             query: {
@@ -3106,7 +3746,7 @@ export interface operations {
             };
         };
     };
-    create_1: {
+    create_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -3139,7 +3779,7 @@ export interface operations {
             };
         };
     };
-    deactivate_1: {
+    deactivate_2: {
         parameters: {
             query?: never;
             header?: never;
@@ -3223,7 +3863,7 @@ export interface operations {
             };
         };
     };
-    create_2: {
+    create_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -3332,7 +3972,7 @@ export interface operations {
             };
         };
     };
-    create_3: {
+    create_4: {
         parameters: {
             query?: never;
             header?: never;
@@ -3508,7 +4148,7 @@ export interface operations {
             };
         };
     };
-    addParticipant: {
+    addParticipant_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -3559,7 +4199,7 @@ export interface operations {
             };
         };
     };
-    removeParticipant: {
+    removeParticipant_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -3776,7 +4416,7 @@ export interface operations {
             };
         };
     };
-    create_4: {
+    create_5: {
         parameters: {
             query?: never;
             header?: never;
@@ -4275,7 +4915,7 @@ export interface operations {
             };
         };
     };
-    create_5: {
+    create_6: {
         parameters: {
             query?: never;
             header?: never;
@@ -4679,7 +5319,7 @@ export interface operations {
             };
         };
     };
-    create_6: {
+    create_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -4747,7 +5387,7 @@ export interface operations {
             };
         };
     };
-    deactivate_2: {
+    deactivate_3: {
         parameters: {
             query?: never;
             header?: never;
@@ -4961,7 +5601,7 @@ export interface operations {
             };
         };
     };
-    create_7: {
+    create_8: {
         parameters: {
             query?: never;
             header?: never;
@@ -5151,7 +5791,7 @@ export interface operations {
             };
         };
     };
-    get_4: {
+    get_5: {
         parameters: {
             query?: never;
             header?: never;
