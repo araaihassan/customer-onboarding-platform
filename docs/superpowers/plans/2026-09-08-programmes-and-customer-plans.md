@@ -1006,12 +1006,40 @@ void everyRecordScopedResourceTypeHasADescriptor() {
 }
 ```
 
-- [ ] **Step 5: Run the full suite — expect green, and the startup refusal gone**
+- [ ] **Step 5: Run the full suite — expect green on `DescriptorRegistryTest` and the startup refusal gone, but NOT a fully green suite**
+
+**Plan amendment, found on the real run:** `programme.view` (RECORD) and `programme.manage`
+(ORG_SCOPES) are both catalogued at more than one scope and, after this task, are held by
+Administrator alone — exactly the condition `RoleTemplateCoverageTest.
+everyRecordScopedPermissionIsHeldByAtLeastOneNonAdministratorTemplate` (Task 8, Phase 1) exists to
+catch. Step 1's own line 681 already names this outcome as *the intent* ("It will fail again the
+moment Phase 2 adds `programme.manage` without seeding it"), and CLAUDE.md's "Closed since
+sub-project 3A Phase 1 (Task 8)" note is explicit that Phase 2 **relies on it staying red** until a
+real role review seeds `programme.manage`/`programme.view` to a non-Administrator template — the
+same treatment Task 8 gave `user.manage`/`customer.deactivate` (a reviewed, commented
+`ADMINISTRATOR_ONLY_PENDING_REVIEW` exclusion, not silent seeding). No role has been reviewed for
+programme ownership yet, so this task does neither: it does not seed a template unilaterally, and
+it does not add an exclusion either (an exclusion would defeat the exact forcing function CLAUDE.md
+says Phase 2 relies on). **Expected full-suite outcome after this task: exactly one failure,
+`RoleTemplateCoverageTest.everyRecordScopedPermissionIsHeldByAtLeastOneNonAdministratorTemplate`,
+listing `programme.view` and `programme.manage`.** Every other test, including
+`RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog` (fixed by adding both new
+keys plus `programme.create` to the Administrator template at `ALL`, and
+`TenantProvisioningTest.seededRolesCarryTheirTemplateGrants`'s pinned Administrator grant count,
+35 → 38), must be green.
+
+**Heads-up for Task 23:** its own Step 3 says the failure list at that point will show only
+`["plan.issue", "plan.approve_schedule"]`. That is only true if `programme.view`/`programme.manage`
+have been resolved (seeded to a real template after a role review, or added to
+`ADMINISTRATOR_ONLY_PENDING_REVIEW`) by some task between this one and Task 23 — no such task exists
+in this plan as written. Whoever executes Task 23 should expect the failure list to include
+`programme.view`/`programme.manage` too unless a role review has happened in the meantime, and
+should not treat that as a new regression.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/src/main/java/co/ara/onboarding/authz/PermissionKeys.java backend/src/main/java/co/ara/onboarding/authz/PermissionCatalog.java backend/src/main/java/co/ara/onboarding/scoping/ backend/src/test/java/co/ara/onboarding/authz/DescriptorRegistryTest.java
+git add backend/src/main/java/co/ara/onboarding/authz/PermissionKeys.java backend/src/main/java/co/ara/onboarding/authz/PermissionCatalog.java backend/src/main/java/co/ara/onboarding/authz/RoleTemplates.java backend/src/main/java/co/ara/onboarding/authz/DescriptorRegistry.java backend/src/main/java/co/ara/onboarding/scoping/ backend/src/test/java/co/ara/onboarding/authz/DescriptorRegistryTest.java backend/src/test/java/co/ara/onboarding/provisioning/TenantProvisioningTest.java
 git commit -m "feat(authz): catalogue programme permissions and their three descriptors"
 ```
 

@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DescriptorRegistryTest extends PostgresTestBase {
@@ -40,6 +41,18 @@ class DescriptorRegistryTest extends PostgresTestBase {
         // Passes only because all four descriptors are registered; this is the
         // same assertion the application makes at startup.
         registry.validate();
+    }
+
+    /**
+     * Task 11 (sub-project 3A): programme.view/programme.manage are catalogued at
+     * record scopes, so ProgrammeDescriptor must be registered or validate() refuses
+     * startup naming resource type 'programme' -- confirmed genuinely red before
+     * ProgrammeDescriptor existed.
+     */
+    @Test
+    void everyRecordScopedResourceTypeHasADescriptor() {
+        assertThatNoException().isThrownBy(() -> registry.validate());
+        assertThat(registry.resourceTypes()).contains("programme");
     }
 
     @Test

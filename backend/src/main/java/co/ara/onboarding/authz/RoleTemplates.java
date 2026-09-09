@@ -135,7 +135,14 @@ public final class RoleTemplates {
             // role. TASK_VIEW/TASK_COMPLETE/COMMENT_CREATE follow from
             // Administrator already holding CASE_VIEW and MILESTONE_COMPLETE at ALL.
             entry(TASK_VIEW, ALL), entry(TASK_MANAGE, ALL),
-            entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL)))
+            entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL),
+            // Programmes (sub-project 3A Task 11): seeded Administrator-only for
+            // now -- RoleTemplateCoverageTest's ADMINISTRATOR_ONLY_PENDING_REVIEW-
+            // style gap for programme.manage is deliberate here too and is left for
+            // the later task that reviews which non-Administrator template should
+            // hold it (CLAUDE.md's "Phase 2 ... relies on it staying red until
+            // programme.manage and its siblings are seeded too").
+            entry(PROGRAMME_VIEW, ALL), entry(PROGRAMME_CREATE, ALL), entry(PROGRAMME_MANAGE, ALL)))
     );
 
     private RoleTemplates() {}

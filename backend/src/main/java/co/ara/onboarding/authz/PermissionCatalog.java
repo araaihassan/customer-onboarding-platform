@@ -84,6 +84,14 @@ public final class PermissionCatalog {
         add(TASK_MANAGE,             "task",    "task",            "Create, edit, assign and cancel tasks", ORG_SCOPES);
         add(TASK_COMPLETE,           "task",    "task",            "Transition a task's status",    RECORD);
         add(COMMENT_CREATE,          "task",    "comment",         "Post a comment",                ORG_SCOPES);
+        // Task 11 (sub-project 3A): programme.view/programme.manage need
+        // scoping/ProgrammeDescriptor, added in the same commit as these entries so
+        // DescriptorRegistry.validate() does not refuse to start. programme.create
+        // is ALL-only for the same reason customer.create and case.create are --
+        // there is no programme yet to scope a create permission against.
+        add(PROGRAMME_VIEW,          "programme", "programme",     "View programmes",               RECORD);
+        add(PROGRAMME_CREATE,        "programme", null,            "Create a programme for a customer", ALL_ONLY);
+        add(PROGRAMME_MANAGE,        "programme", "programme",     "Edit a programme, its journeys and its participants", ORG_SCOPES);
     }
 
     /**
