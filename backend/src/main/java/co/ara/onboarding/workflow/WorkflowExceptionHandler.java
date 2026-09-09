@@ -67,5 +67,26 @@ class WorkflowExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
     }
 
+    /**
+     * Sub-project 3A Task 16: the source was found and understood -- it was
+     * semantically rejected because its own current state makes cloning it
+     * impossible (never published, or already itself a clone). 422, the same
+     * "well-formed but rejected" status onValidation above uses.
+     */
+    @ExceptionHandler(NotCloneableException.class)
+    ProblemDetail onNotCloneable(NotCloneableException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+    }
+
+    /**
+     * QA Q21: one clone per customer per catalogue template. A real 409, not the
+     * raw DataIntegrityViolationException V18's partial unique index would
+     * otherwise surface for the race this service-level check does not catch.
+     */
+    @ExceptionHandler(DuplicateCloneException.class)
+    ProblemDetail onDuplicateClone(DuplicateCloneException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    }
+
     public record ProblemList(List<String> problems) {}
 }

@@ -197,22 +197,72 @@ public class WorkflowService {
         if (template.getCurrentVersionId() != null) {
             WorkflowVersion published = authorizedQuery.getById(versions, WorkflowVersion.class,
                     PermissionKeys.WORKFLOW_MANAGE, template.getCurrentVersionId());
-            WorkflowDefinitionRequest source = toRequest(published, PermissionKeys.WORKFLOW_MANAGE);
-            // The copy targets the brand-new draft, whose lockVersion is 0 regardless
-            // of what the published version's own lock version happened to be.
-            WorkflowDefinitionRequest copyRequest =
-                    new WorkflowDefinitionRequest(source.stages(), source.attributes(), 0L);
-
-            audit.record(AuditActions.WORKFLOW_DRAFT_SAVED, "workflow_version", draft.getId(),
-                    "Created draft v" + draft.getVersionNo() + " of " + template.getName()
-                            + " by copying v" + published.getVersionNo(),
-                    Map.of("copiedFromVersionNo", published.getVersionNo()));
-            replaceDraft(draft.getId(), copyRequest);
+            copyVersionInto(draft, published, template.getName());
         } else {
             audit.record(AuditActions.WORKFLOW_DRAFT_SAVED, "workflow_version", draft.getId(),
                     "Created empty draft v" + draft.getVersionNo() + " of " + template.getName(),
                     Map.of());
         }
+        return draft.getId();
+    }
+
+    /**
+     * The one deep-copy code path, shared by two callers: createDraft's own copy
+     * branch above (copying a template's published version into a fresh draft of
+     * the SAME template) and {@link #createDraftCopyingVersion} below (copying a
+     * DIFFERENT template's published version into a brand-new template --
+     * CustomerTemplateService.clone, sub-project 3A Task 16 / QA Q21). Reads
+     * sourceVersion back into the request shape via {@link #toRequest} and writes
+     * it through {@link #replaceDraft}, so a field added to the graph can never be
+     * forgotten in one caller but not the other.
+     */
+    private void copyVersionInto(WorkflowVersion draft, WorkflowVersion sourceVersion, String targetTemplateName) {
+        WorkflowDefinitionRequest source = toRequest(sourceVersion, PermissionKeys.WORKFLOW_MANAGE);
+        // The copy targets the brand-new draft, whose lockVersion is 0 regardless
+        // of what the source version's own lock version happened to be.
+        WorkflowDefinitionRequest copyRequest =
+                new WorkflowDefinitionRequest(source.stages(), source.attributes(), 0L);
+
+        audit.record(AuditActions.WORKFLOW_DRAFT_SAVED, "workflow_version", draft.getId(),
+                "Created draft v" + draft.getVersionNo() + " of " + targetTemplateName
+                        + " by copying v" + sourceVersion.getVersionNo(),
+                Map.of("copiedFromVersionNo", sourceVersion.getVersionNo()));
+        replaceDraft(draft.getId(), copyRequest);
+    }
+
+    /**
+     * Package-private: lets {@link CustomerTemplateService#clone} produce a
+     * brand-new customer template's first DRAFT as a deep copy of a DIFFERENT
+     * template's (the catalogue source's) published version, reusing exactly the
+     * {@link #copyVersionInto} machinery createDraft's own copy branch uses --
+     * just targeting a fresh templateId (always version 1, since the clone's own
+     * template row was only just created) instead of the next version number of
+     * the SAME template createDraft copies within.
+     *
+     * sourceVersionId must already be resolved and authorized by the caller --
+     * clone reads it off the source template's own currentVersionId, itself
+     * fetched through AuthorizedQuery -- this method does not re-check it, the
+     * same "fed only pre-authorized ids" shape CaseEngine's package-private
+     * methods follow (see AuthorizationCoverageTest's FINDER_RULE_EXCLUSIONS).
+     *
+     * @Transactional in its own right, not merely relying on the caller's: this is
+     * a cross-bean call from CustomerTemplateService, and getDefinitionAs's own
+     * comment above explains why that matters for TenantTransactionBinder's
+     * pointcut.
+     */
+    @Transactional
+    UUID createDraftCopyingVersion(UUID targetTemplateId, String targetTemplateName, UUID sourceVersionId) {
+        WorkflowVersion draft = new WorkflowVersion();
+        draft.setId(Uuid7.generate());
+        draft.setTenantId(TenantContext.getRequired());
+        draft.setTemplateId(targetTemplateId);
+        draft.setVersionNo(1);
+        draft.setStatus(VersionStatus.DRAFT);
+        versions.saveAndFlush(draft);
+
+        WorkflowVersion published = authorizedQuery.getById(versions, WorkflowVersion.class,
+                PermissionKeys.WORKFLOW_MANAGE, sourceVersionId);
+        copyVersionInto(draft, published, targetTemplateName);
         return draft.getId();
     }
 

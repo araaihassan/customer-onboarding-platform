@@ -183,6 +183,11 @@ public final class AuditActions {
     public static final AuditAction PROGRAMME_JOURNEY_REMOVED     = of("programme.journey_removed", true);
     public static final AuditAction PROGRAMME_PARTICIPANT_ADDED   = of("programme.participant_added", true);
     public static final AuditAction PROGRAMME_PARTICIPANT_REMOVED = of("programme.participant_removed", true);
+    // Sub-project 3A Task 16 (QA Q21): compliance-only, matching every other
+    // workflow.* action above -- which catalogue template a customer's clone was
+    // tailored from is tenant configuration, not the customer's own business, the
+    // same reasoning WORKFLOW_TEMPLATE_CREATED already carries.
+    public static final AuditAction WORKFLOW_CLONED_FOR_CUSTOMER  = of("workflow.cloned_for_customer", false);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

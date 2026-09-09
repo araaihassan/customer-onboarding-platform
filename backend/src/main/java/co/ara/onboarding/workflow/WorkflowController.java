@@ -27,7 +27,7 @@ import static org.springframework.http.HttpStatus.NO_CONTENT;
  * {@link PublishService}. No authorization logic here -- that is the gate's job, and
  * ModuleBoundaryTest stops this class reaching a repository.
  *
- * Nine endpoints live here rather than under /admin/workflows: workflow.view belongs
+ * Ten endpoints live here rather than under /admin/workflows: workflow.view belongs
  * to every operational role that must read the definition its case is frozen on, so
  * gating by path would either exclude them or make /admin mean nothing. Admin-ness is
  * a permission a role holds, not a URL prefix; the frontend route stays under admin/.
@@ -41,10 +41,13 @@ public class WorkflowController {
 
     private final WorkflowService workflows;
     private final PublishService publishService;
+    private final CustomerTemplateService customerTemplates;
 
-    public WorkflowController(WorkflowService workflows, PublishService publishService) {
+    public WorkflowController(WorkflowService workflows, PublishService publishService,
+                              CustomerTemplateService customerTemplates) {
         this.workflows = workflows;
         this.publishService = publishService;
+        this.customerTemplates = customerTemplates;
     }
 
     @GetMapping
@@ -173,5 +176,30 @@ public class WorkflowController {
     })
     public void discard(@PathVariable UUID vid) {
         workflows.discardDraft(vid);
+    }
+
+    /**
+     * Sub-project 3A, Task 16 (QA Q21). Distinct from {@code /versions}: this
+     * creates a new TEMPLATE (with its own {@code customerId}/
+     * {@code clonedFromTemplateId} lineage), not a new version of the same one --
+     * see {@link CustomerTemplateService#clone}.
+     */
+    @PostMapping("/{id}/clone")
+    @ResponseStatus(CREATED)
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Cloned for the named customer, as a new DRAFT version"),
+            @ApiResponse(responseCode = "400", description = "A blank name, or a missing customerId, failed validation",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND + ", including an out-of-scope customerId",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "This customer already holds a clone of this template",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "The source has never been published, or is itself already a clone",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public WorkflowTemplateView clone(@PathVariable UUID id, @Valid @RequestBody CloneTemplateRequest r) {
+        return customerTemplates.clone(id, r);
     }
 }

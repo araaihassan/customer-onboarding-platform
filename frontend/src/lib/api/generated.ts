@@ -260,6 +260,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/workflows/{id}/clone": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["clone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/tasks/{taskId}/status": {
         parameters: {
             query?: never;
@@ -1572,6 +1588,15 @@ export interface components {
             currentVersionId?: string;
             /** Format: int32 */
             currentVersionNo?: number;
+            /** Format: uuid */
+            customerId?: string;
+            /** Format: uuid */
+            clonedFromTemplateId?: string;
+        };
+        CloneTemplateRequest: {
+            /** Format: uuid */
+            customerId: string;
+            name: string;
         };
         TaskStatusRequest: {
             /** @enum {string} */
@@ -1835,23 +1860,23 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         PageableObject: {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            pageSize?: number;
+            unpaged?: boolean;
             /** Format: int32 */
             pageNumber?: number;
+            /** Format: int32 */
+            pageSize?: number;
             paged?: boolean;
-            unpaged?: boolean;
         };
         SortObject: {
             empty?: boolean;
@@ -1884,11 +1909,11 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -1972,11 +1997,11 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         TeamMemberView: {
@@ -3186,6 +3211,77 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    clone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CloneTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description Cloned for the named customer, as a new DRAFT version */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["WorkflowTemplateView"];
+                };
+            };
+            /** @description A blank name, or a missing customerId, failed validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient workflow.view / workflow.manage grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way), including an out-of-scope customerId */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description This customer already holds a clone of this template */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The source has never been published, or is itself already a clone */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
                 };
             };
         };
