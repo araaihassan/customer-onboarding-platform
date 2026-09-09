@@ -43,7 +43,10 @@ public final class RoleTemplates {
             entry(WORKFLOW_VIEW, ALL), entry(CASE_VIEW, TEAM), entry(CASE_EDIT, TEAM),
             entry(TASK_VIEW, TEAM), entry(COMMENT_CREATE, TEAM))),
 
-        // Map.ofEntries, not Map.of: sixteen grants crosses Map.of's ten-pair ceiling.
+        // Map.ofEntries, not Map.of: seventeen grants crosses Map.of's ten-pair ceiling.
+        // TASK_MANAGE at TEAM (sub-project 3A Phase 1 Task 8): this template already
+        // holds TASK_VIEW/TASK_COMPLETE at TEAM -- a role that can complete a task but
+        // not create one, add a checklist item, or reassign it is incoherent.
         new RoleTemplate("Project Manager", "Coordinates onboarding delivery", Map.ofEntries(
             entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
             entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM), entry(AUDIT_VIEW, TEAM),
@@ -52,7 +55,8 @@ public final class RoleTemplates {
             entry(MILESTONE_EDIT, TEAM), entry(MILESTONE_COMPLETE, TEAM),
             entry(MILESTONE_REOPEN, TEAM), entry(MILESTONE_FORCE_COMPLETE, TEAM),
             entry(REQUIREMENT_WAIVE, TEAM),
-            entry(TASK_VIEW, TEAM), entry(TASK_COMPLETE, TEAM), entry(COMMENT_CREATE, TEAM))),
+            entry(TASK_VIEW, TEAM), entry(TASK_MANAGE, TEAM), entry(TASK_COMPLETE, TEAM),
+            entry(COMMENT_CREATE, TEAM))),
 
         // TASK_COMPLETE joins MILESTONE_COMPLETE at the same ASSIGNED scope (spec
         // 5.2); no COMMENT_CREATE, for the same reason Sales Representative has
@@ -67,11 +71,16 @@ public final class RoleTemplates {
             CASE_VIEW, ASSIGNED, MILESTONE_COMPLETE, ASSIGNED,
             TASK_VIEW, ASSIGNED, TASK_COMPLETE, ASSIGNED)),
 
-        // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
+        // Map.ofEntries, not Map.of: twelve grants crosses Map.of's ten-pair ceiling.
+        // APPROVAL_DECIDE at DEPARTMENT (sub-project 3A Phase 1 Task 8): the
+        // department-lead-shaped template -- deciding a stage-exit approval no
+        // longer requires the tenant's widest role. Not MILESTONE_FORCE_APPROVE,
+        // which is ALL-only in the catalog itself (Q5) and cannot be narrower.
         new RoleTemplate("Operations", "Runs day-to-day onboarding operations", Map.ofEntries(
             entry(CUSTOMER_VIEW, DEPARTMENT), entry(CUSTOMER_EDIT, DEPARTMENT),
             entry(CONTACT_VIEW, DEPARTMENT), entry(USER_VIEW, DEPARTMENT), entry(WORKFLOW_VIEW, ALL),
             entry(CASE_VIEW, DEPARTMENT), entry(CASE_EDIT, DEPARTMENT), entry(MILESTONE_COMPLETE, DEPARTMENT),
+            entry(APPROVAL_DECIDE, DEPARTMENT),
             entry(TASK_VIEW, DEPARTMENT), entry(TASK_COMPLETE, DEPARTMENT), entry(COMMENT_CREATE, DEPARTMENT))),
 
         new RoleTemplate("Legal", "Reviews agreements and legal requirements", Map.of(
