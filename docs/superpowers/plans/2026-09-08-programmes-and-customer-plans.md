@@ -1167,13 +1167,29 @@ git commit -m "feat(programme): add ProgrammeService with create, update and dea
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/programme/ProgrammeMembershipService.java`
 - Create: `.../AddJourneyRequest.java`, `AddProgrammeParticipantRequest.java`
+- Create: `.../ProgrammeDetailView.java`, `ProgrammeJourneyView.java` (minimal shape — see plan
+  amendment below; Task 14 adds the two rollup fields to the same record rather than creating it)
 - Modify: `backend/src/main/java/co/ara/onboarding/audit/AuditActions.java`
+- Modify: `backend/src/main/java/co/ara/onboarding/programme/ProgrammeService.java` (`get`'s return
+  type changes from `ProgrammeView` to `ProgrammeDetailView`)
 - Test: `backend/src/test/java/co/ara/onboarding/programme/ProgrammeScopeTest.java` (create)
 - Test: `backend/src/test/java/co/ara/onboarding/programme/ProgrammeIsolationTest.java` (create)
 
 **Interfaces:**
 - Consumes: `journey`'s existing gated participant API — never `CaseParticipantRepository` directly from `programme`
-- Produces: `addJourney(UUID, AddJourneyRequest)`, `removeJourney(UUID, UUID)`, `addParticipant(UUID, AddProgrammeParticipantRequest)`, `removeParticipant(UUID, UUID)`
+- Produces: `addJourney(UUID, AddJourneyRequest)`, `removeJourney(UUID, UUID)`, `addParticipant(UUID, AddProgrammeParticipantRequest)`, `removeParticipant(UUID, UUID)`; `ProgrammeDetailView(ProgrammeView programme, List<ProgrammeJourneyView> journeys)` — Task 14 widens this same record to `(ProgrammeView programme, List<ProgrammeJourneyView> journeys, int rolledUpProgressPercent, int journeysCovered)`, it does not create a new type
+- `ProgrammeJourneyView` carries at minimum `UUID caseId` (the brief's own test extracts exactly this field) — add whatever else `SCREENS.md`/Task 29's frontend consumption reasonably needs (e.g. case name, stage), but do not invent rollup-shaped fields here; those are Task 14's
+
+**Plan amendment (found in pre-flight review, before this task was dispatched): this task's own
+`ProgrammeScopeTest` snippet above calls `programmeService.get(programmeId)` and asserts against a
+`ProgrammeDetailView`/`ProgrammeJourneyView` — but Task 14's Files section (as originally written)
+listed these two as "Create," which would make them Task 14's, not Task 13's. That is inconsistent:
+Task 13's own tests cannot compile against a type that does not exist until Task 14. Resolved now,
+before dispatch, rather than left for the executing implementer to discover mid-task: Task 13
+creates the minimal `ProgrammeDetailView`/`ProgrammeJourneyView` shape (just enough to carry
+`journeys()`) and changes `ProgrammeService.get()`'s return type to it; Task 14 (amended below)
+**modifies** the same record to add `rolledUpProgressPercent`/`journeysCovered` rather than creating
+it fresh.
 
 `AddProgrammeParticipantRequest` carries `boolean alsoGrantJourneyAccess`. When true the service writes a real `CaseParticipant` row per journey — an explicit, audited, individually revocable grant authorized by `programme.manage`, **never** by participation itself (spec §6.3).
 
@@ -1251,12 +1267,17 @@ git commit -m "feat(programme): journey membership and participants, read-only b
 **Files:**
 - Create: `backend/src/main/java/co/ara/onboarding/journey/CaseWeight.java`, `CaseWeightReader.java`
 - Create: `backend/src/main/java/co/ara/onboarding/programme/ProgrammeRollup.java`
-- Create: `.../ProgrammeController.java`, `ProgrammeDetailView.java`, `ProgrammeJourneyView.java`
+- Create: `.../ProgrammeController.java`
+- Modify: `.../ProgrammeDetailView.java` (Task 13 already created this with `programme`/`journeys`
+  only — add `rolledUpProgressPercent`/`journeysCovered` here, do not recreate the file),
+  `.../ProgrammeJourneyView.java` (Task 13 already created this; extend only if the rollup needs a
+  field Task 13's minimal shape doesn't carry)
+- Modify: `.../ProgrammeService.java` (`get` now computes and populates the two rollup fields)
 - Test: `backend/src/test/java/co/ara/onboarding/programme/ProgrammeRollupTest.java` (create)
 
 **Interfaces:**
 - Consumes: `CaseWeightReader.weightsFor(Collection<UUID> caseIds)` → `List<CaseWeight>`, gated `@RequirePermission(CASE_VIEW)`, reading through `AuthorizedQuery`
-- Produces: `record CaseWeight(UUID caseId, int progressPercent, int weightDays)`; `ProgrammeDetailView(ProgrammeView programme, List<ProgrammeJourneyView> journeys, int rolledUpProgressPercent, int journeysCovered)`
+- Produces: `record CaseWeight(UUID caseId, int progressPercent, int weightDays)`; widens Task 13's `ProgrammeDetailView` to `(ProgrammeView programme, List<ProgrammeJourneyView> journeys, int rolledUpProgressPercent, int journeysCovered)`
 
 A case's weight is the sum of `estimated_duration_days` over its non-`SKIPPED` milestones — the same weighting `CaseEngine.progressOf` applies within a case. `programme` never reaches into `workflow` for `MilestoneDefinition`; `journey` already depends on `workflow` and exposes the number.
 
