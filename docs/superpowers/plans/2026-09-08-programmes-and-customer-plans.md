@@ -682,6 +682,16 @@ This is a **derivable** guard, not a typed list — the lesson CLAUDE.md draws f
 
 - [ ] **Step 2: Run and watch it fail** — expect `["task.manage", "approval.decide"]`.
 
+  **Plan deviation (found executing this task):** the guard actually fails listing **four** keys,
+  not two — `user.manage` and `customer.deactivate` are Administrator-only too, for reasons outside
+  this task's scope (`user.manage` at TEAM would seed a role that holds the permission but 404s on
+  every create, per the still-open TEAM-scoped-user-creation gap above; `customer.deactivate` has
+  no scope decision recorded anywhere in `docs/QA.md` or the PRD). Step 3 below seeds only the two
+  the brief named; the other two are excluded from the guard by name, as
+  `ADMINISTRATOR_ONLY_PENDING_REVIEW` — a deliberate, commented entry pending a real role review,
+  not a silent skip, the same shape as `RlsCoverageTest`'s allowlist. See CLAUDE.md's "Closed since
+  sub-project 3A Phase 1 (Task 8)" note for the full reasoning.
+
 - [ ] **Step 3: Seed the two grants**
 
 Grant `TASK_MANAGE` at TEAM to Project Manager (it already holds `TASK_VIEW`/`TASK_COMPLETE` at TEAM — a role that can complete a task but not create one is incoherent), and `APPROVAL_DECIDE` at DEPARTMENT to the department-lead-shaped template. Do **not** grant `MILESTONE_FORCE_APPROVE`: it is ALL-only in the catalog itself and cannot be narrower by construction, which is Q5's deliberate choice.
@@ -1969,6 +1979,13 @@ Both mirror `TaskDescriptor.viaCase` exactly: DEPARTMENT reads the case's `ownin
 - [ ] **Step 3: Run `RoleTemplateCoverageTest` from Phase 1 Task 8 and watch it fail**
 
 Expected: FAIL listing `plan.issue` and `plan.approve_schedule` as catalogued at several scopes but granted only to Administrator. **This is the guard doing its job** — it is why Task 8 wrote it derivably rather than as a typed list.
+
+Note the failure list will show only these two, not four: Task 8's own run already found `user.manage`
+and `customer.deactivate` in the same red state, and excluded both by name
+(`ADMINISTRATOR_ONLY_PENDING_REVIEW`) as a deliberate, still-open judgment call rather than seeding
+them — see CLAUDE.md's "Closed since sub-project 3A Phase 1 (Task 8)" note. If this step's failure
+list is longer than `["plan.issue", "plan.approve_schedule"]`, check whether that exclusion is still
+in place before assuming a new regression.
 
 - [ ] **Step 4: Seed both to the Project Manager and Account Manager templates**, at TEAM and DEPARTMENT respectively.
 
