@@ -84,4 +84,28 @@ class ModuleBoundaryTest {
                 .should().dependOnClassesThat().resideInAPackage("co.ara.onboarding.task..")
                 .because("a one-way journey -> task import would still pass a plain no-cycles test; "
                         + "TaskDirectory and TaskLifecycle exist precisely to make that import unnecessary");
+
+    /**
+     * Its own named rule rather than folded into the cycle check: a one-way
+     * journey -> programme import would still pass a plain no-cycles test.
+     * programme depends on journey, never the reverse.
+     */
+    @ArchTest
+    static final ArchRule noJourneyDependencyOnProgramme =
+            noClasses().that().resideInAPackage("co.ara.onboarding.journey..")
+                .should().dependOnClassesThat().resideInAPackage("co.ara.onboarding.programme..")
+                .because("programme depends on journey, never the reverse. Membership lives in "
+                       + "programme_case precisely so journey never learns programmes exist.");
+
+    /**
+     * Its own named rule rather than folded into the cycle check: programme reaches
+     * customer through a facts port (CustomerDirectory inversion). A customer -> programme
+     * import would close the cycle.
+     */
+    @ArchTest
+    static final ArchRule noCustomerDependencyOnProgramme =
+            noClasses().that().resideInAPackage("co.ara.onboarding.customer..")
+                .should().dependOnClassesThat().resideInAPackage("co.ara.onboarding.programme..")
+                .because("programme reaches customer through a facts port, the CustomerDirectory "
+                       + "inversion. An import back would close the cycle.");
 }
