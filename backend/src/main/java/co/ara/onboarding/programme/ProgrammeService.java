@@ -8,11 +8,16 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.customer.Customer;
 import co.ara.onboarding.customer.CustomerRepository;
+import co.ara.onboarding.journey.Case;
+import co.ara.onboarding.journey.CaseRepository;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -62,15 +67,20 @@ public class ProgrammeService {
 
     private final ProgrammeRepository programmes;
     private final CustomerRepository customers;
+    private final ProgrammeCaseRepository programmeCases;
+    private final CaseRepository cases;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
 
     public ProgrammeService(ProgrammeRepository programmes, CustomerRepository customers,
+                            ProgrammeCaseRepository programmeCases, CaseRepository cases,
                             AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
                             AuditRecorder audit) {
         this.programmes = programmes;
         this.customers = customers;
+        this.programmeCases = programmeCases;
+        this.cases = cases;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.audit = audit;
@@ -127,12 +137,17 @@ public class ProgrammeService {
      * {@code programme.view} must declare {@code customer.view} explicitly too,
      * same as a real Project-Manager-shaped role bundles {@code case.view} and
      * {@code workflow.view} together deliberately.
+     *
+     * Task 13: also returns {@code journeys()} -- see {@link #journeysFor} for
+     * the security invariant that computation exists to hold (design spec
+     * §6.3, Q20's non-negotiable): a programme's participant list must never
+     * be a backdoor to journey access.
      */
     @RequirePermission(PermissionKeys.PROGRAMME_VIEW)
     @Transactional(readOnly = true)
-    public ProgrammeView get(UUID programmeId) {
+    public ProgrammeDetailView get(UUID programmeId) {
         Programme p = authorizedQuery.getById(programmes, Programme.class, PermissionKeys.PROGRAMME_VIEW, programmeId);
-        return toView(p, customerOf(p));
+        return new ProgrammeDetailView(toView(p, customerOf(p)), journeysFor(p));
     }
 
     /**
@@ -208,6 +223,51 @@ public class ProgrammeService {
      */
     private Customer customerOf(Programme p) {
         return authorizedQuery.getById(customers, Customer.class, PermissionKeys.CUSTOMER_VIEW, p.getCustomerId());
+    }
+
+    /**
+     * The security invariant this task exists to prove (design spec §6.3, Q20):
+     * programme participation grants read of the programme container alone. A
+     * journey inside it is visible to THIS reader only if a separate, real
+     * {@code case.view}-scoped read of that specific case would also succeed for
+     * them -- never every {@code programme_case} link unconditionally.
+     *
+     * Two AuthorizedQuery calls, not one join, and deliberately in that order:
+     * first the active programme_case links for THIS programme, scoped under
+     * {@code programme.view} against {@code ProgrammeCaseDescriptor} (so a reader
+     * whose only claim to programme.view is participation in ANOTHER programme
+     * cannot see this one's links either); then those case ids re-resolved under
+     * {@code case.view} against {@code CaseDescriptor} -- the SAME predicate every
+     * other case read in the codebase is filtered by. A case the reader's own
+     * case.view grant does not reach is simply absent from the second query's
+     * result set, not an exception to catch -- the same "filtered in the query,
+     * never after" discipline AuthorizedQuery's own javadoc states as the whole
+     * point of the class.
+     *
+     * Reads Case fields directly rather than through {@code CaseService.get} on
+     * purpose: that method also resolves {@code currentStageName} under
+     * {@code workflow.view} (CLAUDE.md's own documented cross-permission
+     * dependency), which would make a programme's journey list 404 the WHOLE
+     * programme for a reader holding case.view but not workflow.view. Nothing
+     * this minimal view carries needs that lookup.
+     */
+    private List<ProgrammeJourneyView> journeysFor(Programme p) {
+        Specification<ProgrammeCase> activeLinksForProgramme = (root, query, cb) -> cb.and(
+                cb.equal(root.get("programmeId"), p.getId()),
+                cb.isNull(root.get("removedAt")));
+        List<UUID> caseIds = authorizedQuery.findAll(programmeCases, ProgrammeCase.class,
+                        PermissionKeys.PROGRAMME_VIEW, activeLinksForProgramme, Pageable.unpaged())
+                .getContent().stream().map(ProgrammeCase::getCaseId).toList();
+
+        if (caseIds.isEmpty()) {
+            return List.of();
+        }
+
+        Specification<Case> byIds = (root, query, cb) -> root.get("id").in(caseIds);
+        return authorizedQuery.findAll(cases, Case.class, PermissionKeys.CASE_VIEW, byIds, Pageable.unpaged())
+                .getContent().stream()
+                .map(c -> new ProgrammeJourneyView(c.getId(), c.getName(), c.getStatus(), c.getProgressPercent()))
+                .toList();
     }
 
     private ProgrammeView toView(Programme p, Customer customer) {

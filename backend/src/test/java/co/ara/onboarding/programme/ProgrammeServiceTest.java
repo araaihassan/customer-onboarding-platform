@@ -117,7 +117,7 @@ class ProgrammeServiceTest extends PostgresTestBase {
         });
 
         // Before deactivation: the sponsor's participation genuinely grants the read.
-        fixture.runAsUser(tenant, sponsor[0], () -> assertThat(programmeService.get(programmeId[0]).id())
+        fixture.runAsUser(tenant, sponsor[0], () -> assertThat(programmeService.get(programmeId[0]).programme().id())
                 .isEqualTo(programmeId[0]));
 
         fixture.runAs(tenant, () -> programmeService.deactivate(programmeId[0]));
@@ -156,7 +156,7 @@ class ProgrammeServiceTest extends PostgresTestBase {
             programmeService.deactivate(programmeId[0]);
         });
 
-        fixture.runAsUser(tenant, deptReader[0], () -> assertThat(programmeService.get(programmeId[0]).status())
+        fixture.runAsUser(tenant, deptReader[0], () -> assertThat(programmeService.get(programmeId[0]).programme().status())
                 .isEqualTo(ProgrammeStatus.INACTIVE));
     }
 

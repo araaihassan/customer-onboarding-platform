@@ -171,6 +171,18 @@ public final class AuditActions {
     public static final AuditAction PROGRAMME_CREATED            = of("programme.created", true);
     public static final AuditAction PROGRAMME_UPDATED            = of("programme.updated", true);
     public static final AuditAction PROGRAMME_DEACTIVATED        = of("programme.deactivated", true);
+    // Task 13: journey membership and participants. Recorded against "programme"/
+    // programmeId -- never against "onboarding_case" -- because these are events
+    // about the programme's OWN membership records, not about the case itself.
+    // Contrast CASE_PARTICIPANT_ADDED/REMOVED (journey's own actions, recorded
+    // against "onboarding_case"), which fire separately when alsoGrantJourneyAccess
+    // triggers a real CaseParticipant write through CaseService.addParticipant --
+    // the two are deliberately distinct actions on two different resource types,
+    // never one action pretending to be the other.
+    public static final AuditAction PROGRAMME_JOURNEY_ADDED       = of("programme.journey_added", true);
+    public static final AuditAction PROGRAMME_JOURNEY_REMOVED     = of("programme.journey_removed", true);
+    public static final AuditAction PROGRAMME_PARTICIPANT_ADDED   = of("programme.participant_added", true);
+    public static final AuditAction PROGRAMME_PARTICIPANT_REMOVED = of("programme.participant_removed", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
