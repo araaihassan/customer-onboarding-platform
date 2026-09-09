@@ -2599,6 +2599,30 @@ $env:DB_URL = "jdbc:postgresql://localhost:5433/onboarding"; npx playwright test
 
 All three must be green **in the same pass**. A suite that was green three tasks ago is not evidence.
 
+**The one documented exception:** `RoleTemplateCoverageTest.
+everyRecordScopedPermissionIsHeldByAtLeastOneNonAdministratorTemplate` may still be failing here,
+listing `programme.view`/`programme.manage`. Task 11 Step 5 (line ~1009) left it red deliberately
+— CLAUDE.md's "Closed since sub-project 3A Phase 1 (Task 8)" note says Phase 2 *relies on it
+staying red* until a real role review happens — and the heads-up Task 11 left for Task 23 (line
+~1031) says no task between 12 and 34 resolves it. Confirm that by the time you reach this step:
+either (a) some task between 12 and 34 already seeded `programme.view`/`programme.manage` to a
+real non-Administrator template or added them to `ADMINISTRATOR_ONLY_PENDING_REVIEW`, in which case
+this test is green like everything else and there is nothing left to do here; or (b) it is still
+red, exactly as predicted, with exactly these two permissions in its failure list. If (b), **do the
+actual role review now, at the close of the branch, rather than leaving it open a third time**:
+decide which non-Administrator template(s) — if any — should hold `programme.view`/
+`programme.manage`, at what scope, and either seed the grant(s) (with the narrowest-scope write
+test CLAUDE.md's "Working conventions" requires) or add both keys to
+`RoleTemplateCoverageTest`'s `ADMINISTRATOR_ONLY_PENDING_REVIEW` exclusion with a comment naming
+the reason, the same treatment `user.manage`/`customer.deactivate` already have. Whichever you do,
+say so explicitly in this task's close-out (Step 3) — do **not** report "all three suites green"
+without naming this exception if it is still open when you start Step 1, and do **not** silently
+add an exclusion, or silently seed a template, without recording the decision: a documented
+exception that quietly disappears from the record is exactly the failure mode "these are not to be
+weakened to make a change pass" (CLAUDE.md, "Where the guards live") warns against. Never treat
+this specific failure as a new regression to chase with an unrelated fix — it is the one known,
+pre-flagged exception to "all three suites green," not a sign something broke.
+
 - [ ] **Step 2: Verify the ten invariants of spec §10 individually**
 
 Do not assert them — check each against the actual code, and record how you checked:
