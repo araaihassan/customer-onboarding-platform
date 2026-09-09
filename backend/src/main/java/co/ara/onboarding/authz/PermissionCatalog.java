@@ -92,6 +92,16 @@ public final class PermissionCatalog {
         add(PROGRAMME_VIEW,          "programme", "programme",     "View programmes",               RECORD);
         add(PROGRAMME_CREATE,        "programme", null,            "Create a programme for a customer", ALL_ONLY);
         add(PROGRAMME_MANAGE,        "programme", "programme",     "Edit a programme, its journeys and its participants", ORG_SCOPES);
+        // Task 19 (sub-project 3A): gate 1 of QA Q22. ALL-only with a null
+        // resourceType, the same shape as WORKFLOW_VIEW/WORKFLOW_MANAGE above -- a
+        // workflow version is tenant-wide configuration with no owner, so there is
+        // nothing for DEPARTMENT or TEAM to resolve against, and DescriptorRegistry
+        // .validate() does not require a descriptor for it. PlanShapeApprovalDescriptor
+        // exists anyway, in scoping/, for AuthorizedQuery's entity-type dispatch when
+        // Task 20 reads plan_shape_approval rows -- the same reason
+        // CaseParticipantDescriptor and CaseAttributeValueDescriptor exist ahead of
+        // validate() ever requiring them.
+        add(PLAN_APPROVE_SHAPE,      "plan",      null,            "Record the customer's decision on a plan's shape", ALL_ONLY);
     }
 
     /**

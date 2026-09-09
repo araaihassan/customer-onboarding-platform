@@ -142,7 +142,16 @@ public final class RoleTemplates {
             // the later task that reviews which non-Administrator template should
             // hold it (CLAUDE.md's "Phase 2 ... relies on it staying red until
             // programme.manage and its siblings are seeded too").
-            entry(PROGRAMME_VIEW, ALL), entry(PROGRAMME_CREATE, ALL), entry(PROGRAMME_MANAGE, ALL)))
+            entry(PROGRAMME_VIEW, ALL), entry(PROGRAMME_CREATE, ALL), entry(PROGRAMME_MANAGE, ALL),
+            // Task 19 (sub-project 3A): plan.approve_shape is ALL-only in the
+            // catalog itself (a workflow version has no narrower scope to resolve
+            // against), so it is not a RoleTemplateCoverageTest candidate the way
+            // programme.manage is -- that guard only flags permissions catalogued
+            // at more than one scope. It is seeded here only because
+            // RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
+            // requires Administrator to cover the whole catalog; no other template
+            // is expected to hold it until a later task decides otherwise.
+            entry(PLAN_APPROVE_SHAPE, ALL)))
     );
 
     private RoleTemplates() {}

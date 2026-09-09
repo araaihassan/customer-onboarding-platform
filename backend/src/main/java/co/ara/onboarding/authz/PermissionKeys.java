@@ -50,6 +50,7 @@ public final class PermissionKeys {
     public static final String PROGRAMME_VIEW        = "programme.view";
     public static final String PROGRAMME_CREATE      = "programme.create";
     public static final String PROGRAMME_MANAGE      = "programme.manage";
+    public static final String PLAN_APPROVE_SHAPE    = "plan.approve_shape";
 
     private PermissionKeys() {}
 }
