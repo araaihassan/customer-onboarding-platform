@@ -576,7 +576,7 @@ public class WorkflowService {
                     permissionKey, t.getCurrentVersionId()).getVersionNo();
         }
         return new WorkflowTemplateView(t.getId(), t.getName(), t.getDescription(), t.getStatus(),
-                t.getCurrentVersionId(), versionNo);
+                t.getCurrentVersionId(), versionNo, t.getCustomerId(), t.getClonedFromTemplateId());
     }
 
     private <T> List<T> readChildren(Class<T> type, JpaSpecificationExecutor<T> repo,

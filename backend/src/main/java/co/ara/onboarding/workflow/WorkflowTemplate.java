@@ -34,6 +34,17 @@ public class WorkflowTemplate extends TenantScopedEntity {
     @Column(name = "created_by")
     private UUID createdBy;
 
+    // Sub-project 3A, Task 15 (QA Q21): NULL = the tenant catalogue, which is every
+    // template today. Non-null = a clone tailored for exactly one customer, enforced
+    // one-per-(customer, clonedFromTemplateId) by V18's partial unique index. Nothing
+    // in this task reads or follows either field -- cloning itself is Task 16, refresh
+    // is Task 17; this task only establishes the schema and provenance pointer.
+    @Column(name = "customer_id")
+    private UUID customerId;
+
+    @Column(name = "cloned_from_template_id")
+    private UUID clonedFromTemplateId;
+
     public String getName() { return name; }
     public void setName(String name) { this.name = name; }
 
@@ -48,4 +59,10 @@ public class WorkflowTemplate extends TenantScopedEntity {
 
     public UUID getCreatedBy() { return createdBy; }
     public void setCreatedBy(UUID createdBy) { this.createdBy = createdBy; }
+
+    public UUID getCustomerId() { return customerId; }
+    public void setCustomerId(UUID customerId) { this.customerId = customerId; }
+
+    public UUID getClonedFromTemplateId() { return clonedFromTemplateId; }
+    public void setClonedFromTemplateId(UUID clonedFromTemplateId) { this.clonedFromTemplateId = clonedFromTemplateId; }
 }
