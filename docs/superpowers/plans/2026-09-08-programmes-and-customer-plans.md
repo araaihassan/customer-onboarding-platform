@@ -1102,6 +1102,49 @@ The third test is the "what does deactivation revoke?" question answered in code
 
 Every public method carries `@RequirePermission`. Every read goes through `AuthorizedQuery`. `create` resolves `customerId` through the customer facts port before writing. `deactivate` sets `status = INACTIVE` and does nothing else — the descriptor's `assignedScope` already excludes inactive programmes, which is why the revocation is structural rather than a cleanup step.
 
+**Plan deviation (found executing this task), part 1 — `assignedScope` did NOT already exclude
+inactive programmes.** Traced against the actual code rather than taken on faith: Task 11's
+`ProgrammeDescriptor.assignedScope` read only `programme_participant` (`userId` + `ACTIVE` status)
+and never touched `Programme.status` at all. Deactivating a programme would have set a column
+nobody's ASSIGNED-scope read actually depended on — the third test above (`deactivationRevokes
+TheCrossJourneyReadStructurally`) proved this red before any fix, exactly as a new guard should be
+proven. Fixed by adding `cb.equal(root.get("status"), ProgrammeStatus.ACTIVE)` to `assignedScope`'s
+predicate, conjoined with the existing participant subquery. Deliberately **not** applied to
+`departmentScope`/`teamScope`: a DEPARTMENT- or TEAM-scoped `programme.view`/`programme.manage`
+holder (a department lead, an administrator) can still see a deactivated programme for management
+and reporting purposes — only the narrower, participation-mediated grant is structurally cut off,
+which reads as a deliberate scope-shaped choice rather than an oversight (ALL is unaffected either
+way, short-circuited to `conjunction()` before any descriptor runs). See `ProgrammeDescriptor`'s own
+doc comment and `ProgrammeServiceTest.deactivationDoesNotAffectADepartmentScopedReader`, which pins
+that choice down as an assertion rather than an unwritten expectation.
+
+**Plan deviation, part 2 — `create`/`get`/`update` do not go through `journey.CustomerDirectory`.**
+The brief's "Consumes: ... the customer facts port" meant reusing `journey.CustomerDirectory`
+(`ModuleBoundaryTest.noCustomerDependencyOnProgramme`'s own comment names this specific port,
+since a fresh `programme`-declared port would need `customer` to implement an interface inside
+`programme`, which that same rule forbids). But `journey.CustomerFacts` deliberately carries no
+display name (`CustomerDirectory`'s own javadoc: "keeps the port from growing into a second
+customer API"), and this task's own `ProgrammeView` shape needs `customerName`. Extending
+`CustomerFacts` to add one would ripple into `workflow.CustomerFactKeys`'s condition-key catalog
+and break `journey.CustomerDirectoryTest.theCustomerFactKeysAgreeWithWhatTheFactsRecordExposes`'s
+cross-check (which asserts the two lists are exactly equal) — modifying a `journey`-owned,
+branch-condition-relevant type for a field no condition should ever compare against, and breaking
+an unrelated passing test, neither of which belongs to this task. Instead, `ProgrammeService`
+imports `customer.Customer`/`CustomerRepository` directly and resolves both the customer's
+existence/scope *and* its display name through one `AuthorizedQuery.getById` call under
+`customer.view` — the identical security guarantee `JourneyCustomerDirectory.findVisible` gives
+(a foreign or out-of-scope id collapses to empty/`NoSuchElementException`, mapped to 404), without
+either consequence. No `ModuleBoundaryTest` rule forbids a plain `programme -> customer` dependency
+(only the reverse, and only `journey -> customer`, are guarded) — confirmed by reading the whole
+file, not assumed — but this is worth a maintainer's attention before a later task adds a second
+customer-reaching call site with a different shape. A side effect worth naming: `ProgrammeService.get`
+is consequently gated by more than `programme.view` — a caller without `customer.view` reaching this
+programme's own customer 404s the whole read, the identical shape CLAUDE.md already records for
+`CaseService`'s `currentStageName`/`workflow.view` dependency. Currently latent (only Administrator
+holds `programme.view` today, and Administrator holds `customer.view` at ALL too), but real the
+moment a narrower role gains `programme.view` without `customer.view` alongside it — see
+`ProgrammeService.get`'s own doc comment.
+
 Three audit actions, all `timelineVisible = true`:
 
 ```java

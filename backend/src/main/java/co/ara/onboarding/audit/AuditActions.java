@@ -163,6 +163,14 @@ public final class AuditActions {
     // tell the difference, the same shape CONTACT_DEACTIVATED draws against a
     // plain phone-number correction.
     public static final AuditAction TASK_ASSIGNED                = of("task.assigned", true);
+    // Sub-project 3A Task 12: a programme is a customer-facing container (QA
+    // Q20), so opening one, editing it and retiring it are exactly the business
+    // narrative the Activity Timeline exists to show -- same reasoning as
+    // customer.* and case.* above, contrast the compliance-only identity/auth
+    // actions.
+    public static final AuditAction PROGRAMME_CREATED            = of("programme.created", true);
+    public static final AuditAction PROGRAMME_UPDATED            = of("programme.updated", true);
+    public static final AuditAction PROGRAMME_DEACTIVATED        = of("programme.deactivated", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

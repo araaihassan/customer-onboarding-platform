@@ -348,7 +348,12 @@ class AuthorizationCoverageTest {
                                           // requirementId/assigneeId resolution is exactly the
                                           // shape this rule exists to catch -- added before
                                           // TaskService itself was written, not retrofitted.
-                                          "co.ara.onboarding.task..")
+                                          "co.ara.onboarding.task..",
+                                          // Sub-project 3A Task 12: ProgrammeService's own
+                                          // customerId resolution is exactly this shape --
+                                          // added before ProgrammeService itself was written,
+                                          // not retrofitted, same as task.. above.
+                                          "co.ara.onboarding.programme..")
                 // Union, not replace: a covered-package *Service/*Directory class that
                 // reaches a finder on a repository it does NOT hold as a field (passed
                 // as a parameter, obtained from another object, etc.) would be
