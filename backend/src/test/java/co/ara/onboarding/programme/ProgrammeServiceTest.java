@@ -160,6 +160,44 @@ class ProgrammeServiceTest extends PostgresTestBase {
                 .isEqualTo(ProgrammeStatus.INACTIVE));
     }
 
+    /**
+     * Fix round 1: the descriptor fix above (assignedScope requiring ACTIVE)
+     * deliberately left departmentScope/teamScope unchanged, so a DEPARTMENT-
+     * or TEAM-scoped programme.manage holder can still resolve an already-
+     * deactivated programme through AuthorizedQuery.getById -- the same
+     * predicate that backs update. Without an independent guard in
+     * ProgrammeService.update, that resolution success would let the write
+     * proceed too. This proves the write is refused anyway, at the service
+     * level, regardless of the caller's scope resolving the row at all.
+     */
+    @Test
+    void updateRefusesAnAlreadyDeactivatedProgrammeEvenForADepartmentScopedManager() {
+        UUID tenant = fixture.createTenant("programme-update-inactive");
+        var deptManager = new UUID[1];
+        var programmeId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID department = fixture.createDepartment(tenant, "Managing Department");
+            deptManager[0] = fixture.createUserInDepartment(tenant, "dept-manager@example.com", department);
+            // DEPARTMENT-scoped programme.manage: narrower than programme.manage's
+            // seeded ALL-only shape today, exactly the "at least one write test
+            // must run at the narrowest scope catalogued" convention. customer.view
+            // ALL alongside it for the same reason every other test here carries
+            // it -- unrelated to what this test is actually proving.
+            grant(deptManager[0], Map.of(PermissionKeys.PROGRAMME_MANAGE, Scope.DEPARTMENT,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
+            programmeId[0] = programmeService.create(new CreateProgrammeRequest(
+                    "Department Programme", customerId, null, null, department, null)).id();
+            programmeService.deactivate(programmeId[0]);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, deptManager[0], () -> programmeService.update(
+                programmeId[0], new UpdateProgrammeRequest("Renamed", null, null, null, null))))
+                .isInstanceOf(ProgrammeNotActiveException.class);
+    }
+
     private List<Programme> programmesFor(UUID customerId) {
         return programmeRepository.findAll().stream()
                 .filter(p -> customerId.equals(p.getCustomerId()))

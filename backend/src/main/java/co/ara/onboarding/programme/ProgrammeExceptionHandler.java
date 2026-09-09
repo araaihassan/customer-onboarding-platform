@@ -1,5 +1,8 @@
 package co.ara.onboarding.programme;
 
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
@@ -11,20 +14,23 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * closes a {@code platform -> programme -> platform} cycle,
  * {@code ModuleBoundaryTest.noCyclesBetweenModules}).
  *
- * Carries no handlers yet: create/read/update/deactivate (this task) defines no
- * domain-specific exception of its own. {@code NoSuchElementException} (a
- * foreign or out-of-scope programme or customer id) and bean-validation
- * failures (a blank name) are already mapped globally by
- * {@code platform.ApiExceptionHandler} to 404 and 400 respectively, and there is
- * no programme-specific conflict or state-transition rule the way
- * {@code task.IllegalTaskTransitionException} exists for task's status machine
- * -- a programme has no lifecycle of its own to have illegal transitions in
- * (QA Q20). Created now, ahead of any handler, purely so this module's
- * {@code @RestControllerAdvice} seam exists from its first service onward, the
- * same "one file per module" shape every other domain module carries; the
- * first genuinely programme-specific exception (Task 13's membership work, or
- * later) adds its handler here rather than opening a second file.
+ * {@code NoSuchElementException} (a foreign or out-of-scope programme or
+ * customer id) and bean-validation failures (a blank name) are already mapped
+ * globally by {@code platform.ApiExceptionHandler} to 404 and 400
+ * respectively. {@link ProgrammeNotActiveException} is the one genuinely
+ * programme-specific case so far -- a fix round on Task 12, not this task's
+ * original scope, see that exception's own doc comment -- mapped to 409
+ * rather than 404 or 403: the caller CAN see and target this record (it is in
+ * their scope), the request was understood, and the refusal is retryable in
+ * principle once the record's state changes, which is exactly
+ * {@code journey.JourneyExceptionHandler.onConflict}'s own reasoning for
+ * {@code CaseOnHoldException} et al.
  */
 @RestControllerAdvice
 class ProgrammeExceptionHandler {
+
+    @ExceptionHandler(ProgrammeNotActiveException.class)
+    ProblemDetail onNotActive(ProgrammeNotActiveException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+    }
 }

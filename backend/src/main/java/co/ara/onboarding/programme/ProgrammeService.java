@@ -142,11 +142,26 @@ public class ProgrammeService {
      * customerId is never accepted here: a programme's customer is fixed at
      * creation (UpdateProgrammeRequest carries no such field), so there is
      * nothing to re-resolve through the customer port on this path.
+     *
+     * Independently refuses a non-ACTIVE programme, regardless of the
+     * caller's scope -- see {@link ProgrammeNotActiveException}'s own doc
+     * comment for why this cannot be left to {@code scoping.
+     * ProgrammeDescriptor} alone. {@code departmentScope}/{@code teamScope}
+     * deliberately still resolve a deactivated programme (governance/
+     * reporting access, unchanged by this fix), so without this check here a
+     * DEPARTMENT- or TEAM-scoped {@code programme.manage} holder could reach
+     * this far and then write to a record everyone agrees is retired. Checked
+     * after the {@code AuthorizedQuery} resolution, not before: an
+     * out-of-scope or foreign-tenant id must still 404, never surface this
+     * 409 instead and leak that the row exists.
      */
     @RequirePermission(PermissionKeys.PROGRAMME_MANAGE)
     @Transactional
     public ProgrammeView update(UUID programmeId, UpdateProgrammeRequest request) {
         Programme p = authorizedQuery.getById(programmes, Programme.class, PermissionKeys.PROGRAMME_MANAGE, programmeId);
+        if (p.getStatus() != ProgrammeStatus.ACTIVE) {
+            throw new ProgrammeNotActiveException(programmeId);
+        }
 
         p.setName(request.name());
         p.setDescription(request.description());
