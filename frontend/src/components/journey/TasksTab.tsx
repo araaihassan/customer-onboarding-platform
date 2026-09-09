@@ -10,14 +10,15 @@ import { Field, TextareaField } from "@/components/ui/Field";
 import { EmptyState, ErrorState, SkeletonRows } from "@/components/ui/States";
 import { parseProblemDetail, useParticipants, useRoadmap, type StageRoadmap } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
-import { useCaseTasks, useCreateTask, type Task, type TaskPriority } from "@/lib/api/tasks";
+import {
+  useCaseTasks,
+  useCreateTask,
+  type MilestoneOption,
+  type Task,
+  type TaskPriority,
+} from "@/lib/api/tasks";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
-
-interface MilestoneOption {
-  id: string;
-  name: string;
-}
 
 interface TaskGroup {
   id: string;
@@ -156,7 +157,7 @@ export function TasksTab({ caseId }: { caseId: string }) {
 
       {selected && (
         <Dialog title={selected.title ?? ""} onClose={() => setSelectedId(undefined)} maxWidth={560}>
-          <TaskDetail task={selected} participants={participants.data ?? []} />
+          <TaskDetail task={selected} participants={participants.data ?? []} milestones={milestones} />
         </Dialog>
       )}
 

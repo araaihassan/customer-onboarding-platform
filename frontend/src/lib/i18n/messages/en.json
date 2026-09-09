@@ -402,6 +402,8 @@
   "task.create.dueDate": "Due date",
   "task.create.description": "Description",
   "task.create.submit": "Create task",
+  "task.detail.edit": "Edit",
+  "task.edit.title": "Edit task",
   "comment.thread.title": "Comments",
   "comment.thread.empty": "No comments yet",
   "comment.composer.label": "Add a comment",
