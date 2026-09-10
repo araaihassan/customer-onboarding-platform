@@ -36,17 +36,25 @@ public final class RoleTemplates {
             CONTACT_VIEW, ASSIGNED, CONTACT_MANAGE, ASSIGNED, INVITATION_SEND, ASSIGNED,
             WORKFLOW_VIEW, ALL, CASE_VIEW, ASSIGNED, CASE_CREATE, ALL, TASK_VIEW, ASSIGNED)),
 
-        // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
+        // Map.ofEntries, not Map.of: twelve grants crosses Map.of's ten-pair ceiling.
+        // PLAN_APPROVE_SCHEDULE at DEPARTMENT (Task 23, sub-project 3A gate 2): the
+        // Account Manager owns the ongoing customer relationship, so recording the
+        // customer's decision on a schedule revision belongs here rather than only
+        // on Administrator.
         new RoleTemplate("Account Manager", "Owns ongoing customer relationships", Map.ofEntries(
             entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
             entry(CONTACT_MANAGE, TEAM), entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM),
             entry(WORKFLOW_VIEW, ALL), entry(CASE_VIEW, TEAM), entry(CASE_EDIT, TEAM),
-            entry(TASK_VIEW, TEAM), entry(COMMENT_CREATE, TEAM))),
+            entry(TASK_VIEW, TEAM), entry(COMMENT_CREATE, TEAM),
+            entry(PLAN_APPROVE_SCHEDULE, DEPARTMENT))),
 
-        // Map.ofEntries, not Map.of: seventeen grants crosses Map.of's ten-pair ceiling.
+        // Map.ofEntries, not Map.of: eighteen grants crosses Map.of's ten-pair ceiling.
         // TASK_MANAGE at TEAM (sub-project 3A Phase 1 Task 8): this template already
         // holds TASK_VIEW/TASK_COMPLETE at TEAM -- a role that can complete a task but
         // not create one, add a checklist item, or reassign it is incoherent.
+        // PLAN_ISSUE at TEAM (Task 23, sub-project 3A gate 2): the Project Manager
+        // coordinates delivery day to day, so issuing a schedule revision for a
+        // journey they run belongs here rather than only on Administrator.
         new RoleTemplate("Project Manager", "Coordinates onboarding delivery", Map.ofEntries(
             entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
             entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM), entry(AUDIT_VIEW, TEAM),
@@ -56,7 +64,8 @@ public final class RoleTemplates {
             entry(MILESTONE_REOPEN, TEAM), entry(MILESTONE_FORCE_COMPLETE, TEAM),
             entry(REQUIREMENT_WAIVE, TEAM),
             entry(TASK_VIEW, TEAM), entry(TASK_MANAGE, TEAM), entry(TASK_COMPLETE, TEAM),
-            entry(COMMENT_CREATE, TEAM))),
+            entry(COMMENT_CREATE, TEAM),
+            entry(PLAN_ISSUE, TEAM))),
 
         // TASK_COMPLETE joins MILESTONE_COMPLETE at the same ASSIGNED scope (spec
         // 5.2); no COMMENT_CREATE, for the same reason Sales Representative has
@@ -151,7 +160,13 @@ public final class RoleTemplates {
             // RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
             // requires Administrator to cover the whole catalog; no other template
             // is expected to hold it until a later task decides otherwise.
-            entry(PLAN_APPROVE_SHAPE, ALL)))
+            entry(PLAN_APPROVE_SHAPE, ALL),
+            // Task 23 (sub-project 3A): gate 2's two permissions, seeded here purely
+            // because RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
+            // requires Administrator to cover the whole catalog -- Project Manager and
+            // Account Manager above are what actually closes RoleTemplateCoverageTest
+            // for these two keys.
+            entry(PLAN_ISSUE, ALL), entry(PLAN_APPROVE_SCHEDULE, ALL)))
     );
 
     private RoleTemplates() {}

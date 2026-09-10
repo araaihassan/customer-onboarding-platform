@@ -91,11 +91,15 @@ class TenantProvisioningTest extends PostgresTestBase {
                     // Sub-project 3A Task 11 added programme.view, programme.create
                     // and programme.manage (38), and Task 19 added
                     // plan.approve_shape (39) -- to both the catalog and this
-                    // template
+                    // template. Task 23 added plan.issue and plan.approve_schedule
+                    // (41) -- to both the catalog and this template, though the
+                    // permissions themselves are actually exercised at a narrower
+                    // scope by Project Manager and Account Manager respectively
+                    // (RoleTemplateCoverageTest is the guard for that half)
                     // (RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
                     // is the guard that keeps this number honest).
                     .as("Administrator must be seeded with its full template grant set")
-                    .hasSize(39);
+                    .hasSize(41);
         });
     }
 

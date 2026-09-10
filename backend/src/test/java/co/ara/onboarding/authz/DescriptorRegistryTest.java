@@ -55,6 +55,24 @@ class DescriptorRegistryTest extends PostgresTestBase {
         assertThat(registry.resourceTypes()).contains("programme");
     }
 
+    /**
+     * Task 23 (sub-project 3A gate 2): plan.issue/plan.approve_schedule are
+     * RECORD-scoped on onboarding_case, which already has CaseDescriptor, so
+     * validate() itself does not require PlanRevisionDescriptor or
+     * PlanRevisionItemDescriptor -- they exist for AuthorizedQuery's entity-type
+     * dispatch instead, the same reason CaseParticipantDescriptor and
+     * CaseAttributeValueDescriptor were registered ahead of validate() ever
+     * demanding them. Asserting their resourceType()s are registered is the only
+     * way that reason would surface here rather than staying invisible until a
+     * later service actually reads a PlanRevision/PlanRevisionItem row.
+     */
+    @Test
+    void planRevisionAndPlanRevisionItemHaveDescriptorsForAuthorizedQueryDispatch() {
+        assertThat(registry.forEntity(co.ara.onboarding.journey.PlanRevision.class)).isNotNull();
+        assertThat(registry.forEntity(co.ara.onboarding.journey.PlanRevisionItem.class)).isNotNull();
+        assertThat(registry.resourceTypes()).contains("plan_revision", "plan_revision_item");
+    }
+
     @Test
     void missingDescriptorIsAStartupFailure() {
         DescriptorRegistry empty = new DescriptorRegistry(List.of());

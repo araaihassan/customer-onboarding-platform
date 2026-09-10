@@ -102,6 +102,16 @@ public final class PermissionCatalog {
         // CaseParticipantDescriptor and CaseAttributeValueDescriptor exist ahead of
         // validate() ever requiring them.
         add(PLAN_APPROVE_SHAPE,      "plan",      null,            "Record the customer's decision on a plan's shape", ALL_ONLY);
+        // Task 23 (sub-project 3A): gate 2 of QA Q22. Both act on one journey --
+        // unlike gate 1's plan.approve_shape, which has no record to scope against --
+        // so both are RECORD-scoped on onboarding_case. scoping/PlanRevisionDescriptor
+        // and PlanRevisionItemDescriptor exist for AuthorizedQuery's entity-type
+        // dispatch when a service reads plan_revision/plan_revision_item rows, not
+        // because DescriptorRegistry.validate() demands them -- onboarding_case
+        // already has CaseDescriptor -- the same reason CaseParticipantDescriptor and
+        // CaseAttributeValueDescriptor exist ahead of validate() ever requiring them.
+        add(PLAN_ISSUE,              "plan",      "onboarding_case", "Issue a schedule revision for a journey", RECORD);
+        add(PLAN_APPROVE_SCHEDULE,   "plan",      "onboarding_case", "Record the customer's decision on a schedule revision", RECORD);
     }
 
     /**
