@@ -199,6 +199,10 @@ public final class AuditActions {
     // compliance-only tenant configuration the way authoring itself does.
     public static final AuditAction PLAN_SHAPE_SUBMITTED = of("plan.shape_submitted", true);
     public static final AuditAction PLAN_SHAPE_DECIDED   = of("plan.shape_decided", true);
+    // Sub-project 3A Task 24 (QA Q22 gate 2): timeline-visible for the same reason
+    // as the shape actions above -- issuing a dated schedule is the customer's own
+    // side of the story, not tenant configuration.
+    public static final AuditAction PLAN_REVISION_ISSUED = of("plan.revision_issued", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

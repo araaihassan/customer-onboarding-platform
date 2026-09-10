@@ -167,21 +167,43 @@ public class PlanShapeService {
      * journey -> workflow} already exists and is allowed) calls this directly
      * to enforce gate 2's ordering rule against the returned status.
      *
-     * Gated on all three of {@code workflow.view}, {@code workflow.manage} and
-     * {@code plan.approve_shape} (OR, via {@link RequirePermission}'s array
-     * form) -- not {@code workflow.view} alone. Task 20's review found that an
-     * actor holding exactly what {@link #submit} and {@link #decide} require
-     * (workflow.manage, plan.approve_shape) but not workflow.view got a hard
-     * 403 reading back the very approval they had just submitted and decided,
-     * because {@code @RequirePermission} is coarse and all-or-nothing: it
-     * cannot tell "the caller who can act on this" from "the caller who can
-     * merely view it". Every one of the three is ALL-only in the catalog
-     * today ({@link PlanShapeApprovalDescriptor} fails closed for anything
-     * else), so whichever the actor holds resolves the same unconditional
-     * scope -- there is no widening between them, only a wider set of actors
-     * who may call this method at all.
+     * Gated on all four of {@code workflow.view}, {@code workflow.manage},
+     * {@code plan.approve_shape} and {@code plan.issue} (OR, via {@link
+     * RequirePermission}'s array form) -- not {@code workflow.view} alone.
+     * Task 20's review found that an actor holding exactly what {@link #submit}
+     * and {@link #decide} require (workflow.manage, plan.approve_shape) but not
+     * workflow.view got a hard 403 reading back the very approval they had just
+     * submitted and decided, because {@code @RequirePermission} is coarse and
+     * all-or-nothing: it cannot tell "the caller who can act on this" from "the
+     * caller who can merely view it".
+     *
+     * {@code plan.issue} joined the set at sub-project 3A Task 24: {@code
+     * journey.PlanRevisionService.issue} calls this method directly to enforce
+     * gate 2's ordering rule (a schedule cannot be issued before its shape is
+     * approved), and is gated {@code plan.issue} alone -- a role holding it
+     * without also holding one of the original three would otherwise 403 on
+     * this internal call rather than receive the {@code PlanGateException} an
+     * unapproved shape should produce. Investigated empirically, not assumed:
+     * the seeded Project Manager template happens to ALSO hold
+     * {@code workflow.view} at ALL, so this would have "worked" for that one
+     * template regardless -- a hand-built actor holding ONLY {@code plan.issue}
+     * is what actually proves the gap (see journey.PlanRevisionTest).
+     *
+     * Every one of the four is ALL-only in the catalog today ({@link
+     * PlanShapeApprovalDescriptor} fails closed for anything else) EXCEPT
+     * {@code plan.issue}, which is RECORD-scoped on {@code onboarding_case} --
+     * but {@link #currentRow} resolves {@code plan_shape_approval} rows, which
+     * carry no case at all, so {@code plan.issue}'s own descriptor is never
+     * consulted here: {@link #callersOwnReadPermission} only ever needs to know
+     * WHICH key the caller holds, and {@code PlanShapeApprovalDescriptor}
+     * fails closed (throws, in effect, by never matching) for any scope other
+     * than ALL regardless of which of the four keys resolved it -- so a
+     * TEAM-scoped {@code plan.issue} holder calling this method would find
+     * nothing, the same "no descriptor for anything but ALL" shape {@link
+     * PlanShapeApprovalDescriptor} already documents for the original three.
      */
-    @RequirePermission({PermissionKeys.WORKFLOW_VIEW, PermissionKeys.WORKFLOW_MANAGE, PermissionKeys.PLAN_APPROVE_SHAPE})
+    @RequirePermission({PermissionKeys.WORKFLOW_VIEW, PermissionKeys.WORKFLOW_MANAGE,
+            PermissionKeys.PLAN_APPROVE_SHAPE, PermissionKeys.PLAN_ISSUE})
     @Transactional(readOnly = true)
     public Optional<PlanShapeApprovalView> currentApproval(UUID versionId) {
         return currentRow(versionId, callersOwnReadPermission()).map(this::toView);
@@ -248,14 +270,25 @@ public class PlanShapeService {
     }
 
     /**
-     * Which of {@link #currentApproval}'s three OR'd keys THIS caller actually
+     * Which of {@link #currentApproval}'s four OR'd keys THIS caller actually
      * holds, so the read below resolves scope under a permission the actor is
      * known to have -- {@link AuthorizedQuery} denies (empty result, not an
      * exception) when asked to scope by a key the caller does not hold at all,
      * rather than by one it holds too narrowly. The method's own gate has
-     * already established at least one of the three holds; this only chooses
-     * which. Order is arbitrary among the three (all resolve to the same
-     * unconditional scope, see {@link #currentApproval}'s own javadoc).
+     * already established at least one of the four holds; this only chooses
+     * which.
+     *
+     * Order is NOT arbitrary any more, unlike before {@code plan.issue} joined
+     * the set: the first three are ALL-only in the catalog, so whichever of
+     * them resolves the caller always reaches {@code PlanShapeApprovalDescriptor}'s
+     * ALL-scope short-circuit -- but {@code plan.issue} is RECORD-scoped, and
+     * that same descriptor fails closed (disjunction) for anything narrower
+     * than ALL. {@code plan.issue} is listed last precisely so a caller who
+     * ALSO holds one of the first three (every seeded template that holds
+     * plan.issue today, Project Manager included, also holds workflow.view at
+     * ALL) resolves through that instead, and only a hand-built actor holding
+     * plan.issue at ALL with none of the other three would ever actually reach
+     * it here.
      */
     private String callersOwnReadPermission() {
         return CURRENT_APPROVAL_KEYS.stream()
@@ -266,7 +299,8 @@ public class PlanShapeService {
     }
 
     private static final List<String> CURRENT_APPROVAL_KEYS = List.of(
-            PermissionKeys.WORKFLOW_VIEW, PermissionKeys.WORKFLOW_MANAGE, PermissionKeys.PLAN_APPROVE_SHAPE);
+            PermissionKeys.WORKFLOW_VIEW, PermissionKeys.WORKFLOW_MANAGE,
+            PermissionKeys.PLAN_APPROVE_SHAPE, PermissionKeys.PLAN_ISSUE);
 
     /**
      * permissionKey is the caller's own gate, not always WORKFLOW_VIEW: {@link

@@ -13,6 +13,18 @@ import java.util.List;
  * AccessDeniedException are already handled globally by platform.ApiExceptionHandler
  * (404 / 403); everything here is a journey-specific type that module cannot name
  * without closing a platform -> journey -> platform cycle (ModuleBoundaryTest).
+ *
+ * {@code PlanRevisionService.issue} (sub-project 3A Task 24) throws
+ * {@code workflow.PlanGateException} directly, rather than journey declaring its
+ * own -- journey already depends on workflow, and the refusal is the exact same
+ * "the plan's own current state makes this impossible right now" shape that type
+ * already names for gate 1. Deliberately NOT re-declared here: both
+ * {@code @RestControllerAdvice} beans in this codebase are unscoped/global, and a
+ * second {@code @ExceptionHandler(PlanGateException.class)} method on a second
+ * global advice would be redundant at best (whichever advice bean Spring resolves
+ * first wins silently) -- {@code workflow.WorkflowExceptionHandler.onPlanGate}
+ * already maps it to 422 everywhere in the application, this module's callers
+ * included, so there is nothing for this class to add.
  */
 @RestControllerAdvice
 class JourneyExceptionHandler {
