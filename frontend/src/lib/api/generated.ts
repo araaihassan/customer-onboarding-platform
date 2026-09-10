@@ -212,6 +212,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/workflows/{id}/versions/{vid}/shape-approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getShapeApproval"];
+        put?: never;
+        post: operations["submitShapeApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/workflows/{id}/versions/{vid}/shape-approval/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["decideShapeApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/workflows/{id}/versions/{vid}/publish": {
         parameters: {
             query?: never;
@@ -1611,6 +1643,36 @@ export interface components {
             /** Format: uuid */
             clonedFromTemplateId?: string;
         };
+        PlanShapeApprovalView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            versionId?: string;
+            /** Format: uuid */
+            templateId?: string;
+            /** Format: uuid */
+            customerId?: string;
+            /** @enum {string} */
+            status?: "SUBMITTED" | "APPROVED" | "REJECTED";
+            /** Format: date-time */
+            submittedAt?: string;
+            /** Format: uuid */
+            submittedBy?: string;
+            /** Format: date-time */
+            decidedAt?: string;
+            /** Format: uuid */
+            decidedBy?: string;
+            /** Format: uuid */
+            decidedOnBehalfOf?: string;
+            decisionNote?: string;
+        };
+        DecidePlanRequest: {
+            /** @enum {string} */
+            outcome: "APPROVED" | "REJECTED";
+            note?: string;
+            /** Format: uuid */
+            decidedOnBehalfOfContactId?: string;
+        };
         CloneTemplateRequest: {
             /** Format: uuid */
             customerId: string;
@@ -1868,15 +1930,15 @@ export interface components {
             sort?: string[];
         };
         PageCustomerView: {
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
-            totalPages?: number;
+            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
@@ -1886,19 +1948,19 @@ export interface components {
             empty?: boolean;
         };
         PageableObject: {
+            unpaged?: boolean;
             /** Format: int32 */
             pageNumber?: number;
             /** Format: int32 */
             pageSize?: number;
             paged?: boolean;
-            unpaged?: boolean;
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
         };
         SortObject: {
-            sorted?: boolean;
             unsorted?: boolean;
+            sorted?: boolean;
             empty?: boolean;
         };
         AuditEventView: {
@@ -1917,15 +1979,15 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
-            totalPages?: number;
+            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
@@ -2005,15 +2067,15 @@ export interface components {
             candidates?: components["schemas"]["CandidateView"][];
         };
         PageUserView: {
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
-            totalPages?: number;
+            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
@@ -3068,6 +3130,157 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    getShapeApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The latest shape approval row for this version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanShapeApprovalView"];
+                };
+            };
+            /** @description Caller holds no sufficient workflow.view / workflow.manage grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description No shape approval has ever been submitted for this version, or it is out of the caller's scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    submitShapeApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Submitted for shape approval */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanShapeApprovalView"];
+                };
+            };
+            /** @description Caller holds no sufficient workflow.view / workflow.manage grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The version is still a draft, or its template is a catalogue template */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    decideShapeApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vid: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecidePlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Decision recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanShapeApprovalView"];
+                };
+            };
+            /** @description Caller holds no sufficient plan.approve_shape grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description There is no submitted shape approval to decide -- a decision is one-shot */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
                 };
             };
         };

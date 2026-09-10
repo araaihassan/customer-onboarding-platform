@@ -192,6 +192,13 @@ public final class AuditActions {
     // as WORKFLOW_CLONED_FOR_CUSTOMER above -- which catalogue version a
     // customer's clone was last refreshed from is tenant configuration.
     public static final AuditAction WORKFLOW_REFRESHED_FROM_SOURCE = of("workflow.refreshed_from_source", false);
+    // Sub-project 3A Task 20 (QA Q22 gate 1): timeline-visible, unlike every
+    // other workflow.* action above -- the customer's own side of the story
+    // (did they submit this plan, did they approve or reject it) depends on
+    // these two showing up on their Activity Timeline, not staying
+    // compliance-only tenant configuration the way authoring itself does.
+    public static final AuditAction PLAN_SHAPE_SUBMITTED = of("plan.shape_submitted", true);
+    public static final AuditAction PLAN_SHAPE_DECIDED   = of("plan.shape_decided", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

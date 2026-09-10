@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.CREATED;
@@ -27,7 +28,7 @@ import static org.springframework.http.HttpStatus.NO_CONTENT;
  * {@link PublishService}. No authorization logic here -- that is the gate's job, and
  * ModuleBoundaryTest stops this class reaching a repository.
  *
- * Ten endpoints live here rather than under /admin/workflows: workflow.view belongs
+ * Fourteen endpoints live here rather than under /admin/workflows: workflow.view belongs
  * to every operational role that must read the definition its case is frozen on, so
  * gating by path would either exclude them or make /admin mean nothing. Admin-ness is
  * a permission a role holds, not a URL prefix; the frontend route stays under admin/.
@@ -42,12 +43,14 @@ public class WorkflowController {
     private final WorkflowService workflows;
     private final PublishService publishService;
     private final CustomerTemplateService customerTemplates;
+    private final PlanShapeService planShapeService;
 
     public WorkflowController(WorkflowService workflows, PublishService publishService,
-                              CustomerTemplateService customerTemplates) {
+                              CustomerTemplateService customerTemplates, PlanShapeService planShapeService) {
         this.workflows = workflows;
         this.publishService = publishService;
         this.customerTemplates = customerTemplates;
+        this.planShapeService = planShapeService;
     }
 
     @GetMapping
@@ -226,5 +229,61 @@ public class WorkflowController {
     })
     public WorkflowDefinitionView refresh(@PathVariable UUID id) {
         return customerTemplates.refreshFromSource(id);
+    }
+
+    /**
+     * Sub-project 3A, Task 20 (QA Q22 gate 1). 201: submitting creates a new
+     * {@code plan_shape_approval} row -- resubmission after a rejection creates
+     * ANOTHER one, never mutates the old row (see {@link PlanShapeApproval}'s
+     * own javadoc).
+     */
+    @PostMapping("/{id}/versions/{vid}/shape-approval")
+    @ResponseStatus(CREATED)
+    @ApiResponses({
+            @ApiResponse(responseCode = "201", description = "Submitted for shape approval"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "The version is still a draft, or its template is a catalogue template",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public PlanShapeApprovalView submitShapeApproval(@PathVariable UUID vid) {
+        return planShapeService.submit(vid);
+    }
+
+    /**
+     * Sub-project 3A, Task 20 (QA Q22 gate 1). 200, not 201: this decides the
+     * existing SUBMITTED row rather than creating a new one.
+     */
+    @PostMapping("/{id}/versions/{vid}/shape-approval/decision")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Decision recorded"),
+            @ApiResponse(responseCode = "403", description = "Caller holds no sufficient plan.approve_shape grant",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "There is no submitted shape approval to decide -- a decision is one-shot",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public PlanShapeApprovalView decideShapeApproval(@PathVariable UUID vid, @Valid @RequestBody DecidePlanRequest r) {
+        return planShapeService.decide(vid, r);
+    }
+
+    /**
+     * Sub-project 3A, Task 20. 404 when no row has ever been submitted for this
+     * version -- the same "absent, or out of scope" shape every other 404 in
+     * this controller carries, not a bare empty body.
+     */
+    @GetMapping("/{id}/versions/{vid}/shape-approval")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The latest shape approval row for this version"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "No shape approval has ever been submitted for this version, or it is out of the caller's scope",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public PlanShapeApprovalView getShapeApproval(@PathVariable UUID vid) {
+        return planShapeService.currentApproval(vid).orElseThrow(() -> new NoSuchElementException("Not found"));
     }
 }

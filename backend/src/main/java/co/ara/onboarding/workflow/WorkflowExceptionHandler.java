@@ -88,5 +88,18 @@ class WorkflowExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
 
+    /**
+     * Sub-project 3A Task 20 (QA Q22 gate 1): the version (or its owning
+     * template) was found and understood -- it was semantically rejected
+     * because its own current state makes the operation impossible (still
+     * DRAFT, a catalogue template, or no submitted row to decide). 422, the
+     * same "well-formed but rejected" status onValidation and onNotCloneable
+     * above use.
+     */
+    @ExceptionHandler(PlanGateException.class)
+    ProblemDetail onPlanGate(PlanGateException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+    }
+
     public record ProblemList(List<String> problems) {}
 }
