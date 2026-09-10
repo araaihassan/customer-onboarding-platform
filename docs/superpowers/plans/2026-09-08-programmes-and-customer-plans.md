@@ -2111,6 +2111,18 @@ them — see CLAUDE.md's "Closed since sub-project 3A Phase 1 (Task 8)" note. If
 list is longer than `["plan.issue", "plan.approve_schedule"]`, check whether that exclusion is still
 in place before assuming a new regression.
 
+**Plan amendment (moved here from Task 11's own section, where it was originally written and where
+a Task-23-scoped brief extraction would never see it): expect `programme.view`/`programme.manage`
+in this step's failure list too, as a THIRD and FOURTH entry alongside `plan.issue`/
+`plan.approve_schedule` — not a new regression.** Task 11 (line ~1009 of this file) deliberately left
+those two red rather than seeding or excluding them, and no task between Task 11 and this one adds
+them to `ADMINISTRATOR_ONLY_PENDING_REVIEW` or seeds them to a real template — confirm this is still
+true when you actually run this step (a role review may have happened in the meantime and closed the
+gap, in which case the list really will be only two). If it is still four, do not touch
+`programme.view`/`programme.manage` as part of this task — they are Task 35's responsibility to
+resolve at final close-out, not this one's. Seed and verify only `plan.issue`/`plan.approve_schedule`
+here.
+
 - [ ] **Step 4: Seed both to the Project Manager and Account Manager templates**, at TEAM and DEPARTMENT respectively.
 
 - [ ] **Step 5: Run the full suite and commit**
