@@ -10,11 +10,14 @@ import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -42,6 +45,8 @@ public class PlanShapeService {
     private final PlanShapeApprovalRepository approvals;
     private final WorkflowVersionRepository versions;
     private final WorkflowTemplateRepository templates;
+    private final StageRepository stages;
+    private final MilestoneDefinitionRepository milestoneDefinitions;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final AuthorizationService authorization;
@@ -50,6 +55,8 @@ public class PlanShapeService {
     public PlanShapeService(PlanShapeApprovalRepository approvals,
                             WorkflowVersionRepository versions,
                             WorkflowTemplateRepository templates,
+                            StageRepository stages,
+                            MilestoneDefinitionRepository milestoneDefinitions,
                             AuthorizedQuery authorizedQuery,
                             AuthContextProvider contextProvider,
                             AuthorizationService authorization,
@@ -57,6 +64,8 @@ public class PlanShapeService {
         this.approvals = approvals;
         this.versions = versions;
         this.templates = templates;
+        this.stages = stages;
+        this.milestoneDefinitions = milestoneDefinitions;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.authorization = authorization;
@@ -176,6 +185,66 @@ public class PlanShapeService {
     @Transactional(readOnly = true)
     public Optional<PlanShapeApprovalView> currentApproval(UUID versionId) {
         return currentRow(versionId, callersOwnReadPermission()).map(this::toView);
+    }
+
+    /**
+     * The customer-approved artifact for gate 1 (QA Q22): the current shape approval
+     * state and a filtered rendering of {@code versionId}'s graph, in ONE response --
+     * see {@link PlanShapeView}'s own javadoc for why they travel together.
+     *
+     * The rendering filters top-down: a stage whose own {@link Stage#isPortalVisible()}
+     * is {@code false} is dropped ENTIRELY, milestones included, even one that is
+     * itself {@code portalVisible} -- a milestone the customer cannot reach through its
+     * own stage must not appear in the artifact they are asked to approve. Only a
+     * surviving stage's milestones are then filtered by their own flag.
+     *
+     * Gated on {@code workflow.view} alone, unlike {@link #currentApproval}'s three
+     * OR'd keys: reading the rendering is a plain view concern with no "the actor who
+     * just acted on it" gap to bridge, since nothing here requires {@code
+     * workflow.manage} or {@code plan.approve_shape} to reach.
+     */
+    @RequirePermission(PermissionKeys.WORKFLOW_VIEW)
+    @Transactional(readOnly = true)
+    public PlanShapeView render(UUID versionId) {
+        // Resolved through AuthorizedQuery, never a raw id -- versionId is a write-path-
+        // shaped argument taken straight from a URL (CLAUDE.md's standing rule), even
+        // though this method only reads.
+        authorizedQuery.getById(versions, WorkflowVersion.class, PermissionKeys.WORKFLOW_VIEW, versionId);
+
+        List<Stage> stageEntities = authorizedQuery.findAll(stages, Stage.class, PermissionKeys.WORKFLOW_VIEW,
+                        (root, query, cb) -> cb.equal(root.get("versionId"), versionId),
+                        Pageable.unpaged(Sort.by("ordinal")))
+                .getContent();
+        List<MilestoneDefinition> milestoneEntities = authorizedQuery.findAll(
+                        milestoneDefinitions, MilestoneDefinition.class, PermissionKeys.WORKFLOW_VIEW,
+                        (root, query, cb) -> cb.equal(root.get("versionId"), versionId),
+                        Pageable.unpaged(Sort.by("ordinal")))
+                .getContent();
+
+        Map<UUID, List<MilestoneDefinition>> milestonesByStage = new LinkedHashMap<>();
+        for (MilestoneDefinition m : milestoneEntities) {
+            milestonesByStage.computeIfAbsent(m.getStageId(), k -> new ArrayList<>()).add(m);
+        }
+
+        List<PlanShapeStageView> stageViews = stageEntities.stream()
+                .filter(Stage::isPortalVisible)
+                .map(s -> toStageView(s, milestonesByStage.getOrDefault(s.getId(), List.of())))
+                .toList();
+
+        PlanShapeApprovalView approval = currentApproval(versionId).orElse(null);
+        return new PlanShapeView(approval, stageViews);
+    }
+
+    private PlanShapeStageView toStageView(Stage s, List<MilestoneDefinition> milestones) {
+        List<PlanShapeMilestoneView> milestoneViews = milestones.stream()
+                .filter(MilestoneDefinition::isPortalVisible)
+                .map(this::toMilestoneView)
+                .toList();
+        return new PlanShapeStageView(s.getId(), s.getName(), milestoneViews);
+    }
+
+    private PlanShapeMilestoneView toMilestoneView(MilestoneDefinition m) {
+        return new PlanShapeMilestoneView(m.getId(), m.getName(), m.getDescription(), m.getEstimatedDurationDays());
     }
 
     /**

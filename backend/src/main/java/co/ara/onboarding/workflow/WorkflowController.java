@@ -286,4 +286,24 @@ public class WorkflowController {
     public PlanShapeApprovalView getShapeApproval(@PathVariable UUID vid) {
         return planShapeService.currentApproval(vid).orElseThrow(() -> new NoSuchElementException("Not found"));
     }
+
+    /**
+     * Sub-project 3A, Task 21. The approved artifact itself: the version's
+     * portal-visible shape (stages and milestones filtered by {@code portal_visible},
+     * a hidden stage dropping its whole subtree) alongside its current shape-approval
+     * state, in one response -- see {@link PlanShapeView}'s own javadoc for why a
+     * client must never fetch them separately. {@code workflow.view} alone gates this,
+     * unlike the two endpoints above.
+     */
+    @GetMapping("/{id}/versions/{vid}/plan")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The portal-visible shape and its current approval state"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public PlanShapeView getPlan(@PathVariable UUID vid) {
+        return planShapeService.render(vid);
+    }
 }

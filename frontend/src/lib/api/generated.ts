@@ -1044,6 +1044,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/workflows/{id}/versions/{vid}/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getPlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/tasks": {
         parameters: {
             query?: never;
@@ -1891,6 +1907,24 @@ export interface components {
             adminEmail: string;
             adminFullName: string;
         };
+        PlanShapeMilestoneView: {
+            /** Format: uuid */
+            id?: string;
+            key?: string;
+            description?: string;
+            /** Format: int32 */
+            estimatedDurationDays?: number;
+        };
+        PlanShapeStageView: {
+            /** Format: uuid */
+            id?: string;
+            key?: string;
+            milestones?: components["schemas"]["PlanShapeMilestoneView"][];
+        };
+        PlanShapeView: {
+            approval?: components["schemas"]["PlanShapeApprovalView"];
+            stages?: components["schemas"]["PlanShapeStageView"][];
+        };
         ProgrammeDetailView: {
             programme?: components["schemas"]["ProgrammeView"];
             journeys?: components["schemas"]["ProgrammeJourneyView"][];
@@ -1930,38 +1964,38 @@ export interface components {
             sort?: string[];
         };
         PageCustomerView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
-            numberOfElements?: number;
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            first?: boolean;
+            last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         PageableObject: {
-            unpaged?: boolean;
-            /** Format: int32 */
-            pageNumber?: number;
-            /** Format: int32 */
-            pageSize?: number;
-            paged?: boolean;
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
+            unpaged?: boolean;
+            /** Format: int32 */
+            pageSize?: number;
+            /** Format: int32 */
+            pageNumber?: number;
+            paged?: boolean;
         };
         SortObject: {
+            empty?: boolean;
             unsorted?: boolean;
             sorted?: boolean;
-            empty?: boolean;
         };
         AuditEventView: {
             /** Format: uuid */
@@ -1979,21 +2013,21 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
-            numberOfElements?: number;
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            first?: boolean;
+            last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -2067,21 +2101,21 @@ export interface components {
             candidates?: components["schemas"]["CandidateView"][];
         };
         PageUserView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
-            numberOfElements?: number;
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            first?: boolean;
+            last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         TeamMemberView: {
@@ -6194,6 +6228,55 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["WorkflowTemplateView"];
+                };
+            };
+            /** @description Caller holds no sufficient workflow.view / workflow.manage grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    getPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                vid: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The portal-visible shape and its current approval state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanShapeView"];
                 };
             };
             /** @description Caller holds no sufficient workflow.view / workflow.manage grant */
