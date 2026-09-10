@@ -1914,6 +1914,38 @@ git add backend/src/main/java/co/ara/onboarding/workflow/ backend/src/test/java/
 git commit -m "feat(workflow): render the portal-visible plan as the approved artifact"
 ```
 
+**Plan deviation (fix round 1, post-review):** the brief's own literal test assertions above
+(`extracting(PlanShapeStageView::key)`/`extracting(PlanShapeMilestoneView::key)` against
+`"s1"`/`"m1"`) were written against the wrong assumption, the same class of defect Task 16/17
+already found for `stageKeysOf`/`stageNamesOf` in their own test code. `Stage`/`MilestoneDefinition`
+persist no authoring key column, which the brief and the first implementation both correctly
+diagnosed -- but neither the database nor `WorkflowService`'s authoring validation enforces
+uniqueness of `name` within a version or a stage, so keying the field off `name` and calling it
+`key` promises a uniqueness the field cannot deliver. A builder user can legitimately author two
+stages or two milestones sharing a name; a future portal consumer treating `key` as a React list
+key or a lookup map key would collide.
+
+Two fixes were available: (1) source the field from `id.toString()`, matching
+`WorkflowDefinitionView`'s own precedent for its `key` fields, or (2) rename the field away from
+`key` (e.g. to `label`) since it is display-only and cannot promise uniqueness. Chosen: **(2)**.
+`WorkflowDefinitionView.StageView`/`MilestoneView` already carry both `id` (`UUID`) *and* `key`
+(the id, echoed as a string) as separate fields -- and that `key` exists for a genuinely different,
+real reason: it is the mechanism an authoring PUT uses to resolve cross-references
+(`dependsOnMilestoneKeys`, `targetStageKey`, `fallbackNextStageKey`) when the client GETs, edits,
+and PUTs the same graph back. `PlanShapeStageView`/`PlanShapeMilestoneView` already carry their own
+`id`, and this rendering is read-only and never PUT back -- there is no round-trip to support, so
+adding a `key` that duplicates `id` as a string would supply no capability the existing `id` field
+doesn't already give a consumer needing stable identity. Renaming to `label` documents the real,
+useful thing the field is for (a human-readable display name for the portal) without smuggling in
+a uniqueness promise `id` already covers.
+
+`PlanShapeStageView.key`/`PlanShapeMilestoneView.key` are now `label`, both records' javadoc says
+explicitly that `id` is the only field with a uniqueness guarantee and `label` may collide, and
+`PlanShapeRenderingTest` gained `idIsTheStableIdentityEvenWhenTwoMilestonesShareALabel` (two
+milestones, distinct authoring keys, the same name, asserting `label` collides while `id` does
+not) alongside renaming its existing `key()`/`renderedKeys` assertions and helper to
+`label()`/`renderedLabels`.
+
 ---
 
 # Phase 6 — Gate 2: the schedule, snapshotted and approved per journey (Q22, Q23)

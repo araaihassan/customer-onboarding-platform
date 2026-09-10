@@ -50,8 +50,8 @@ class PlanShapeRenderingTest extends PostgresTestBase {
 
         PlanShapeView rendered = render(versionId);
 
-        assertThat(rendered.stages()).extracting(PlanShapeStageView::key).containsExactly("s1");
-        assertThat(rendered.stages().get(0).milestones()).extracting(PlanShapeMilestoneView::key)
+        assertThat(rendered.stages()).extracting(PlanShapeStageView::label).containsExactly("s1");
+        assertThat(rendered.stages().get(0).milestones()).extracting(PlanShapeMilestoneView::label)
                 .containsExactly("m1");
     }
 
@@ -63,7 +63,25 @@ class PlanShapeRenderingTest extends PostgresTestBase {
                 stage("s1", true, milestone("m1", true)),
                 stage("s2", false, milestone("m3", true)));
 
-        assertThat(renderedKeys(versionId)).doesNotContain("m3");
+        assertThat(renderedLabels(versionId)).doesNotContain("m3");
+    }
+
+    @Test
+    void idIsTheStableIdentityEvenWhenTwoMilestonesShareALabel() {
+        // Two milestones with distinct authoring keys but the same display name --
+        // nothing in WorkflowService's authoring validation forbids this (only the
+        // authoring KEY has to be unique, never the name). `label` -- sourced from the
+        // entity's own `name` -- carries no uniqueness guarantee at all, which is
+        // exactly why it is called `label` and not `key`: a future portal client keying
+        // a list or a lookup off this artifact must use `id`, never `label`.
+        UUID versionId = publishVersionWith(
+                stage("s1", true,
+                        milestoneNamed("m1a", "Review", true),
+                        milestoneNamed("m1b", "Review", true)));
+
+        List<PlanShapeMilestoneView> milestones = render(versionId).stages().get(0).milestones();
+        assertThat(milestones).extracting(PlanShapeMilestoneView::label).containsExactly("Review", "Review");
+        assertThat(milestones).extracting(PlanShapeMilestoneView::id).doesNotHaveDuplicates();
     }
 
     @Test
@@ -102,9 +120,13 @@ class PlanShapeRenderingTest extends PostgresTestBase {
     }
 
     /**
-     * key/name are the same string here (e.g. "s1") -- {@link Stage} and {@link
-     * MilestoneDefinition} persist no separate authoring key, so PlanShapeStageView/
-     * PlanShapeMilestoneView key off the entity's own name (see their own javadoc).
+     * Authoring key/name are the same string here (e.g. "s1") -- {@link Stage} and
+     * {@link MilestoneDefinition} persist no separate authoring key, so
+     * PlanShapeStageView/PlanShapeMilestoneView label off the entity's own name (see
+     * their own javadoc). Most tests in this class don't care about the key/name
+     * distinction, so this convenience helper collapses them; {@link
+     * #milestoneNamed(String, String, boolean)} is the one that doesn't, for the test
+     * that needs two milestones sharing a label under different authoring keys.
      */
     private StageRequest stage(String key, boolean portalVisible, MilestoneRequest... milestones) {
         StageRequest base = WorkflowFixtures.stage(key, key, List.of(milestones));
@@ -118,10 +140,14 @@ class PlanShapeRenderingTest extends PostgresTestBase {
         return WorkflowFixtures.milestone(key, key, 1, List.of(), List.of(manual("Do it")), portalVisible);
     }
 
-    private List<String> renderedKeys(UUID versionId) {
+    private MilestoneRequest milestoneNamed(String key, String name, boolean portalVisible) {
+        return WorkflowFixtures.milestone(key, name, 1, List.of(), List.of(manual("Do it")), portalVisible);
+    }
+
+    private List<String> renderedLabels(UUID versionId) {
         return render(versionId).stages().stream()
                 .flatMap(s -> s.milestones().stream())
-                .map(PlanShapeMilestoneView::key)
+                .map(PlanShapeMilestoneView::label)
                 .toList();
     }
 

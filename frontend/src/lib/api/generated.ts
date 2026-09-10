@@ -1910,7 +1910,7 @@ export interface components {
         PlanShapeMilestoneView: {
             /** Format: uuid */
             id?: string;
-            key?: string;
+            label?: string;
             description?: string;
             /** Format: int32 */
             estimatedDurationDays?: number;
@@ -1918,7 +1918,7 @@ export interface components {
         PlanShapeStageView: {
             /** Format: uuid */
             id?: string;
-            key?: string;
+            label?: string;
             milestones?: components["schemas"]["PlanShapeMilestoneView"][];
         };
         PlanShapeView: {
@@ -1985,17 +1985,17 @@ export interface components {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
+            paged?: boolean;
             unpaged?: boolean;
             /** Format: int32 */
-            pageSize?: number;
-            /** Format: int32 */
             pageNumber?: number;
-            paged?: boolean;
+            /** Format: int32 */
+            pageSize?: number;
         };
         SortObject: {
             empty?: boolean;
-            unsorted?: boolean;
             sorted?: boolean;
+            unsorted?: boolean;
         };
         AuditEventView: {
             /** Format: uuid */
