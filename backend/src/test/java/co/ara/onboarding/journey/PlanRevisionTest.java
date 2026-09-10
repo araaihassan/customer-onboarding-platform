@@ -22,6 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -71,10 +72,21 @@ class PlanRevisionTest extends PostgresTestBase {
     @Autowired MilestoneDefinitionRepository milestoneDefinitions;
     @Autowired MilestoneRepository milestones;
     @Autowired RoleService roles;
+    @Autowired CaseRepository caseRepository;
 
     private UUID tenant;
     private UUID team;
     private UUID pm;
+    /**
+     * Holds ONLY {@code plan.approve_schedule} at TEAM -- deliberately narrower
+     * than the seeded Account Manager template (DEPARTMENT), which itself holds
+     * no {@code case.hold} grant at all. This is the actor that proves {@code
+     * CaseService.resume}'s widened gate (Task 25) actually works: without it,
+     * {@code decide}'s own internal {@code resume} call would 403 on exactly
+     * this actor, the same cross-module trap Task 24 already found and fixed
+     * for {@code plan.issue}/{@code currentApproval}.
+     */
+    private UUID am;
     private UUID caseId;
     private UUID customerVersionId;
     private UUID kickoffId;
@@ -93,6 +105,20 @@ class PlanRevisionTest extends PostgresTestBase {
                     PermissionKeys.WORKFLOW_VIEW, Scope.ALL,
                     PermissionKeys.MILESTONE_EDIT, Scope.TEAM));
             roles.assignRole(pm, pmRole);
+
+            am = fixture.createUser(tenant, "am+" + Uuid7.generate() + "@plan-revision.example");
+            fixture.addToTeam(tenant, am, team);
+            // WORKFLOW_VIEW (ALL) is here for the same reason pm's role carries it above:
+            // CaseService.toView (reached through resume()'s own return value) reads the
+            // current Stage row under the hardcoded workflow.view key regardless of which
+            // permission resolved the case itself -- the already-documented "viewing a
+            // case's full representation is gated by more than case.view" gap (CLAUDE.md).
+            // Confirmed empirically: this actor 404'd resolving the case's stage name
+            // before this grant was added, never reaching the outcome under test.
+            UUID amRole = roles.createRole("Narrow AM " + Uuid7.generate(), "", Map.of(
+                    PermissionKeys.PLAN_APPROVE_SCHEDULE, Scope.TEAM,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+            roles.assignRole(am, amRole);
         });
 
         caseId = openApprovedCustomerCase(team);
@@ -169,6 +195,104 @@ class PlanRevisionTest extends PostgresTestBase {
                 () -> planShapeService.currentApproval(customerVersionId).orElseThrow().status());
 
         assertThat(status).isEqualTo(PlanShapeApprovalStatus.APPROVED);
+    }
+
+    /**
+     * QA Q22/Q23 gate 2: the journey's FIRST-EVER schedule approval is what
+     * releases the hold Task 26 (not yet built) will eventually put a
+     * customer-template case into at creation. This test seeds that
+     * precondition directly ({@link #openHeldCaseOnCustomerTemplate()}) rather
+     * than waiting on Task 26's production wiring -- the plan's own pre-flight
+     * ruling for this task.
+     */
+    @Test
+    void theFirstApprovalReleasesTheHoldAndAccruesTheDaysWaited() {
+        UUID heldCaseId = openHeldCaseOnCustomerTemplate();
+        clock.advance(Duration.ofDays(3));
+
+        PlanRevisionView rev = runAs(pm, () -> planRevisionService.issue(heldCaseId, note()));
+        runAs(am, () -> planRevisionService.decide(rev.id(), approve()));
+
+        CaseView c = caseView(heldCaseId);
+        assertThat(c.status()).isEqualTo(CaseStatus.ACTIVE);
+        assertThat(c.heldAt()).isNull();
+        // Q8's SLA pause is correct for free because this goes through resume's own path.
+        assertThat(c.totalHoldDays()).isGreaterThanOrEqualTo(1);
+    }
+
+    /**
+     * Q23: re-holding on every revision would mean an internal typo correction
+     * freezes a live project until the customer replies again. Neither approving
+     * nor rejecting a SECOND revision may disturb a case the first approval has
+     * already made ACTIVE.
+     */
+    @Test
+    void aLaterRevisionIsAdvisoryAndDoesNotReHoldTheJourney() {
+        UUID heldCaseId = openHeldCaseOnCustomerTemplate();
+        approveFirstRevision(heldCaseId);
+        assertThat(caseView(heldCaseId).status()).isEqualTo(CaseStatus.ACTIVE);
+
+        PlanRevisionView second = runAs(pm, () -> planRevisionService.issue(heldCaseId, note()));
+        assertThat(caseView(heldCaseId).status()).isEqualTo(CaseStatus.ACTIVE);
+
+        runAs(am, () -> planRevisionService.decide(second.id(), reject()));
+        assertThat(caseView(heldCaseId).status()).isEqualTo(CaseStatus.ACTIVE);
+    }
+
+    /**
+     * Issuing a second revision supersedes the first (Task 24's own behavior --
+     * {@code plan_revision_one_outstanding_uq}), so deciding the now-SUPERSEDED
+     * first revision must refuse rather than silently accept a stale decision.
+     */
+    @Test
+    void decidingARevisionThatIsNotOutstandingIsRefused() {
+        PlanRevisionView first = runAs(pm, () -> planRevisionService.issue(caseId, note()));
+        runAs(pm, () -> planRevisionService.issue(caseId, note()));   // supersedes `first`
+
+        assertThatThrownBy(() -> runAs(am, () -> planRevisionService.decide(first.id(), approve())))
+                .isInstanceOf(PlanGateException.class);
+    }
+
+    private DecidePlanRequest approve() {
+        return new DecidePlanRequest(PlanDecision.APPROVED, "Approved", null);
+    }
+
+    private DecidePlanRequest reject() {
+        return new DecidePlanRequest(PlanDecision.REJECTED, "Rejected", null);
+    }
+
+    /** Issues and approves a case's first revision, releasing its hold. */
+    private void approveFirstRevision(UUID forCaseId) {
+        PlanRevisionView first = runAs(pm, () -> planRevisionService.issue(forCaseId, note()));
+        runAs(am, () -> planRevisionService.decide(first.id(), approve()));
+    }
+
+    /**
+     * Same shape as {@link #openApprovedCustomerCase} (shape-approved
+     * customer-tier clone, cased) but with the case additionally forced into
+     * ON_HOLD directly against the repository -- Task 26, not yet built, is
+     * what will eventually make case creation on a customer template start this
+     * way in production; seeded directly here rather than waiting on that
+     * wiring, per this task's own pre-flight ruling. Mirrors
+     * {@code RequirementTest.satisfyingIsRefusedWhileTheCaseIsOnHold}'s own
+     * "set the status directly, no production path yet" pattern.
+     */
+    private UUID openHeldCaseOnCustomerTemplate() {
+        UUID heldCaseId = openApprovedCustomerCase(team);
+        fixture.runAs(tenant, () -> {
+            Case c = caseRepository.findById(heldCaseId).orElseThrow();
+            c.setStatus(CaseStatus.ON_HOLD);
+            c.setHeldAt(java.time.Instant.now(clock));
+            caseRepository.saveAndFlush(c);
+        });
+        return heldCaseId;
+    }
+
+    /** Reads a case's current view as the tenant's fixture superuser. */
+    private CaseView caseView(UUID forCaseId) {
+        var result = new AtomicReference<CaseView>();
+        fixture.runAs(tenant, () -> result.set(caseService.get(forCaseId)));
+        return result.get();
     }
 
     /** Runs {@code action} as {@code user} in a fresh request scope and returns its result. */

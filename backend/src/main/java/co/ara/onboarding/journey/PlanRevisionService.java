@@ -10,7 +10,9 @@ import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import co.ara.onboarding.workflow.MilestoneDefinition;
 import co.ara.onboarding.workflow.MilestoneDefinitionRepository;
+import co.ara.onboarding.workflow.PlanDecision;
 import co.ara.onboarding.workflow.PlanGateException;
+import co.ara.onboarding.workflow.DecidePlanRequest;
 import co.ara.onboarding.workflow.PlanShapeApprovalStatus;
 import co.ara.onboarding.workflow.PlanShapeService;
 import co.ara.onboarding.workflow.Stage;
@@ -88,13 +90,14 @@ public class PlanRevisionService {
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
     private final PlanShapeService planShapeService;
+    private final CaseService caseService;
     private final Clock clock;
 
     public PlanRevisionService(PlanRevisionRepository revisions, PlanRevisionItemRepository items,
                                CaseRepository cases, MilestoneRepository milestones, StageRepository stages,
                                MilestoneDefinitionRepository milestoneDefinitions, AuthorizedQuery authorizedQuery,
                                AuthContextProvider contextProvider, AuditRecorder audit,
-                               PlanShapeService planShapeService, Clock clock) {
+                               PlanShapeService planShapeService, CaseService caseService, Clock clock) {
         this.revisions = revisions;
         this.items = items;
         this.cases = cases;
@@ -105,6 +108,7 @@ public class PlanRevisionService {
         this.contextProvider = contextProvider;
         this.audit = audit;
         this.planShapeService = planShapeService;
+        this.caseService = caseService;
         this.clock = clock;
     }
 
@@ -197,6 +201,90 @@ public class PlanRevisionService {
                         Pageable.unpaged(Sort.by("sortOrder")))
                 .getContent();
         return toView(revision, itemRows);
+    }
+
+    /**
+     * Refuses ({@link PlanGateException}, 422) when {@code revisionId}'s current
+     * status is not ISSUED -- a decision is one-shot, the same shape as {@link
+     * PlanShapeService#decide}: issuing a second revision supersedes the first
+     * (see {@link #issue}'s own comment on {@code plan_revision_one_outstanding_uq}),
+     * so deciding an already-superseded (or already-decided) row is refused
+     * rather than silently overwriting a prior decision.
+     *
+     * Records {@code plan.revision_decided} BEFORE calling {@link
+     * CaseService#resume} -- {@code CauseBeforeEffectTest}'s whole reason for
+     * existing: nine journey call sites once recorded their cause after the
+     * reconcile it triggered, permanently misordering every audit row written
+     * before 2026-08-29 (see CLAUDE.md). {@code resume} is called ONLY when
+     * this decision is the case's FIRST-EVER APPROVED revision (QA Q22/Q23):
+     * gate 2's approval is what lets a customer-template journey start actually
+     * running, and a LATER revision being approved -- or rejected -- must never
+     * disturb an already-ACTIVE case; re-holding on every revision would mean
+     * an internal typo correction freezes a live project until the customer
+     * replies again. {@link #hasAnyApprovedRevision} is checked BEFORE this
+     * decision's own status is written, so it still reads {@code false} on the
+     * very first approval and {@code true} on every one after -- and {@code
+     * CaseService.resume} itself refuses ({@link CaseNotOnHoldException}) if
+     * called on a case that is not ON_HOLD, so a second call here would be a
+     * bug this guard exists to prevent, not merely a redundant one.
+     */
+    @RequirePermission(PermissionKeys.PLAN_APPROVE_SCHEDULE)
+    @Transactional
+    public PlanRevisionView decide(UUID revisionId, DecidePlanRequest request) {
+        PlanRevision current = authorizedQuery.getById(
+                revisions, PlanRevision.class, PermissionKeys.PLAN_APPROVE_SCHEDULE, revisionId);
+        if (current.getStatus() != PlanRevisionStatus.ISSUED) {
+            throw new PlanGateException(
+                    "Revision " + revisionId + " has no outstanding schedule decision to decide");
+        }
+
+        boolean releasesTheHold = request.outcome() == PlanDecision.APPROVED
+                && !hasAnyApprovedRevision(current.getCaseId());
+
+        current.setStatus(request.outcome() == PlanDecision.APPROVED
+                ? PlanRevisionStatus.APPROVED : PlanRevisionStatus.REJECTED);
+        current.setDecidedAt(Instant.now(clock));
+        current.setDecidedBy(contextProvider.principal().userId());
+        current.setDecidedOnBehalfOf(request.decidedOnBehalfOfContactId());
+        current.setDecisionNote(request.note());
+        revisions.save(current);
+
+        audit.record(AuditActions.PLAN_REVISION_DECIDED, "onboarding_case", current.getCaseId(),
+                "Recorded a " + current.getStatus() + " schedule decision on revision "
+                        + current.getRevisionNumber(),
+                Map.of("planRevisionId", current.getId().toString(), "outcome", request.outcome().name()));
+
+        // Cause-before-effect: the record above has already committed to this
+        // transaction's session before this call, and CaseEngine.reconcile's own
+        // events (triggered transitively through resume) are stamped no earlier
+        // than resume's own case.resumed -- both AFTER plan.revision_decided.
+        if (releasesTheHold) {
+            caseService.resume(current.getCaseId());
+        }
+
+        List<PlanRevisionItem> itemRows = authorizedQuery.findAll(items, PlanRevisionItem.class,
+                        PermissionKeys.PLAN_APPROVE_SCHEDULE,
+                        (root, query, cb) -> cb.equal(root.get("planRevisionId"), revisionId),
+                        Pageable.unpaged(Sort.by("sortOrder")))
+                .getContent();
+        return toView(current, itemRows);
+    }
+
+    /**
+     * Whether {@code caseId} already has an earlier APPROVED revision -- checked
+     * BEFORE the current one's own status is written above, so this reads {@code
+     * false} on the case's first approval and {@code true} on every one after.
+     * Resolved under the caller's own {@code plan.approve_schedule} gate, the
+     * same "fetched with the caller's own permission" rule {@link
+     * PlanShapeService} follows throughout its own reads.
+     */
+    private boolean hasAnyApprovedRevision(UUID caseId) {
+        return !authorizedQuery.findAll(revisions, PlanRevision.class, PermissionKeys.PLAN_APPROVE_SCHEDULE,
+                        (root, query, cb) -> cb.and(
+                                cb.equal(root.get("caseId"), caseId),
+                                cb.equal(root.get("status"), PlanRevisionStatus.APPROVED)),
+                        Pageable.unpaged())
+                .getContent().isEmpty();
     }
 
     /**

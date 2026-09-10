@@ -203,6 +203,13 @@ public final class AuditActions {
     // as the shape actions above -- issuing a dated schedule is the customer's own
     // side of the story, not tenant configuration.
     public static final AuditAction PLAN_REVISION_ISSUED = of("plan.revision_issued", true);
+    // Task 25 (QA Q22/Q23 gate 2's decision): timeline-visible for the same reason
+    // PLAN_REVISION_ISSUED is -- deciding a schedule revision is the customer's own
+    // side of the story. Recorded against "onboarding_case", never
+    // "plan_revision", the same resource-type choice PLAN_REVISION_ISSUED already
+    // made -- and recorded BEFORE CaseService.resume is ever called on the case's
+    // first approval, per CauseBeforeEffectTest's rule.
+    public static final AuditAction PLAN_REVISION_DECIDED = of("plan.revision_decided", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

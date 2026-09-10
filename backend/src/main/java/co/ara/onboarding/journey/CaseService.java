@@ -3,6 +3,7 @@ package co.ara.onboarding.journey;
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
+import co.ara.onboarding.authz.AuthorizationService;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RelationshipType;
@@ -89,6 +90,7 @@ public class CaseService {
     private final TeamRepository teams;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
+    private final AuthorizationService authorization;
     private final AuditRecorder audit;
     private final CaseEngine engine;
     private final BusinessCalendar calendar;
@@ -106,7 +108,8 @@ public class CaseService {
                        AttributeDefinitionRepository attributeDefinitions,
                        AppUserRepository users, DepartmentRepository departments,
                        TeamRepository teams, AuthorizedQuery authorizedQuery,
-                       AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine,
+                       AuthContextProvider contextProvider, AuthorizationService authorization,
+                       AuditRecorder audit, CaseEngine engine,
                        BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle,
                        TaskDirectory taskDirectory) {
         this.cases = cases;
@@ -127,6 +130,7 @@ public class CaseService {
         this.teams = teams;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
+        this.authorization = authorization;
         this.audit = audit;
         this.engine = engine;
         this.calendar = calendar;
@@ -440,11 +444,28 @@ public class CaseService {
      * the elapsed business days, and accumulates total_hold_days for sub-project 6
      * to read rather than recompute. Completed/skipped milestones keep their
      * dates -- shifting them would rewrite when the work was actually promised.
+     *
+     * Gated on {@code case.hold} OR {@code plan.approve_schedule}, widened at
+     * sub-project 3A Task 25 -- {@code journey.PlanRevisionService.decide} calls
+     * this directly on a case's first-ever approved schedule revision (QA
+     * Q22/Q23 gate 2), and is gated {@code plan.approve_schedule} alone. The
+     * seeded Account Manager template holds {@code plan.approve_schedule} at
+     * DEPARTMENT but no {@code case.hold} grant at all -- the exact cross-module
+     * trap {@code PlanShapeService.currentApproval}'s own javadoc already
+     * documents for {@code plan.issue}, confirmed empirically here the same way:
+     * a narrow actor holding only {@code plan.approve_schedule} 403'd on this
+     * method before the widening, never reaching {@link CaseNotOnHoldException}.
+     * {@link #callersOwnHoldPermission()} is what resolves the READ below under
+     * whichever of the two the caller actually holds, the same
+     * "fetch under the caller's own gating key" pattern
+     * {@code PlanShapeService.currentRow} already established -- CaseDescriptor
+     * needs no change, since it resolves scope generically from AuthContext
+     * regardless of which permission key asked for it.
      */
-    @RequirePermission(PermissionKeys.CASE_HOLD)
+    @RequirePermission({PermissionKeys.CASE_HOLD, PermissionKeys.PLAN_APPROVE_SCHEDULE})
     @Transactional
     public CaseView resume(UUID caseId) {
-        authorizedQuery.getById(cases, Case.class, PermissionKeys.CASE_HOLD, caseId);
+        authorizedQuery.getById(cases, Case.class, callersOwnHoldPermission(), caseId);
         Case c = engine.lockAndLoad(caseId);
         if (c.getStatus() != CaseStatus.ON_HOLD) throw new CaseNotOnHoldException(caseId);
 
@@ -473,6 +494,25 @@ public class CaseService {
         engine.reconcile(c);
         return toView(c);
     }
+
+    /**
+     * Which of {@link #resume}'s two OR'd keys THIS caller actually holds, so
+     * the read above resolves scope under a permission the actor is known to
+     * have -- {@link AuthorizedQuery} denies (empty/404, not an exception) when
+     * asked to scope by a key the caller does not hold at all. The method's own
+     * gate has already established at least one of the two holds; this only
+     * chooses which. CASE_HOLD is checked first since it is the more common
+     * caller (hold/resume's own ordinary path); PLAN_APPROVE_SCHEDULE is the
+     * gate-2 caller added by Task 25.
+     */
+    private String callersOwnHoldPermission() {
+        return RESUME_KEYS.stream().filter(authorization::has).findFirst()
+                .orElseThrow(() -> new NoSuchElementException(
+                        "PermissionGateAspect should already have refused this call"));
+    }
+
+    private static final List<String> RESUME_KEYS =
+            List.of(PermissionKeys.CASE_HOLD, PermissionKeys.PLAN_APPROVE_SCHEDULE);
 
     @RequirePermission(PermissionKeys.CASE_VIEW)
     @Transactional(readOnly = true)
