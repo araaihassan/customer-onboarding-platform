@@ -3,6 +3,7 @@ package co.ara.onboarding.workflow;
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
+import co.ara.onboarding.authz.AuthorizationService;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
@@ -14,7 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -41,6 +44,7 @@ public class PlanShapeService {
     private final WorkflowTemplateRepository templates;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
+    private final AuthorizationService authorization;
     private final AuditRecorder audit;
 
     public PlanShapeService(PlanShapeApprovalRepository approvals,
@@ -48,12 +52,14 @@ public class PlanShapeService {
                             WorkflowTemplateRepository templates,
                             AuthorizedQuery authorizedQuery,
                             AuthContextProvider contextProvider,
+                            AuthorizationService authorization,
                             AuditRecorder audit) {
         this.approvals = approvals;
         this.versions = versions;
         this.templates = templates;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
+        this.authorization = authorization;
         this.audit = audit;
     }
 
@@ -152,16 +158,46 @@ public class PlanShapeService {
      * journey -> workflow} already exists and is allowed) calls this directly
      * to enforce gate 2's ordering rule against the returned status.
      *
-     * Gated {@code workflow.view}, not {@code plan.approve_shape}: this is a
-     * read of the plan's state, the same tier {@link WorkflowService#getDefinition}
-     * already reads the rest of a version's graph at, not the narrower
-     * decision-making permission {@link #decide} needs.
+     * Gated on all three of {@code workflow.view}, {@code workflow.manage} and
+     * {@code plan.approve_shape} (OR, via {@link RequirePermission}'s array
+     * form) -- not {@code workflow.view} alone. Task 20's review found that an
+     * actor holding exactly what {@link #submit} and {@link #decide} require
+     * (workflow.manage, plan.approve_shape) but not workflow.view got a hard
+     * 403 reading back the very approval they had just submitted and decided,
+     * because {@code @RequirePermission} is coarse and all-or-nothing: it
+     * cannot tell "the caller who can act on this" from "the caller who can
+     * merely view it". Every one of the three is ALL-only in the catalog
+     * today ({@link PlanShapeApprovalDescriptor} fails closed for anything
+     * else), so whichever the actor holds resolves the same unconditional
+     * scope -- there is no widening between them, only a wider set of actors
+     * who may call this method at all.
      */
-    @RequirePermission(PermissionKeys.WORKFLOW_VIEW)
+    @RequirePermission({PermissionKeys.WORKFLOW_VIEW, PermissionKeys.WORKFLOW_MANAGE, PermissionKeys.PLAN_APPROVE_SHAPE})
     @Transactional(readOnly = true)
     public Optional<PlanShapeApprovalView> currentApproval(UUID versionId) {
-        return currentRow(versionId, PermissionKeys.WORKFLOW_VIEW).map(this::toView);
+        return currentRow(versionId, callersOwnReadPermission()).map(this::toView);
     }
+
+    /**
+     * Which of {@link #currentApproval}'s three OR'd keys THIS caller actually
+     * holds, so the read below resolves scope under a permission the actor is
+     * known to have -- {@link AuthorizedQuery} denies (empty result, not an
+     * exception) when asked to scope by a key the caller does not hold at all,
+     * rather than by one it holds too narrowly. The method's own gate has
+     * already established at least one of the three holds; this only chooses
+     * which. Order is arbitrary among the three (all resolve to the same
+     * unconditional scope, see {@link #currentApproval}'s own javadoc).
+     */
+    private String callersOwnReadPermission() {
+        return CURRENT_APPROVAL_KEYS.stream()
+                .filter(authorization::has)
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException(
+                        "PermissionGateAspect should already have refused this call"));
+    }
+
+    private static final List<String> CURRENT_APPROVAL_KEYS = List.of(
+            PermissionKeys.WORKFLOW_VIEW, PermissionKeys.WORKFLOW_MANAGE, PermissionKeys.PLAN_APPROVE_SHAPE);
 
     /**
      * permissionKey is the caller's own gate, not always WORKFLOW_VIEW: {@link
@@ -170,7 +206,8 @@ public class PlanShapeService {
      * plan.approve_shape} without {@code workflow.view} would pass decide's own
      * gate and then find nothing to decide -- the same "fetched with the
      * caller's own permission, not a different read one" rule {@link
-     * WorkflowService#templateName} follows.
+     * WorkflowService#templateName} follows. {@link #currentApproval} follows
+     * it too, via {@link #callersOwnReadPermission()}.
      */
     private Optional<PlanShapeApproval> currentRow(UUID versionId, String permissionKey) {
         return authorizedQuery.findAll(approvals, PlanShapeApproval.class, permissionKey,

@@ -107,8 +107,17 @@ class PlanShapeGateTest extends PostgresTestBase {
         fixture.runAsUser(tenant, accountManager, () -> planShapeService.decide(customerVersionId,
                 new DecidePlanRequest(PlanDecision.APPROVED, "Approved by email 2026-09-09", sponsorContactId)));
 
+        // Read back through accountManager -- the SAME narrow actor who just
+        // submitted and decided, holding only WORKFLOW_MANAGE and
+        // PLAN_APPROVE_SHAPE, never WORKFLOW_VIEW. Reading this back via the
+        // fixture's full-authority administrator (as this test originally did)
+        // would never have caught currentApproval being gated WORKFLOW_VIEW-only:
+        // an actor who can submit and decide but not read back their own
+        // decision is exactly the "tests that construct their own preconditions
+        // converge on the happy scope" trap CLAUDE.md names elsewhere.
         var currentRef = new AtomicReference<PlanShapeApprovalView>();
-        fixture.runAs(tenant, () -> currentRef.set(planShapeService.currentApproval(customerVersionId).orElseThrow()));
+        fixture.runAsUser(tenant, accountManager,
+                () -> currentRef.set(planShapeService.currentApproval(customerVersionId).orElseThrow()));
         PlanShapeApprovalView current = currentRef.get();
 
         assertThat(current.status()).isEqualTo(PlanShapeApprovalStatus.APPROVED);
@@ -130,10 +139,34 @@ class PlanShapeGateTest extends PostgresTestBase {
         fixture.runAsUser(tenant, accountManager, () -> planShapeService.decide(customerVersionId, reject()));
         fixture.runAsUser(tenant, accountManager, () -> planShapeService.submit(customerVersionId));
 
+        // Same narrow-actor read as above -- see that test's comment.
         var currentRef = new AtomicReference<PlanShapeApprovalView>();
-        fixture.runAs(tenant, () -> currentRef.set(planShapeService.currentApproval(customerVersionId).orElseThrow()));
+        fixture.runAsUser(tenant, accountManager,
+                () -> currentRef.set(planShapeService.currentApproval(customerVersionId).orElseThrow()));
 
         assertThat(currentRef.get().status()).isEqualTo(PlanShapeApprovalStatus.SUBMITTED);
+    }
+
+    @Test
+    void aNarrowActorHoldingOnlySubmitAndDecidePermissionsCanReadBackTheCurrentApproval() {
+        // The exact gap Task 20's review flagged: accountManager holds
+        // WORKFLOW_MANAGE and PLAN_APPROVE_SHAPE only, never WORKFLOW_VIEW.
+        // Before the fix, currentApproval was gated WORKFLOW_VIEW alone, so this
+        // call 403'd even though accountManager is precisely the actor who just
+        // submitted and decided this same version.
+        fixture.runAsUser(tenant, accountManager, () -> planShapeService.submit(customerVersionId));
+
+        var beforeDecision = new AtomicReference<PlanShapeApprovalView>();
+        fixture.runAsUser(tenant, accountManager,
+                () -> beforeDecision.set(planShapeService.currentApproval(customerVersionId).orElseThrow()));
+        assertThat(beforeDecision.get().status()).isEqualTo(PlanShapeApprovalStatus.SUBMITTED);
+
+        fixture.runAsUser(tenant, accountManager, () -> planShapeService.decide(customerVersionId, approve()));
+
+        var afterDecision = new AtomicReference<PlanShapeApprovalView>();
+        fixture.runAsUser(tenant, accountManager,
+                () -> afterDecision.set(planShapeService.currentApproval(customerVersionId).orElseThrow()));
+        assertThat(afterDecision.get().status()).isEqualTo(PlanShapeApprovalStatus.APPROVED);
     }
 
     private DecidePlanRequest approve() {
