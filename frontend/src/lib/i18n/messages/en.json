@@ -400,6 +400,7 @@
   "milestone.dependencies.none": "This milestone has no dependencies.",
   "milestone.comments.title": "Comments",
   "milestone.comments.empty": "Comments aren't tracked here yet.",
+  "milestone.internal": "Internal",
   "case.hold.action": "Put on hold",
   "case.resume.action": "Resume",
   "case.holdDialog.title": "Put case on hold",

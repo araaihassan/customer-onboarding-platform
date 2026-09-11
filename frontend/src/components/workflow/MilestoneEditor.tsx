@@ -3,6 +3,7 @@
 import { useId } from "react";
 import { PlusIcon, XIcon } from "@/components/icons";
 import { Field } from "@/components/ui/Field";
+import { Switch } from "@/components/ui/Switch";
 import type { MilestoneRequest, RequirementRequest } from "@/lib/api/workflows";
 import { newDraftKey } from "./draftState";
 import { t } from "@/lib/i18n";
@@ -80,6 +81,12 @@ export function MilestoneEditor({
               <XIcon size={14} />
             </button>
           </div>
+
+          <Switch
+            checked={milestone.portalVisible ?? true}
+            onChange={(checked) => updateMilestone(index, { portalVisible: checked })}
+            label={t("workflow.inspector.portalVisible")}
+          />
 
           <RequirementList
             requirements={milestone.requirements ?? []}
