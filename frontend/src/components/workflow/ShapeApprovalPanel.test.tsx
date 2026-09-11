@@ -85,6 +85,28 @@ describe("ShapeApprovalPanel", () => {
     );
   });
 
+  it("shows the parsed problem-detail message on a decide failure, not the raw JSON body", async () => {
+    permissions = { "plan.approve_shape": ["ALL"] };
+    fetchMock.mockResolvedValue(reply({ detail: "This approval has already been decided" }, 409));
+    renderPanel({ status: "SUBMITTED" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+
+    expect(await screen.findByText("This approval has already been decided")).toBeInTheDocument();
+    expect(screen.queryByText(/"detail"/)).toBeNull();
+  });
+
+  it("shows the parsed problem-detail message on a submit failure, not the raw JSON body", async () => {
+    permissions = { "workflow.manage": ["ALL"] };
+    fetchMock.mockResolvedValue(reply({ detail: "Template is a catalogue template" }, 422));
+    renderPanel(undefined);
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit for approval" }));
+
+    expect(await screen.findByText("Template is a catalogue template")).toBeInTheDocument();
+    expect(screen.queryByText(/"detail"/)).toBeNull();
+  });
+
   it("hides decide controls once a decision already exists", () => {
     permissions = { "plan.approve_shape": ["ALL"] };
     renderPanel({ status: "APPROVED" });

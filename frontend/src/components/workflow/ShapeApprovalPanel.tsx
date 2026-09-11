@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { TextareaField } from "@/components/ui/Field";
 import { StatusPill, type StatusRole } from "@/components/ui/StatusPill";
 import { ApiError } from "@/lib/api/client";
+import { parseProblemDetail } from "@/lib/api/cases";
 import {
   useDecideShape,
   useSubmitShape,
@@ -56,7 +57,7 @@ export function ShapeApprovalPanel({
     setError(undefined);
     submit.mutate(
       { templateId, versionId },
-      { onError: (err) => setError(err instanceof ApiError ? err.message : t("common.error")) },
+      { onError: (err) => setError(err instanceof ApiError ? parseProblemDetail(err.message) : t("common.error")) },
     );
   }
 
@@ -64,7 +65,7 @@ export function ShapeApprovalPanel({
     setError(undefined);
     decide.mutate(
       { templateId, versionId, outcome, note: note.trim() || undefined },
-      { onError: (err) => setError(err instanceof ApiError ? err.message : t("common.error")) },
+      { onError: (err) => setError(err instanceof ApiError ? parseProblemDetail(err.message) : t("common.error")) },
     );
   }
 
@@ -97,7 +98,7 @@ export function ShapeApprovalPanel({
       )}
 
       {approval?.status === "REJECTED" && (
-        <p role="alert" className="text-risk-fg" style={{ ...BODY_TEXT, color: "var(--ob-risk-fg)" }}>
+        <p role="alert" style={{ ...BODY_TEXT, color: "var(--ob-risk-fg)" }}>
           {t("workflow.shape.rejectedBlocking")}
         </p>
       )}
