@@ -21,10 +21,18 @@ export type IssueRevisionRequest = components["schemas"]["IssueRevisionRequest"]
 export type PlanRevisionDiff = components["schemas"]["PlanRevisionDiffView"];
 export type PlanRevisionDiffRow = components["schemas"]["PlanRevisionDiffRowView"];
 export type PlanRevisionStatus = NonNullable<PlanRevision["status"]>;
+export type PlanShape = components["schemas"]["PlanShapeView"];
+export type PlanShapeStage = components["schemas"]["PlanShapeStageView"];
+export type PlanShapeMilestone = components["schemas"]["PlanShapeMilestoneView"];
 
 export const shapeApprovalKeys = {
   all: ["shape-approval"] as const,
   detail: (templateId: string, versionId: string) => [...shapeApprovalKeys.all, templateId, versionId] as const,
+};
+
+export const planShapeKeys = {
+  all: ["plan-shape"] as const,
+  detail: (templateId: string, versionId: string) => [...planShapeKeys.all, templateId, versionId] as const,
 };
 
 export const planRevisionKeys = {
@@ -54,6 +62,7 @@ export function useSubmitShape() {
       }),
     onSuccess: (_result, { templateId, versionId }) => {
       void queryClient.invalidateQueries({ queryKey: shapeApprovalKeys.detail(templateId, versionId) });
+      void queryClient.invalidateQueries({ queryKey: planShapeKeys.detail(templateId, versionId) });
     },
   });
 }
@@ -69,7 +78,26 @@ export function useDecideShape() {
       }),
     onSuccess: (_result, { templateId, versionId }) => {
       void queryClient.invalidateQueries({ queryKey: shapeApprovalKeys.detail(templateId, versionId) });
+      void queryClient.invalidateQueries({ queryKey: planShapeKeys.detail(templateId, versionId) });
     },
+  });
+}
+
+/**
+ * Task 21's combined read: the portal-visible rendering (stages/milestones,
+ * already filtered server-side by both a stage's and a milestone's own
+ * `portalVisible`) alongside gate 1's current approval, in one call --
+ * `WorkflowController`'s own doc: "The portal-visible shape and its current
+ * approval state". Deliberately used instead of a second `useShapeApproval`
+ * fetch for `ShapeApprovalPanel`'s own rendering: that endpoint has no 404
+ * for "never submitted" (unlike `/shape-approval`), so `approval` is simply
+ * `undefined` rather than requiring 404-as-empty-state handling here.
+ */
+export function usePlanShape(templateId: string, versionId: string) {
+  return useQuery({
+    queryKey: planShapeKeys.detail(templateId, versionId),
+    queryFn: () => apiFetch<PlanShape>(`/workflows/${templateId}/versions/${versionId}/plan`),
+    enabled: Boolean(templateId) && Boolean(versionId),
   });
 }
 

@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CommentThread } from "@/components/comment/CommentThread";
 import { ArrowRightIcon, WorkflowIcon } from "@/components/icons";
+import { AwaitingApprovalBanner } from "@/components/journey/AwaitingApprovalBanner";
 import { CaseHeader } from "@/components/journey/CaseHeader";
 import { CaseSwitcher } from "@/components/journey/CaseSwitcher";
 import { HoldDialog } from "@/components/journey/HoldDialog";
+import { PlanTab, type PlanPreviewMilestone } from "@/components/journey/PlanTab";
 import { Roadmap } from "@/components/journey/Roadmap";
 import { TasksTab } from "@/components/journey/TasksTab";
 import { TimelineTab } from "@/components/journey/TimelineTab";
@@ -18,6 +20,8 @@ import { Tabs, panelId, type TabItem } from "@/components/ui/Tabs";
 import { ApiError } from "@/lib/api/client";
 import { useApprovals, useCase, useCases, useParticipants, useResume, useRoadmap } from "@/lib/api/cases";
 import { useCustomer } from "@/lib/api/customers";
+import { usePlanRevisions } from "@/lib/api/plans";
+import { useDefinition, useWorkflowTemplate, type Stage } from "@/lib/api/workflows";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
@@ -42,11 +46,30 @@ export default function CaseWorkspacePage() {
   const canHold = useHasPermission("case.hold");
   const [holding, setHolding] = useState(false);
 
+  // Q21/Q22/Q23: the Plan tab and the held-case banner both only apply to a
+  // case pinned to a customer-owned template's version -- neither CaseView
+  // nor the roadmap carries that fact, so it is resolved from the template
+  // record itself, the same way the version editor page resolves it for
+  // gate 1 (`useWorkflowTemplate`'s own doc comment).
+  const templateId = caseQuery.data?.templateId ?? "";
+  const pinnedVersionId = caseQuery.data?.versionId ?? "";
+  const template = useWorkflowTemplate(templateId);
+  const isCustomerTemplate = Boolean(template.data?.customerId);
+  const definition = useDefinition(isCustomerTemplate ? templateId : "", isCustomerTemplate ? pinnedVersionId : "");
+  const planRevisions = usePlanRevisions(isCustomerTemplate ? caseId : "");
+  const revisionList = planRevisions.data ?? [];
+  const hasApprovedRevision = revisionList.some((r) => r.status === "APPROVED");
+  const hasOutstandingRevision = revisionList.some((r) => r.status === "ISSUED");
+  const showAwaitingApproval =
+    isCustomerTemplate && caseQuery.data?.status === "ON_HOLD" && !hasApprovedRevision;
+  const planMilestones = flattenPlanMilestones(definition.data?.stages ?? []);
+
   const TABS: TabItem[] = [
     { id: "journey", label: t("case.tabs.journey") },
     { id: "tasks", label: t("case.tabs.tasks") },
     { id: "documents", label: t("case.tabs.documents") },
     { id: "agreements", label: t("case.tabs.agreements") },
+    ...(isCustomerTemplate ? [{ id: "plan", label: t("case.tabs.plan") }] : []),
     { id: "timeline", label: t("case.tabs.timeline") },
   ];
 
@@ -90,6 +113,14 @@ export default function CaseWorkspacePage() {
 
       <CaseHeader caseData={caseQuery.data} customer={customer.data} />
 
+      {showAwaitingApproval && (
+        <AwaitingApprovalBanner
+          caseId={caseId}
+          hasOutstandingRevision={hasOutstandingRevision}
+          onAction={() => setTab("plan")}
+        />
+      )}
+
       {/*
        * SCREENS.md §3's wrapping two-column flex: content `1 1 520px`, aside
        * `1 1 296px` (min 264px, max 340px). `flex-wrap` on the row plus each
@@ -108,6 +139,7 @@ export default function CaseWorkspacePage() {
             {tab === "tasks" && <TasksTab caseId={caseId} />}
             {tab === "documents" && <EmptyState title={t("case.tabs.documents.empty")} />}
             {tab === "agreements" && <EmptyState title={t("case.tabs.agreements.empty")} />}
+            {tab === "plan" && isCustomerTemplate && <PlanTab caseId={caseId} milestones={planMilestones} />}
             {tab === "timeline" && <TimelineTab caseId={caseId} />}
           </div>
         </div>
@@ -192,6 +224,29 @@ function JourneyPreview({ caseId }: { caseId: string }) {
       />
     </div>
   );
+}
+
+/**
+ * The pinned version's own milestone definitions, flattened with a combined
+ * `portalVisible` -- `PlanRevisionService.issue`'s own rule snapshots a
+ * milestone only when BOTH it and its stage are portal-visible, so a hidden
+ * stage's milestones must read as hidden here too, not just the milestone's
+ * own flag.
+ */
+function flattenPlanMilestones(stages: Stage[]): PlanPreviewMilestone[] {
+  const milestones: PlanPreviewMilestone[] = [];
+  for (const stage of stages) {
+    const stageVisible = stage.portalVisible !== false;
+    for (const milestone of stage.milestones ?? []) {
+      if (!milestone.id) continue;
+      milestones.push({
+        id: milestone.id,
+        name: milestone.name ?? "",
+        portalVisible: stageVisible && milestone.portalVisible !== false,
+      });
+    }
+  }
+  return milestones;
 }
 
 function BackLink({ slug, customerId }: { slug: string; customerId: string }) {

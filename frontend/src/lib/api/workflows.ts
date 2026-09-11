@@ -36,6 +36,7 @@ export const workflowKeys = {
   all: ["workflows"] as const,
   templates: () => [...workflowKeys.all, "templates"] as const,
   definition: (versionId: string) => [...workflowKeys.all, "definition", versionId] as const,
+  template: (templateId: string) => [...workflowKeys.all, "template", templateId] as const,
 };
 
 export const migrationKeys = {
@@ -60,6 +61,23 @@ export function useDefinition(templateId: string, versionId: string) {
     queryKey: workflowKeys.definition(versionId),
     queryFn: () => apiFetch<WorkflowDefinition>(`/workflows/${templateId}/versions/${versionId}`),
     enabled: Boolean(templateId) && Boolean(versionId),
+  });
+}
+
+/**
+ * The single-template read (`WorkflowTemplateView`, carrying `customerId`) --
+ * the only place a case's pinned template's customer-ownership (Q21) can be
+ * read from, since neither `CaseView` nor `WorkflowDefinitionView` carries
+ * it. Sub-project 3A Task 31 added this: both the version editor (gate 1
+ * only applies to a customer-owned template's version) and the case
+ * workspace (the Plan tab and the held-case banner only apply to a case on
+ * one) need the same fact, and this is the one existing endpoint that has it.
+ */
+export function useWorkflowTemplate(templateId: string) {
+  return useQuery({
+    queryKey: workflowKeys.template(templateId),
+    queryFn: () => apiFetch<WorkflowTemplate>(`/workflows/${templateId}`),
+    enabled: Boolean(templateId),
   });
 }
 
