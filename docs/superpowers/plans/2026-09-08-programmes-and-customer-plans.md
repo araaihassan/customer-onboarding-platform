@@ -2428,6 +2428,24 @@ endpoint may need to move under the same base mapping for consistency — no fro
 yet, so this is free to do now and never once Task 28 lands). This closes the gap Task 28 below
 depends on.
 
+**Second plan amendment (found pre-dispatch review of Task 28, 2026-09-10):** Task 28's own
+Interfaces line asks for `useProgrammes(customerId?)`, but no task in Phase 2 (9, 11-14) ever
+gave `ProgrammeService` a list method — only singular `create`/`get`/`update`/`deactivate` exist
+(`ProgrammeService.java`), and `ProgrammeController` has no `GET /programmes` of any kind. Unlike
+the gate-2 gap above, this one is **not load-bearing for any task in this plan** — grepping every
+task from 29 to 35 shows only `useProgramme(id)` (singular) is ever actually consumed; the plural
+hook is asked for by Task 28's own Produces line but has no in-plan caller. Ruling: still worth
+closing now rather than leaving `useProgrammes` unimplementable, since Task 28 is TDD'd against
+its own full Produces list — but scoped to what a real caller would need: **`ProgrammeService.
+listForCustomer(UUID customerId)`** (`customerId` required, not "list every programme tenant-wide"
+— nothing in this plan calls for a global listing, and it is a materially bigger scoping decision
+this plan never made), same `AuthorizedQuery`-backed idiom as `listForCase` above, over the same
+`JpaSpecificationExecutor`-shaped `ProgrammeRepository`, gated `PROGRAMME_VIEW`. REST-wire as
+`GET /api/t/{tenantSlug}/customers/{customerId}/programmes`, matching `CaseController`'s own
+`GET /customers/{customerId}/cases` sibling convention exactly. `useProgrammes(customerId?)`'s
+frontend signature stays optional-typed per the brief, but Task 28 need not build a
+no-argument/list-all code path — there is nothing for it to call.
+
 # Phase 7 — Frontend
 
 **Invoke `frontend-design` and `ui-ux-pro-max` before every task in this phase.** The design bundle covers none of these screens; extend its tokens and components rather than inventing a second visual language. Every user-facing string goes through `t()`.
