@@ -676,6 +676,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/cases/{caseId}/plan-revisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listForCase"];
+        put?: never;
+        post: operations["issue"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/cases/{caseId}/plan-revisions/{revisionId}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["decide"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/cases/{caseId}/milestones/{mid}/reopen": {
         parameters: {
             query?: never;
@@ -1076,22 +1108,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/t/{tenantSlug}/plan-revisions/{revisionId}/diff": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["diff"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/t/{tenantSlug}/me": {
         parameters: {
             query?: never;
@@ -1148,6 +1164,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["roadmap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/cases/{caseId}/plan-revisions/{revisionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_6"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/cases/{caseId}/plan-revisions/{revisionId}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["diff"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1837,6 +1885,51 @@ export interface components {
             ref?: string;
             refType?: string;
         };
+        IssueRevisionRequest: {
+            note?: string;
+        };
+        PlanRevisionItemView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            milestoneId?: string;
+            /** Format: uuid */
+            milestoneDefinitionId?: string;
+            stageName?: string;
+            milestoneName?: string;
+            /** Format: date */
+            dueDate?: string;
+            /** Format: uuid */
+            ownerUserId?: string;
+            /** Format: int32 */
+            estimatedDurationDays?: number;
+            portalVisible?: boolean;
+            /** Format: int32 */
+            sortOrder?: number;
+        };
+        PlanRevisionView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** Format: int32 */
+            revisionNumber?: number;
+            /** @enum {string} */
+            status?: "ISSUED" | "APPROVED" | "REJECTED" | "SUPERSEDED";
+            /** Format: date-time */
+            issuedAt?: string;
+            /** Format: uuid */
+            issuedBy?: string;
+            issueNote?: string;
+            /** Format: date-time */
+            decidedAt?: string;
+            /** Format: uuid */
+            decidedBy?: string;
+            /** Format: uuid */
+            decidedOnBehalfOf?: string;
+            decisionNote?: string;
+            items?: components["schemas"]["PlanRevisionItemView"][];
+        };
         CreateCommentRequest: {
             /** @enum {string} */
             resourceType: "TASK" | "CASE";
@@ -1958,24 +2051,6 @@ export interface components {
             /** Format: int32 */
             progressPercent?: number;
         };
-        PlanRevisionDiffRowView: {
-            /** Format: uuid */
-            milestoneDefinitionId?: string;
-            milestoneName?: string;
-            /** Format: date */
-            previousDueDate?: string;
-            /** Format: date */
-            currentDueDate?: string;
-            /** Format: uuid */
-            previousOwnerUserId?: string;
-            /** Format: uuid */
-            currentOwnerUserId?: string;
-            /** @enum {string} */
-            changeKind?: "ADDED" | "REMOVED" | "DATE_CHANGED" | "OWNER_CHANGED" | "UNCHANGED";
-        };
-        PlanRevisionDiffView: {
-            rows?: components["schemas"]["PlanRevisionDiffRowView"][];
-        };
         Me: {
             /** Format: uuid */
             id?: string;
@@ -2008,10 +2083,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2057,10 +2132,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2116,6 +2191,24 @@ export interface components {
             /** @enum {string} */
             status?: "ACTIVE" | "REMOVED";
         };
+        PlanRevisionDiffRowView: {
+            /** Format: uuid */
+            milestoneDefinitionId?: string;
+            milestoneName?: string;
+            /** Format: date */
+            previousDueDate?: string;
+            /** Format: date */
+            currentDueDate?: string;
+            /** Format: uuid */
+            previousOwnerUserId?: string;
+            /** Format: uuid */
+            currentOwnerUserId?: string;
+            /** @enum {string} */
+            changeKind?: "ADDED" | "REMOVED" | "DATE_CHANGED" | "OWNER_CHANGED" | "UNCHANGED";
+        };
+        PlanRevisionDiffView: {
+            rows?: components["schemas"]["PlanRevisionDiffRowView"][];
+        };
         CandidateView: {
             /** Format: uuid */
             caseId?: string;
@@ -2145,10 +2238,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -5129,6 +5222,162 @@ export interface operations {
             };
         };
     };
+    listForCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every schedule revision ever issued for this case, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanRevisionView"][];
+                };
+            };
+            /** @description Caller holds no sufficient plan.issue grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    issue: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["IssueRevisionRequest"];
+            };
+        };
+        responses: {
+            /** @description Issued -- supersedes any outstanding revision for this case */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanRevisionView"];
+                };
+            };
+            /** @description Caller holds no sufficient plan.issue grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The case's plan shape has not yet been approved (gate 1 -> gate 2 ordering) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    decide: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+                revisionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecidePlanRequest"];
+            };
+        };
+        responses: {
+            /** @description Decision recorded -- approving a case's first-ever revision releases its hold (QA Q22/Q23) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanRevisionView"];
+                };
+            };
+            /** @description Caller holds no sufficient plan.approve_schedule grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The revision has no outstanding decision to decide -- a decision is one-shot */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     reopen: {
         parameters: {
             query?: never;
@@ -6392,57 +6641,6 @@ export interface operations {
             };
         };
     };
-    diff: {
-        parameters: {
-            query: {
-                against: string;
-            };
-            header?: never;
-            path: {
-                revisionId: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Every milestone's change between the two revisions, computed server-side */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["PlanRevisionDiffView"];
-                };
-            };
-            /** @description Caller holds no sufficient plan.issue grant */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Absent, out of the caller's scope, or not from the same case as the id being diffed against */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Unprocessable Entity */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "*/*": components["schemas"]["ProblemList"];
-                };
-            };
-        };
-    };
     me: {
         parameters: {
             query?: never;
@@ -6593,6 +6791,108 @@ export interface operations {
                 };
             };
             /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    get_6: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+                revisionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The revision and its frozen items */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanRevisionView"];
+                };
+            };
+            /** @description Caller holds no sufficient plan.issue grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    diff: {
+        parameters: {
+            query: {
+                against: string;
+            };
+            header?: never;
+            path: {
+                caseId: string;
+                revisionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every milestone's change between the two revisions, computed server-side */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanRevisionDiffView"];
+                };
+            };
+            /** @description Caller holds no sufficient plan.issue grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, out of the caller's scope, or not from the same case as the id being diffed against */
             404: {
                 headers: {
                     [name: string]: unknown;

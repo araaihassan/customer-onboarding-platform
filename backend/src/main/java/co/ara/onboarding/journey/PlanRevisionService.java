@@ -209,6 +209,47 @@ public class PlanRevisionService {
     }
 
     /**
+     * Sub-project 3A, Task 27.5 (plan amendment): every schedule revision ever
+     * issued for {@code caseId}, newest first -- the plural read {@code
+     * usePlanRevisions(caseId)} (Task 28) needs and {@link #get} alone cannot
+     * supply. {@code caseId} is resolved through {@link AuthorizedQuery} under
+     * {@code plan.issue} itself, never {@code case.view}/{@code case.edit} --
+     * the exact same "fetched under the caller's own gating key" rule {@link
+     * #issue} already follows, so a plain case reader without {@code
+     * plan.issue} cannot enumerate every schedule ever proposed for a case
+     * they can otherwise see.
+     *
+     * Follows {@code CaseService.hasAnyApprovedRevision}/{@code
+     * ApprovalService.listForCase}'s own shape: confirm the case itself is
+     * visible first (a 404 on an out-of-scope {@code caseId}, not a silently
+     * empty list), then read the child rows through the same {@code
+     * JpaSpecificationExecutor}-shaped {@link PlanRevisionRepository} filtered
+     * on {@code caseId} -- no hand-rolled JPQL, no new repository method.
+     */
+    @RequirePermission(PermissionKeys.PLAN_ISSUE)
+    @Transactional(readOnly = true)
+    public List<PlanRevisionView> listForCase(UUID caseId) {
+        authorizedQuery.getById(cases, Case.class, PermissionKeys.PLAN_ISSUE, caseId);
+
+        List<PlanRevision> revisionRows = authorizedQuery.findAll(revisions, PlanRevision.class,
+                        PermissionKeys.PLAN_ISSUE,
+                        (root, query, cb) -> cb.equal(root.get("caseId"), caseId),
+                        Pageable.unpaged(Sort.by(Sort.Direction.DESC, "revisionNumber")))
+                .getContent();
+
+        Map<UUID, List<PlanRevisionItem>> itemsByRevisionId = authorizedQuery.findAll(items, PlanRevisionItem.class,
+                        PermissionKeys.PLAN_ISSUE,
+                        (root, query, cb) -> cb.equal(root.get("caseId"), caseId),
+                        Pageable.unpaged(Sort.by("sortOrder")))
+                .getContent().stream()
+                .collect(groupingBy(PlanRevisionItem::getPlanRevisionId));
+
+        return revisionRows.stream()
+                .map(r -> toView(r, itemsByRevisionId.getOrDefault(r.getId(), List.of())))
+                .toList();
+    }
+
+    /**
      * Compares {@code revisionId} (the "current" snapshot) against {@code
      * againstRevisionId} (the "previous" one), row by row, matched by {@code
      * milestoneDefinitionId} -- see {@link ChangeKind}'s own javadoc for why not
