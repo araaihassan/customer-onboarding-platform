@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.springframework.http.HttpStatus.CREATED;
@@ -48,6 +49,24 @@ public class ProgrammeController {
     public ProgrammeController(ProgrammeService programmes, ProgrammeMembershipService membership) {
         this.programmes = programmes;
         this.membership = membership;
+    }
+
+    /**
+     * Sub-project 3A, Task 27.6 (inserted plan amendment). Mirrors {@code
+     * journey.CaseController}'s own {@code GET /customers/{customerId}/cases}
+     * sibling exactly -- a customer-scoped list, mounted alongside the
+     * customer, not under {@code /programmes} itself.
+     */
+    @GetMapping("/customers/{customerId}/programmes")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Programmes for the customer, newest first"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "The customer is absent or out of scope",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public List<ProgrammeView> listForCustomer(@PathVariable UUID customerId) {
+        return programmes.listForCustomer(customerId);
     }
 
     @PostMapping("/programmes")

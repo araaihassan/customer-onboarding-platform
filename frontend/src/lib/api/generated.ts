@@ -1124,7 +1124,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/t/{tenantSlug}/customers/{customerId}/cases": {
+    "/api/t/{tenantSlug}/customers/{customerId}/programmes": {
         parameters: {
             query?: never;
             header?: never;
@@ -1132,6 +1132,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["listForCustomer"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/customers/{customerId}/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listForCustomer_1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2083,10 +2099,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2132,10 +2148,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2238,10 +2254,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -6671,6 +6687,55 @@ export interface operations {
         };
     };
     listForCustomer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                customerId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Programmes for the customer, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProgrammeView"][];
+                };
+            };
+            /** @description Caller holds no sufficient grant for this action */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The customer is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    listForCustomer_1: {
         parameters: {
             query?: never;
             header?: never;

@@ -17,6 +17,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.util.stream.Collectors.toSet;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -196,6 +197,82 @@ class ProgrammeServiceTest extends PostgresTestBase {
         assertThatThrownBy(() -> fixture.runAsUser(tenant, deptManager[0], () -> programmeService.update(
                 programmeId[0], new UpdateProgrammeRequest("Renamed", null, null, null, null))))
                 .isInstanceOf(ProgrammeNotActiveException.class);
+    }
+
+    /**
+     * Sub-project 3A, Task 27.6 (inserted plan amendment): proves
+     * {@code listForCustomer} genuinely scope-filters rather than returning
+     * every programme for the customer unconditionally -- a DEPARTMENT-scoped
+     * {@code programme.view} holder sees only the ONE of two programmes
+     * (both belonging to the SAME customer) owned by their own department,
+     * the "at least one write test must run at the narrowest catalogued
+     * scope" convention applied to this read.
+     */
+    @Test
+    void listForCustomerReturnsOnlyProgrammesWithinTheCallersScope() {
+        UUID tenant = fixture.createTenant("programme-list-scope-" + Uuid7.generate());
+        var deptReader = new UUID[1];
+        var customerId = new UUID[1];
+        var ownProgrammeId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID ownDepartment = fixture.createDepartment(tenant, "Reader's Department");
+            UUID otherDepartment = fixture.createDepartment(tenant, "Other Department");
+            deptReader[0] = fixture.createUserInDepartment(tenant, "dept-list-reader@example.com", ownDepartment);
+            grant(deptReader[0], Map.of(
+                    PermissionKeys.PROGRAMME_VIEW, Scope.DEPARTMENT,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL));
+
+            customerId[0] = fixture.createCustomer(tenant, "Shared Co " + Uuid7.generate(), null, null, null);
+
+            ownProgrammeId[0] = programmeService.create(new CreateProgrammeRequest(
+                    "Reader's Programme", customerId[0], null, null, ownDepartment, null)).id();
+            // Same customer, different department -- outside the reader's own
+            // programme.view scope, so a passing test proves the filter is
+            // genuinely selective, not vacuously true because every programme
+            // for this customer happens to be visible.
+            programmeService.create(new CreateProgrammeRequest(
+                    "Other Department's Programme", customerId[0], null, null, otherDepartment, null));
+        });
+
+        AtomicReference<List<ProgrammeView>> result = new AtomicReference<>();
+        fixture.runAsUser(tenant, deptReader[0], () -> result.set(programmeService.listForCustomer(customerId[0])));
+
+        assertThat(result.get()).extracting(ProgrammeView::id).containsExactly(ownProgrammeId[0]);
+    }
+
+    /**
+     * Sub-project 3A, Task 27.6: {@code customerId} must be resolved through
+     * {@link co.ara.onboarding.authz.AuthorizedQuery} before any programme row
+     * is read -- the same escalation shape {@code
+     * createResolvesTheCustomerThroughAuthorizedQueryBeforeWriting} above
+     * proves for the write path, applied to this read. A narrow actor holding
+     * {@code programme.view} at ALL (there is nothing narrower to test that
+     * key at here) but {@code customer.view} only over their OWN department
+     * must 404 on a customer belonging to a DIFFERENT department, never fall
+     * through to an empty (but 200) programme list.
+     */
+    @Test
+    void listForCustomerResolvesTheCustomerThroughAuthorizedQueryBeforeReading() {
+        UUID tenant = fixture.createTenant("programme-list-escalation-" + Uuid7.generate());
+        var narrowActor = new UUID[1];
+        var foreignCustomer = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID actorsDepartment = fixture.createDepartment(tenant, "Actor's Department");
+            UUID otherDepartment = fixture.createDepartment(tenant, "Another Department");
+            narrowActor[0] = fixture.createUserInDepartment(tenant, "narrow-list-reader@example.com", actorsDepartment);
+            grant(narrowActor[0], Map.of(
+                    PermissionKeys.PROGRAMME_VIEW, Scope.ALL,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.DEPARTMENT));
+
+            foreignCustomer[0] = fixture.createCustomer(
+                    tenant, "Foreign List Co " + Uuid7.generate(), null, otherDepartment, null);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, narrowActor[0],
+                () -> programmeService.listForCustomer(foreignCustomer[0])))
+                .isInstanceOf(NoSuchElementException.class);
     }
 
     private List<Programme> programmesFor(UUID customerId) {

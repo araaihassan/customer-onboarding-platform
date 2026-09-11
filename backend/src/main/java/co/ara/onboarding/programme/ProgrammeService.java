@@ -14,6 +14,7 @@ import co.ara.onboarding.journey.CaseWeightReader;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -239,6 +240,47 @@ public class ProgrammeService {
 
         audit.record(AuditActions.PROGRAMME_DEACTIVATED, "programme", p.getId(),
                 "Deactivated programme " + p.getName(), Map.of());
+    }
+
+    /**
+     * Sub-project 3A, Task 27.6 (inserted plan amendment -- see
+     * {@code .superpowers/sdd/2026-09-08-programmes-and-customer-plans/task-27.6-brief.md}):
+     * every programme belonging to {@code customerId}, newest first -- the
+     * plural read {@code useProgrammes(customerId)} (Task 28) needs and
+     * {@link #get} alone cannot supply. Follows {@code journey.
+     * PlanRevisionService#listForCase}'s exact shape: resolve the PARENT id
+     * first, then read the child collection through the same
+     * {@code JpaSpecificationExecutor}-shaped {@link ProgrammeRepository}
+     * filtered on it -- no hand-rolled JPQL, no new repository method.
+     *
+     * {@code customerId} is resolved through {@link AuthorizedQuery} under
+     * {@code customer.view} -- exactly as {@link #create}/{@link #customerOf}
+     * already do, not {@code programme.view} itself: {@code customerId} names
+     * a {@code Customer} row, not a {@code Programme} one, and
+     * {@code AuthorizedQuery} dispatches its scope predicate by the entity
+     * type/permission-key PAIR it is given, so resolving it under
+     * {@code programme.view} would ask {@code DescriptorRegistry} for a
+     * {@code Customer} descriptor keyed to a permission that resource type is
+     * never catalogued against. A caller who cannot see this customer at all
+     * must 404 here, before any programme row is even queried -- the same
+     * "resolved before written" discipline the write paths carry, applied to
+     * a read: a scope-filtered but otherwise unconditional programme query
+     * would otherwise happily return an empty list for a customer the caller
+     * cannot see and one they merely have no programmes for identically,
+     * which is a weaker guarantee than the 404 every other out-of-scope id in
+     * this codebase gets.
+     */
+    @RequirePermission(PermissionKeys.PROGRAMME_VIEW)
+    @Transactional(readOnly = true)
+    public List<ProgrammeView> listForCustomer(UUID customerId) {
+        Customer customer = authorizedQuery.getById(customers, Customer.class, PermissionKeys.CUSTOMER_VIEW, customerId);
+
+        Specification<Programme> byCustomer = (root, query, cb) -> cb.equal(root.get("customerId"), customer.getId());
+        return authorizedQuery.findAll(programmes, Programme.class, PermissionKeys.PROGRAMME_VIEW, byCustomer,
+                        Pageable.unpaged(Sort.by(Sort.Direction.DESC, "createdAt")))
+                .getContent().stream()
+                .map(p -> toView(p, customer))
+                .toList();
     }
 
     /**
