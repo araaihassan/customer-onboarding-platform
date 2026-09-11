@@ -97,6 +97,7 @@ public class CaseService {
     private final Clock clock;
     private final TaskLifecycle taskLifecycle;
     private final TaskDirectory taskDirectory;
+    private final PlanRevisionRepository planRevisions;
 
     public CaseService(CaseRepository cases, CaseParticipantRepository participants,
                        MilestoneRepository milestones, RequirementRepository requirements,
@@ -111,7 +112,7 @@ public class CaseService {
                        AuthContextProvider contextProvider, AuthorizationService authorization,
                        AuditRecorder audit, CaseEngine engine,
                        BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle,
-                       TaskDirectory taskDirectory) {
+                       TaskDirectory taskDirectory, PlanRevisionRepository planRevisions) {
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -137,6 +138,7 @@ public class CaseService {
         this.clock = clock;
         this.taskLifecycle = taskLifecycle;
         this.taskDirectory = taskDirectory;
+        this.planRevisions = planRevisions;
     }
 
     @RequirePermission(PermissionKeys.CASE_CREATE)
@@ -153,6 +155,13 @@ public class CaseService {
             throw new TemplateNotPublishedException(template.getId());
         }
         UUID versionId = template.getCurrentVersionId();
+        // QA Q22/Q23 gate 2: a case pinned to a customer-owned template
+        // (customerId non-null -- Task 15/16's clone-and-tailor) has no
+        // approved schedule of its own yet, so it starts ON_HOLD rather than
+        // running immediately on whatever dates instantiate() would otherwise
+        // enter its first stage against. A catalogue template has no such
+        // gate and is unaffected.
+        boolean startsHeldPendingPlanApproval = template.getCustomerId() != null;
 
         List<AttributeDefinition> declared = readDefinition(attributeDefinitions,
                 AttributeDefinition.class, versionId, "ordinal");
@@ -172,8 +181,11 @@ public class CaseService {
         c.setCustomerId(customer.id());
         c.setTemplateId(template.getId());
         c.setVersionId(versionId);                 // pinned here, never reassigned except by migration
-        c.setStatus(CaseStatus.ACTIVE);
+        c.setStatus(startsHeldPendingPlanApproval ? CaseStatus.ON_HOLD : CaseStatus.ACTIVE);
         c.setStartedAt(Instant.now());
+        if (startsHeldPendingPlanApproval) {
+            c.setHeldAt(Instant.now(clock));
+        }
         c.setProgressPercent(0);
         c.setTotalHoldDays(0);
         // Copied, not joined: these three columns are what CaseDescriptor resolves
@@ -213,6 +225,16 @@ public class CaseService {
         audit.record(AuditActions.CASE_CREATED, "onboarding_case", c.getId(),
                 "Opened case on workflow " + template.getName() + " v" + versionNoOf(versionId),
                 Map.of("customerId", customer.id().toString(), "versionId", versionId.toString()));
+
+        // The hold is a CONSEQUENCE of opening a customer-template case, so its
+        // own record follows CASE_CREATED -- same cause-before-effect ordering
+        // hold()'s own CASE_HELD record uses, just triggered by create() instead
+        // of a caller's explicit reason. The fixed reason is what lets the audit
+        // trail tell this apart from a manual hold.
+        if (startsHeldPendingPlanApproval) {
+            audit.record(AuditActions.CASE_HELD, "onboarding_case", c.getId(),
+                    "Awaiting first plan approval", Map.of("reason", "Awaiting first plan approval"));
+        }
 
         // After CASE_CREATED's own audit record, before reconcile: a requirement
         // of kind TASK's instantiated Task row must not exist before the case
@@ -465,9 +487,25 @@ public class CaseService {
     @RequirePermission({PermissionKeys.CASE_HOLD, PermissionKeys.PLAN_APPROVE_SCHEDULE})
     @Transactional
     public CaseView resume(UUID caseId) {
-        authorizedQuery.getById(cases, Case.class, callersOwnHoldPermission(), caseId);
+        String permissionKey = callersOwnHoldPermission();
+        authorizedQuery.getById(cases, Case.class, permissionKey, caseId);
         Case c = engine.lockAndLoad(caseId);
         if (c.getStatus() != CaseStatus.ON_HOLD) throw new CaseNotOnHoldException(caseId);
+
+        // QA Q22/Q23 gate 2's other half: a customer-template case's hold is
+        // not a plain manual pause, so plain CASE_HOLD/PLAN_APPROVE_SCHEDULE
+        // authority to resume is not by itself enough to release it -- only
+        // an APPROVED schedule revision does. Derived at read time from the
+        // template's customerId and whether any revision has ever been
+        // APPROVED, never a column: a case with no approved revision yet
+        // stays refused no matter who calls resume() or how many times a
+        // manual case.hold is layered on top of it afterwards (see
+        // hasAnyApprovedRevision's own javadoc for why the two reasons never
+        // interfere with each other once the first approval lands).
+        WorkflowTemplate template = readOneDefinition(templates, WorkflowTemplate.class, c.getTemplateId());
+        if (template.getCustomerId() != null && !hasAnyApprovedRevision(caseId, permissionKey)) {
+            throw new PlanApprovalOutstandingException(caseId);
+        }
 
         int heldBusinessDays = calendar.businessDaysBetween(
                 LocalDate.ofInstant(c.getHeldAt(), ZoneOffset.UTC), LocalDate.now(clock));
@@ -513,6 +551,27 @@ public class CaseService {
 
     private static final List<String> RESUME_KEYS =
             List.of(PermissionKeys.CASE_HOLD, PermissionKeys.PLAN_APPROVE_SCHEDULE);
+
+    /**
+     * Whether {@code caseId} has ever had an {@code APPROVED} schedule
+     * revision -- the same query {@code PlanRevisionService.hasAnyApprovedRevision}
+     * runs for its own decide()/resume() call, duplicated here rather than
+     * shared: {@code PlanRevisionService} already depends on {@code CaseService}
+     * (it calls {@code resume} directly), so the reverse dependency would be a
+     * circular bean wiring, not just a style choice. Resolved under {@code
+     * permissionKey} -- whichever of resume()'s own two OR'd keys the caller
+     * holds -- the same "read under the caller's own gating key" pattern
+     * {@link #callersOwnHoldPermission()} already established for the Case
+     * read two lines above this method's own call site.
+     */
+    private boolean hasAnyApprovedRevision(UUID caseId, String permissionKey) {
+        return !authorizedQuery.findAll(planRevisions, PlanRevision.class, permissionKey,
+                        (root, query, cb) -> cb.and(
+                                cb.equal(root.get("caseId"), caseId),
+                                cb.equal(root.get("status"), PlanRevisionStatus.APPROVED)),
+                        Pageable.unpaged())
+                .getContent().isEmpty();
+    }
 
     @RequirePermission(PermissionKeys.CASE_VIEW)
     @Transactional(readOnly = true)

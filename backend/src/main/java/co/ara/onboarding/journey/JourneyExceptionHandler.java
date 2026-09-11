@@ -47,7 +47,7 @@ class JourneyExceptionHandler {
     @ExceptionHandler({StageNotExitableException.class, CaseOnHoldException.class,
                        CaseNotOnHoldException.class, ApprovalAlreadyDecidedException.class,
                        ApprovalKindMismatchException.class, CaseNotMigratableException.class,
-                       TemplateNotPublishedException.class})
+                       TemplateNotPublishedException.class, PlanApprovalOutstandingException.class})
     ProblemDetail onConflict(RuntimeException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }

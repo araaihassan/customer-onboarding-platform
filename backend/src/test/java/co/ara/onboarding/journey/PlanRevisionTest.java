@@ -73,6 +73,7 @@ class PlanRevisionTest extends PostgresTestBase {
     @Autowired MilestoneRepository milestones;
     @Autowired RoleService roles;
     @Autowired CaseRepository caseRepository;
+    @Autowired CaseEngine engine;
 
     private UUID tenant;
     private UUID team;
@@ -315,6 +316,20 @@ class PlanRevisionTest extends PostgresTestBase {
      * Go live, one stage), published, cased, shape-submitted and APPROVED.
      * Stores the clone's published version id in {@code customerVersionId} for
      * later tests that need it directly.
+     *
+     * Sub-project 3A Task 26 landed after this fixture was written: a case on
+     * a customer-owned template now starts {@code ON_HOLD} pending its own
+     * first schedule approval (QA Q22/Q23 gate 2), so {@code cloned.caseId()}
+     * has no entered stage or due dates yet at this point -- the tests that
+     * use this fixture are about {@code issue()}'s own snapshot mechanics
+     * (due dates, revision numbering), not about the hold itself (that is
+     * {@code PlanHoldTest}'s job now). Rather than consuming a real schedule
+     * revision here to release the hold -- which would shift every {@code
+     * revisionNumber()} assertion below by one -- the case is pushed straight
+     * to ACTIVE directly against the repository and {@link CaseEngine},
+     * mirroring {@link #openHeldCaseOnCustomerTemplate()}'s own
+     * "seed the state directly, no production path needed for this test"
+     * pattern, just in the opposite direction.
      */
     private UUID openApprovedCustomerCase(UUID owningTeamId) {
         var caseRef = new AtomicReference<ClonedCase>();
@@ -326,6 +341,13 @@ class PlanRevisionTest extends PostgresTestBase {
             planShapeService.decide(cloned.versionId(),
                     new DecidePlanRequest(PlanDecision.APPROVED, "Approved", contactId));
             customerVersionId = cloned.versionId();
+
+            Case c = caseRepository.findById(cloned.caseId()).orElseThrow();
+            c.setStatus(CaseStatus.ACTIVE);
+            c.setHeldAt(null);
+            c = caseRepository.saveAndFlush(c);
+            engine.reconcile(c);
+
             caseRef.set(cloned);
         });
         return caseRef.get().caseId();
