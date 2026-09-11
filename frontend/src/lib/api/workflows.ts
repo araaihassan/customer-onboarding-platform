@@ -25,6 +25,7 @@ export type Condition = components["schemas"]["ConditionView"];
 export type ConditionRequest = components["schemas"]["ConditionRequest"];
 export type Attribute = components["schemas"]["AttributeView"];
 export type AttributeRequest = components["schemas"]["AttributeRequest"];
+export type CloneTemplateRequest = components["schemas"]["CloneTemplateRequest"];
 export type ProblemList = components["schemas"]["ProblemList"];
 export type MigrationPreview = components["schemas"]["MigrationPreviewView"];
 export type Candidate = components["schemas"]["CandidateView"];
@@ -158,6 +159,49 @@ export function usePublish() {
       }),
     onSuccess: (definition, { versionId }) => {
       queryClient.setQueryData(workflowKeys.definition(versionId), definition);
+      void queryClient.invalidateQueries({ queryKey: workflowKeys.templates() });
+    },
+  });
+}
+
+/**
+ * Clones a catalogue template for exactly one customer -- CustomerTemplateService.clone
+ * (sub-project 3A Task 16, QA Q21). The response is the new customer template row
+ * itself, and it deliberately carries no currentVersionId even though a DRAFT version
+ * now exists under the hood: clone() returns that field null (WorkflowTemplateView's own
+ * shape), the same way a template's very first draft always does. Opening it therefore
+ * goes through the same createDraft 409-conflict "resume this draft" path every other
+ * template's already-open draft already resolves through (parseDraftVersionId above) --
+ * there is no versionId here to build a dedicated redirect from.
+ */
+export function useCloneTemplate() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ templateId, body }: { templateId: string; body: CloneTemplateRequest }) =>
+      apiFetch<WorkflowTemplate>(`/workflows/${templateId}/clone`, {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: workflowKeys.templates() });
+    },
+  });
+}
+
+/**
+ * Deep-copies the clone's catalogue source's current published version into a fresh
+ * DRAFT of the SAME customer template -- CustomerTemplateService.refreshFromSource
+ * (sub-project 3A Task 17, QA Q21 gate). Unlike clone above, the response IS the new
+ * draft's own WorkflowDefinitionView (versionId included), because refresh always
+ * targets an existing template row rather than creating one: the caller can route
+ * straight into the editor rather than falling back to the 409-conflict resume path.
+ */
+export function useRefreshFromSource() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (templateId: string) =>
+      apiFetch<WorkflowDefinition>(`/workflows/${templateId}/refresh`, { method: "POST" }),
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: workflowKeys.templates() });
     },
   });

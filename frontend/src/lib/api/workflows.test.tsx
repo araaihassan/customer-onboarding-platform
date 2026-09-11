@@ -6,12 +6,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError, __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import {
   parseProblems,
+  useCloneTemplate,
   useCreateDraft,
   useCreateTemplate,
   useDefinition,
   useMigrate,
   useMigrationPreview,
   usePublish,
+  useRefreshFromSource,
   useSaveDraft,
   useWorkflows,
 } from "./workflows";
@@ -134,6 +136,58 @@ describe("mutations", () => {
     const { result } = renderHook(() => usePublish(), { wrapper: makeWrapper() });
     await expect(result.current.mutateAsync({ templateId: "t-1", versionId: "v-1" }))
       .rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("useCloneTemplate", () => {
+  it("clones a catalogue template for a customer with POST", async () => {
+    fetchMock.mockResolvedValue(
+      reply({ id: "t-9", name: "Acme Onboarding", customerId: "cust-1", clonedFromTemplateId: "t-1" }, 201),
+    );
+
+    const { result } = renderHook(() => useCloneTemplate(), { wrapper: makeWrapper() });
+    await result.current.mutateAsync({
+      templateId: "t-1",
+      body: { customerId: "cust-1", name: "Acme Onboarding" },
+    });
+
+    expect(lastUrl()).toBe("/api/t/acme/workflows/t-1/clone");
+    expect(lastInit().method).toBe("POST");
+    expect(JSON.parse(lastInit().body as string)).toEqual({ customerId: "cust-1", name: "Acme Onboarding" });
+  });
+
+  /** This customer already holds a clone of this template -- V18's own partial unique index. */
+  it("surfaces a 409 as an ApiError", async () => {
+    fetchMock.mockResolvedValue(reply({ detail: "Already cloned" }, 409));
+
+    const { result } = renderHook(() => useCloneTemplate(), { wrapper: makeWrapper() });
+    await expect(
+      result.current.mutateAsync({ templateId: "t-1", body: { customerId: "cust-1", name: "Acme Onboarding" } }),
+    ).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("useRefreshFromSource", () => {
+  it("refreshes a customer template from its catalogue source with POST, no body", async () => {
+    fetchMock.mockResolvedValue(reply({ versionId: "v-9", templateId: "t-9", status: "DRAFT" }, 201));
+
+    const { result } = renderHook(() => useRefreshFromSource(), { wrapper: makeWrapper() });
+    const definition = await result.current.mutateAsync("t-9");
+
+    expect(lastUrl()).toBe("/api/t/acme/workflows/t-9/refresh");
+    expect(lastInit().method).toBe("POST");
+    expect(lastInit().body).toBeUndefined();
+    // The caller routes straight into the editor with this -- unlike clone, refresh's
+    // response carries the new draft's own versionId.
+    expect(definition).toEqual({ versionId: "v-9", templateId: "t-9", status: "DRAFT" });
+  });
+
+  /** The customer template already has an open draft -- the same conflict createDraft guards against. */
+  it("surfaces a 409 as an ApiError", async () => {
+    fetchMock.mockResolvedValue(reply({ detail: "Already has an open draft", versionId: "open-1" }, 409));
+
+    const { result } = renderHook(() => useRefreshFromSource(), { wrapper: makeWrapper() });
+    await expect(result.current.mutateAsync("t-9")).rejects.toBeInstanceOf(ApiError);
   });
 });
 
