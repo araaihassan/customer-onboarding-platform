@@ -115,20 +115,7 @@ export function MilestoneRow({
               {milestone.name}
             </span>
             <StatusPill status={t(`milestone.status.${status}`)} role={ROLE_BY_STATUS[status] ?? "neutral"} />
-            {!milestone.portalVisible && (
-              <span
-                className="text-text-subtle"
-                style={{
-                  font: "11px/1.3 var(--ob-font-family-ui)",
-                  backgroundColor: "var(--ob-surface-sunken)",
-                  color: "var(--ob-text-muted)",
-                  padding: "2px 8px",
-                  borderRadius: "var(--ob-radius-5)",
-                }}
-              >
-                {t("milestone.internal")}
-              </span>
-            )}
+            {!milestone.portalVisible && <StatusPill status={t("milestone.internal")} role="neutral" />}
             {status === "BLOCKED" && blockedBy.length > 0 && (
               <span
                 style={{
