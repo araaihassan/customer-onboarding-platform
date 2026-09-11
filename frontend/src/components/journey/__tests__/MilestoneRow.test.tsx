@@ -6,7 +6,7 @@ import type { MilestoneRoadmap } from "@/lib/api/cases";
 
 afterEach(cleanup);
 
-let permissions: Record<string, string[]> = {};
+const permissions: Record<string, string[]> = {};
 vi.mock("@/lib/auth/useAuth", () => ({
   useAuth: () => ({ permissions }),
 }));
