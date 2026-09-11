@@ -159,6 +159,39 @@ class PortalVisibilityTest extends PostgresTestBase {
         });
     }
 
+    /**
+     * Found live while writing sub-project 3A's task-33 e2e spec:
+     * MilestoneRoadmapView never carried portalVisible at all, even though
+     * MilestoneRow.tsx (Task 32) already reads milestone.portalVisible to
+     * render its "Internal" badge -- a real gap between the frontend's own
+     * assumption and the actual generated type, caught only by `next build`'s
+     * real tsc pass (vitest's esbuild/swc transpile never type-checks, so the
+     * whole frontend suite stayed green while the production build could not
+     * compile at all). Fixed by adding the field here, populated from
+     * MilestoneDefinition.isPortalVisible() -- the same authoring-time flag
+     * aMilestoneDefinitionRoundTripsItsPortalVisibleFlag() above already
+     * proves round-trips through the builder.
+     */
+    @Test
+    void theRoadmapCarriesEachMilestonesPortalVisibleFlag() {
+        UUID tenant = fixture.createTenant("portal-visible-roadmap");
+        fixture.runAs(tenant, () -> {
+            UUID v1 = journey.publish(new WorkflowDefinitionRequest(
+                    List.of(stage("s1", "Stage One", List.of(
+                            milestone("m1", "Milestone One", 1, List.of(), List.of(manual("Do it")), false),
+                            milestone("m2", "Milestone Two", 1, List.of(), List.of(manual("Do it")))))),
+                    List.of(), 0L));
+            UUID templateId = journey.templateOf(v1);
+            UUID customerId = fixture.createCustomer(
+                    tenant, "Portal Visibility Roadmap Customer " + Uuid7.generate(), null, null, null);
+            UUID caseId = cases.create(new CreateCaseRequest(
+                    customerId, templateId, "Portal Visibility Roadmap Case " + Uuid7.generate(), Map.of())).id();
+
+            assertThat(milestoneOrdinal(caseId, 0).portalVisible()).isFalse();
+            assertThat(milestoneOrdinal(caseId, 1).portalVisible()).isTrue();
+        });
+    }
+
     private MilestoneRoadmapView milestoneOrdinal(UUID caseId, int flatIndex) {
         return cases.roadmap(caseId).stages().stream()
                 .flatMap(s -> s.milestones().stream())

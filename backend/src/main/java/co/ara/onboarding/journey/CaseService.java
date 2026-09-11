@@ -322,7 +322,7 @@ public class CaseService {
                 TaskSummary taskSummary = taskSummaries.getOrDefault(m.getId(), new TaskSummary(0, 0));
                 milestoneViews.add(new MilestoneRoadmapView(m.getId(), def.getName(), m.getStatus(),
                         m.getOwnerUserId(), m.getDueDate(), m.getProgressPercent(), blockedBy, requirementViews,
-                        taskSummary));
+                        taskSummary, def.isPortalVisible()));
             }
             stageViews.add(new StageRoadmapView(stage.getId(), stage.getName(), stage.getOrdinal(), milestoneViews));
         }
