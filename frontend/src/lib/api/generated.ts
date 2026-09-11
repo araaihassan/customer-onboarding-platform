@@ -1076,6 +1076,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/plan-revisions/{revisionId}/diff": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["diff"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/me": {
         parameters: {
             query?: never;
@@ -1942,6 +1958,24 @@ export interface components {
             /** Format: int32 */
             progressPercent?: number;
         };
+        PlanRevisionDiffRowView: {
+            /** Format: uuid */
+            milestoneDefinitionId?: string;
+            milestoneName?: string;
+            /** Format: date */
+            previousDueDate?: string;
+            /** Format: date */
+            currentDueDate?: string;
+            /** Format: uuid */
+            previousOwnerUserId?: string;
+            /** Format: uuid */
+            currentOwnerUserId?: string;
+            /** @enum {string} */
+            changeKind?: "ADDED" | "REMOVED" | "DATE_CHANGED" | "OWNER_CHANGED" | "UNCHANGED";
+        };
+        PlanRevisionDiffView: {
+            rows?: components["schemas"]["PlanRevisionDiffRowView"][];
+        };
         Me: {
             /** Format: uuid */
             id?: string;
@@ -1974,10 +2008,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2023,10 +2057,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2111,10 +2145,10 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -6340,6 +6374,57 @@ export interface operations {
             };
             /** @description Caller holds no sufficient grant, or write_scope refused this stage */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    diff: {
+        parameters: {
+            query: {
+                against: string;
+            };
+            header?: never;
+            path: {
+                revisionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every milestone's change between the two revisions, computed server-side */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PlanRevisionDiffView"];
+                };
+            };
+            /** @description Caller holds no sufficient plan.issue grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, out of the caller's scope, or not from the same case as the id being diffed against */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

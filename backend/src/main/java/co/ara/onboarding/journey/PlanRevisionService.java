@@ -24,9 +24,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import static java.util.stream.Collectors.groupingBy;
@@ -204,6 +209,66 @@ public class PlanRevisionService {
     }
 
     /**
+     * Compares {@code revisionId} (the "current" snapshot) against {@code
+     * againstRevisionId} (the "previous" one), row by row, matched by {@code
+     * milestoneDefinitionId} -- see {@link ChangeKind}'s own javadoc for why not
+     * {@code milestoneName} or the runtime {@code milestoneId}. Computed
+     * server-side, once, so two clients reading the same pair of revisions
+     * cannot disagree about what changed (this class's own javadoc).
+     *
+     * Both ids are resolved through {@link AuthorizedQuery} under the caller's
+     * own {@code plan.issue} grant -- {@code againstRevisionId} is as much a
+     * value taken from a query string as {@code revisionId} itself, and needs
+     * the same resolution obligation {@link #issue} names. Resolving both is not
+     * enough on its own: a caller scoped widely enough to read two DIFFERENT
+     * cases' revisions could otherwise diff one case's schedule against an
+     * unrelated one's, so this also confirms both belong to the SAME case
+     * before reading either's items -- refusing with {@link
+     * NoSuchElementException} (404) exactly as an out-of-scope id does, rather
+     * than a 403 that would confirm the other case's revision exists.
+     */
+    @RequirePermission(PermissionKeys.PLAN_ISSUE)
+    @Transactional(readOnly = true)
+    public PlanRevisionDiffView diff(UUID revisionId, UUID againstRevisionId) {
+        PlanRevision current = authorizedQuery.getById(
+                revisions, PlanRevision.class, PermissionKeys.PLAN_ISSUE, revisionId);
+        PlanRevision previous = authorizedQuery.getById(
+                revisions, PlanRevision.class, PermissionKeys.PLAN_ISSUE, againstRevisionId);
+        if (!current.getCaseId().equals(previous.getCaseId())) {
+            throw new NoSuchElementException(
+                    "Revision " + againstRevisionId + " does not belong to the same case as " + revisionId);
+        }
+
+        List<PlanRevisionItem> currentItems = authorizedQuery.findAll(items, PlanRevisionItem.class,
+                        PermissionKeys.PLAN_ISSUE,
+                        (root, query, cb) -> cb.equal(root.get("planRevisionId"), revisionId),
+                        Pageable.unpaged(Sort.by("sortOrder")))
+                .getContent();
+        List<PlanRevisionItem> previousItems = authorizedQuery.findAll(items, PlanRevisionItem.class,
+                        PermissionKeys.PLAN_ISSUE,
+                        (root, query, cb) -> cb.equal(root.get("planRevisionId"), againstRevisionId),
+                        Pageable.unpaged(Sort.by("sortOrder")))
+                .getContent();
+
+        Map<UUID, PlanRevisionItem> currentByDefinition = currentItems.stream()
+                .collect(toMap(PlanRevisionItem::getMilestoneDefinitionId, i -> i));
+        Map<UUID, PlanRevisionItem> previousByDefinition = previousItems.stream()
+                .collect(toMap(PlanRevisionItem::getMilestoneDefinitionId, i -> i));
+
+        // Current's own order first (its sortOrder), then any previous-only
+        // (REMOVED) milestones appended after -- deterministic, never recomputed
+        // by the caller.
+        Set<UUID> definitionIds = new LinkedHashSet<>();
+        currentItems.forEach(i -> definitionIds.add(i.getMilestoneDefinitionId()));
+        previousItems.forEach(i -> definitionIds.add(i.getMilestoneDefinitionId()));
+
+        List<PlanRevisionDiffRowView> rows = definitionIds.stream()
+                .map(id -> toDiffRow(id, currentByDefinition.get(id), previousByDefinition.get(id)))
+                .toList();
+        return new PlanRevisionDiffView(rows);
+    }
+
+    /**
      * Refuses ({@link PlanGateException}, 422) when {@code revisionId}'s current
      * status is not ISSUED -- a decision is one-shot, the same shape as {@link
      * PlanShapeService#decide}: issuing a second revision supersedes the first
@@ -364,6 +429,37 @@ public class PlanRevisionService {
         return new PlanRevisionView(r.getId(), r.getCaseId(), r.getRevisionNumber(), r.getStatus(),
                 r.getIssuedAt(), r.getIssuedBy(), r.getIssueNote(), r.getDecidedAt(), r.getDecidedBy(),
                 r.getDecidedOnBehalfOf(), r.getDecisionNote(), itemViews);
+    }
+
+    /**
+     * {@code current}/{@code previous} are null exactly when the milestone is
+     * absent from that side -- {@link ChangeKind#ADDED} has no previous row,
+     * {@link ChangeKind#REMOVED} has no current row. When both sides carry the
+     * milestone, a due-date difference is reported before an owner difference:
+     * gate 2 is fundamentally about the SCHEDULE (this class's own javadoc), and
+     * nothing in this task's brief exercises both changing at once.
+     */
+    private PlanRevisionDiffRowView toDiffRow(UUID definitionId, PlanRevisionItem current, PlanRevisionItem previous) {
+        String name = current != null ? current.getMilestoneName() : previous.getMilestoneName();
+        LocalDate previousDueDate = previous != null ? previous.getDueDate() : null;
+        LocalDate currentDueDate = current != null ? current.getDueDate() : null;
+        UUID previousOwnerUserId = previous != null ? previous.getOwnerUserId() : null;
+        UUID currentOwnerUserId = current != null ? current.getOwnerUserId() : null;
+
+        ChangeKind changeKind;
+        if (current == null) {
+            changeKind = ChangeKind.REMOVED;
+        } else if (previous == null) {
+            changeKind = ChangeKind.ADDED;
+        } else if (!Objects.equals(previousDueDate, currentDueDate)) {
+            changeKind = ChangeKind.DATE_CHANGED;
+        } else if (!Objects.equals(previousOwnerUserId, currentOwnerUserId)) {
+            changeKind = ChangeKind.OWNER_CHANGED;
+        } else {
+            changeKind = ChangeKind.UNCHANGED;
+        }
+        return new PlanRevisionDiffRowView(definitionId, name, previousDueDate, currentDueDate,
+                previousOwnerUserId, currentOwnerUserId, changeKind);
     }
 
     private PlanRevisionItemView toItemView(PlanRevisionItem i) {
