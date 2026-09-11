@@ -116,10 +116,14 @@ class PlanHoldTest extends PostgresTestBase {
         // not clear the other.
         UUID caseId = approvedCustomerJourney();
 
-        fixture.runAs(tenant, () -> {
-            caseService.hold(caseId, "Waiting on legal");
-            assertThatNoException().isThrownBy(() -> caseService.resume(caseId));
-        });
+        // hold() itself is not the thing under test here, so it gets its own
+        // plain runAs call; only resume()'s outcome is asserted, and that
+        // assertion wraps the WHOLE runAs call rather than nesting inside its
+        // lambda -- same reasoning as the two exception-asserting tests above.
+        fixture.runAs(tenant, () -> caseService.hold(caseId, "Waiting on legal"));
+
+        assertThatNoException().isThrownBy(
+                () -> fixture.runAs(tenant, () -> caseService.resume(caseId)));
     }
 
     // ---- fixtures -----------------------------------------------------------
