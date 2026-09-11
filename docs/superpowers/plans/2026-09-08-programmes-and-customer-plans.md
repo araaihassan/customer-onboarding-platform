@@ -2485,6 +2485,22 @@ git commit -m "feat(frontend): add programme and plan API hooks"
 
 ### Task 29: The programme index and detail screens
 
+**Plan amendment (found pre-dispatch review, 2026-09-10):** the design spec's own §8.1 designs
+only "Programme detail — `/t/{slug}/programmes/[id]`" — there is no programme *index* screen
+anywhere in the spec's Screens section, and no task in this plan (28 through 35) ever consumes
+`useProgrammes(customerId?)` — only the singular `useProgramme(id)` is used. Building the index
+page as a tenant-wide "list every programme" screen (the `CustomersPage` shape) would need a new
+`ProgrammeService.listAll()`/`GET /programmes` this plan never designed and Task 27.6 deliberately
+did not build, for exactly this reason (see that amendment above). **Ruling: the index page is a
+customer picker, not a tenant-wide list.** Reuse `CustomersPage`'s existing `useCustomers`
+search/select pattern (`frontend/src/app/(app)/t/[slug]/customers/page.tsx`) to let the caller find
+and pick a customer; once one is picked, call `useProgrammes(customerId)` (Task 28, already
+customer-scoped by design) and render that customer's programmes as a list of links into
+`/programmes/[id]`. This gives the sidebar's new nav entry a real destination without any new
+backend scope. If a customer id is already known (e.g. arriving from a future customer-detail
+integration outside this plan's scope), the picker step may be skipped — but nothing in this plan
+wires that entry point yet, so the bare picker-first flow is the only one this task needs to build.
+
 **Files:**
 - Create: `frontend/src/app/(app)/t/[slug]/programmes/page.tsx`, `.../[id]/page.tsx`
 - Create: `frontend/src/components/programme/ProgrammeDetail.tsx`, `ProgrammeRollupBar.tsx`, `ProgrammeJourneyList.tsx`, `ProgrammeParticipants.tsx`
@@ -2536,7 +2552,7 @@ Never run `npm run build` or switch branches while a dev server is live — it 4
 - [ ] **Step 5: Commit**
 
 ```bash
-git add frontend/src/app/ frontend/src/components/programme/ frontend/src/components/layout/Sidebar.tsx frontend/src/lib/i18n/en.ts
+git add frontend/src/app/ frontend/src/components/programme/ frontend/src/components/shell/Sidebar.tsx frontend/src/lib/i18n/messages/en.json frontend/src/lib/i18n/i18n.test.ts
 git commit -m "feat(frontend): add the programme index and detail screens"
 ```
 
