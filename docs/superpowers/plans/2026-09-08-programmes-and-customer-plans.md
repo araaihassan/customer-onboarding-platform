@@ -2409,6 +2409,25 @@ git commit -m "feat(journey): diff two schedule revisions server-side"
 
 ---
 
+**Plan amendment (found executing Task 27, 2026-09-10):** Tasks 24, 25 and 26's own Files
+sections never assigned controller-wiring to any of them — each built and proved
+`PlanRevisionService.issue`/`get`/`decide` at the service layer only, deferring "wiring a
+controller" as out of scope per its own brief, exactly as each task's report says. Task 27's
+brief was the first to list `PlanRevisionController.java` as something to *modify*, wrongly
+assuming it already existed; Task 27 correctly created it but scoped itself to wiring only its
+own deliverable (`diff`), leaving `issue`/`get`/`decide` with no REST endpoint at all — verified
+by Task 27's task review, which read all three earlier briefs directly. Separately,
+`PlanRevisionService` has no case-scoped list method (only singular `get(revisionId)`), while
+Task 28 below needs a plural `usePlanRevisions(caseId)` hook. **Task 27.5 (inserted, not
+originally in this plan): add `PlanRevisionService.listForCase(UUID caseId)`** (the same
+`AuthorizedQuery`-backed idiom Task 26's `hasAnyApprovedRevision` already established over the
+same `JpaSpecificationExecutor`-shaped `PlanRevisionRepository`) **and REST-wire
+`issue`/`get`/`listForCase`/`decide` into the existing `PlanRevisionController`**, following
+`ApprovalController`'s `/api/t/{tenantSlug}/cases/{caseId}` nesting convention (diff's existing
+endpoint may need to move under the same base mapping for consistency — no frontend consumes it
+yet, so this is free to do now and never once Task 28 lands). This closes the gap Task 28 below
+depends on.
+
 # Phase 7 — Frontend
 
 **Invoke `frontend-design` and `ui-ux-pro-max` before every task in this phase.** The design bundle covers none of these screens; extend its tokens and components rather than inventing a second visual language. Every user-facing string goes through `t()`.
