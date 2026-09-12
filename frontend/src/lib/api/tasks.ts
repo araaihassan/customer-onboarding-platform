@@ -14,10 +14,36 @@ import type { components } from "./generated";
 export type Task = components["schemas"]["TaskView"];
 export type CreateTaskRequest = components["schemas"]["CreateTaskRequest"];
 export type TaskStatusRequest = components["schemas"]["TaskStatusRequest"];
+/**
+ * The generated schema types `assigneeId` as `string | undefined` -- springdoc
+ * never emits `nullable: true` for an optional property, so codegen has no way
+ * to say "and also null" even though the backend field is a plain unannotated
+ * `UUID assigneeId` (`task/UpdateTaskRequest.java:21`) that Jackson deserializes
+ * a JSON `null` into just fine. Widened here, at the re-export, rather than
+ * hand-edited in `generated.ts` itself (regenerated wholesale and would lose
+ * the change): `assigneeId: null` is exactly what Task 7's picker needs to
+ * send to clear an assignment -- omitting the key would rely on "absent means
+ * null" holding for a full-replace PUT rather than saying so.
+ */
+export type UpdateTaskRequest = Omit<components["schemas"]["UpdateTaskRequest"], "assigneeId"> & {
+  assigneeId?: string | null;
+};
 export type TaskStatus = NonNullable<Task["status"]>;
 export type TaskPriority = NonNullable<Task["priority"]>;
 export type ChecklistItem = components["schemas"]["ChecklistItemView"];
 export type UpdateChecklistItemRequest = components["schemas"]["UpdateChecklistItemRequest"];
+
+/**
+ * A milestone as a task-edit/create picker option -- just enough to render
+ * a select (id + display name). Shared here rather than declared once per
+ * caller: `TasksTab`'s own "New task" dialog and `TaskEditDialog` (Task 6)
+ * both need exactly this shape, derived the same way (flattened from a
+ * case's roadmap), so one type keeps them from drifting apart.
+ */
+export interface MilestoneOption {
+  id: string;
+  name: string;
+}
 
 /** TaskController's own bucket vocabulary for the "My work" board (myWork's 400 doc comment names all four). */
 export type MyWorkBucket = "do_now" | "in_progress" | "waiting" | "done_this_week";
@@ -174,6 +200,33 @@ export function useChangeTaskStatus() {
       if (!updated.caseId) return;
       void queryClient.invalidateQueries({ queryKey: taskKeys.forCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(updated.caseId) });
+      void queryClient.invalidateQueries({ queryKey: taskKeys.mineAll() });
+    },
+  });
+}
+
+/**
+ * A full-replace edit -- title, description, priority, due date, milestone
+ * (and assignee, round-tripped rather than editable here: Task 7 adds the
+ * picker for that field). `UpdateTaskRequest` has no `status`/`requirementId`
+ * field at all (its own doc comment says so; a status transition is
+ * `useChangeTaskStatus`'s job, never this one's), so there is nothing here to
+ * accidentally overwrite on that front.
+ *
+ * Invalidates the same two families `useChangeTaskStatus` does -- the case's
+ * task list (so `TasksTab`'s grouping and the open detail panel both see the
+ * edit) and the whole "My work" family (title/priority/due date all render on
+ * that board's cards too). Not the roadmap: none of these fields feeds
+ * progress or requirement satisfaction, unlike a status change.
+ */
+export function useUpdateTask() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ taskId, body }: { taskId: string; body: UpdateTaskRequest }) =>
+      apiFetch<Task>(`/tasks/${taskId}`, { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: (updated) => {
+      if (!updated.caseId) return;
+      void queryClient.invalidateQueries({ queryKey: taskKeys.forCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: taskKeys.mineAll() });
     },
   });

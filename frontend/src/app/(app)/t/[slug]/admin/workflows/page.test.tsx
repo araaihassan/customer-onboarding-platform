@@ -127,3 +127,68 @@ describe("WorkflowsPage", () => {
     )).toBe(true);
   });
 });
+
+describe("WorkflowsPage -- customer templates (QA Q21)", () => {
+  const catalogueTemplate: WorkflowTemplate = {
+    id: "tmpl-1",
+    name: "Standard Onboarding",
+    description: "",
+    status: "ACTIVE",
+    currentVersionId: "v-1",
+    currentVersionNo: 3,
+  };
+  const customerTemplate: WorkflowTemplate = {
+    id: "tmpl-9",
+    name: "Acme Onboarding",
+    description: "",
+    status: "ACTIVE",
+    currentVersionId: undefined,
+    currentVersionNo: undefined,
+    customerId: "cust-1",
+    clonedFromTemplateId: "tmpl-1",
+  };
+
+  function mockList(templates: WorkflowTemplate[]) {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/customers")) return jsonReply({ content: [] });
+      return jsonReply(templates);
+    });
+  }
+
+  it("shows a flat list with no group headings when nothing has been cloned", async () => {
+    mockList([catalogueTemplate]);
+    renderPage();
+
+    await screen.findByText("Standard Onboarding");
+    expect(screen.queryByText("Catalogue templates")).toBeNull();
+    expect(screen.queryByText("Customer templates")).toBeNull();
+  });
+
+  it("segments catalogue and customer templates once a clone exists, with a provenance line", async () => {
+    mockList([catalogueTemplate, customerTemplate]);
+    renderPage();
+
+    await screen.findByText("Catalogue templates");
+    expect(screen.getByText("Customer templates")).not.toBeNull();
+    expect(screen.getByText("Acme Onboarding")).not.toBeNull();
+    expect(screen.getByText("Cloned from Standard Onboarding")).not.toBeNull();
+  });
+
+  it("opens the clone dialog from a catalogue row", async () => {
+    mockList([catalogueTemplate]);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Clone for customer" }));
+
+    expect(await screen.findByRole("dialog", { name: /Standard Onboarding/ })).not.toBeNull();
+  });
+
+  it("opens the refresh dialog from a customer-template row", async () => {
+    mockList([catalogueTemplate, customerTemplate]);
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh from source" }));
+
+    expect(await screen.findByRole("heading", { name: "Refresh from source" })).not.toBeNull();
+  });
+});

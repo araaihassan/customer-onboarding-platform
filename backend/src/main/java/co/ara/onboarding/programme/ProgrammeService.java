@@ -1,0 +1,383 @@
+package co.ara.onboarding.programme;
+
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
+import co.ara.onboarding.authz.AuthContextProvider;
+import co.ara.onboarding.authz.AuthorizedQuery;
+import co.ara.onboarding.authz.PermissionKeys;
+import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.customer.Customer;
+import co.ara.onboarding.customer.CustomerRepository;
+import co.ara.onboarding.customer.OrgUnitResolver;
+import co.ara.onboarding.identity.AppUser;
+import co.ara.onboarding.identity.AppUserRepository;
+import co.ara.onboarding.journey.Case;
+import co.ara.onboarding.journey.CaseRepository;
+import co.ara.onboarding.journey.CaseWeightReader;
+import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.tenancy.TenantContext;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+
+/**
+ * Create, read, update and deactivate a programme (QA Q20) -- a container
+ * grouping a customer's parallel journeys, with no lifecycle of its own: no
+ * hold, no approval, no engine (see {@link Programme}'s own javadoc).
+ *
+ * Every read goes through {@link AuthorizedQuery}, resolved by
+ * {@code scoping.ProgrammeDescriptor}. Every id taken from a URL or a request
+ * body -- here, {@code customerId} on create -- is resolved through
+ * {@link AuthorizedQuery} before it is written, the write-path obligation
+ * design spec §6.5 names and the shape that bit sub-project 1 three times
+ * (contact creation, role assignment, invitation issuance).
+ *
+ * <b>Why this reads {@code customer.Customer} directly, not
+ * {@code journey.CustomerDirectory}:</b> the established idiom for a module
+ * reaching another one's data without owning its entities is a facts port
+ * declared by the consumer and implemented by the provider --
+ * {@code journey.CustomerDirectory}/{@code customer.JourneyCustomerDirectory}
+ * is the precedent, and {@code ModuleBoundaryTest.noCustomerDependencyOnProgramme}'s
+ * own comment says programme is meant to reach customer "through a facts port,
+ * the CustomerDirectory inversion". In practice that means REUSING
+ * {@code journey.CustomerDirectory} (a fresh {@code programme.CustomerDirectory}
+ * would need {@code customer} to implement an interface declared inside
+ * {@code programme}, which {@code noCustomerDependencyOnProgramme} forbids
+ * outright) -- but {@code journey.CustomerFacts} deliberately carries no display
+ * name ({@code CustomerDirectory}'s own javadoc: "Deliberately no display data
+ * ... keeps the port from growing into a second customer API"), and this
+ * service's own {@code ProgrammeView} needs {@code customerName}. Extending
+ * {@code CustomerFacts} to add one ripples into {@code workflow.CustomerFactKeys}'s
+ * condition-key catalog and {@code journey.CustomerDirectoryTest}'s cross-check
+ * that the two stay in agreement -- neither owned by this task, and widening a
+ * branch-condition key catalog for a field no condition should ever compare
+ * against is the wrong fix, not merely an out-of-scope one. Reading
+ * {@code Customer} directly through {@link AuthorizedQuery} under
+ * {@code customer.view} gives the identical security guarantee -- an
+ * out-of-scope or foreign-tenant id collapses to empty, mapped to 404, exactly
+ * as {@code JourneyCustomerDirectory.findVisible} does -- without either
+ * consequence. No {@code ModuleBoundaryTest} rule forbids a plain
+ * {@code programme -> customer} dependency (only the reverse, and only
+ * {@code journey -> customer}, are guarded); this is a plan deviation worth a
+ * maintainer's attention, not a silent one -- see this task's own report.
+ */
+@Service
+public class ProgrammeService {
+
+    private final ProgrammeRepository programmes;
+    private final CustomerRepository customers;
+    private final ProgrammeCaseRepository programmeCases;
+    private final CaseRepository cases;
+    private final CaseWeightReader caseWeights;
+    private final AuthorizedQuery authorizedQuery;
+    private final AuthContextProvider contextProvider;
+    private final AuditRecorder audit;
+    private final OrgUnitResolver orgUnitResolver;
+    private final AppUserRepository users;
+
+    public ProgrammeService(ProgrammeRepository programmes, CustomerRepository customers,
+                            ProgrammeCaseRepository programmeCases, CaseRepository cases,
+                            CaseWeightReader caseWeights,
+                            AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
+                            AuditRecorder audit, OrgUnitResolver orgUnitResolver, AppUserRepository users) {
+        this.programmes = programmes;
+        this.customers = customers;
+        this.programmeCases = programmeCases;
+        this.cases = cases;
+        this.caseWeights = caseWeights;
+        this.authorizedQuery = authorizedQuery;
+        this.contextProvider = contextProvider;
+        this.audit = audit;
+        this.orgUnitResolver = orgUnitResolver;
+        this.users = users;
+    }
+
+    /**
+     * {@code programme.create} is ALL-only in the catalog (PermissionCatalog) --
+     * safe precisely because the customer is still resolved through
+     * {@code customer.view} below, the same reasoning {@code CaseService.create}'s
+     * own doc comment gives for {@code case.create}: authority to create is
+     * bounded by which customers the caller can see, not by the wide create grant
+     * alone.
+     */
+    @RequirePermission(PermissionKeys.PROGRAMME_CREATE)
+    @Transactional
+    public ProgrammeView create(CreateProgrammeRequest request) {
+        Customer customer = authorizedQuery.getById(
+                customers, Customer.class, PermissionKeys.CUSTOMER_VIEW, request.customerId());
+
+        Programme p = new Programme();
+        p.setId(Uuid7.generate());
+        p.setTenantId(TenantContext.getRequired());
+        p.setCustomerId(customer.getId());
+        p.setName(request.name());
+        p.setDescription(request.description());
+        // Final whole-branch review finding #3: these three ids used to be
+        // copied straight from the request with no existence/tenancy check --
+        // the exact cross-tenant existence oracle CLAUDE.md records as closed
+        // for Customer (OrgUnitResolver, sub-project 3 Task 2), reopened here
+        // because Programme was never fixed the same way. resolveOwner mirrors
+        // CustomerService.resolveOwner exactly (AuthorizedQuery under
+        // USER_VIEW); orgUnitResolver mirrors CustomerService.create's own use
+        // of the same shared component for department/team.
+        p.setOwnerUserId(resolveOwner(request.ownerUserId()));
+        p.setOwningDepartmentId(orgUnitResolver.resolveDepartment(request.owningDepartmentId()));
+        p.setOwningTeamId(orgUnitResolver.resolveTeam(request.owningTeamId()));
+        p.setStatus(ProgrammeStatus.ACTIVE);
+        p.setCreatedBy(contextProvider.principal().userId());
+        p = programmes.save(p);
+
+        audit.record(AuditActions.PROGRAMME_CREATED, "programme", p.getId(),
+                "Created programme " + p.getName(), Map.of("customerId", customer.getId().toString()));
+
+        return toView(p, customer);
+    }
+
+    /**
+     * Reading a programme's FULL view is gated by more than {@code programme.view}:
+     * {@code toView}/{@code customerOf} resolves {@code customerName} through
+     * {@code customer.view}, so a caller holding {@code programme.view} but no
+     * {@code customer.view} grant reaching this programme's own customer gets a
+     * 404 on the WHOLE programme, not a blank name field -- the identical shape
+     * CLAUDE.md records for {@code CaseService}'s {@code currentStageName}/
+     * {@code workflow.view} dependency ("a role holding case.view but not
+     * workflow.view gets a 404 on the whole case read"). Currently latent, not
+     * exercised in production: {@code programme.view} is seeded to Administrator
+     * only (Task 11's `RoleTemplateCoverageTest` exception, held open for Phase 2
+     * of this plan), and Administrator holds {@code customer.view} at ALL too --
+     * but the moment a narrower role (a Sponsor-shaped template, say) is granted
+     * {@code programme.view} without an accompanying {@code customer.view}, this
+     * dependency bites for real. A hand-built test role granting only
+     * {@code programme.view} must declare {@code customer.view} explicitly too,
+     * same as a real Project-Manager-shaped role bundles {@code case.view} and
+     * {@code workflow.view} together deliberately.
+     *
+     * Task 13: also returns {@code journeys()} -- see {@link #journeysFor} for
+     * the security invariant that computation exists to hold (design spec
+     * §6.3, Q20's non-negotiable): a programme's participant list must never
+     * be a backdoor to journey access.
+     *
+     * Task 14: also returns the duration-weighted rollup
+     * ({@code rolledUpProgressPercent}/{@code journeysCovered}), computed by
+     * {@link ProgrammeRollup#of} over {@link CaseWeightReader#weightsFor} fed
+     * EXACTLY the case ids {@link #journeysFor} already resolved -- never a
+     * wider, unfiltered {@code programme_case} set. That is the only place
+     * visibility filtering happens for either field, so the rollup can never
+     * drift from what {@code journeys()} itself shows: the identical
+     * "aggregate-only leak" shape CLAUDE.md records for the {@code taskSummary}
+     * gap this sub-project's own Phase 1 closed. When {@code journeysFor}
+     * returns no journeys, {@link CaseWeightReader#weightsFor} is never
+     * called at all -- its {@code @RequirePermission(CASE_VIEW)} gate runs
+     * BEFORE the method body's own empty-collection short-circuit, so a
+     * caller holding no {@code case.view} grant whatsoever would otherwise be
+     * refused outright instead of correctly seeing 0% over 0 journeys.
+     */
+    @RequirePermission(PermissionKeys.PROGRAMME_VIEW)
+    @Transactional(readOnly = true)
+    public ProgrammeDetailView get(UUID programmeId) {
+        Programme p = authorizedQuery.getById(programmes, Programme.class, PermissionKeys.PROGRAMME_VIEW, programmeId);
+        List<ProgrammeJourneyView> journeys = journeysFor(p);
+
+        ProgrammeRollup.Result rollup = journeys.isEmpty()
+                ? ProgrammeRollup.NONE
+                : ProgrammeRollup.of(caseWeights.weightsFor(
+                        journeys.stream().map(ProgrammeJourneyView::caseId).toList()));
+
+        return new ProgrammeDetailView(toView(p, customerOf(p)), journeys,
+                rollup.rolledUpProgressPercent(), rollup.journeysCovered());
+    }
+
+    /**
+     * Fetched with {@code programme.manage}, not {@code programme.view} --
+     * fetching under the read permission and then writing is the privilege
+     * escalation {@code CustomerService.update}'s own comment already names.
+     * customerId is never accepted here: a programme's customer is fixed at
+     * creation (UpdateProgrammeRequest carries no such field), so there is
+     * nothing to re-resolve through the customer port on this path.
+     *
+     * Independently refuses a non-ACTIVE programme, regardless of the
+     * caller's scope -- see {@link ProgrammeNotActiveException}'s own doc
+     * comment for why this cannot be left to {@code scoping.
+     * ProgrammeDescriptor} alone. {@code departmentScope}/{@code teamScope}
+     * deliberately still resolve a deactivated programme (governance/
+     * reporting access, unchanged by this fix), so without this check here a
+     * DEPARTMENT- or TEAM-scoped {@code programme.manage} holder could reach
+     * this far and then write to a record everyone agrees is retired. Checked
+     * after the {@code AuthorizedQuery} resolution, not before: an
+     * out-of-scope or foreign-tenant id must still 404, never surface this
+     * 409 instead and leak that the row exists.
+     */
+    @RequirePermission(PermissionKeys.PROGRAMME_MANAGE)
+    @Transactional
+    public ProgrammeView update(UUID programmeId, UpdateProgrammeRequest request) {
+        Programme p = authorizedQuery.getById(programmes, Programme.class, PermissionKeys.PROGRAMME_MANAGE, programmeId);
+        if (p.getStatus() != ProgrammeStatus.ACTIVE) {
+            throw new ProgrammeNotActiveException(programmeId);
+        }
+
+        p.setName(request.name());
+        p.setDescription(request.description());
+        // Same escalation guard as create() above, and the same "only resolve
+        // owner if it actually changed" carve-out CustomerService.update
+        // documents: a client that round-trips the read value on every save
+        // must not be forced through a USER_VIEW check it may not hold merely
+        // because it echoed back the value it was given.
+        if (!Objects.equals(request.ownerUserId(), p.getOwnerUserId())) {
+            p.setOwnerUserId(resolveOwner(request.ownerUserId()));
+        }
+        p.setOwningDepartmentId(orgUnitResolver.resolveDepartment(request.owningDepartmentId()));
+        p.setOwningTeamId(orgUnitResolver.resolveTeam(request.owningTeamId()));
+        p = programmes.save(p);
+
+        audit.record(AuditActions.PROGRAMME_UPDATED, "programme", p.getId(), "Updated programme", Map.of());
+
+        return toView(p, customerOf(p));
+    }
+
+    /**
+     * Sets {@code status = INACTIVE} and does nothing else. The revocation this
+     * causes is structural, not a cleanup step here: {@code scoping.
+     * ProgrammeDescriptor.assignedScope} requires the programme itself to be
+     * ACTIVE (fixed alongside this task -- see that class's own doc comment and
+     * this task's report for why it did not, before this change, exclude an
+     * inactive programme at all), so a participant's read collapses to nothing
+     * on the very next request once this one column changes, the same shape
+     * {@code AuthorizationService}'s {@code status = 'ACTIVE'} join gives a
+     * deactivated user. DEPARTMENT/TEAM/ALL-scoped holders are deliberately
+     * unaffected -- see ProgrammeDescriptor's own comment for why that is a
+     * choice, not an oversight.
+     */
+    @RequirePermission(PermissionKeys.PROGRAMME_MANAGE)
+    @Transactional
+    public void deactivate(UUID programmeId) {
+        Programme p = authorizedQuery.getById(programmes, Programme.class, PermissionKeys.PROGRAMME_MANAGE, programmeId);
+        p.setStatus(ProgrammeStatus.INACTIVE);
+        programmes.save(p);
+
+        audit.record(AuditActions.PROGRAMME_DEACTIVATED, "programme", p.getId(),
+                "Deactivated programme " + p.getName(), Map.of());
+    }
+
+    /**
+     * Sub-project 3A, Task 27.6 (inserted plan amendment -- see
+     * {@code .superpowers/sdd/2026-09-08-programmes-and-customer-plans/task-27.6-brief.md}):
+     * every programme belonging to {@code customerId}, newest first -- the
+     * plural read {@code useProgrammes(customerId)} (Task 28) needs and
+     * {@link #get} alone cannot supply. Follows {@code journey.
+     * PlanRevisionService#listForCase}'s exact shape: resolve the PARENT id
+     * first, then read the child collection through the same
+     * {@code JpaSpecificationExecutor}-shaped {@link ProgrammeRepository}
+     * filtered on it -- no hand-rolled JPQL, no new repository method.
+     *
+     * {@code customerId} is resolved through {@link AuthorizedQuery} under
+     * {@code customer.view} -- exactly as {@link #create}/{@link #customerOf}
+     * already do, not {@code programme.view} itself: {@code customerId} names
+     * a {@code Customer} row, not a {@code Programme} one, and
+     * {@code AuthorizedQuery} dispatches its scope predicate by the entity
+     * type/permission-key PAIR it is given, so resolving it under
+     * {@code programme.view} would ask {@code DescriptorRegistry} for a
+     * {@code Customer} descriptor keyed to a permission that resource type is
+     * never catalogued against. A caller who cannot see this customer at all
+     * must 404 here, before any programme row is even queried -- the same
+     * "resolved before written" discipline the write paths carry, applied to
+     * a read: a scope-filtered but otherwise unconditional programme query
+     * would otherwise happily return an empty list for a customer the caller
+     * cannot see and one they merely have no programmes for identically,
+     * which is a weaker guarantee than the 404 every other out-of-scope id in
+     * this codebase gets.
+     */
+    @RequirePermission(PermissionKeys.PROGRAMME_VIEW)
+    @Transactional(readOnly = true)
+    public List<ProgrammeView> listForCustomer(UUID customerId) {
+        Customer customer = authorizedQuery.getById(customers, Customer.class, PermissionKeys.CUSTOMER_VIEW, customerId);
+
+        Specification<Programme> byCustomer = (root, query, cb) -> cb.equal(root.get("customerId"), customer.getId());
+        return authorizedQuery.findAll(programmes, Programme.class, PermissionKeys.PROGRAMME_VIEW, byCustomer,
+                        Pageable.unpaged(Sort.by(Sort.Direction.DESC, "createdAt")))
+                .getContent().stream()
+                .map(p -> toView(p, customer))
+                .toList();
+    }
+
+    /**
+     * Reads the owning customer under {@code customer.view}, exactly as {@link #create}
+     * does -- never a raw repository finder, and never the customer id trusted
+     * blind just because it is already sitting on the programme row: a programme
+     * whose customer later falls outside the caller's own scope must not leak a
+     * name through a stale reference either.
+     */
+    private Customer customerOf(Programme p) {
+        return authorizedQuery.getById(customers, Customer.class, PermissionKeys.CUSTOMER_VIEW, p.getCustomerId());
+    }
+
+    /**
+     * The security invariant this task exists to prove (design spec §6.3, Q20):
+     * programme participation grants read of the programme container alone. A
+     * journey inside it is visible to THIS reader only if a separate, real
+     * {@code case.view}-scoped read of that specific case would also succeed for
+     * them -- never every {@code programme_case} link unconditionally.
+     *
+     * Two AuthorizedQuery calls, not one join, and deliberately in that order:
+     * first the active programme_case links for THIS programme, scoped under
+     * {@code programme.view} against {@code ProgrammeCaseDescriptor} (so a reader
+     * whose only claim to programme.view is participation in ANOTHER programme
+     * cannot see this one's links either); then those case ids re-resolved under
+     * {@code case.view} against {@code CaseDescriptor} -- the SAME predicate every
+     * other case read in the codebase is filtered by. A case the reader's own
+     * case.view grant does not reach is simply absent from the second query's
+     * result set, not an exception to catch -- the same "filtered in the query,
+     * never after" discipline AuthorizedQuery's own javadoc states as the whole
+     * point of the class.
+     *
+     * Reads Case fields directly rather than through {@code CaseService.get} on
+     * purpose: that method also resolves {@code currentStageName} under
+     * {@code workflow.view} (CLAUDE.md's own documented cross-permission
+     * dependency), which would make a programme's journey list 404 the WHOLE
+     * programme for a reader holding case.view but not workflow.view. Nothing
+     * this minimal view carries needs that lookup.
+     */
+    private List<ProgrammeJourneyView> journeysFor(Programme p) {
+        Specification<ProgrammeCase> activeLinksForProgramme = (root, query, cb) -> cb.and(
+                cb.equal(root.get("programmeId"), p.getId()),
+                cb.isNull(root.get("removedAt")));
+        List<UUID> caseIds = authorizedQuery.findAll(programmeCases, ProgrammeCase.class,
+                        PermissionKeys.PROGRAMME_VIEW, activeLinksForProgramme, Pageable.unpaged())
+                .getContent().stream().map(ProgrammeCase::getCaseId).toList();
+
+        if (caseIds.isEmpty()) {
+            return List.of();
+        }
+
+        Specification<Case> byIds = (root, query, cb) -> root.get("id").in(caseIds);
+        return authorizedQuery.findAll(cases, Case.class, PermissionKeys.CASE_VIEW, byIds, Pageable.unpaged())
+                .getContent().stream()
+                .map(c -> new ProgrammeJourneyView(c.getId(), c.getName(), c.getStatus(), c.getProgressPercent()))
+                .toList();
+    }
+
+    /**
+     * Mirrors {@code customer.CustomerService.resolveOwner} exactly: an
+     * out-of-scope or foreign-tenant id collapses to empty through {@link
+     * AuthorizedQuery}, mapped to {@link java.util.NoSuchElementException}
+     * (404) -- never a raw repository finder, which would let PostgreSQL's
+     * RLS-bypassed FK check silently accept another tenant's {@code app_user}
+     * id (200, a programme owned by a stranger) while an invented id 500s.
+     */
+    private UUID resolveOwner(UUID ownerUserId) {
+        if (ownerUserId == null) return null;
+        return authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId).getId();
+    }
+
+    private ProgrammeView toView(Programme p, Customer customer) {
+        return new ProgrammeView(p.getId(), p.getName(), p.getCustomerId(), customer.getDisplayName(),
+                p.getDescription(), p.getOwnerUserId(), p.getOwningDepartmentId(), p.getOwningTeamId(),
+                p.getStatus());
+    }
+}

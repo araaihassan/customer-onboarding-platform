@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
-import { ClipboardCheckIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
+import { ClipboardCheckIcon, LayersIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
 import type { IconProps } from "@/components/icons";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
@@ -79,6 +79,7 @@ export function Sidebar({
   // Fixed hook order: every check runs on every render, and the results are
   // filtered afterwards. Calling these inside a filter would be a hooks violation.
   const canViewCustomers = useHasPermission("customer.view");
+  const canViewProgrammes = useHasPermission("programme.view");
   const canViewUsers = useHasPermission("user.view");
   const canViewRoles = useHasPermission("role.view");
   const canViewWork = useHasPermission("task.view");
@@ -107,6 +108,15 @@ export function Sidebar({
       href: `/t/${slug}/customers`,
       section: `/t/${slug}/customers`,
       Icon: UsersIcon,
+    });
+  }
+
+  if (canViewProgrammes) {
+    items.push({
+      label: t("nav.programmes"),
+      href: `/t/${slug}/programmes`,
+      section: `/t/${slug}/programmes`,
+      Icon: LayersIcon,
     });
   }
 

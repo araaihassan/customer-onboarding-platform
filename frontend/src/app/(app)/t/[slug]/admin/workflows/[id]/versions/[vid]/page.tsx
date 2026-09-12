@@ -13,6 +13,7 @@ import {
   useMigrationPreview,
   usePublish,
   useSaveDraft,
+  useWorkflowTemplate,
   type Attribute,
   type BranchRule,
   type Milestone,
@@ -20,7 +21,9 @@ import {
   type Stage,
   type WorkflowDefinition,
 } from "@/lib/api/workflows";
+import { usePlanShape } from "@/lib/api/plans";
 import { PublishPanel } from "@/components/workflow/PublishPanel";
+import { ShapeApprovalPanel } from "@/components/workflow/ShapeApprovalPanel";
 import { StageInspector } from "@/components/workflow/StageInspector";
 import { StageRow } from "@/components/workflow/StageRow";
 import { newDraftKey, useDraftState, type AttributeDraft, type StageDraft } from "@/components/workflow/draftState";
@@ -137,6 +140,14 @@ function Builder({
   const publish = usePublish();
   const migrationPreview = useMigrationPreview(isPublished ? versionId : undefined);
 
+  // Gate 1 (Q22) only ever applies to a customer-tailored clone's published
+  // version -- WorkflowDefinitionView carries no customerId of its own, so
+  // the template's own record is the one place that fact lives.
+  const template = useWorkflowTemplate(templateId);
+  const isCustomerTemplate = Boolean(template.data?.customerId);
+  const shapeEnabled = isPublished && isCustomerTemplate;
+  const shape = usePlanShape(shapeEnabled ? templateId : "", shapeEnabled ? versionId : "");
+
   // A half-edited graph must never be what publish validates against a
   // reload wiping it out silently is a smaller harm than that, so this warns
   // rather than blocking navigation outright (Next's App Router has no
@@ -251,6 +262,17 @@ function Builder({
             versionId={versionId}
             preview={migrationPreview.data}
             isLoading={migrationPreview.isLoading}
+          />
+        </div>
+      )}
+
+      {shapeEnabled && (
+        <div style={{ marginBottom: "var(--ob-space-16)" }}>
+          <ShapeApprovalPanel
+            templateId={templateId}
+            versionId={versionId}
+            approval={shape.data?.approval}
+            stages={shape.data?.stages}
           />
         </div>
       )}

@@ -70,6 +70,13 @@ export function MilestoneRow({
   // ISO dates sort lexically, so a plain string compare avoids a Date() timezone
   // shift landing the boundary on the wrong day (CaseHeader's own toDateOnly note).
   const overdue = open && Boolean(milestone.dueDate) && milestone.dueDate! < todayIso();
+  // Already scope-filtered server-side (TaskDirectoryAdapter.summaryFor, sub-project
+  // 3A Task 5) -- an ASSIGNED-scoped reader's total already excludes tasks assigned
+  // to somebody else, so this component has no further filtering to do. A milestone
+  // with no tasks at all (or none the reader may see) renders no count, rather than
+  // "0 of 0 tasks open".
+  const taskTotal = milestone.taskSummary?.total ?? 0;
+  const hasTasks = taskTotal > 0;
 
   return (
     <div
@@ -108,6 +115,7 @@ export function MilestoneRow({
               {milestone.name}
             </span>
             <StatusPill status={t(`milestone.status.${status}`)} role={ROLE_BY_STATUS[status] ?? "neutral"} />
+            {!milestone.portalVisible && <StatusPill status={t("milestone.internal")} role="neutral" />}
             {status === "BLOCKED" && blockedBy.length > 0 && (
               <span
                 style={{
@@ -142,6 +150,20 @@ export function MilestoneRow({
             >
               {owner ?? t("milestone.noOwner")}
             </p>
+            {/* A count is a machine-generated metric, not authored text -- CLAUDE.md's
+                Instrument Sans / Spline Sans Mono split -- and matches the mono
+                treatment blockedBy already gets just above. */}
+            {hasTasks && (
+              <p
+                className="text-text-faint"
+                style={{ font: "var(--ob-type-mono-label-size)/var(--ob-type-mono-label-line) var(--ob-font-family-data)" }}
+              >
+                {t("milestone.taskCount", {
+                  open: String(milestone.taskSummary?.open ?? 0),
+                  total: String(taskTotal),
+                })}
+              </p>
+            )}
           </div>
 
           <div style={{ width: 74 }}>

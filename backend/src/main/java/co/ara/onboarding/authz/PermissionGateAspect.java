@@ -8,6 +8,8 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
+
 /**
  * Enforces @RequirePermission.
  *
@@ -50,7 +52,11 @@ public class PermissionGateAspect {
     public void enforce(JoinPoint joinPoint) {
         var signature = (MethodSignature) joinPoint.getSignature();
         var annotation = signature.getMethod().getAnnotation(RequirePermission.class);
-        if (!authorization.has(annotation.value())) {
+        // OR across the declared keys: holding ANY one of them passes. Almost every
+        // annotation still declares exactly one key, for which this is unchanged
+        // behaviour -- Stream.anyMatch on a one-element array is just authorization.has.
+        boolean holdsAny = Arrays.stream(annotation.value()).anyMatch(authorization::has);
+        if (!holdsAny) {
             // Deliberately no permission name in the message: do not teach a caller
             // which permission would unlock the endpoint.
             throw new AccessDeniedException("Forbidden");

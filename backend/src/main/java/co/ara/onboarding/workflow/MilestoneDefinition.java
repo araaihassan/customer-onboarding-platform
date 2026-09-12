@@ -35,6 +35,9 @@ public class MilestoneDefinition extends TenantScopedEntity {
     @Column(name = "estimated_duration_days", nullable = false)
     private int estimatedDurationDays;
 
+    @Column(name = "portal_visible", nullable = false)
+    private boolean portalVisible = true;
+
     public UUID getVersionId() { return versionId; }
     public void setVersionId(UUID versionId) { this.versionId = versionId; }
 
@@ -52,4 +55,7 @@ public class MilestoneDefinition extends TenantScopedEntity {
 
     public int getEstimatedDurationDays() { return estimatedDurationDays; }
     public void setEstimatedDurationDays(int estimatedDurationDays) { this.estimatedDurationDays = estimatedDurationDays; }
+
+    public boolean isPortalVisible() { return portalVisible; }
+    public void setPortalVisible(boolean portalVisible) { this.portalVisible = portalVisible; }
 }

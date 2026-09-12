@@ -304,6 +304,38 @@ export class Api {
   assignRole(userId: string, roleId: string) {
     return this.post<void>(`/admin/users/${userId}/roles`, { roleId }, 204);
   }
+
+  /** A case's own participant list -- a real, independent claim to `case.view` at ASSIGNED. */
+  addCaseParticipant(caseId: string, userId: string, relationship: string) {
+    return this.post<void>(`/cases/${caseId}/participants`, { userId, relationship }, 204);
+  }
+
+  createProgramme(name: string, customerId: string) {
+    return this.post<{ id: string }>("/programmes", { name, customerId }, 201);
+  }
+
+  /** Links a case into a programme -- 3A's own AddJourneyRequest. */
+  addProgrammeJourney(programmeId: string, caseId: string) {
+    return this.post<void>(`/programmes/${programmeId}/journeys`, { caseId }, 204);
+  }
+
+  /**
+   * Adds a programme participant -- `alsoGrantJourneyAccess` false by default, matching
+   * `ProgrammeScopeTest`'s own seeded scenario: participation on the container alone,
+   * never a backdoor into a journey the person holds no real `CaseParticipant` row on.
+   */
+  addProgrammeParticipant(
+    programmeId: string,
+    userId: string,
+    relationshipType: string,
+    alsoGrantJourneyAccess = false,
+  ) {
+    return this.post<void>(
+      `/programmes/${programmeId}/participants`,
+      { userId, relationshipType, alsoGrantJourneyAccess },
+      204,
+    );
+  }
 }
 
 /**

@@ -39,6 +39,7 @@ describe("t", () => {
       "auth.reset.title",
       "nav.dashboard",
       "nav.customers",
+      "nav.programmes",
       "nav.admin",
       "customer.list.title",
       "customer.list.empty",

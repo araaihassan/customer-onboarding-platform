@@ -19,16 +19,17 @@ import java.util.UUID;
 /**
  * Creates a {@link Task} row for every requirement of kind TASK on a freshly
  * opened case -- the seam sub-project 2 deliberately left as a plain manual
- * check-off. Deliberately not named *Service or *Directory:
- * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly binds
- * only to those suffixes, and this class is called by {@link
- * TaskLifecycleAdapter} from inside {@code CaseService.create}'s own
- * transaction, on a {@code caseId} that method just created and fully
- * controls in the same call -- there is no request-supplied id here for
- * {@code AuthorizedQuery} to protect against, unlike {@link TaskService},
- * which IS reachable from a controller and does route every id through it.
- * The gate already happened at whatever public {@code *Service} method
- * triggered case creation.
+ * check-off. Listed as a named exclusion in
+ * AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS, not by avoiding a
+ * *Service/*Directory suffix (sub-project 3A Task 2 rebound that rule to bind
+ * on repository injection rather than class name, closing exactly that gap):
+ * this class is called by {@link TaskLifecycleAdapter} from inside {@code
+ * CaseService.create}'s own transaction, on a {@code caseId} that method just
+ * created and fully controls in the same call -- there is no request-supplied
+ * id here for {@code AuthorizedQuery} to protect against, unlike {@link
+ * TaskService}, which IS reachable from a controller and does route every id
+ * through it. The gate already happened at whatever public {@code *Service}
+ * method triggered case creation.
  *
  * Nothing is copied from the requirement definition beyond its label and
  * kind -- same reasoning as {@code CaseService.instantiate}'s own milestone

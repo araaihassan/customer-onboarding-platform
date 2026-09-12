@@ -151,4 +151,36 @@ describe("MilestoneRow", () => {
     expect(screen.getByText("Comments")).not.toBeNull();
     expect(screen.getByText(/comments aren't tracked here yet/i)).not.toBeNull();
   });
+
+  it("shows open and total task counts on a milestone that has tasks", () => {
+    renderRow({ ...active, taskSummary: { open: 2, total: 5 } });
+    expect(screen.getByText("2 of 5 tasks open")).not.toBeNull();
+  });
+
+  it("renders no task count at all when a milestone has none", () => {
+    renderRow({ ...active, taskSummary: { open: 0, total: 0 } });
+    expect(screen.queryByText(/tasks open/)).toBeNull();
+  });
+
+  it("renders no task count when the roadmap carries no taskSummary at all", () => {
+    renderRow(active);
+    expect(screen.queryByText(/tasks open/)).toBeNull();
+  });
+
+  // Merged in from components/journey/__tests__/MilestoneRow.test.tsx (final
+  // whole-branch review finding #6): this branch shipped two competing
+  // test-file conventions, and MilestoneRow ended up with both a co-located
+  // file (this one) and a __tests__/ one, added later by a task that did not
+  // notice the first already existed. Consolidated here, the co-located
+  // convention this file and tasks.test.tsx elsewhere already use; the
+  // __tests__/ copy is deleted. No test case dropped in the merge.
+  it("badges an internal-only milestone with a word, not only a colour", () => {
+    renderRow({ ...active, portalVisible: false });
+    expect(screen.getByText("Internal")).not.toBeNull();
+  });
+
+  it("adds no badge to a shared milestone", () => {
+    renderRow({ ...active, portalVisible: true });
+    expect(screen.queryByText("Internal")).toBeNull();
+  });
 });

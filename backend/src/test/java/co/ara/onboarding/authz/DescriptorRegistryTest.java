@@ -24,6 +24,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatNoException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class DescriptorRegistryTest extends PostgresTestBase {
@@ -40,6 +41,36 @@ class DescriptorRegistryTest extends PostgresTestBase {
         // Passes only because all four descriptors are registered; this is the
         // same assertion the application makes at startup.
         registry.validate();
+    }
+
+    /**
+     * Task 11 (sub-project 3A): programme.view/programme.manage are catalogued at
+     * record scopes, so ProgrammeDescriptor must be registered or validate() refuses
+     * startup naming resource type 'programme' -- confirmed genuinely red before
+     * ProgrammeDescriptor existed.
+     */
+    @Test
+    void everyRecordScopedResourceTypeHasADescriptor() {
+        assertThatNoException().isThrownBy(() -> registry.validate());
+        assertThat(registry.resourceTypes()).contains("programme");
+    }
+
+    /**
+     * Task 23 (sub-project 3A gate 2): plan.issue/plan.approve_schedule are
+     * RECORD-scoped on onboarding_case, which already has CaseDescriptor, so
+     * validate() itself does not require PlanRevisionDescriptor or
+     * PlanRevisionItemDescriptor -- they exist for AuthorizedQuery's entity-type
+     * dispatch instead, the same reason CaseParticipantDescriptor and
+     * CaseAttributeValueDescriptor were registered ahead of validate() ever
+     * demanding them. Asserting their resourceType()s are registered is the only
+     * way that reason would surface here rather than staying invisible until a
+     * later service actually reads a PlanRevision/PlanRevisionItem row.
+     */
+    @Test
+    void planRevisionAndPlanRevisionItemHaveDescriptorsForAuthorizedQueryDispatch() {
+        assertThat(registry.forEntity(co.ara.onboarding.journey.PlanRevision.class)).isNotNull();
+        assertThat(registry.forEntity(co.ara.onboarding.journey.PlanRevisionItem.class)).isNotNull();
+        assertThat(registry.resourceTypes()).contains("plan_revision", "plan_revision_item");
     }
 
     @Test

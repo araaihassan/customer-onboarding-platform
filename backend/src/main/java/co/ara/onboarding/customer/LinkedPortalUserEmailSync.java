@@ -27,11 +27,19 @@ import java.util.UUID;
  * same reasoning that class's own javadoc gives for why it needs no guard
  * exclusion of its own.
  *
- * {@code AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly}
- * binds to the CALLING class's own method bodies, not to what fields it holds,
- * so {@link CustomerContactService} may inject {@link AppUserRepository} to
- * construct this and still never itself call a {@code *Repository} finder —
- * every {@code findById} in this flow lives here instead.
+ * {@code AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly}'s
+ * violation clause binds to the CALLING class's own method bodies calling a
+ * finder, not merely to what fields it holds — the rebound rule's eligibility
+ * predicate (sub-project 3A Task 2) DOES look at fields, so
+ * {@link CustomerContactService} is in scope for injecting
+ * {@link AppUserRepository}, but it still never itself calls a
+ * {@code *Repository} finder and so never violates — every {@code findById} in
+ * this flow lives here instead. This class is itself
+ * listed as a named exclusion in
+ * {@code AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS}, not by avoiding a
+ * *Service/*Directory suffix -- sub-project 3A Task 2 rebound that rule to
+ * bind on repository injection rather than class name, for exactly this
+ * reason.
  */
 final class LinkedPortalUserEmailSync {
 

@@ -152,6 +152,64 @@ public final class AuditActions {
     // narrative the Activity Timeline exists to show, not internal administration.
     public static final AuditAction COMMENT_ADDED                = of("comment.added", true);
     public static final AuditAction COMMENT_EDITED               = of("comment.edited", true);
+    // Sub-project 3A Task 3: closes the last of design spec §5.5's seven task
+    // actions. Timeline-visible for the same reason TASK_STATUS_CHANGED is: who
+    // a task belongs to is the collaboration narrative, not internal staffing --
+    // contrast USER_ROLE_ASSIGNED above, which is compliance-only because that
+    // one names the TENANT'S OWN staff member, not a change to the customer's
+    // record. Recorded only on an actual TRANSITION of the assignee (old != new),
+    // never on every update that merely carries the same assignee unchanged --
+    // TaskService.update captures the previous value before mutating so it can
+    // tell the difference, the same shape CONTACT_DEACTIVATED draws against a
+    // plain phone-number correction.
+    public static final AuditAction TASK_ASSIGNED                = of("task.assigned", true);
+    // Sub-project 3A Task 12: a programme is a customer-facing container (QA
+    // Q20), so opening one, editing it and retiring it are exactly the business
+    // narrative the Activity Timeline exists to show -- same reasoning as
+    // customer.* and case.* above, contrast the compliance-only identity/auth
+    // actions.
+    public static final AuditAction PROGRAMME_CREATED            = of("programme.created", true);
+    public static final AuditAction PROGRAMME_UPDATED            = of("programme.updated", true);
+    public static final AuditAction PROGRAMME_DEACTIVATED        = of("programme.deactivated", true);
+    // Task 13: journey membership and participants. Recorded against "programme"/
+    // programmeId -- never against "onboarding_case" -- because these are events
+    // about the programme's OWN membership records, not about the case itself.
+    // Contrast CASE_PARTICIPANT_ADDED/REMOVED (journey's own actions, recorded
+    // against "onboarding_case"), which fire separately when alsoGrantJourneyAccess
+    // triggers a real CaseParticipant write through CaseService.addParticipant --
+    // the two are deliberately distinct actions on two different resource types,
+    // never one action pretending to be the other.
+    public static final AuditAction PROGRAMME_JOURNEY_ADDED       = of("programme.journey_added", true);
+    public static final AuditAction PROGRAMME_JOURNEY_REMOVED     = of("programme.journey_removed", true);
+    public static final AuditAction PROGRAMME_PARTICIPANT_ADDED   = of("programme.participant_added", true);
+    public static final AuditAction PROGRAMME_PARTICIPANT_REMOVED = of("programme.participant_removed", true);
+    // Sub-project 3A Task 16 (QA Q21): compliance-only, matching every other
+    // workflow.* action above -- which catalogue template a customer's clone was
+    // tailored from is tenant configuration, not the customer's own business, the
+    // same reasoning WORKFLOW_TEMPLATE_CREATED already carries.
+    public static final AuditAction WORKFLOW_CLONED_FOR_CUSTOMER  = of("workflow.cloned_for_customer", false);
+    // Sub-project 3A Task 17 (QA Q21 / spec 5.2): same compliance-only reasoning
+    // as WORKFLOW_CLONED_FOR_CUSTOMER above -- which catalogue version a
+    // customer's clone was last refreshed from is tenant configuration.
+    public static final AuditAction WORKFLOW_REFRESHED_FROM_SOURCE = of("workflow.refreshed_from_source", false);
+    // Sub-project 3A Task 20 (QA Q22 gate 1): timeline-visible, unlike every
+    // other workflow.* action above -- the customer's own side of the story
+    // (did they submit this plan, did they approve or reject it) depends on
+    // these two showing up on their Activity Timeline, not staying
+    // compliance-only tenant configuration the way authoring itself does.
+    public static final AuditAction PLAN_SHAPE_SUBMITTED = of("plan.shape_submitted", true);
+    public static final AuditAction PLAN_SHAPE_DECIDED   = of("plan.shape_decided", true);
+    // Sub-project 3A Task 24 (QA Q22 gate 2): timeline-visible for the same reason
+    // as the shape actions above -- issuing a dated schedule is the customer's own
+    // side of the story, not tenant configuration.
+    public static final AuditAction PLAN_REVISION_ISSUED = of("plan.revision_issued", true);
+    // Task 25 (QA Q22/Q23 gate 2's decision): timeline-visible for the same reason
+    // PLAN_REVISION_ISSUED is -- deciding a schedule revision is the customer's own
+    // side of the story. Recorded against "onboarding_case", never
+    // "plan_revision", the same resource-type choice PLAN_REVISION_ISSUED already
+    // made -- and recorded BEFORE CaseService.resume is ever called on the case's
+    // first approval, per CauseBeforeEffectTest's rule.
+    public static final AuditAction PLAN_REVISION_DECIDED = of("plan.revision_decided", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

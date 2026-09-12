@@ -8,15 +8,25 @@ import co.ara.onboarding.task.TaskRepository;
 import co.ara.onboarding.task.TaskService;
 import co.ara.onboarding.task.TaskStatus;
 import co.ara.onboarding.task.TaskStatusRequest;
+import co.ara.onboarding.workflow.CloneTemplateRequest;
+import co.ara.onboarding.workflow.CustomerTemplateService;
+import co.ara.onboarding.workflow.DecidePlanRequest;
+import co.ara.onboarding.workflow.PlanDecision;
+import co.ara.onboarding.workflow.PlanShapeService;
+import co.ara.onboarding.workflow.PublishService;
 import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
+import co.ara.onboarding.workflow.WorkflowService;
+import co.ara.onboarding.workflow.WorkflowVersionRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
 import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
 import static co.ara.onboarding.workflow.WorkflowFixtures.stage;
 import static co.ara.onboarding.workflow.WorkflowFixtures.task;
@@ -42,10 +52,17 @@ class CauseBeforeEffectTest extends PostgresTestBase {
     @Autowired TenantFixture fixture;
     @Autowired JourneyFixtures journey;
     @Autowired CaseService cases;
+    @Autowired CaseRepository caseRepository;
     @Autowired RequirementService requirements;
     @Autowired TimelineService timeline;
     @Autowired TaskService tasks;
     @Autowired TaskRepository taskRepository;
+    @Autowired PlanRevisionService planRevisionService;
+    @Autowired PlanShapeService planShapeService;
+    @Autowired WorkflowService workflows;
+    @Autowired PublishService publishService;
+    @Autowired CustomerTemplateService customerTemplates;
+    @Autowired WorkflowVersionRepository versionRepository;
 
     @Test
     void creatingACaseIsRecordedBeforeTheStageEntryAndMilestonesItCauses() {
@@ -146,6 +163,74 @@ class CauseBeforeEffectTest extends PostgresTestBase {
                     .containsSubsequence("task.status_changed", "requirement.satisfied",
                             "milestone.completed");
         });
+    }
+
+    /**
+     * Sub-project 3A Task 25 (QA Q22/Q23 gate 2): {@code
+     * PlanRevisionService.decide}'s own {@code plan.revision_decided} record
+     * must precede {@code case.resumed} -- the event {@code CaseService.resume}
+     * itself records -- on a case's first-ever approved schedule revision. This
+     * is the guard whose actual subject this ordering is, per this task's own
+     * brief: NOT a {@code PlanRevisionTest} concern, this file's.
+     */
+    @Test
+    void theRevisionDecisionIsRecordedBeforeTheResumeItCauses() {
+        UUID tenant = fixture.createTenant("cbe-plan-revision");
+        fixture.runAs(tenant, () -> {
+            UUID caseId = openHeldCaseOnApprovedCustomerTemplate(tenant);
+
+            PlanRevisionView rev = planRevisionService.issue(caseId, new IssueRevisionRequest("v1"));
+            planRevisionService.decide(rev.id(),
+                    new DecidePlanRequest(PlanDecision.APPROVED, "Approved", null));
+
+            assertThat(chronological(caseId))
+                    .containsSubsequence("plan.revision_decided", "case.resumed");
+        });
+    }
+
+    /**
+     * A customer-tier clone (single stage, single portal-visible milestone),
+     * published, shape-submitted and APPROVED, cased, and then forced into
+     * ON_HOLD directly against the repository -- Task 26 (not yet built) is
+     * what will eventually make case creation on a customer template start this
+     * way in production; seeded directly here rather than waiting on that
+     * wiring, per this task's own pre-flight ruling. Same shape as {@code
+     * PlanRevisionTest.openApprovedCustomerCase}/{@code
+     * openHeldCaseOnCustomerTemplate}, duplicated here rather than shared: this
+     * class runs everything as the tenant's fixture superuser and has no need
+     * for PlanRevisionTest's narrow-scoped pm/am actors.
+     */
+    private UUID openHeldCaseOnApprovedCustomerTemplate(UUID tenant) {
+        UUID catalogueTemplateId = workflows.createTemplate("Fixture Onboarding " + Uuid7.generate(), "").id();
+        UUID catalogueDraftId = workflows.createDraft(catalogueTemplateId);
+        workflows.replaceDraft(catalogueDraftId, new WorkflowDefinitionRequest(
+                List.of(stage("s1", "Delivery", List.of(
+                        milestone("m1", "Kickoff", 2, List.of(), List.of(manual("Sign up")))))),
+                List.of(), 0L));
+        publishService.publish(catalogueDraftId);
+
+        UUID customerId = fixture.createCustomer(tenant, "Plan Revision Customer " + Uuid7.generate(),
+                null, null, null);
+        var clone = customerTemplates.clone(catalogueTemplateId,
+                new CloneTemplateRequest(customerId, "Plan Revision Clone " + Uuid7.generate()));
+        UUID cloneVersionId = versionRepository.findByTemplateIdOrderByVersionNoDesc(clone.id()).get(0).getId();
+        publishService.publish(cloneVersionId);
+
+        UUID contactId = fixture.createContact(tenant, customerId,
+                "sponsor+" + Uuid7.generate() + "@cause-before-effect.example");
+        planShapeService.submit(cloneVersionId);
+        planShapeService.decide(cloneVersionId,
+                new DecidePlanRequest(PlanDecision.APPROVED, "Approved", contactId));
+
+        UUID caseId = cases.create(new CreateCaseRequest(customerId, clone.id(),
+                "Plan Revision Case " + Uuid7.generate(), Map.of())).id();
+
+        Case c = caseRepository.findById(caseId).orElseThrow();
+        c.setStatus(CaseStatus.ON_HOLD);
+        c.setHeldAt(Instant.now());
+        caseRepository.saveAndFlush(c);
+
+        return caseId;
     }
 
     /**

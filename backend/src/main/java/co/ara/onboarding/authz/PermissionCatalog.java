@@ -84,6 +84,34 @@ public final class PermissionCatalog {
         add(TASK_MANAGE,             "task",    "task",            "Create, edit, assign and cancel tasks", ORG_SCOPES);
         add(TASK_COMPLETE,           "task",    "task",            "Transition a task's status",    RECORD);
         add(COMMENT_CREATE,          "task",    "comment",         "Post a comment",                ORG_SCOPES);
+        // Task 11 (sub-project 3A): programme.view/programme.manage need
+        // scoping/ProgrammeDescriptor, added in the same commit as these entries so
+        // DescriptorRegistry.validate() does not refuse to start. programme.create
+        // is ALL-only for the same reason customer.create and case.create are --
+        // there is no programme yet to scope a create permission against.
+        add(PROGRAMME_VIEW,          "programme", "programme",     "View programmes",               RECORD);
+        add(PROGRAMME_CREATE,        "programme", null,            "Create a programme for a customer", ALL_ONLY);
+        add(PROGRAMME_MANAGE,        "programme", "programme",     "Edit a programme, its journeys and its participants", ORG_SCOPES);
+        // Task 19 (sub-project 3A): gate 1 of QA Q22. ALL-only with a null
+        // resourceType, the same shape as WORKFLOW_VIEW/WORKFLOW_MANAGE above -- a
+        // workflow version is tenant-wide configuration with no owner, so there is
+        // nothing for DEPARTMENT or TEAM to resolve against, and DescriptorRegistry
+        // .validate() does not require a descriptor for it. PlanShapeApprovalDescriptor
+        // exists anyway, in scoping/, for AuthorizedQuery's entity-type dispatch when
+        // Task 20 reads plan_shape_approval rows -- the same reason
+        // CaseParticipantDescriptor and CaseAttributeValueDescriptor exist ahead of
+        // validate() ever requiring them.
+        add(PLAN_APPROVE_SHAPE,      "plan",      null,            "Record the customer's decision on a plan's shape", ALL_ONLY);
+        // Task 23 (sub-project 3A): gate 2 of QA Q22. Both act on one journey --
+        // unlike gate 1's plan.approve_shape, which has no record to scope against --
+        // so both are RECORD-scoped on onboarding_case. scoping/PlanRevisionDescriptor
+        // and PlanRevisionItemDescriptor exist for AuthorizedQuery's entity-type
+        // dispatch when a service reads plan_revision/plan_revision_item rows, not
+        // because DescriptorRegistry.validate() demands them -- onboarding_case
+        // already has CaseDescriptor -- the same reason CaseParticipantDescriptor and
+        // CaseAttributeValueDescriptor exist ahead of validate() ever requiring them.
+        add(PLAN_ISSUE,              "plan",      "onboarding_case", "Issue a schedule revision for a journey", RECORD);
+        add(PLAN_APPROVE_SCHEDULE,   "plan",      "onboarding_case", "Record the customer's decision on a schedule revision", RECORD);
     }
 
     /**

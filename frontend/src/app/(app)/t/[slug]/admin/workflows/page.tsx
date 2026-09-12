@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { Field } from "@/components/ui/Field";
 import { EmptyState, SkeletonRows } from "@/components/ui/States";
+import { CloneTemplateDialog } from "@/components/workflow/CloneTemplateDialog";
+import { RefreshFromSourceDialog } from "@/components/workflow/RefreshFromSourceDialog";
 import { ApiError } from "@/lib/api/client";
 import {
   parseDraftVersionId,
@@ -15,6 +17,7 @@ import {
   useCreateTemplate,
   useDiscardDraft,
   useWorkflows,
+  type WorkflowTemplate,
 } from "@/lib/api/workflows";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
@@ -25,6 +28,14 @@ import { t } from "@/lib/i18n";
  * version yet, or a deep copy of the current one otherwise -- there is no
  * "list versions" endpoint to link straight to an in-progress draft, so a
  * 409 (one already open) surfaces as an error rather than a link.
+ *
+ * QA Q21 (sub-project 3A, Task 30): `customerId`/`clonedFromTemplateId` split
+ * this same list into two groups -- the tenant catalogue, and templates
+ * tailored for one customer -- rather than a separate screen, since
+ * `GET /workflows` already returns both together with no server-side filter
+ * to ask for one alone. The customer-template group (and its heading) only
+ * ever renders once at least one clone exists, so a tenant that has never
+ * cloned anything sees the exact flat list it always has.
  */
 export default function WorkflowsPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -36,6 +47,8 @@ export default function WorkflowsPage() {
     conflict?: { templateId: string; versionId?: string };
   }>();
   const [openingId, setOpeningId] = useState<string>();
+  const [cloningSource, setCloningSource] = useState<WorkflowTemplate>();
+  const [refreshTarget, setRefreshTarget] = useState<WorkflowTemplate>();
 
   const canManage = useHasPermission("workflow.manage");
   const { data, isLoading, isError, refetch } = useWorkflows();
@@ -46,6 +59,11 @@ export default function WorkflowsPage() {
   useSetPageHeader(t("workflow.list.title"));
 
   const templates = data ?? [];
+  // Every template this tenant can view is in one list; a clone is any
+  // template with customerId set (WorkflowTemplateView's own field, Task 15).
+  const catalogueTemplates = templates.filter((template) => !template.customerId);
+  const customerTemplates = templates.filter((template) => template.customerId);
+  const templatesById = new Map(templates.map((template) => [template.id, template]));
 
   function openEditor(templateId: string) {
     setDraftIssue(undefined);
@@ -166,43 +184,51 @@ export default function WorkflowsPage() {
           title={t("workflow.list.empty")}
           description={t("workflow.list.emptyHint")}
         />
+      ) : customerTemplates.length === 0 ? (
+        <TemplateList
+          templates={catalogueTemplates}
+          canManage={canManage}
+          openingId={openingId}
+          onOpenEditor={openEditor}
+          onClone={setCloningSource}
+        />
       ) : (
-        <ul className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
-          {templates.map((template) => (
-            <li
-              key={template.id}
-              className="flex items-center justify-between bg-surface border border-line"
-              style={{ borderRadius: "var(--ob-radius-11)", padding: "var(--ob-space-13) var(--ob-space-16)" }}
-            >
-              <div>
-                <p
-                  className="text-ink"
-                  style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
-                >
-                  {template.name}
-                </p>
-                <p
-                  className="text-text-faint"
-                  style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
-                >
-                  {template.currentVersionNo
-                    ? t("workflow.version.published", { version: String(template.currentVersionNo) })
-                    : t("workflow.list.neverPublished")}
-                </p>
-              </div>
-              {canManage && (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={openingId === template.id}
-                  onClick={() => openEditor(template.id!)}
-                >
-                  {template.currentVersionNo ? t("workflow.list.newDraft") : t("workflow.list.startEditing")}
-                </Button>
-              )}
-            </li>
-          ))}
-        </ul>
+        <div className="flex flex-col" style={{ gap: "var(--ob-space-20)" }}>
+          <TemplateList
+            groupLabel={t("workflow.list.catalogueGroup")}
+            templates={catalogueTemplates}
+            canManage={canManage}
+            openingId={openingId}
+            onOpenEditor={openEditor}
+            onClone={setCloningSource}
+          />
+          <TemplateList
+            groupLabel={t("workflow.list.customerGroup")}
+            templates={customerTemplates}
+            canManage={canManage}
+            openingId={openingId}
+            onOpenEditor={openEditor}
+            onRefresh={setRefreshTarget}
+            sourceNameFor={(template) => templatesById.get(template.clonedFromTemplateId)?.name}
+          />
+        </div>
+      )}
+
+      {cloningSource && (
+        <CloneTemplateDialog
+          template={cloningSource}
+          open
+          onClose={() => setCloningSource(undefined)}
+        />
+      )}
+
+      {refreshTarget && (
+        <RefreshFromSourceDialog
+          template={refreshTarget}
+          sourceName={templatesById.get(refreshTarget.clonedFromTemplateId)?.name}
+          open
+          onClose={() => setRefreshTarget(undefined)}
+        />
       )}
 
       {creating && (
@@ -223,6 +249,120 @@ export default function WorkflowsPage() {
         </Dialog>
       )}
     </section>
+  );
+}
+
+/**
+ * One group of template rows, optionally under its own label (the label is
+ * omitted entirely for the flat, pre-Q21 case -- a tenant with no customer
+ * templates never sees a "Catalogue templates" heading over its one list).
+ */
+function TemplateList({
+  groupLabel,
+  templates,
+  canManage,
+  openingId,
+  onOpenEditor,
+  onClone,
+  onRefresh,
+  sourceNameFor,
+}: {
+  groupLabel?: string;
+  templates: WorkflowTemplate[];
+  canManage: boolean;
+  openingId?: string;
+  onOpenEditor: (templateId: string) => void;
+  onClone?: (template: WorkflowTemplate) => void;
+  onRefresh?: (template: WorkflowTemplate) => void;
+  sourceNameFor?: (template: WorkflowTemplate) => string | undefined;
+}) {
+  return (
+    <div className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
+      {groupLabel && (
+        <p
+          className="text-text-faint"
+          style={{
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            font: "var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
+          }}
+        >
+          {groupLabel}
+        </p>
+      )}
+      <ul className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
+        {templates.map((template) => (
+          <li
+            key={template.id}
+            className="flex items-center justify-between flex-wrap bg-surface border border-line"
+            style={{
+              borderRadius: "var(--ob-radius-11)",
+              padding: "var(--ob-space-13) var(--ob-space-16)",
+              gap: "var(--ob-space-11)",
+            }}
+          >
+            <div className="min-w-0">
+              <p
+                className="text-ink"
+                style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
+              >
+                {template.name}
+              </p>
+              <p
+                className="text-text-faint"
+                style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
+              >
+                {template.currentVersionNo
+                  ? t("workflow.version.published", { version: String(template.currentVersionNo) })
+                  : t("workflow.list.neverPublished")}
+              </p>
+              {/*
+               * The provenance line (Task 30, brief example: "Cloned from
+               * Standard Onboarding · 12 Aug"). Only the source's name renders:
+               * WorkflowTemplateView carries no clone/refresh timestamp at
+               * all (BaseEntity's own createdAt is never exposed on it), and
+               * adding one is real backend scope this task's own constraint
+               * rules out ("consuming existing generated types, not adding
+               * new backend scope") -- so the date half of the brief's
+               * example has nothing to read from yet. Styled the same as the
+               * version subline directly above it, this row's own established
+               * mono caption treatment, not a one-off.
+               */}
+              {template.clonedFromTemplateId && sourceNameFor?.(template) && (
+                <p
+                  className="text-text-faint"
+                  style={{ font: "var(--ob-type-breadcrumb-size)/var(--ob-type-breadcrumb-line) var(--ob-font-family-data)" }}
+                >
+                  {t("workflow.list.clonedFrom", { source: sourceNameFor(template)! })}
+                </p>
+              )}
+            </div>
+            {canManage && (
+              <div className="flex flex-wrap items-center" style={{ gap: "var(--ob-space-8)" }}>
+                {onClone && (
+                  <Button type="button" variant="small-secondary" onClick={() => onClone(template)}>
+                    {t("workflow.list.clone")}
+                  </Button>
+                )}
+                {onRefresh && (
+                  <Button type="button" variant="small-secondary" onClick={() => onRefresh(template)}>
+                    {t("workflow.list.refresh")}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={openingId === template.id}
+                  onClick={() => onOpenEditor(template.id!)}
+                >
+                  {template.currentVersionNo ? t("workflow.list.newDraft") : t("workflow.list.startEditing")}
+                </Button>
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

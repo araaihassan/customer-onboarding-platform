@@ -36,8 +36,20 @@ public final class WorkflowFixtures {
     public static MilestoneRequest milestone(String key, String name, int estimatedDurationDays,
                                               List<String> dependsOnMilestoneKeys,
                                               List<RequirementRequest> requirements) {
+        return milestone(key, name, estimatedDurationDays, dependsOnMilestoneKeys, requirements, null);
+    }
+
+    /**
+     * Same as the five-arg overload, with an explicit portalVisible -- null (the
+     * five-arg overload's own default) coalesces to visible in
+     * WorkflowService.newMilestone, exactly as an omitted request field would.
+     */
+    public static MilestoneRequest milestone(String key, String name, int estimatedDurationDays,
+                                              List<String> dependsOnMilestoneKeys,
+                                              List<RequirementRequest> requirements,
+                                              Boolean portalVisible) {
         return new MilestoneRequest(key, name, null, estimatedDurationDays,
-                dependsOnMilestoneKeys, requirements);
+                dependsOnMilestoneKeys, requirements, portalVisible);
     }
 
     public static RequirementRequest manual(String label) {
@@ -110,7 +122,8 @@ public final class WorkflowFixtures {
     private static MilestoneRequest toMilestoneRequest(MilestoneView m) {
         return new MilestoneRequest(m.key(), m.name(), m.description(), m.estimatedDurationDays(),
                 m.dependsOnMilestoneKeys(),
-                m.requirements().stream().map(WorkflowFixtures::toRequirementRequest).toList());
+                m.requirements().stream().map(WorkflowFixtures::toRequirementRequest).toList(),
+                m.portalVisible());
     }
 
     private static RequirementRequest toRequirementRequest(RequirementView r) {

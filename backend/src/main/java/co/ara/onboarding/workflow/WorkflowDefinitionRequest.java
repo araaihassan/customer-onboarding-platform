@@ -44,7 +44,14 @@ public record WorkflowDefinitionRequest(
             String description,
             @Positive int estimatedDurationDays,
             List<String> dependsOnMilestoneKeys,
-            List<RequirementRequest> requirements) {}
+            List<RequirementRequest> requirements,
+            // Boxed, not primitive boolean: a client that omits this key must default
+            // to visible, never to hidden. StageRequest.portalVisible is a primitive
+            // and so already has the "missing key silently binds to false" defect
+            // sub-project 2's live run found on autoAdvance -- this field is
+            // deliberately not built the same way. Null is coalesced to true in
+            // WorkflowService.newMilestone.
+            Boolean portalVisible) {}
 
     public record RequirementRequest(
             RequirementKind kind,

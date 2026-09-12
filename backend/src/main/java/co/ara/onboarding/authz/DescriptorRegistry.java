@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 @Component
 public class DescriptorRegistry {
@@ -65,5 +66,10 @@ public class DescriptorRegistry {
                     "No ResourceAuthorizationDescriptor registered for '" + resourceType + "'");
         }
         return d;
+    }
+
+    /** Every resourceType() a registered descriptor declares -- used by tests to assert coverage. */
+    public Set<String> resourceTypes() {
+        return Set.copyOf(byResourceType.keySet());
     }
 }

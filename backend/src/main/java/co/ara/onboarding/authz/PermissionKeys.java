@@ -47,6 +47,12 @@ public final class PermissionKeys {
     public static final String TASK_MANAGE           = "task.manage";
     public static final String TASK_COMPLETE         = "task.complete";
     public static final String COMMENT_CREATE        = "comment.create";
+    public static final String PROGRAMME_VIEW        = "programme.view";
+    public static final String PROGRAMME_CREATE      = "programme.create";
+    public static final String PROGRAMME_MANAGE      = "programme.manage";
+    public static final String PLAN_APPROVE_SHAPE    = "plan.approve_shape";
+    public static final String PLAN_ISSUE               = "plan.issue";
+    public static final String PLAN_APPROVE_SCHEDULE    = "plan.approve_schedule";
 
     private PermissionKeys() {}
 }

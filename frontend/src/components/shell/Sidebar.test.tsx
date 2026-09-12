@@ -118,6 +118,17 @@ describe("Sidebar", () => {
     expect(linkNamed(/customers/i)?.getAttribute("href")).toBe("/t/acme/customers");
   });
 
+  it("omits Programmes without programme.view", () => {
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/programmes/i)).toBeNull();
+  });
+
+  it("offers Programmes with programme.view at any scope", () => {
+    permissions = { "programme.view": ["ASSIGNED"] };
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/programmes/i)?.getAttribute("href")).toBe("/t/acme/programmes");
+  });
+
   it("omits Administration without role.view or user.view", () => {
     permissions = { "customer.view": ["ALL"] };
     render(<Sidebar slug="acme" />);

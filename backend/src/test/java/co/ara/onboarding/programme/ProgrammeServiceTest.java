@@ -1,0 +1,381 @@
+package co.ara.onboarding.programme;
+
+import co.ara.onboarding.authz.PermissionKeys;
+import co.ara.onboarding.authz.RelationshipType;
+import co.ara.onboarding.authz.RoleService;
+import co.ara.onboarding.authz.Scope;
+import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.support.PostgresTestBase;
+import co.ara.onboarding.support.TenantFixture;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import java.lang.reflect.RecordComponent;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+
+import static java.util.stream.Collectors.toSet;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+/**
+ * Task 12: ProgrammeService create/read/update/deactivate, and the write-path
+ * guard on customerId -- the escalation shape that bit sub-project 1 three
+ * times (contact creation, role assignment, invitation issuance).
+ */
+class ProgrammeServiceTest extends PostgresTestBase {
+
+    @Autowired TenantFixture fixture;
+    @Autowired ProgrammeService programmeService;
+    @Autowired ProgrammeRepository programmeRepository;
+    @Autowired ProgrammeParticipantRepository participantRepository;
+    @Autowired RoleService roles;
+
+    @Test
+    void createResolvesTheCustomerThroughAuthorizedQueryBeforeWriting() {
+        UUID tenant = fixture.createTenant("programme-escalation");
+        var narrowActor = new UUID[1];
+        var foreignCustomer = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID actorsDepartment = fixture.createDepartment(tenant, "Actor's Department");
+            UUID otherDepartment = fixture.createDepartment(tenant, "Another Department");
+            narrowActor[0] = fixture.createUserInDepartment(tenant, "narrow-pm@example.com", actorsDepartment);
+            // programme.create is ALL-only in the catalog -- there is no narrower
+            // grant to test it at -- but customer.view is RECORD-scoped, and this
+            // actor holds it only at DEPARTMENT, over their OWN department. A
+            // passing programme.create gate proves only that the actor may create
+            // A programme, never that they may see this particular customer.
+            grant(narrowActor[0], Map.of(
+                    PermissionKeys.PROGRAMME_CREATE, Scope.ALL,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.DEPARTMENT));
+
+            // Owned by the OTHER department -- outside the narrow actor's own
+            // customer.view scope.
+            foreignCustomer[0] = fixture.createCustomer(
+                    tenant, "Foreign Co " + Uuid7.generate(), null, otherDepartment, null);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, narrowActor[0], () -> programmeService.create(
+                new CreateProgrammeRequest("P", foreignCustomer[0], null, null, null, null))))
+                .isInstanceOf(NoSuchElementException.class);
+
+        // Nothing half-written: the customer resolution failure must have
+        // happened before the programme row (or any audit record of it) was
+        // ever saved.
+        fixture.runAs(tenant, () -> assertThat(programmesFor(foreignCustomer[0])).isEmpty());
+    }
+
+    @Test
+    void updateIsAFullReplaceAndTheViewCarriesEveryFieldTheRequestAccepts() {
+        // Field-for-field alignment: a field on UpdateProgrammeRequest with no twin on
+        // ProgrammeView makes every client silently erase it on the next PUT.
+        Set<String> requestFields = componentNames(UpdateProgrammeRequest.class);
+        Set<String> viewFields = componentNames(ProgrammeView.class);
+        assertThat(viewFields).containsAll(requestFields);
+    }
+
+    /**
+     * The "what does deactivation revoke?" question, answered in code rather
+     * than convention (CLAUDE.md's required design question for any
+     * deactivatable entity). Traced against the actual predicate-combination
+     * code (AuthorizationPredicateBuilder.forPermission,
+     * ProgrammeDescriptor.assignedScope) before writing this: assignedScope
+     * previously read only programme_participant and never Programme.status,
+     * so this test failed red for a real reason, not a hypothetical one --
+     * fixed alongside this task, see ProgrammeDescriptor's own doc comment.
+     */
+    @Test
+    void deactivationRevokesTheCrossJourneyReadStructurally() {
+        UUID tenant = fixture.createTenant("programme-deactivation");
+        var sponsor = new UUID[1];
+        var programmeId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
+            sponsor[0] = fixture.createUser(tenant, "sponsor@example.com");
+            // ASSIGNED is the only scope granted for programme.view -- resolved
+            // through programme_participant (ProgrammeDescriptor), no DEPARTMENT/
+            // TEAM/ALL grant to fall back on, so this proves the
+            // participation-mediated read specifically, not a wider one masking it.
+            // customer.view ALL is granted alongside it: ProgrammeService.get's own
+            // doc comment names this cross-permission dependency (resolving
+            // customerName needs customer.view over the programme's own customer,
+            // the same shape CLAUDE.md documents for case.view/workflow.view) --
+            // this test is about the ASSIGNED/deactivation interaction, not that
+            // dependency, so it is granted widely rather than narrowly here.
+            grant(sponsor[0], Map.of(PermissionKeys.PROGRAMME_VIEW, Scope.ASSIGNED,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL));
+
+            programmeId[0] = programmeService.create(new CreateProgrammeRequest(
+                    "Sponsor's Programme", customerId, null, null, null, null)).id();
+            addParticipant(tenant, programmeId[0], sponsor[0]);
+        });
+
+        // Before deactivation: the sponsor's participation genuinely grants the read.
+        fixture.runAsUser(tenant, sponsor[0], () -> assertThat(programmeService.get(programmeId[0]).programme().id())
+                .isEqualTo(programmeId[0]));
+
+        fixture.runAs(tenant, () -> programmeService.deactivate(programmeId[0]));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, sponsor[0], () -> programmeService.get(programmeId[0])))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * The other half of the descriptor investigation: a DEPARTMENT-scoped
+     * holder is deliberately UNAFFECTED by deactivation -- ProgrammeDescriptor's
+     * departmentScope/teamScope were not given the same ACTIVE-only treatment
+     * as assignedScope, on purpose (governance/reporting access to a retired
+     * programme is not the same grant as participation-mediated access). This
+     * pins that choice down as a test, not just a comment, so a future change
+     * to departmentScope has to break a named assertion rather than an
+     * unwritten expectation.
+     */
+    @Test
+    void deactivationDoesNotAffectADepartmentScopedReader() {
+        UUID tenant = fixture.createTenant("programme-deactivation-department");
+        var deptReader = new UUID[1];
+        var programmeId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID department = fixture.createDepartment(tenant, "Owning Department");
+            deptReader[0] = fixture.createUserInDepartment(tenant, "dept-reader@example.com", department);
+            // customer.view ALL alongside programme.view DEPARTMENT -- see the
+            // sponsor test above for why this second grant is needed at all.
+            grant(deptReader[0], Map.of(PermissionKeys.PROGRAMME_VIEW, Scope.DEPARTMENT,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
+            programmeId[0] = programmeService.create(new CreateProgrammeRequest(
+                    "Department Programme", customerId, null, null, department, null)).id();
+            programmeService.deactivate(programmeId[0]);
+        });
+
+        fixture.runAsUser(tenant, deptReader[0], () -> assertThat(programmeService.get(programmeId[0]).programme().status())
+                .isEqualTo(ProgrammeStatus.INACTIVE));
+    }
+
+    /**
+     * Fix round 1: the descriptor fix above (assignedScope requiring ACTIVE)
+     * deliberately left departmentScope/teamScope unchanged, so a DEPARTMENT-
+     * or TEAM-scoped programme.manage holder can still resolve an already-
+     * deactivated programme through AuthorizedQuery.getById -- the same
+     * predicate that backs update. Without an independent guard in
+     * ProgrammeService.update, that resolution success would let the write
+     * proceed too. This proves the write is refused anyway, at the service
+     * level, regardless of the caller's scope resolving the row at all.
+     */
+    @Test
+    void updateRefusesAnAlreadyDeactivatedProgrammeEvenForADepartmentScopedManager() {
+        UUID tenant = fixture.createTenant("programme-update-inactive");
+        var deptManager = new UUID[1];
+        var programmeId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID department = fixture.createDepartment(tenant, "Managing Department");
+            deptManager[0] = fixture.createUserInDepartment(tenant, "dept-manager@example.com", department);
+            // DEPARTMENT-scoped programme.manage: narrower than programme.manage's
+            // seeded ALL-only shape today, exactly the "at least one write test
+            // must run at the narrowest scope catalogued" convention. customer.view
+            // ALL alongside it for the same reason every other test here carries
+            // it -- unrelated to what this test is actually proving.
+            grant(deptManager[0], Map.of(PermissionKeys.PROGRAMME_MANAGE, Scope.DEPARTMENT,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
+            programmeId[0] = programmeService.create(new CreateProgrammeRequest(
+                    "Department Programme", customerId, null, null, department, null)).id();
+            programmeService.deactivate(programmeId[0]);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, deptManager[0], () -> programmeService.update(
+                programmeId[0], new UpdateProgrammeRequest("Renamed", null, null, null, null))))
+                .isInstanceOf(ProgrammeNotActiveException.class);
+    }
+
+    /**
+     * Sub-project 3A, Task 27.6 (inserted plan amendment): proves
+     * {@code listForCustomer} genuinely scope-filters rather than returning
+     * every programme for the customer unconditionally -- a DEPARTMENT-scoped
+     * {@code programme.view} holder sees only the ONE of two programmes
+     * (both belonging to the SAME customer) owned by their own department,
+     * the "at least one write test must run at the narrowest catalogued
+     * scope" convention applied to this read.
+     */
+    @Test
+    void listForCustomerReturnsOnlyProgrammesWithinTheCallersScope() {
+        UUID tenant = fixture.createTenant("programme-list-scope-" + Uuid7.generate());
+        var deptReader = new UUID[1];
+        var customerId = new UUID[1];
+        var ownProgrammeId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID ownDepartment = fixture.createDepartment(tenant, "Reader's Department");
+            UUID otherDepartment = fixture.createDepartment(tenant, "Other Department");
+            deptReader[0] = fixture.createUserInDepartment(tenant, "dept-list-reader@example.com", ownDepartment);
+            grant(deptReader[0], Map.of(
+                    PermissionKeys.PROGRAMME_VIEW, Scope.DEPARTMENT,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL));
+
+            customerId[0] = fixture.createCustomer(tenant, "Shared Co " + Uuid7.generate(), null, null, null);
+
+            ownProgrammeId[0] = programmeService.create(new CreateProgrammeRequest(
+                    "Reader's Programme", customerId[0], null, null, ownDepartment, null)).id();
+            // Same customer, different department -- outside the reader's own
+            // programme.view scope, so a passing test proves the filter is
+            // genuinely selective, not vacuously true because every programme
+            // for this customer happens to be visible.
+            programmeService.create(new CreateProgrammeRequest(
+                    "Other Department's Programme", customerId[0], null, null, otherDepartment, null));
+        });
+
+        AtomicReference<List<ProgrammeView>> result = new AtomicReference<>();
+        fixture.runAsUser(tenant, deptReader[0], () -> result.set(programmeService.listForCustomer(customerId[0])));
+
+        assertThat(result.get()).extracting(ProgrammeView::id).containsExactly(ownProgrammeId[0]);
+    }
+
+    /**
+     * Sub-project 3A, Task 27.6: {@code customerId} must be resolved through
+     * {@link co.ara.onboarding.authz.AuthorizedQuery} before any programme row
+     * is read -- the same escalation shape {@code
+     * createResolvesTheCustomerThroughAuthorizedQueryBeforeWriting} above
+     * proves for the write path, applied to this read. A narrow actor holding
+     * {@code programme.view} at ALL (there is nothing narrower to test that
+     * key at here) but {@code customer.view} only over their OWN department
+     * must 404 on a customer belonging to a DIFFERENT department, never fall
+     * through to an empty (but 200) programme list.
+     */
+    @Test
+    void listForCustomerResolvesTheCustomerThroughAuthorizedQueryBeforeReading() {
+        UUID tenant = fixture.createTenant("programme-list-escalation-" + Uuid7.generate());
+        var narrowActor = new UUID[1];
+        var foreignCustomer = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID actorsDepartment = fixture.createDepartment(tenant, "Actor's Department");
+            UUID otherDepartment = fixture.createDepartment(tenant, "Another Department");
+            narrowActor[0] = fixture.createUserInDepartment(tenant, "narrow-list-reader@example.com", actorsDepartment);
+            grant(narrowActor[0], Map.of(
+                    PermissionKeys.PROGRAMME_VIEW, Scope.ALL,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.DEPARTMENT));
+
+            foreignCustomer[0] = fixture.createCustomer(
+                    tenant, "Foreign List Co " + Uuid7.generate(), null, otherDepartment, null);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, narrowActor[0],
+                () -> programmeService.listForCustomer(foreignCustomer[0])))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * Final whole-branch review finding #3: create()/update() used to write
+     * ownerUserId/owningDepartmentId/owningTeamId straight from the request
+     * with no existence or tenancy check -- the same cross-tenant existence
+     * oracle CLAUDE.md records as closed for Customer
+     * (customer.OrgUnitResolver, sub-project 3 Task 2), reopened here because
+     * Programme never got the same fix. PostgreSQL evaluates FK constraints
+     * with RLS bypassed, so another tenant's app_user/department/team id
+     * would otherwise satisfy the FK (200, silently owned by a stranger)
+     * while an invented id 500s -- resolveOwner (mirroring
+     * CustomerService.resolveOwner) and orgUnitResolver (the same shared
+     * component CustomerService.create/update already use) are what turn that
+     * into a consistent 404 instead, for both ids on both write paths.
+     */
+    @Test
+    void createAndUpdateRefuseForeignTenantOwnerDepartmentAndTeamIds() {
+        // slug is varchar(63) and Uuid7.generate() contributes 36 of those --
+        // "-other" pushed the second prefix past the limit (a real, if narrow,
+        // test-writing trap: this is the same 500-vs-400 shape CLAUDE.md's own
+        // "live-running specs found five real defects" section warns about,
+        // just at the fixture layer instead of the API's).
+        UUID tenant = fixture.createTenant("prog-owner-oracle-" + Uuid7.generate());
+        UUID otherTenant = fixture.createTenant("prog-owner-oracle-b-" + Uuid7.generate());
+
+        var foreignUser = new UUID[1];
+        var foreignDepartment = new UUID[1];
+        var foreignTeam = new UUID[1];
+        fixture.runAs(otherTenant, () -> {
+            foreignUser[0] = fixture.createUser(otherTenant, "foreign-owner+" + Uuid7.generate() + "@example.com");
+            foreignDepartment[0] = fixture.createDepartment(otherTenant, "Foreign Department");
+            foreignTeam[0] = fixture.createTeam(otherTenant, "Foreign Team");
+        });
+
+        var actor = new UUID[1];
+        var customerId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            actor[0] = fixture.createUser(tenant, "actor+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(
+                    PermissionKeys.PROGRAMME_CREATE, Scope.ALL,
+                    PermissionKeys.PROGRAMME_MANAGE, Scope.ALL,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_VIEW, Scope.ALL));
+            customerId[0] = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.create(
+                new CreateProgrammeRequest("P", customerId[0], null, foreignUser[0], null, null))))
+                .isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.create(
+                new CreateProgrammeRequest("P", customerId[0], null, null, foreignDepartment[0], null))))
+                .isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.create(
+                new CreateProgrammeRequest("P", customerId[0], null, null, null, foreignTeam[0]))))
+                .isInstanceOf(NoSuchElementException.class);
+
+        // Nothing half-written by any of the three refused creates.
+        fixture.runAs(tenant, () -> assertThat(programmesFor(customerId[0])).isEmpty());
+
+        // update(): the same three ids, refused the same way against a real,
+        // already-created programme (never touching customerId, which
+        // update() does not even accept).
+        var programmeId = new UUID[1];
+        fixture.runAs(tenant, () -> programmeId[0] = programmeService.create(
+                new CreateProgrammeRequest("Real Programme", customerId[0], null, null, null, null)).id());
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.update(
+                programmeId[0], new UpdateProgrammeRequest("Real Programme", null, foreignUser[0], null, null))))
+                .isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.update(
+                programmeId[0], new UpdateProgrammeRequest("Real Programme", null, null, foreignDepartment[0], null))))
+                .isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.update(
+                programmeId[0], new UpdateProgrammeRequest("Real Programme", null, null, null, foreignTeam[0]))))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    private List<Programme> programmesFor(UUID customerId) {
+        return programmeRepository.findAll().stream()
+                .filter(p -> customerId.equals(p.getCustomerId()))
+                .toList();
+    }
+
+    private void addParticipant(UUID tenant, UUID programmeId, UUID userId) {
+        ProgrammeParticipant p = new ProgrammeParticipant();
+        p.setId(Uuid7.generate());
+        p.setTenantId(tenant);
+        p.setProgrammeId(programmeId);
+        p.setUserId(userId);
+        p.setRelationshipType(RelationshipType.PARTICIPANT);
+        p.setStatus(ProgrammeParticipantStatus.ACTIVE);
+        participantRepository.saveAndFlush(p);
+    }
+
+    private void grant(UUID userId, Map<String, Scope> grants) {
+        UUID role = roles.createRole("Fixture Role " + Uuid7.generate(), "", grants);
+        roles.assignRole(userId, role);
+    }
+
+    private Set<String> componentNames(Class<?> recordType) {
+        return Arrays.stream(recordType.getRecordComponents())
+                .map(RecordComponent::getName)
+                .collect(toSet());
+    }
+}

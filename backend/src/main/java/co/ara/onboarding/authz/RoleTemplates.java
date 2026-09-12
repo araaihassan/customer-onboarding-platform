@@ -36,14 +36,40 @@ public final class RoleTemplates {
             CONTACT_VIEW, ASSIGNED, CONTACT_MANAGE, ASSIGNED, INVITATION_SEND, ASSIGNED,
             WORKFLOW_VIEW, ALL, CASE_VIEW, ASSIGNED, CASE_CREATE, ALL, TASK_VIEW, ASSIGNED)),
 
-        // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
+        // Map.ofEntries, not Map.of: twelve grants crosses Map.of's ten-pair ceiling.
+        // PLAN_APPROVE_SCHEDULE at DEPARTMENT (Task 23, sub-project 3A gate 2): the
+        // Account Manager owns the ongoing customer relationship, so recording the
+        // customer's decision on a schedule revision belongs here rather than only
+        // on Administrator.
         new RoleTemplate("Account Manager", "Owns ongoing customer relationships", Map.ofEntries(
             entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
             entry(CONTACT_MANAGE, TEAM), entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM),
             entry(WORKFLOW_VIEW, ALL), entry(CASE_VIEW, TEAM), entry(CASE_EDIT, TEAM),
-            entry(TASK_VIEW, TEAM), entry(COMMENT_CREATE, TEAM))),
+            entry(TASK_VIEW, TEAM), entry(COMMENT_CREATE, TEAM),
+            entry(PLAN_APPROVE_SCHEDULE, DEPARTMENT))),
 
-        // Map.ofEntries, not Map.of: sixteen grants crosses Map.of's ten-pair ceiling.
+        // Map.ofEntries, not Map.of: twenty grants crosses Map.of's ten-pair ceiling.
+        // TASK_MANAGE at TEAM (sub-project 3A Phase 1 Task 8): this template already
+        // holds TASK_VIEW/TASK_COMPLETE at TEAM -- a role that can complete a task but
+        // not create one, add a checklist item, or reassign it is incoherent.
+        // PLAN_ISSUE at TEAM (Task 23, sub-project 3A gate 2): the Project Manager
+        // coordinates delivery day to day, so issuing a schedule revision for a
+        // journey they run belongs here rather than only on Administrator.
+        // PROGRAMME_VIEW/PROGRAMME_MANAGE at TEAM (Task 35, sub-project 3A close-out
+        // role review): this template already holds CASE_EDIT/CASE_ADVANCE/
+        // MILESTONE_EDIT at TEAM -- coordinating the parallel journeys a programme
+        // groups for one customer is the same day-to-day delivery responsibility as
+        // coordinating one journey, just one level up. Account Manager (above) was
+        // considered too -- it owns the ongoing relationship and could plausibly view
+        // a programme's rollup -- but PROGRAMME_MANAGE's actual shape ("edit a
+        // programme, its journeys and its participants") is delivery orchestration,
+        // not relationship ownership, so it belongs on the template that already does
+        // that work at this scope; not split across two templates without a second
+        // permission to tell VIEW and MANAGE apart. Both scopes are already exercised
+        // by an existing narrowest-scope write test (TEAM,
+        // ProgrammeMembershipServiceTest.aTeamScopedProgrammeManageHolderCanAddAParticipantWithinTheirOwnScope)
+        // and an existing ASSIGNED-scope read test (ProgrammeScopeTest) -- CLAUDE.md's
+        // "Working conventions" requirement was already met before this grant existed.
         new RoleTemplate("Project Manager", "Coordinates onboarding delivery", Map.ofEntries(
             entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
             entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM), entry(AUDIT_VIEW, TEAM),
@@ -52,7 +78,10 @@ public final class RoleTemplates {
             entry(MILESTONE_EDIT, TEAM), entry(MILESTONE_COMPLETE, TEAM),
             entry(MILESTONE_REOPEN, TEAM), entry(MILESTONE_FORCE_COMPLETE, TEAM),
             entry(REQUIREMENT_WAIVE, TEAM),
-            entry(TASK_VIEW, TEAM), entry(TASK_COMPLETE, TEAM), entry(COMMENT_CREATE, TEAM))),
+            entry(TASK_VIEW, TEAM), entry(TASK_MANAGE, TEAM), entry(TASK_COMPLETE, TEAM),
+            entry(COMMENT_CREATE, TEAM),
+            entry(PLAN_ISSUE, TEAM),
+            entry(PROGRAMME_VIEW, TEAM), entry(PROGRAMME_MANAGE, TEAM))),
 
         // TASK_COMPLETE joins MILESTONE_COMPLETE at the same ASSIGNED scope (spec
         // 5.2); no COMMENT_CREATE, for the same reason Sales Representative has
@@ -67,11 +96,16 @@ public final class RoleTemplates {
             CASE_VIEW, ASSIGNED, MILESTONE_COMPLETE, ASSIGNED,
             TASK_VIEW, ASSIGNED, TASK_COMPLETE, ASSIGNED)),
 
-        // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
+        // Map.ofEntries, not Map.of: twelve grants crosses Map.of's ten-pair ceiling.
+        // APPROVAL_DECIDE at DEPARTMENT (sub-project 3A Phase 1 Task 8): the
+        // department-lead-shaped template -- deciding a stage-exit approval no
+        // longer requires the tenant's widest role. Not MILESTONE_FORCE_APPROVE,
+        // which is ALL-only in the catalog itself (Q5) and cannot be narrower.
         new RoleTemplate("Operations", "Runs day-to-day onboarding operations", Map.ofEntries(
             entry(CUSTOMER_VIEW, DEPARTMENT), entry(CUSTOMER_EDIT, DEPARTMENT),
             entry(CONTACT_VIEW, DEPARTMENT), entry(USER_VIEW, DEPARTMENT), entry(WORKFLOW_VIEW, ALL),
             entry(CASE_VIEW, DEPARTMENT), entry(CASE_EDIT, DEPARTMENT), entry(MILESTONE_COMPLETE, DEPARTMENT),
+            entry(APPROVAL_DECIDE, DEPARTMENT),
             entry(TASK_VIEW, DEPARTMENT), entry(TASK_COMPLETE, DEPARTMENT), entry(COMMENT_CREATE, DEPARTMENT))),
 
         new RoleTemplate("Legal", "Reviews agreements and legal requirements", Map.of(
@@ -126,7 +160,31 @@ public final class RoleTemplates {
             // role. TASK_VIEW/TASK_COMPLETE/COMMENT_CREATE follow from
             // Administrator already holding CASE_VIEW and MILESTONE_COMPLETE at ALL.
             entry(TASK_VIEW, ALL), entry(TASK_MANAGE, ALL),
-            entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL)))
+            entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL),
+            // Programmes (sub-project 3A Task 11; role review closed at Task 35):
+            // seeded here purely because RoleTemplateValidityTest.administratorGrants
+            // EveryPermissionInTheCatalog requires Administrator to cover the whole
+            // catalog -- Project Manager above is what actually closes
+            // RoleTemplateCoverageTest for programme.view/programme.manage.
+            // PROGRAMME_CREATE stays ALL-only in the catalog itself (no programme yet
+            // to scope a create permission against, the same reasoning as
+            // CUSTOMER_CREATE/CASE_CREATE), so it is not a coverage-test candidate.
+            entry(PROGRAMME_VIEW, ALL), entry(PROGRAMME_CREATE, ALL), entry(PROGRAMME_MANAGE, ALL),
+            // Task 19 (sub-project 3A): plan.approve_shape is ALL-only in the
+            // catalog itself (a workflow version has no narrower scope to resolve
+            // against), so it is not a RoleTemplateCoverageTest candidate the way
+            // programme.manage is -- that guard only flags permissions catalogued
+            // at more than one scope. It is seeded here only because
+            // RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
+            // requires Administrator to cover the whole catalog; no other template
+            // is expected to hold it until a later task decides otherwise.
+            entry(PLAN_APPROVE_SHAPE, ALL),
+            // Task 23 (sub-project 3A): gate 2's two permissions, seeded here purely
+            // because RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
+            // requires Administrator to cover the whole catalog -- Project Manager and
+            // Account Manager above are what actually closes RoleTemplateCoverageTest
+            // for these two keys.
+            entry(PLAN_ISSUE, ALL), entry(PLAN_APPROVE_SCHEDULE, ALL)))
     );
 
     private RoleTemplates() {}

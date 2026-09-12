@@ -541,7 +541,8 @@ class CaseEngine {
      * CaseAttributeValue itself carries only attributeDefinitionId, so the key comes
      * from a join against AttributeDefinition (ALL-only, read directly: see the
      * BranchRuleRepository/CaseAttributeValueRepository javadocs on why CaseEngine is
-     * exempt from the finder-call rule).
+     * listed by fully-qualified name in
+     * AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS for the finder-call rule).
      */
     private Map<String, CaseAttributeValue> attributesByKey(Case c) {
         Map<UUID, String> keyByDefinitionId = attributeDefinitions.findByVersionIdOrderByOrdinal(c.getVersionId())

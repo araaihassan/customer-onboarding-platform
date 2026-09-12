@@ -76,6 +76,20 @@ checklist items, status transitions with cancellation, and their wiring into `jo
 journeys with author-only editing, and on the frontend the case workspace Tasks tab, the
 cross-case "My work" board, and comment threads mounted on both a task and the journey itself.
 
+**Sub-project 3A delivered:** the `programme` module (a customer-scoped grouping of a customer's
+parallel journeys, no lifecycle of its own, a derived duration-weighted rollup computed on read and
+never stored, participation that grants read of the container only — a journey inside it stays
+visible solely through its own real `CaseParticipant` row), customer-tailored workflow templates
+(clone-and-tailor a catalogue template per customer, one clone per customer, `cloned_from_template_id`
+as provenance only — Q21), the two-gate plan approval (`plan_shape_approval` at publish time,
+`plan_revision`/`plan_revision_item` per journey thereafter, a customer-template case held from
+creation and released only by its first schedule approval, reusing `Case.held_at`/
+`CaseOnHoldException` rather than a second pause mechanism — Q22/Q23), and milestone portal
+visibility (`portal_visible` filters rendering only; progress stays one number for every audience —
+Q24). On the frontend: the programme index and detail screens, clone/refresh from the workflows
+screen, both plan approval gates and the held-journey banner, and the milestone visibility toggle
+in the builder.
+
 **Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
 `docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
 Collaboration → **3A Programmes & Customer-Scoped Plans** → 4 Documents → **4A Meetings (needs 4)** →
@@ -86,8 +100,9 @@ Sub-projects 2–9 each add one module in the shape of sub-project 1's Tasks
 `ResourceAuthorizationDescriptor`, a service where every public method is gated and every read goes
 through `AuthorizedQuery`, and a thin controller.
 
-**3A and 4A are new as of 2026-09-08**, from nine product decisions recorded as **QA Q20–Q28** —
-read those before touching `workflow`, `journey`, the portal or the builder. In short: a `programme`
+**3A and 4A were added to the sequence on 2026-09-08**, from nine product decisions recorded as
+**QA Q20–Q28** — read those before touching `workflow`, `journey`, the portal or the builder. 3A
+is delivered (above); 4A is still upcoming. In short: a `programme`
 groups a customer's parallel journeys with a derived duration-weighted rollup and no lifecycle of
 its own (Q20); `workflow_template` gains a nullable `customer_id` so a catalogue template can be
 cloned and tailored per customer, one clone per customer (Q21); the plan is approved twice — shape
@@ -298,12 +313,6 @@ failing, same as dark — confirmed by running it, not by reading the script).
   inert: it is the mechanism §5.3 uses to skip a stage conditionally, and case-lifecycle.spec.ts's
   own workflow had to be seeded through the API rather than the builder for exactly this reason.
   Both are real product gaps, not test-writing conveniences.
-- **`approval.decide` is seeded to `Administrator` only.** The catalog allows it at any of
-  ALL/DEPARTMENT/TEAM, but none of the other eleven templates holds it — deciding a stage-exit
-  approval currently requires the tenant's widest role, unlike `milestone.force_approve`, which is
-  ALL-only in the catalog itself and so cannot be any narrower by construction. Not a bug (absence
-  of a grant is the denial, same as everywhere else), but worth a role review before sub-project 6
-  builds SLA escalation on top of an approval nobody but the administrator can clear.
 - **The audit timeline read is a known, deliberate carve-out, not yet a pattern to repeat.** It
   bypasses `AuthorizedQuery` by design (spec §7.3) — narrowed to one resource id behind a
   `case.view` resolution and carries a commented exclusion in `AuthorizationCoverageTest` — but it
@@ -349,9 +358,9 @@ both contact create and update, so `generated.ts` carries it for a client to nar
 
 **Open at the close of sub-project 3:** TEAM-scoped user creation is untouched — `CreateUserRequest`
 still has no `teamIds` field, and it remains the one `user.manage` gap this sub-project did not
-attempt. The workflow builder's missing attribute/entry-condition UI, `approval.decide` seeded to
-`Administrator` only, and the audit-timeline-read carve-out precedent are all sub-project 2's own
-open items, outside this sub-project's path, and none of Phase 1's tasks touched them. One item is
+attempt. The workflow builder's missing attribute/entry-condition UI and the audit-timeline-read
+carve-out precedent are both sub-project 2's own open items, outside this sub-project's path, and
+neither was touched by Phase 1's tasks. One item is
 new, found and left deferred by this sub-project's own Task 24 review, and broadened at the final
 whole-branch review once the actual size of the gap was clear:
 **There is no task-edit UI at all**, not just a missing assignee picker. `TaskDetail.tsx` renders
@@ -367,22 +376,6 @@ seed the assignment through a direct API call because no UI path exists to do it
 for sub-project 4** rather than expanding this branch's scope after 32 individual task reviews plus
 this final pass:
 
-- **Three `task` classes are named specifically to fall outside `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly`'s name-shaped rule**, rather than being added as a
-  visible exclusion. `TaskInstantiation` (`task/TaskInstantiation.java:22-31,77-85`),
-  `TaskDirectoryAdapter` (`task/TaskDirectoryAdapter.java:16-27,55`) and `TaskLifecycleAdapter`
-  (`task/TaskLifecycleAdapter.java:52`) all call repository finders directly; `TaskInstantiation`'s
-  own javadoc states outright that it is named to dodge the rule's `*Service`/`*Directory` suffix
-  match. The substantive reasoning is sound in each case, but the mechanism makes the exemption
-  invisible to a future reviewer of the guard itself, unlike `IdentityActorDirectory`/
-  `UserRoleDirectory`'s visible per-class exclusions. Separately, Phase 1's
-  `customer.OrgUnitResolver` exclusion (`AuthorizationCoverageTest.java:~237`) is a no-op — the
-  class name matches neither suffix either, so the exclusion excludes nothing — and its stated
-  justification partly restates the argument the rule exists to reject (the "no
-  DEPARTMENT_VIEW/TEAM_VIEW scope exists" half is correct and worth keeping; the "RLS handles it"
-  half is not). This also means the plan's Global Constraint "no new `AuthorizedQuery` exclusion is
-  created in this sub-project" was technically broken by this pre-existing Phase 1 exclusion. A
-  durable fix for sub-project 4: bind the rule to any class in the covered packages that injects a
-  `*Repository`, with an explicit exclusion list, rather than a name suffix.
 - **The roadmap's `taskSummary` field is never rendered anywhere in the frontend**, and is not
   scope-filtered by `task.view`. `journey/MilestoneRoadmapView.java:18` carries it,
   `TaskDirectoryAdapter.summaryFor` computes it over every task on the milestone regardless of the
@@ -396,18 +389,72 @@ this final pass:
   `Pageable.unpaged()` with no `Sort`, and `WorkColumn.tsx:97` maps in whatever order the query
   returns — so the "My work" board's most important column has no meaningful ordering, and an
   overdue item can sit below one due next month.
-- **`task.manage` is seeded to Administrator only**, the same shape already recorded above for
-  `approval.decide`. `authz/RoleTemplates.java:119-129` catalogues it at ALL/DEPARTMENT/TEAM but
-  grants it to none of the other eleven templates — Project Manager holds `TASK_VIEW`/
-  `TASK_COMPLETE`/`COMMENT_CREATE` at TEAM but not `TASK_MANAGE`, so no seeded role can create an
-  ad-hoc task, add a checklist item, or reassign one. Worth a role review, same as `approval.decide`,
-  before any later sub-project builds on top of it.
 - **Design spec §5.5 named seven audit actions; only five exist.** `task.assigned` has no
   `AuditActions` constant and nothing records a reassignment — sub-project 6 is specified to
   subscribe to this action, and nothing will ever fire it. `TaskService.create`'s ad-hoc path also
   records no `task.created` at all — only `TaskInstantiation`'s requirement-instantiated path does
   (`TaskInstantiation.java:99`). The plan itself documents this last gap at its own line 1568; this
   is that finding carried forward into the file a future session actually reads.
+
+**Closed by sub-project 3A Task 2, verified against the code:** `AuthorizationCoverageTest`'s
+finder rule no longer binds on a `*Service`/`*Directory` name suffix alone. It is now a union of
+that name shape with "injects a `*Repository` field," named exclusions living only in
+`FINDER_RULE_EXCLUSIONS` — so the three `task` classes once named specifically to dodge the old
+rule (`TaskInstantiation`, `TaskDirectoryAdapter`, `TaskLifecycleAdapter`) are now genuinely covered
+rather than invisible to it, and `customer.OrgUnitResolver`'s old no-op exclusion is gone (replaced
+by a real, named entry in the same list). The rebind itself surfaced four more classes the old rule
+was equally blind to (`auth.PendingInvitationRevoker`, `customer.LinkedPortalUserEmailSync`,
+`identity.PlatformAdminBootstrap`, `journey.CaseEngine`), each individually reasoned about rather
+than exempted reflexively — see `AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS`'s own doc comment.
+
+**Closed since sub-project 3A Phase 1 (Task 8), verified against the running system:**
+`approval.decide` and `task.manage` are no longer Administrator-only. Operations (the
+department-lead-shaped template) now holds `APPROVAL_DECIDE` at DEPARTMENT, so deciding a
+stage-exit approval no longer requires the tenant's widest role; Project Manager now holds
+`TASK_MANAGE` at TEAM, alongside the `TASK_VIEW`/`TASK_COMPLETE` it already had, so a role that can
+complete a task can now also create, edit and reassign one. `RoleTemplateCoverageTest` guards this
+derivably rather than by name — it fails whenever a permission catalogued at more than one scope is
+held by no template but Administrator, not just for these two keys — and Phase 2 of this same plan
+relies on it staying red until `programme.manage` and its siblings are seeded too.
+Not `MILESTONE_FORCE_APPROVE`: it is ALL-only in the catalog itself (Q5), so it cannot be any
+narrower by construction and the guard does not flag it.
+The guard's first run also flagged two permissions outside this task's scope, both still
+Administrator-only and both excluded from it by name pending a real role review, not fixed here:
+`user.manage` (granting it at TEAM to any template today would seed a role that holds the
+permission but 404s on every create — see the still-open TEAM-scoped-user-creation gap above) and
+`customer.deactivate` (no scope decision for it exists anywhere in `docs/QA.md` or the PRD). The
+exclusion list lives in `RoleTemplateCoverageTest` itself, the same shape as `RlsCoverageTest`'s
+allowlist — a deliberate, commented entry, not a silent skip.
+
+**Closed at Task 35 (whole-branch close-out, 2026-09-12):** the role review Phase 1 deliberately
+left open. Project Manager now holds `PROGRAMME_VIEW`/`PROGRAMME_MANAGE` at TEAM — the same
+day-to-day delivery-coordination role that already holds `CASE_EDIT`/`CASE_ADVANCE`/`TASK_MANAGE`
+at TEAM, so coordinating the parallel journeys a programme groups for one customer is the same
+responsibility one level up, not a new one. Account Manager (owns the ongoing relationship) was
+considered for `PROGRAMME_VIEW` too, but `PROGRAMME_MANAGE`'s actual shape — edit a programme, its
+journeys and its participants — is delivery orchestration, so both grants went to the one template
+that already does that work rather than splitting view from manage across two templates with
+nothing to tell them apart. Both scopes already had a narrowest-scope test before this grant existed
+(`ProgrammeMembershipServiceTest.aTeamScopedProgrammeManageHolderCanAddAParticipantWithinTheirOwnScope`
+for TEAM-scoped `programme.manage`, `ProgrammeScopeTest` for ASSIGNED-scoped `programme.view`), so
+CLAUDE.md's "Working conventions" requirement needed no new test. `user.manage` and
+`customer.deactivate` remain in `ADMINISTRATOR_ONLY_PENDING_REVIEW`, untouched by this decision.
+
+**Open at the close of sub-project 3A** (spec §11.3's own cross-check, confirmed still open and
+untouched by this sub-project's own path): TEAM-scoped user creation (`CreateUserRequest` still has
+no `teamIds` field); the workflow builder's missing attribute/entry-condition UI (3A's own builder
+change, the milestone visibility toggle, is a different field entirely); and the audit-timeline
+read's `AuthorizedQuery` carve-out, still the codebase's only one. All three of sub-project 3's own
+open items above (no task-edit UI, `taskSummary` unrendered, "Do now" unsorted, two missing
+`task.*` audit actions) are likewise untouched — 3A added a `programme` module, not task features.
+**Process note, worth carrying into sub-project 4's own task verification:** a green `npx vitest
+run` proves no real `tsc` type-check or lint pass — it is JSDOM-based unit tests only. Task 33 found
+a hard `tsc` compile error and an ESLint `prefer-const` error that had been silently blocking `next
+build` since Task 32, invisible to every vitest run in between and caught only because Playwright's
+`webServer` runs a real `next build`. This is not this sub-project's first time hitting this exact
+blind spot (the ledger has earlier occurrences); running `tsc --noEmit`/`next lint` as part of each
+frontend task's own verification, rather than waiting for the eventual live e2e run, would catch it
+at the task that introduced it instead of several tasks later.
 
 ### Tests
 
@@ -475,12 +522,16 @@ prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a gr
 `org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
 cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
 
-`cd frontend && npx playwright test` is the end-to-end command: ten specs — login, activation,
+`cd frontend && npx playwright test` is the end-to-end command: twelve specs — login, activation,
 refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
 900px card-list fallback, the administration screens, accessibility in the light theme at four
 widths, workflow authoring through publish, a case lifecycle (branch skip, force-complete,
-completion at 100%), migration between versions, and tasks (creation, checklist, comments,
-completion, "My work" board — `frontend/e2e/tasks.spec.ts`, added in Task 31).
+completion at 100%), migration between versions, tasks (creation, checklist, comments, completion,
+"My work" board — `frontend/e2e/tasks.spec.ts`, added in Task 31), and, added by sub-project 3A:
+`customer-plan.spec.ts` (clone a template, tailor it, publish, both plan approval gates, the
+held-journey release, satisfying the first requirement) and `programme.spec.ts` (the
+duration-weighted rollup across two journeys, and a participant seeing only the one journey they
+hold a real `CaseParticipant` row on — the scope-filter property, proven live).
 
 **First live run against the frontend visual refactor, 2026-08-29** (sub-project 3 Task 1) — every
 spec had never actually been executed against this branch before; only read/reviewed. All nine
@@ -520,6 +571,22 @@ case killing it is someone else's work, not a stray. The backend goes through
 and Playwright gives a test no way to read a `webServer`'s stdout. Override the database the same
 way the backend does: `DB_URL=… npx playwright test`. It provisions a tenant per spec file and
 never truncates, so point it at a scratch database.
+
+**Sub-project 3A baseline, 2026-09-09** (Task 1) — all three suites run green before any of 3A's
+feature work touches the codebase: backend `cleanTest test` reported `BUILD SUCCESSFUL` (502
+tests, none skipped), `npx vitest run` reported 61 files / 443 tests all passing, and `npx
+playwright test` against the scratch database reported 41 passed in 2.2m, all specs including the
+new-since-sub-project-3 `tasks.spec.ts`. The first run surfaced two backend failures, both the same
+defect in different tests, neither a product bug: `CaseCreationTest.dueDatesAccumulateInBusinessDaysWithinAStage`
+and `TransitionTest.enteringAStageSchedulesItsMilestones` each asserted a due date against the
+bare, zero-arg `LocalDate.now()` (the JVM's default time zone) instead of `LocalDate.now(clock)`
+(the injected `Clock` — `Clock.systemUTC()` in production, the UTC-backed `MutableClock` in
+tests — which is what `CaseEngine` actually computes due dates from). On this host, whose default
+zone is UTC+3, the two disagree for the few hours after local midnight but before UTC midnight,
+which is exactly the window the suite happened to run in. `MigrationTest` already used the correct
+`LocalDate.now(clock)` pattern; both failing call sites were brought in line with it. No assertion
+was weakened. Full detail is in
+`.superpowers/sdd/2026-09-08-programmes-and-customer-plans/task-1-report.md`.
 
 API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
 during `:test`; `./gradlew openApiSpec` is the wrapper that produces it and says where it is. `npm run
@@ -725,6 +792,49 @@ suite (`tasks.spec.ts` included) all ran green in the same pass — each read fr
 line, not a pinned count (see the Tests section below for why) — so none of the ten had regressed
 by the time the plan finished.
 
+**Sub-project 3A's own ten** (design spec §10's cross-check; a change breaking one of these is a
+change to the design, not an implementation detail):
+
+- A programme has no lifecycle — nothing in `programme` calls `CaseEngine.reconcile`.
+- `journey` never imports a `programme` type; the arrow is one-way.
+- Programme participation grants read of the programme only; every journey read still goes through
+  `AuthorizedQuery` under `case.view`.
+- Programme progress is derived on read, never stored; no request type accepts one.
+- A published workflow version still never mutates — plan approvals live in their own table
+  precisely because the freeze trigger refuses everything else.
+- A case still has exactly one pinned version; cloning and refreshing a customer template create
+  workflow versions and never touch a case's pin.
+- `plan_revision_item` is append-only at the database layer, the same `GRANT` shape as
+  `audit_event`.
+- The plan hold reuses `Case.held_at`/`CaseOnHoldException` — no second pause mechanism.
+- Progress stays one number for every audience; `portal_visible` filters rendering only, never the
+  denominator.
+- Out-of-scope and cross-tenant ids are 404; `PUT` request/view types stay field-for-field aligned.
+
+Each was verified against the actual code at Task 35's close-out, not just asserted: #1 by grepping
+`programme`'s main and test sources for `CaseEngine` (none call it; `ProgrammeRollupTest` asserts it
+structurally) and Task 14's own test; #2 by `ModuleBoundaryTest.noJourneyDependencyOnProgramme`,
+proven red before Task 9's module was used elsewhere (Task 10); #3 by `ProgrammeScopeTest`, which
+seeds a programme with one journey the participant can already open and one they cannot, and proves
+only the first is visible; #4 by reading `V17__programme.sql` (no `progress_percent` column) and
+`CreateProgrammeRequest`/`UpdateProgrammeRequest` (neither accepts one) — `ProgrammeJourneyView`'s
+own `progressPercent` is a read-only projection of the journey's own engine-derived value, not a
+stored programme field; #5 by `PlanShapeSchemaTest.approvalColumnsCouldNotHaveLivedOnTheVersionItself`,
+which asserts the trigger's own refusal message against a live `UPDATE`; #6 by confirming
+`Case.setVersionId` is called only from `CaseService.create` (pins) and `MigrationService` (repins),
+and that `CustomerTemplateService` (clone/refresh) touches no `onboarding_case` row at all; #7 by
+reading `V21__plan_revision.sql`'s `GRANT SELECT, INSERT` (no `UPDATE`/`DELETE`); #8 by grepping
+`held_at`/`ON_HOLD`/`CaseOnHoldException` across `src/main` — every hit is the one existing
+mechanism, nothing new; #9 by `git log --oneline -- .../journey/CaseEngine.java` against this
+branch's own commits — one hit, a two-line javadoc correction (cb875d7) with no change to
+`reconcile` or any mutation path; #10 by `ProgrammeIsolationTest`/`ProgrammeServiceTest`'s
+cross-tenant and out-of-scope cases, and by reflecting over `UpdateProgrammeRequest`/`ProgrammeView`'s
+record components (`ProgrammeServiceTest.updateIsAFullReplaceAndTheViewCarriesEveryFieldTheRequestAccepts`).
+Re-verified at sub-project 3A's close (2026-09-12): the full backend suite (603 tests), vitest (77
+files, 553 tests) and the twelve-spec Playwright suite (44 tests, `customer-plan.spec.ts` and
+`programme.spec.ts` included) all ran green in the same pass, so none of the ten had regressed by
+the time the plan finished.
+
 ---
 
 ## Where the guards live
@@ -746,7 +856,16 @@ by the time the plan finished.
   database), `task.TaskWriteScopeTest` (a wider-scoped holder still refused inside an
   `OWNER_ONLY` stage, the same shape as `security.WriteScopeTest`), `task.TaskServiceTest`
   (the create/update case-milestone-mismatch escalation guards), and `task.CommentTest`
-  (author-only edit enforced independently of scope).
+  (author-only edit enforced independently of scope). Sub-project 3A's own negatives:
+  `programme.ProgrammeIsolationTest` (cross-tenant), `programme.ProgrammeScopeTest` (participation
+  grants read of the programme only — a journey inside it is visible ONLY through its own real
+  `CaseParticipant` row, never through programme membership), `programme.ProgrammeServiceTest` and
+  `.ProgrammeMembershipServiceTest` (the customerId-escalation guards on create/list, and the
+  narrowest-scope TEAM write), `workflow.PlanShapeSchemaTest`/`.PlanShapeGateTest` (gate 1: the
+  freeze trigger forced approvals into their own table; only a DRAFT's owning template's version can
+  be submitted), and `journey.PlanRevisionTest`/`.PlanHoldTest`/`.PlanSnapshotImmutabilityTest`
+  (gate 2: a customer-template case created `ON_HOLD` and released only by its first schedule
+  approval; the snapshot a revision decides against never changes underneath the decision).
 
 **These are not to be weakened to make a change pass.** They exist precisely to fail when something
 is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,

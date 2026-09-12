@@ -5,14 +5,22 @@ import { CommentThread } from "@/components/comment/CommentThread";
 import { Button } from "@/components/ui/Button";
 import { TextareaField } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { useUsers } from "@/lib/api/admin";
 import { parseProblemDetail, type Participant } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
 import { shortId } from "@/lib/api/customers";
-import { useChangeTaskStatus, type Task, type TaskStatus } from "@/lib/api/tasks";
+import {
+  useChangeTaskStatus,
+  useUpdateTask,
+  type MilestoneOption,
+  type Task,
+  type TaskStatus,
+} from "@/lib/api/tasks";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 import { ChecklistEditor } from "./ChecklistEditor";
 import { isTaskOverdue, ROLE_BY_TASK_STATUS } from "./TaskCard";
+import { TaskEditDialog } from "./TaskEditDialog";
 
 const STATUS_OPTIONS: TaskStatus[] = ["PENDING", "IN_PROGRESS", "WAITING", "COMPLETED", "CANCELLED"];
 
@@ -33,16 +41,46 @@ const STATUS_OPTIONS: TaskStatus[] = ["PENDING", "IN_PROGRESS", "WAITING", "COMP
  * itself, threaded down from wherever the caller already fetches it
  * (`useParticipants(caseId)`), the same discipline `Roadmap`/`MilestoneRow`
  * already established.
+ *
+ * `milestones` (optional, defaulting to none) is that same discipline applied
+ * to `TaskEditDialog`'s milestone picker -- `TasksTab` already flattens the
+ * roadmap into this shape for its own "New task" dialog, so this is a caller
+ * passing along data it already has, not a new fetch. Defaulted rather than
+ * required so this component's own existing tests, which never open the
+ * edit dialog, are unaffected. The assignee picker's user list (Task 7), by
+ * contrast, IS a new fetch (`useUsers("", 0, ...)`, gated on `user.view`
+ * alongside `task.manage`) -- unlike the roadmap, nothing upstream of this
+ * component already holds a tenant user list to pass down.
  */
-export function TaskDetail({ task, participants }: { task: Task; participants: Participant[] }) {
+export function TaskDetail({
+  task,
+  participants,
+  milestones = [],
+}: {
+  task: Task;
+  participants: Participant[];
+  milestones?: MilestoneOption[];
+}) {
   const changeStatus = useChangeTaskStatus();
+  const updateTask = useUpdateTask();
   const canComplete = useHasPermission("task.complete");
+  // Gated the same way the backend gates PUT /tasks/{id} -- TaskService.update
+  // carries @RequirePermission(TASK_MANAGE), so a reader who cannot ever
+  // succeed at the write is not shown a button that can only 403.
+  const canManage = useHasPermission("task.manage");
+  // GET /admin/users is gated by user.view (UserAdminService), independently
+  // of task.manage -- the same pairing TeamMembers already uses for its own
+  // member picker. Without it the edit dialog still opens (assignee is still
+  // clearable to Unassigned), just with no other names to pick from.
+  const canViewUsers = useHasPermission("user.view");
+  const users = useUsers("", 0, canManage && canViewUsers);
   const status = task.status ?? "PENDING";
   const overdue = isTaskOverdue(task);
 
   const [nextStatus, setNextStatus] = useState<TaskStatus>(status);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string>();
+  const [editing, setEditing] = useState(false);
 
   function submit() {
     if (nextStatus === status || !task.id) return;
@@ -71,7 +109,19 @@ export function TaskDetail({ task, participants }: { task: Task; participants: P
           >
             {task.title}
           </h4>
-          <StatusPill status={t(`task.status.${status}`)} role={ROLE_BY_TASK_STATUS[status]} />
+          <div className="flex items-center" style={{ gap: "var(--ob-space-8)" }}>
+            {canManage && (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditing(true)}
+                style={{ height: "var(--ob-control-height-sm)" }}
+              >
+                {t("task.detail.edit")}
+              </Button>
+            )}
+            <StatusPill status={t(`task.status.${status}`)} role={ROLE_BY_TASK_STATUS[status]} />
+          </div>
         </div>
 
         {task.description && (
@@ -179,6 +229,26 @@ export function TaskDetail({ task, participants }: { task: Task; participants: P
           resourceType="TASK"
           resourceId={task.id}
           participants={participants}
+        />
+      )}
+
+      {editing && task.id && (
+        <TaskEditDialog
+          task={task}
+          milestones={milestones}
+          users={users.data?.content ?? []}
+          pending={updateTask.isPending}
+          error={
+            updateTask.isError
+              ? updateTask.error instanceof ApiError
+                ? parseProblemDetail(updateTask.error.message)
+                : t("common.error")
+              : undefined
+          }
+          onClose={() => setEditing(false)}
+          onSubmit={(body) =>
+            updateTask.mutate({ taskId: task.id!, body }, { onSuccess: () => setEditing(false) })
+          }
         />
       )}
     </div>
