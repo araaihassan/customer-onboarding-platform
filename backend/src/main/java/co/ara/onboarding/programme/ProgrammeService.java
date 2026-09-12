@@ -8,6 +8,9 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.customer.Customer;
 import co.ara.onboarding.customer.CustomerRepository;
+import co.ara.onboarding.customer.OrgUnitResolver;
+import co.ara.onboarding.identity.AppUser;
+import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
 import co.ara.onboarding.journey.CaseWeightReader;
@@ -21,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -75,12 +79,14 @@ public class ProgrammeService {
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
+    private final OrgUnitResolver orgUnitResolver;
+    private final AppUserRepository users;
 
     public ProgrammeService(ProgrammeRepository programmes, CustomerRepository customers,
                             ProgrammeCaseRepository programmeCases, CaseRepository cases,
                             CaseWeightReader caseWeights,
                             AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
-                            AuditRecorder audit) {
+                            AuditRecorder audit, OrgUnitResolver orgUnitResolver, AppUserRepository users) {
         this.programmes = programmes;
         this.customers = customers;
         this.programmeCases = programmeCases;
@@ -89,6 +95,8 @@ public class ProgrammeService {
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.audit = audit;
+        this.orgUnitResolver = orgUnitResolver;
+        this.users = users;
     }
 
     /**
@@ -111,9 +119,17 @@ public class ProgrammeService {
         p.setCustomerId(customer.getId());
         p.setName(request.name());
         p.setDescription(request.description());
-        p.setOwnerUserId(request.ownerUserId());
-        p.setOwningDepartmentId(request.owningDepartmentId());
-        p.setOwningTeamId(request.owningTeamId());
+        // Final whole-branch review finding #3: these three ids used to be
+        // copied straight from the request with no existence/tenancy check --
+        // the exact cross-tenant existence oracle CLAUDE.md records as closed
+        // for Customer (OrgUnitResolver, sub-project 3 Task 2), reopened here
+        // because Programme was never fixed the same way. resolveOwner mirrors
+        // CustomerService.resolveOwner exactly (AuthorizedQuery under
+        // USER_VIEW); orgUnitResolver mirrors CustomerService.create's own use
+        // of the same shared component for department/team.
+        p.setOwnerUserId(resolveOwner(request.ownerUserId()));
+        p.setOwningDepartmentId(orgUnitResolver.resolveDepartment(request.owningDepartmentId()));
+        p.setOwningTeamId(orgUnitResolver.resolveTeam(request.owningTeamId()));
         p.setStatus(ProgrammeStatus.ACTIVE);
         p.setCreatedBy(contextProvider.principal().userId());
         p = programmes.save(p);
@@ -208,9 +224,16 @@ public class ProgrammeService {
 
         p.setName(request.name());
         p.setDescription(request.description());
-        p.setOwnerUserId(request.ownerUserId());
-        p.setOwningDepartmentId(request.owningDepartmentId());
-        p.setOwningTeamId(request.owningTeamId());
+        // Same escalation guard as create() above, and the same "only resolve
+        // owner if it actually changed" carve-out CustomerService.update
+        // documents: a client that round-trips the read value on every save
+        // must not be forced through a USER_VIEW check it may not hold merely
+        // because it echoed back the value it was given.
+        if (!Objects.equals(request.ownerUserId(), p.getOwnerUserId())) {
+            p.setOwnerUserId(resolveOwner(request.ownerUserId()));
+        }
+        p.setOwningDepartmentId(orgUnitResolver.resolveDepartment(request.owningDepartmentId()));
+        p.setOwningTeamId(orgUnitResolver.resolveTeam(request.owningTeamId()));
         p = programmes.save(p);
 
         audit.record(AuditActions.PROGRAMME_UPDATED, "programme", p.getId(), "Updated programme", Map.of());
@@ -337,6 +360,19 @@ public class ProgrammeService {
                 .getContent().stream()
                 .map(c -> new ProgrammeJourneyView(c.getId(), c.getName(), c.getStatus(), c.getProgressPercent()))
                 .toList();
+    }
+
+    /**
+     * Mirrors {@code customer.CustomerService.resolveOwner} exactly: an
+     * out-of-scope or foreign-tenant id collapses to empty through {@link
+     * AuthorizedQuery}, mapped to {@link java.util.NoSuchElementException}
+     * (404) -- never a raw repository finder, which would let PostgreSQL's
+     * RLS-bypassed FK check silently accept another tenant's {@code app_user}
+     * id (200, a programme owned by a stranger) while an invented id 500s.
+     */
+    private UUID resolveOwner(UUID ownerUserId) {
+        if (ownerUserId == null) return null;
+        return authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, ownerUserId).getId();
     }
 
     private ProgrammeView toView(Programme p, Customer customer) {

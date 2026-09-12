@@ -275,6 +275,82 @@ class ProgrammeServiceTest extends PostgresTestBase {
                 .isInstanceOf(NoSuchElementException.class);
     }
 
+    /**
+     * Final whole-branch review finding #3: create()/update() used to write
+     * ownerUserId/owningDepartmentId/owningTeamId straight from the request
+     * with no existence or tenancy check -- the same cross-tenant existence
+     * oracle CLAUDE.md records as closed for Customer
+     * (customer.OrgUnitResolver, sub-project 3 Task 2), reopened here because
+     * Programme never got the same fix. PostgreSQL evaluates FK constraints
+     * with RLS bypassed, so another tenant's app_user/department/team id
+     * would otherwise satisfy the FK (200, silently owned by a stranger)
+     * while an invented id 500s -- resolveOwner (mirroring
+     * CustomerService.resolveOwner) and orgUnitResolver (the same shared
+     * component CustomerService.create/update already use) are what turn that
+     * into a consistent 404 instead, for both ids on both write paths.
+     */
+    @Test
+    void createAndUpdateRefuseForeignTenantOwnerDepartmentAndTeamIds() {
+        // slug is varchar(63) and Uuid7.generate() contributes 36 of those --
+        // "-other" pushed the second prefix past the limit (a real, if narrow,
+        // test-writing trap: this is the same 500-vs-400 shape CLAUDE.md's own
+        // "live-running specs found five real defects" section warns about,
+        // just at the fixture layer instead of the API's).
+        UUID tenant = fixture.createTenant("prog-owner-oracle-" + Uuid7.generate());
+        UUID otherTenant = fixture.createTenant("prog-owner-oracle-b-" + Uuid7.generate());
+
+        var foreignUser = new UUID[1];
+        var foreignDepartment = new UUID[1];
+        var foreignTeam = new UUID[1];
+        fixture.runAs(otherTenant, () -> {
+            foreignUser[0] = fixture.createUser(otherTenant, "foreign-owner+" + Uuid7.generate() + "@example.com");
+            foreignDepartment[0] = fixture.createDepartment(otherTenant, "Foreign Department");
+            foreignTeam[0] = fixture.createTeam(otherTenant, "Foreign Team");
+        });
+
+        var actor = new UUID[1];
+        var customerId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            actor[0] = fixture.createUser(tenant, "actor+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(
+                    PermissionKeys.PROGRAMME_CREATE, Scope.ALL,
+                    PermissionKeys.PROGRAMME_MANAGE, Scope.ALL,
+                    PermissionKeys.CUSTOMER_VIEW, Scope.ALL,
+                    PermissionKeys.USER_VIEW, Scope.ALL));
+            customerId[0] = fixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.create(
+                new CreateProgrammeRequest("P", customerId[0], null, foreignUser[0], null, null))))
+                .isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.create(
+                new CreateProgrammeRequest("P", customerId[0], null, null, foreignDepartment[0], null))))
+                .isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.create(
+                new CreateProgrammeRequest("P", customerId[0], null, null, null, foreignTeam[0]))))
+                .isInstanceOf(NoSuchElementException.class);
+
+        // Nothing half-written by any of the three refused creates.
+        fixture.runAs(tenant, () -> assertThat(programmesFor(customerId[0])).isEmpty());
+
+        // update(): the same three ids, refused the same way against a real,
+        // already-created programme (never touching customerId, which
+        // update() does not even accept).
+        var programmeId = new UUID[1];
+        fixture.runAs(tenant, () -> programmeId[0] = programmeService.create(
+                new CreateProgrammeRequest("Real Programme", customerId[0], null, null, null, null)).id());
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.update(
+                programmeId[0], new UpdateProgrammeRequest("Real Programme", null, foreignUser[0], null, null))))
+                .isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.update(
+                programmeId[0], new UpdateProgrammeRequest("Real Programme", null, null, foreignDepartment[0], null))))
+                .isInstanceOf(NoSuchElementException.class);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> programmeService.update(
+                programmeId[0], new UpdateProgrammeRequest("Real Programme", null, null, null, foreignTeam[0]))))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
     private List<Programme> programmesFor(UUID customerId) {
         return programmeRepository.findAll().stream()
                 .filter(p -> customerId.equals(p.getCustomerId()))
