@@ -272,6 +272,20 @@ public class TenantFixture {
      * directly through {@link #runAsUser}.
      */
     public UUID createPortalUserForContact(UUID tenantId, UUID customerId, String email) {
+        return createPortalUserForContact(tenantId, customerId, email, false);
+    }
+
+    /**
+     * Same as {@link #createPortalUserForContact(UUID, UUID, String)}, but lets
+     * the caller set primaryContact -- the signal
+     * scoping.CustomerPortalContactDirectory currently reads as "is this contact
+     * the customer's sponsor" (see that class's own javadoc). Exercises
+     * PortalPermissions.forSponsor(), which the plain 3-arg overload never
+     * reaches since a freshly created CustomerContact defaults primaryContact to
+     * false.
+     */
+    public UUID createPortalUserForContact(UUID tenantId, UUID customerId, String email,
+                                           boolean primaryContact) {
         var created = new AtomicReference<UUID>();
         runUnauthenticated(tenantId, () -> {
             AppUser u = new AppUser();
@@ -291,6 +305,7 @@ public class TenantFixture {
             c.setUserId(savedUser.getId());
             c.setFullName(email);
             c.setEmail(email);
+            c.setPrimaryContact(primaryContact);
             c.setStatus(ContactStatus.ACTIVE);
             contacts.saveAndFlush(c);
 

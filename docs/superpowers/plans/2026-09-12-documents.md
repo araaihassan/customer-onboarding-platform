@@ -530,6 +530,24 @@ Body must state: why a separate interface rather than a default method on the de
 
 **Why this shape.** A portal actor resolves at `ALL` scope and the audience filter (Task 2) does every bit of the narrowing. That means no fifth `Scope` value, no descriptor learns anything new, and `RoleService`'s existing `PORTAL` refusal — "Portal users cannot hold internal roles" — stays exactly as it is. The risk it creates is real and is mitigated in Step 1: `document.view @ ALL` on an external user is only safe while the audience filter is present and correct, so the test that pins the constant set is not optional decoration.
 
+**Amended after this task's own execution, in a post-implementation security review.** As originally
+written below, both `forContact()` and `forSponsor()` also granted `case.view` (and `forSponsor()`
+additionally `programme.view` and `plan.approve_schedule`) at `ALL`, on the claim that "the audience
+filter does every bit of the narrowing." That claim was wrong: the audience filter this task and
+Task 2 build (`DocumentAudienceFilter`, Tasks 12/13) only ever covers `Document`. `Case`, `Programme`
+and `PlanRevision` have no `AudienceFilter` anywhere in this plan, so at `ALL` scope
+`AuthorizationPredicateBuilder` matched every row tenant-wide for those three keys — a real,
+concrete escalation: `PlanRevisionController.decide` resolves its target only by `revisionId` under
+`plan.approve_schedule` and never checks its own `{caseId}` path variable against it, so a portal
+contact of customer A marked `primaryContact=true` could have decided customer B's schedule
+revision — an immutable write releasing B's held journey. The fix, made with an explicit human
+ruling: `forContact()` and `forSponsor()` now carry ONLY `document.view` and `document.upload`, both
+at `ALL`. `forSponsor()` stays a separate method from `forContact()` — today it is identical, on
+purpose — as the seam sub-project 7 (Customer Portal) is expected to widen once it builds a real
+narrowing mechanism for a sponsor's programme read and plan-approval authority (Q20, Q22's
+customer-facing half); it is not built here. The code sample and test below are updated to the
+corrected, shipped version, not the originally-planned one.
+
 - [ ] **Step 1: Write the failing tests**
 
 `backend/src/test/java/co/ara/onboarding/security/PortalAuthorityTest.java`:
@@ -620,7 +638,18 @@ class PortalAuthorityTest extends PostgresTestBase {
 }
 ```
 
-`TenantFixture` needs three new helpers in this task — `createPortalUserForContact`, `retireContactFor`, `runAsReturning` — each following the existing helpers' shape and each writing inside `runAs`, because the tables are RLS-protected.
+`TenantFixture` needs three new helpers in this task — `createPortalUserForContact`, `retireContactFor`, `runAsReturning` — each following the existing helpers' shape and each writing inside `runAs`, because the tables are RLS-protected. (Two more, `createAdministrator` and `administratorRoleId`, turned out to be needed too — the third test above calls both and neither existed; not an error in this list, just incomplete.)
+
+**The test sample above predates this task's post-implementation security-review amendment** (see
+"Why this shape" and the corrected `PortalPermissions` in Step 3) and must not be copied verbatim:
+the shipped `PortalAuthorityTest` asserts the exact key set (`{document.view, document.upload}`,
+nothing else) rather than a positive `case.view` grant, explicitly asserts `case.view`/
+`programme.view`/`plan.approve_schedule` are ABSENT as a regression guard, adds a fourth test
+exercising `forSponsor()` via a `primaryContact=true` contact (the three tests above never do, since
+the plain `createPortalUserForContact` overload defaults `primaryContact` to `false`), and uses
+`.isInstanceOf(InvalidGrantException.class)` rather than `.hasRootCauseInstanceOf(...)` in the third
+test — confirmed empirically that `RoleService.assignRole` throws it with no wrapping cause, so
+"root cause" resolves to nothing and the sample above fails as written.
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -632,7 +661,9 @@ Expected: compilation failure — `PermissionKeys.DOCUMENT_VIEW` does not exist 
 
 - [ ] **Step 3: Create the constant set**
 
-`backend/src/main/java/co/ara/onboarding/authz/PortalPermissions.java`:
+`backend/src/main/java/co/ara/onboarding/authz/PortalPermissions.java` — **this is the corrected,
+shipped version**, not the one originally planned; see the amendment note above "Why this shape"
+for what changed and why:
 
 ```java
 package co.ara.onboarding.authz;
@@ -656,6 +687,14 @@ import java.util.Map;
  * scoping.DocumentAudienceFilter narrows it. Adding a key whose entity type
  * declares no AudienceFilter grants that entity tenant-wide to every external
  * user. Do not add one without adding its filter in the same commit.
+ *
+ * REMOVED after this task's own security review: case.view, programme.view and
+ * plan.approve_schedule. Case, Programme and PlanRevision have no AudienceFilter
+ * anywhere in this plan, so at ALL scope those three were a real cross-customer
+ * escalation, not a narrowed grant -- see this task's plan amendment for the
+ * concrete finding. Portal case/programme/plan-approval access is real product
+ * scope (Q20, Q22's customer-facing half) but belongs to sub-project 7, with its
+ * own narrowing mechanism.
  */
 public final class PortalPermissions {
 
@@ -664,25 +703,27 @@ public final class PortalPermissions {
     public static Map<String, Scope> forContact() {
         return Map.of(
                 PermissionKeys.DOCUMENT_VIEW,   Scope.ALL,
-                PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL,
-                PermissionKeys.CASE_VIEW,       Scope.ALL);
+                PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL);
     }
 
     /**
-     * Q20's programme read and Q22's plan approval. Additive over forContact().
+     * Identical to forContact() today, deliberately -- the seam sub-project 7 is
+     * expected to widen once it builds a real narrowing mechanism for a
+     * sponsor's programme read and plan-approval authority (Q20, Q22).
      */
     public static Map<String, Scope> forSponsor() {
         return Map.of(
                 PermissionKeys.DOCUMENT_VIEW,   Scope.ALL,
-                PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL,
-                PermissionKeys.CASE_VIEW,       Scope.ALL,
-                PermissionKeys.PROGRAMME_VIEW,  Scope.ALL,
-                PermissionKeys.PLAN_DECIDE,     Scope.ALL);
+                PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL);
     }
 }
 ```
 
-Check `PermissionKeys` for the actual name of 3A's schedule-approval decide key before writing `PLAN_DECIDE` — 3A catalogued two schedule-gate permissions and the name here must match one of them exactly, not be invented.
+(The originally-planned version of this file also carried `case.view` on both methods, plus
+`programme.view` and a `PLAN_DECIDE`-keyed grant on `forSponsor()` — the executor's own note here
+already flagged `PLAN_DECIDE` as unverified against `PermissionKeys`; it resolves to
+`PLAN_APPROVE_SCHEDULE`, one of 3A's two catalogued schedule-gate permissions. Both the wrong key
+name and the three now-removed keys are corrected above.)
 
 - [ ] **Step 4: Resolve it in `AuthorizationService`**
 
@@ -710,7 +751,7 @@ if (actor.userType() == UserType.PORTAL) {
 .\gradlew.bat cleanTest test --tests "*PortalAuthorityTest*"
 ```
 
-Expected: all three PASS.
+Expected: all PASS (four tests in the shipped version — see the note on the test sample above).
 
 - [ ] **Step 6: Run the full suite**
 

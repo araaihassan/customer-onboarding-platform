@@ -27,24 +27,76 @@ class PortalAuthorityTest extends PostgresTestBase {
      * failing test attached. A portal actor resolves document.view at ALL and is
      * narrowed entirely by DocumentAudienceFilter -- so an accidental addition
      * here is an accidental grant to every external user in every tenant.
+     *
+     * Asserts the EXACT key set, not spot-checks: a map widened with a third key
+     * would still satisfy "DOCUMENT_VIEW and DOCUMENT_UPLOAD are present" but must
+     * fail this containsExactlyInAnyOrder.
+     *
+     * case.view, programme.view and plan.approve_schedule are explicitly asserted
+     * ABSENT, not merely omitted from the positive list -- this is a regression
+     * guard for a real finding: an earlier version of PortalPermissions granted
+     * all three at ALL on the mistaken assumption that DocumentAudienceFilter's
+     * narrowing covered them. It does not, and never will (that filter only ever
+     * covers Document); Case, Programme and PlanRevision have no AudienceFilter
+     * anywhere in this plan, so at ALL scope a portal contact of one customer
+     * could reach another customer's case, programme or schedule-approval
+     * decision. See PortalPermissions' own javadoc for the full finding.
      */
     @Test
     void aPortalActorResolvesExactlyTheExpectedConstantSet() {
         UUID tenantId = fixture.createTenant("portal-authority");
         UUID customerId = fixture.runAsReturning(tenantId,
                 () -> fixture.createCustomer(tenantId, "Acme", null, null, null));
-        UUID contactUserId = fixture.createPortalUserForContact(tenantId, customerId, "sponsor@acme.test");
+        UUID contactUserId = fixture.createPortalUserForContact(tenantId, customerId, "contact@acme.test");
 
         fixture.runAsUser(tenantId, contactUserId, () -> {
             var effective = authorization.effectivePermissions();
+
+            assertThat(effective.byPermission().keySet())
+                    .containsExactlyInAnyOrder(PermissionKeys.DOCUMENT_VIEW, PermissionKeys.DOCUMENT_UPLOAD);
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_VIEW)).containsExactly(Scope.ALL);
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_UPLOAD)).containsExactly(Scope.ALL);
-            assertThat(effective.scopesFor(PermissionKeys.CASE_VIEW)).containsExactly(Scope.ALL);
-            // Not granted, and must never be:
+
+            // Never granted -- no narrowing mechanism exists for any of these three.
+            assertThat(effective.scopesFor(PermissionKeys.CASE_VIEW)).isEmpty();
+            assertThat(effective.scopesFor(PermissionKeys.PROGRAMME_VIEW)).isEmpty();
+            assertThat(effective.scopesFor(PermissionKeys.PLAN_APPROVE_SCHEDULE)).isEmpty();
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_MANAGE)).isEmpty();
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_REVIEW)).isEmpty();
             assertThat(effective.scopesFor(PermissionKeys.USER_MANAGE)).isEmpty();
             assertThat(effective.scopesFor(PermissionKeys.ROLE_MANAGE)).isEmpty();
+        });
+    }
+
+    /**
+     * forSponsor() is identical to forContact() today (PortalPermissions' own
+     * javadoc says so, deliberately -- sub-project 7 is where a sponsor's real
+     * additive authority gets built, with its own narrowing mechanism). Without
+     * this test, a primaryContact=true contact is never exercised anywhere in the
+     * suite -- every other case here uses the 3-arg createPortalUserForContact
+     * overload, which defaults primaryContact to false -- so a future addition
+     * to forSponsor() alone would ship with no test covering the branch that
+     * calls it.
+     */
+    @Test
+    void aSponsorContactResolvesTheSameSetAsAPlainContactToday() {
+        UUID tenantId = fixture.createTenant("portal-sponsor");
+        UUID customerId = fixture.runAsReturning(tenantId,
+                () -> fixture.createCustomer(tenantId, "Acme", null, null, null));
+        UUID sponsorUserId = fixture.createPortalUserForContact(
+                tenantId, customerId, "sponsor@acme.test", true);
+
+        fixture.runAsUser(tenantId, sponsorUserId, () -> {
+            var effective = authorization.effectivePermissions();
+
+            assertThat(effective.byPermission().keySet())
+                    .containsExactlyInAnyOrder(PermissionKeys.DOCUMENT_VIEW, PermissionKeys.DOCUMENT_UPLOAD);
+            assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_VIEW)).containsExactly(Scope.ALL);
+            assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_UPLOAD)).containsExactly(Scope.ALL);
+
+            assertThat(effective.scopesFor(PermissionKeys.CASE_VIEW)).isEmpty();
+            assertThat(effective.scopesFor(PermissionKeys.PROGRAMME_VIEW)).isEmpty();
+            assertThat(effective.scopesFor(PermissionKeys.PLAN_APPROVE_SCHEDULE)).isEmpty();
         });
     }
 
