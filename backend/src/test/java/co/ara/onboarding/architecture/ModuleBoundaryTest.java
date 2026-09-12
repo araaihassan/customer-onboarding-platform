@@ -138,16 +138,22 @@ class ModuleBoundaryTest {
                        + "own named rule -- the same reasoning as noWorkflowDependencyOnJourney.");
 
     /**
-     * Its own named rule rather than folded into the cycle check: a one-way
-     * task -> document import would still pass a plain no-cycles test.
-     * document depends on task only through the existing attachment_ref seam,
-     * never the reverse.
+     * Its own named rule rather than folded into the cycle check, even though
+     * spec 3.1's dependency list for document (platform, tenancy, authz, audit,
+     * identity, workflow, journey, customer) does not include task at all --
+     * document has no relationship to task today, in either direction. The
+     * task.attachment_ref/attachment_ref_type seam CLAUDE.md's "What sub-project
+     * 4 inherits" describes is a pattern precedent document may follow, not an
+     * actual code dependency. This rule exists preemptively, for the same
+     * reason a one-way import would still pass the plain no-cycles rule: task
+     * must never import document, mirroring the one-way discipline already
+     * enforced for journey and workflow above.
      */
     @ArchTest
     static final ArchRule noTaskDependencyOnDocument =
             noClasses().that().resideInAPackage("..task..")
                 .should().dependOnClassesThat().resideInAPackage("..document..")
-                .because("document depends on task, never the reverse. A one-way import "
-                       + "would still pass the plain no-cycles rule, which is why this is its "
-                       + "own named rule -- the same reasoning as noJourneyDependencyOnTask.");
+                .because("task has no current relationship to document at all -- this rule exists "
+                       + "preemptively, the same reasoning as noJourneyDependencyOnTask: a one-way "
+                       + "import would still pass the plain no-cycles rule.");
 }
