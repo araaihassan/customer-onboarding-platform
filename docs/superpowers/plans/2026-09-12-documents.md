@@ -1460,7 +1460,17 @@ Confirm the exact name of the requirement-definition table before writing that `
 
 - [ ] **Step 5: Write the entities and repositories**
 
-Every entity extends `TenantScopedEntity`. Every repository extends both `JpaRepository<T, UUID>` and `JpaSpecificationExecutor<T>`.
+`Document` extends `TenantScopedEntity` normally -- its table carries both `created_at` and
+`updated_at`. `DocumentVersion`, `DocumentShare`, `DocumentCaseLink` and `DocumentRequest` do
+**NOT**: their tables (per this task's own SQL, above) have no `updated_at` column, only a
+domain-specific "created" timestamp (`uploaded_at`, `granted_at`, `linked_at`, `requested_at`), and
+`TenantScopedEntity` -> `BaseEntity` requires both `created_at` and `updated_at` -- mapping an
+entity without a matching column onto it fails Hibernate's schema validation at startup. This is
+not a new problem: `journey.PlanRevisionItem` and `authz.UserRole` already establish the exact
+precedent (a table missing `updated_at` gets a plain `@Entity` with manual `id`/`tenant_id` fields
+instead), and these four should follow it the same way -- losing Hibernate's `tenantFilter` and
+relying on RLS alone for tenant isolation, enforced once rather than twice. Every repository
+extends both `JpaRepository<T, UUID>` and `JpaSpecificationExecutor<T>`.
 
 - [ ] **Step 6: Run the schema test and `RlsCoverageTest`**
 
