@@ -135,14 +135,17 @@ class DocumentScopingTest extends PostgresTestBase {
             UUID department = fixture.createDepartment(tenant, "Onboarding");
             UUID team = fixture.createTeam(tenant, "Onboarding Team");
             UUID uploader = fixture.createUser(tenant, "uploader@doc-version-scope.example");
+            UUID otherUploader = fixture.createUser(tenant, "other-uploader@doc-version-scope.example");
+            UUID teammate = fixture.createUser(tenant, "teammate@doc-version-scope.example");
+            fixture.addToTeam(tenant, teammate, team);
 
             Case c = journey.newCase(tenant, null, department, team);
             Case elsewhere = journey.newCase(tenant);
             Document doc = newDocument(tenant, c, uploader);
-            newDocument(tenant, elsewhere, uploader);
+            Document otherDoc = newDocument(tenant, elsewhere, otherUploader);
 
             DocumentVersion version = newVersion(tenant, doc, uploader);
-            newVersion(tenant, newDocument(tenant, elsewhere, uploader), uploader);
+            newVersion(tenant, otherDoc, otherUploader);
 
             var descriptor = registry.forEntity(DocumentVersion.class);
 
@@ -163,7 +166,12 @@ class DocumentScopingTest extends PostgresTestBase {
             assertThat(documentVersions.findAll(descriptor.assignedScope(
                     new AuthContext(tenant, uploader, UserType.INTERNAL, null, Set.of()))))
                     .as("resolves through the parent document's uploaded_by")
-                    .extracting(DocumentVersion::getId).contains(version.getId());
+                    .extracting(DocumentVersion::getId).containsExactly(version.getId());
+            assertThat(documentVersions.findAll(descriptor.assignedScope(
+                    new AuthContext(tenant, teammate, UserType.INTERNAL, null, Set.of(team)))))
+                    .as("ASSIGNED is personal, borrowed from the parent document's uploader -- "
+                            + "a teammate of the uploader must not match")
+                    .isEmpty();
         });
     }
 
@@ -174,12 +182,15 @@ class DocumentScopingTest extends PostgresTestBase {
             UUID department = fixture.createDepartment(tenant, "Onboarding");
             UUID team = fixture.createTeam(tenant, "Onboarding Team");
             UUID uploader = fixture.createUser(tenant, "uploader@doc-share-scope.example");
+            UUID otherUploader = fixture.createUser(tenant, "other-uploader@doc-share-scope.example");
+            UUID teammate = fixture.createUser(tenant, "teammate@doc-share-scope.example");
             UUID granter = fixture.createUser(tenant, "granter@doc-share-scope.example");
+            fixture.addToTeam(tenant, teammate, team);
 
             Case c = journey.newCase(tenant, null, department, team);
             Case elsewhere = journey.newCase(tenant);
             Document doc = newDocument(tenant, c, uploader);
-            Document other = newDocument(tenant, elsewhere, uploader);
+            Document other = newDocument(tenant, elsewhere, otherUploader);
 
             DocumentShare share = newShare(tenant, doc, granter);
             newShare(tenant, other, granter);
@@ -203,7 +214,12 @@ class DocumentScopingTest extends PostgresTestBase {
             assertThat(documentShares.findAll(descriptor.assignedScope(
                     new AuthContext(tenant, uploader, UserType.INTERNAL, null, Set.of()))))
                     .as("resolves through the parent document's uploaded_by, not granted_by")
-                    .extracting(DocumentShare::getId).contains(share.getId());
+                    .extracting(DocumentShare::getId).containsExactly(share.getId());
+            assertThat(documentShares.findAll(descriptor.assignedScope(
+                    new AuthContext(tenant, teammate, UserType.INTERNAL, null, Set.of(team)))))
+                    .as("ASSIGNED is personal, borrowed from the parent document's uploader -- "
+                            + "a teammate of the uploader must not match")
+                    .isEmpty();
         });
     }
 
@@ -221,13 +237,19 @@ class DocumentScopingTest extends PostgresTestBase {
             UUID linkedDepartment = fixture.createDepartment(tenant, "Linked");
             UUID team = fixture.createTeam(tenant, "Onboarding Team");
             UUID uploader = fixture.createUser(tenant, "uploader@doc-link-scope.example");
+            UUID otherUploader = fixture.createUser(tenant, "other-uploader@doc-link-scope.example");
+            UUID teammate = fixture.createUser(tenant, "teammate@doc-link-scope.example");
             UUID linker = fixture.createUser(tenant, "linker@doc-link-scope.example");
+            fixture.addToTeam(tenant, teammate, team);
 
             Case home = journey.newCase(tenant, null, homeDepartment, team);
             Case linkedCase = journey.newCase(tenant, null, linkedDepartment, null);
+            Case elsewhere = journey.newCase(tenant);
             Document doc = newDocument(tenant, home, uploader);
+            Document otherDoc = newDocument(tenant, elsewhere, otherUploader);
 
             DocumentCaseLink link = newCaseLink(tenant, doc, linkedCase.getId(), linker);
+            newCaseLink(tenant, otherDoc, linkedCase.getId(), linker);
 
             var descriptor = registry.forEntity(DocumentCaseLink.class);
 
@@ -255,7 +277,12 @@ class DocumentScopingTest extends PostgresTestBase {
             assertThat(documentCaseLinks.findAll(descriptor.assignedScope(
                     new AuthContext(tenant, uploader, UserType.INTERNAL, null, Set.of()))))
                     .as("resolves through the parent document's uploaded_by, not linked_by")
-                    .extracting(DocumentCaseLink::getId).contains(link.getId());
+                    .extracting(DocumentCaseLink::getId).containsExactly(link.getId());
+            assertThat(documentCaseLinks.findAll(descriptor.assignedScope(
+                    new AuthContext(tenant, teammate, UserType.INTERNAL, null, Set.of(team)))))
+                    .as("ASSIGNED is personal, borrowed from the parent document's uploader -- "
+                            + "a teammate of the uploader must not match")
+                    .isEmpty();
         });
     }
 

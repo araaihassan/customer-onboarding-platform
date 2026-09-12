@@ -35,11 +35,22 @@ import java.util.UUID;
  * once created a record is not an ongoing relationship to it). ASSIGNED
  * therefore resolves through case_participant instead, the same fallback
  * {@code ApprovalDescriptor} and {@code CaseAttributeValueDescriptor} use for an
- * entity with no personal column of its own. Note {@code document.request} is
- * catalogued only at ALL/DEPT/TEAM (no ASSIGNED) per the design spec's own
- * permission table, so this method is presently unreachable through the seeded
- * permission catalog -- implemented anyway, both because the interface requires
- * an answer and because a hand-built test role could still request it.
+ * entity with no personal column of its own.
+ *
+ * <p><b>This makes ASSIGNED here deliberately broader than {@link DocumentDescriptor}'s
+ * own ASSIGNED</b>, and that asymmetry is real, not an oversight: an ASSIGNED-scoped
+ * holder of a permission gating {@code DocumentRequest} sees every request on any
+ * case they participate in (case-participant-mediated, the {@code ApprovalDescriptor}
+ * precedent), while the same actor sees only the documents they personally
+ * uploaded under {@code DocumentDescriptor}'s own ASSIGNED. It is also live, not
+ * theoretical: {@code document.upload} IS catalogued at ASSIGNED (the design
+ * spec's own permission table), and the fulfilment write path the write-scope
+ * invariant requires (CLAUDE.md: every id a write path takes from a URL or body
+ * must resolve through {@code AuthorizedQuery} before the write) will resolve a
+ * {@code DocumentRequest} id under that very permission -- so whoever builds the
+ * service layer on top (Tasks 14+) should read this asymmetry as a real design
+ * constraint on what an ASSIGNED-scoped uploader can see and fulfil, not assume
+ * it mirrors {@code DocumentDescriptor}'s narrower, personal ASSIGNED.
  */
 @Component
 public class DocumentRequestDescriptor implements ResourceAuthorizationDescriptor<DocumentRequest> {
