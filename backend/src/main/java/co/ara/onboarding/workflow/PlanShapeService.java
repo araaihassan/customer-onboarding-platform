@@ -103,6 +103,23 @@ public class PlanShapeService {
                     + " is a catalogue template -- shape approval applies only at the customer tier");
         }
 
+        // Final whole-branch review finding #5: plan_shape_approval had no
+        // equivalent of plan_revision's "at most one outstanding" guard --
+        // plan_shape_approval_one_outstanding_uq (V22) is the database-level
+        // half, mirroring plan_revision_one_outstanding_uq exactly, but a
+        // raw constraint violation is not a caller-facing answer. Checked
+        // here, before the insert, so a second submit while one is still
+        // SUBMITTED gets a clear PlanGateException (422) instead of stranding
+        // the first row forever (never resolved, never visible again, since
+        // currentRow picks the newest by submittedAt) or a raw
+        // DataIntegrityViolationException surfacing as a 500.
+        currentRow(versionId, PermissionKeys.WORKFLOW_MANAGE)
+                .filter(a -> a.getStatus() == PlanShapeApprovalStatus.SUBMITTED)
+                .ifPresent(a -> {
+                    throw new PlanGateException("Version " + versionId
+                            + " already has an outstanding shape approval, submitted at " + a.getSubmittedAt());
+                });
+
         PlanShapeApproval approval = new PlanShapeApproval();
         approval.setId(Uuid7.generate());
         approval.setTenantId(TenantContext.getRequired());

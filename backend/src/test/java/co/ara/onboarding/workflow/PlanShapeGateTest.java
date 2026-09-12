@@ -133,6 +133,39 @@ class PlanShapeGateTest extends PostgresTestBase {
                 .isInstanceOf(PlanGateException.class);
     }
 
+    /**
+     * Final whole-branch review finding #5: plan_shape_approval had no
+     * equivalent of plan_revision's "at most one outstanding" guard -- a
+     * second submit while one row was still SUBMITTED silently stranded the
+     * first (never resolved, never visible again, since currentRow always
+     * picks the newest by submittedAt) and, absent the pre-check added
+     * alongside V22's partial unique index, would have surfaced as a raw
+     * DataIntegrityViolationException rather than a clear PlanGateException.
+     * Unlike {@link #resubmittingAfterARejectionStartsANewApprovalAndTheLatestRowWins},
+     * this never decides the first submission -- it is still outstanding when
+     * the second submit is attempted.
+     */
+    @Test
+    void aSecondSubmitWhileOneIsStillOutstandingIsRefused() {
+        fixture.runAsUser(tenant, accountManager, () -> planShapeService.submit(customerVersionId));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, accountManager,
+                () -> planShapeService.submit(customerVersionId)))
+                .isInstanceOf(PlanGateException.class);       // 422, not a raw constraint violation
+
+        // The original SUBMITTED row is untouched and still decidable -- proves
+        // the refused second submit did not strand it or half-write anything.
+        var currentRef = new AtomicReference<PlanShapeApprovalView>();
+        fixture.runAsUser(tenant, accountManager,
+                () -> currentRef.set(planShapeService.currentApproval(customerVersionId).orElseThrow()));
+        assertThat(currentRef.get().status()).isEqualTo(PlanShapeApprovalStatus.SUBMITTED);
+
+        fixture.runAsUser(tenant, accountManager, () -> planShapeService.decide(customerVersionId, approve()));
+        fixture.runAsUser(tenant, accountManager,
+                () -> currentRef.set(planShapeService.currentApproval(customerVersionId).orElseThrow()));
+        assertThat(currentRef.get().status()).isEqualTo(PlanShapeApprovalStatus.APPROVED);
+    }
+
     @Test
     void resubmittingAfterARejectionStartsANewApprovalAndTheLatestRowWins() {
         fixture.runAsUser(tenant, accountManager, () -> planShapeService.submit(customerVersionId));
