@@ -129,6 +129,29 @@ class CaseEditTest extends PostgresTestBase {
     }
 
     /**
+     * A missing JSON key binds to a null `Map`, not `{}` -- Jackson's own default, not
+     * a client bug. `CreateCaseRequest.attributes` NPEs the same way on the create
+     * path (`CaseCreationTest.anOmittedAttributesMapDoesNotNpe`); `update` shares the
+     * same `validateAttributes` call, so the fix belongs in one place, not two.
+     */
+    @Test
+    void anOmittedAttributesMapOnUpdateDoesNotNpe() {
+        UUID tenant = fixture.createTenant("case-edit-attr-omitted");
+        var caseId = new AtomicReference<UUID>();
+        fixture.runAs(tenant, () -> {
+            UUID templateId = journey.publishedTemplate();
+            UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+            caseId.set(cases.create(new CreateCaseRequest(customerId, templateId,
+                    "Fixture Case " + Uuid7.generate(), Map.of())).id());
+        });
+
+        fixture.runAs(tenant, () -> {
+            var updated = cases.update(caseId.get(), new UpdateCaseRequest("Renamed", null, null, null, null));
+            assertThat(updated.name()).isEqualTo("Renamed");
+        });
+    }
+
+    /**
      * Changing the owner re-points DEPARTMENT/TEAM/ASSIGNED scope for the whole case, so
      * it is resolved under CASE_EDIT and the new owner becomes an OWNER participant --
      * otherwise the case has an owner who cannot open it.

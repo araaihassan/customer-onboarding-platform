@@ -225,39 +225,55 @@ Also operational: `audit_event` is partitioned by month and `V5` creates only `2
 and a DEFAULT partition. The job that rolls partitions forward arrives in sub-project 6.
 
 **Seed a workflow and open a case** — nothing in the product creates either for you; both are curl
-away once a tenant's administrator is activated:
+away once a tenant's administrator is activated. **Tenant endpoints are JWT bearer-only, not HTTP
+Basic** — `SecurityConfig` wires `httpBasic()` only on its separate `/api/platform/**` chain
+(`platformFilterChain`, gated `hasRole("PLATFORM_ADMIN")`); the main tenant chain
+(`filterChain`, everything under `/api/t/{slug}/**`) authenticates only via `jwtFilter`, so a
+`curl -u admin@acme.test:<password>` against any tenant route 401s regardless of how correct the
+credentials are. Log in first and carry the token:
 
 ```bash
-curl -u admin@acme.test:<password> -X POST http://localhost:8080/api/t/acme/workflows \
+TOKEN=$(curl -s -X POST http://localhost:8080/api/t/acme/auth/login \
+  -H 'Content-Type: application/json' -d '{"email":"admin@acme.test","password":"<password>"}' \
+  | python3 -c "import json,sys;print(json.load(sys.stdin)['accessToken'])")
+# accessToken expires in 900s (expiresInSeconds in the same response) — re-login if a later
+# call in the same session 401s.
+
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8080/api/t/acme/workflows \
   -H 'Content-Type: application/json' -d '{"name":"Onboarding"}'
 # → {"id":"<templateId>", ...}
-curl -u admin@acme.test:<password> -X POST http://localhost:8080/api/t/acme/workflows/<templateId>/versions
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8080/api/t/acme/workflows/<templateId>/versions
 # → {"versionId":"<versionId>", ...} — an empty DRAFT, or a copy of the current published version
 
-curl -u admin@acme.test:<password> -X PUT \
+curl -H "Authorization: Bearer $TOKEN" -X PUT \
   http://localhost:8080/api/t/acme/workflows/<templateId>/versions/<versionId> \
   -H 'Content-Type: application/json' -d '{
-    "stages": [{"key":"s1","name":"Onboarding","milestones":[
+    "attributes": [],
+    "stages": [{"key":"s1","name":"Onboarding","autoAdvance":true,"branchRules":[],"milestones":[
       {"key":"m1","name":"Kickoff","estimatedDurationDays":2,"dependsOnMilestoneKeys":[],
        "requirements":[{"kind":"MANUAL","label":"Sign up","mandatory":true}]}
     ]}]
   }'
-# publish rule 5: every stage needs at least one milestone, or this 422s at publish, not here
+# publish rule 5: every stage needs at least one milestone, or this 422s at publish, not here.
+# attributes/autoAdvance/branchRules/dependsOnMilestoneKeys are shown explicitly, not for
+# padding: every one of them NPEs or silently misbehaves if the key is left out entirely —
+# see "Live-running the three new specs" below.
 
-curl -u admin@acme.test:<password> -X POST \
+curl -H "Authorization: Bearer $TOKEN" -X POST \
   http://localhost:8080/api/t/acme/workflows/<templateId>/versions/<versionId>/publish
 # a case can only be created against a template with a PUBLISHED version
 
-curl -u admin@acme.test:<password> -X POST http://localhost:8080/api/t/acme/cases \
+curl -H "Authorization: Bearer $TOKEN" -X POST http://localhost:8080/api/t/acme/cases \
   -H 'Content-Type: application/json' \
-  -d '{"customerId":"<customerId>","templateId":"<templateId>"}'
-# → CaseView, pinned to the version that was current when this call ran
+  -d '{"customerId":"<customerId>","templateId":"<templateId>","name":"Acme onboarding"}'
+# → CaseView, pinned to the version that was current when this call ran. attributes may be
+# omitted entirely (defaults to none, fixed below) — unlike the workflow PUT above, this one
+# field no longer needs padding.
 ```
 
-Basic auth works here the same way it does against `/api/platform/**` — `SecurityConfig` admits it
-tenant-wide, not just for the platform-admin routes. The builder UI can author everything above
-**except** a workflow attribute or a stage's `entryCondition` — see "Open at the close of
-sub-project 2". A workflow with a conditional skip (an `entryCondition` referencing an
+The builder UI can author everything above **except** a workflow attribute or a stage's
+`entryCondition` — see "Open at the close of sub-project 2". A workflow with a conditional skip
+(an `entryCondition` referencing an
 `ATTRIBUTE`-sourced condition) can only be authored this way, through the `PUT`, until that gap is
 closed.
 
@@ -482,6 +498,13 @@ to work elsewhere, not in `co.ara.onboarding` or the frontend:
   one field that DOES validate (`@Positive int`), so omitting it 400s instead — a real, useful
   contrast, but easy to miss if only the "it 500s" cases get exercised.
   `WorkflowDefinitionRequest.attributes` has the same shape at the top level.
+  **`CreateCaseRequest`/`UpdateCaseRequest.attributes` had the identical shape one layer down and is
+  now fixed, not just documented** (found seeding demo data days after 3A closed):
+  `CaseService.validateAttributes`/`upsertAttributes` both normalise a null `supplied` map to `Map.of()`
+  at their own top, since both are called from `create` and `update` alike and the fix belongs in the
+  one shared place, not at each call site. The workflow-level fields above remain an unfixed,
+  documented trap deliberately — this one differs only because it was hit again in practice; treat
+  a `List`/`Map` request field with no explicit default the same way if you find another.
 - **A boolean field omitted from JSON is not "the UI's own default."** `StageRequest.autoAdvance`
   is a primitive `boolean`; Jackson binds a missing key to `false`, not the `true` the builder's
   own `Switch` shows pre-checked. A workflow seeded through the API without `autoAdvance: true` on

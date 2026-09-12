@@ -210,6 +210,31 @@ class CaseCreationTest extends PostgresTestBase {
                 .hasMessageContaining("employeeCount");
     }
 
+    /**
+     * A seed payload that omits the field entirely -- not `{}`, no key at all -- is
+     * exactly what a hand-written curl call or a thin API client sends when a case
+     * has no attributes to set, and Jackson binds a missing JSON key to a null
+     * `Map`, not an empty one. `WorkflowDefinitionRequest.attributes` already NPEs
+     * the same way (documented in CLAUDE.md as a known omission trap); this is the
+     * identical shape one level down, on `CreateCaseRequest`.
+     */
+    @Test
+    void anOmittedAttributesMapDoesNotNpe() {
+        UUID tenant = fixture.createTenant("case-attr-omitted");
+        var versionId = new AtomicReference<UUID>();
+        var customerId = new AtomicReference<UUID>();
+        fixture.runAs(tenant, () -> {
+            versionId.set(journey.publishedThreeStageWorkflow());
+            customerId.set(fixture.createCustomer(tenant, "Acme", null, null, null));
+        });
+
+        fixture.runAs(tenant, () -> {
+            var view = cases.create(new CreateCaseRequest(customerId.get(),
+                    journey.templateOf(versionId.get()), "Fixture Case " + Uuid7.generate(), null));
+            assertThat(view.id()).isNotNull();
+        });
+    }
+
     @Test
     void aTemplateWithNoPublishedVersionCannotStartACase() {
         UUID tenant = fixture.createTenant("case-unpublished");
