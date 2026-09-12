@@ -17,26 +17,43 @@ public class AuthorizationPredicateBuilder {
     private final AuthorizationService authorization;
     private final AuthContextProvider contextProvider;
     private final DescriptorRegistry registry;
+    private final AudienceRegistry audiences;
 
     public AuthorizationPredicateBuilder(AuthorizationService authorization,
                                          AuthContextProvider contextProvider,
-                                         DescriptorRegistry registry) {
+                                         DescriptorRegistry registry,
+                                         AudienceRegistry audiences) {
         this.authorization = authorization;
         this.contextProvider = contextProvider;
         this.registry = registry;
+        this.audiences = audiences;
     }
 
     public <T> Specification<T> forPermission(String permissionKey, Class<T> entityType) {
         Set<Scope> scopes = authorization.effectivePermissions().scopesFor(permissionKey);
 
-        // Fail closed: no grant means no rows, never all rows.
+        // Fail closed: no grant means no rows, never all rows. Returns BEFORE the
+        // audience lookup -- there is nothing to narrow, and a filter must never
+        // be able to widen a denial.
         if (scopes.isEmpty()) return (root, query, cb) -> cb.disjunction();
 
+        AuthContext ctx = contextProvider.current();
+        Specification<T> scopePredicate = scopePredicate(scopes, entityType, ctx);
+
+        // The audience is ANDed AFTER the scope union, and deliberately also in
+        // the ALL case -- that is the whole mechanism (spec 6.2). Absent for every
+        // entity that declares no filter, which is all of them but Document.
+        return audiences.forEntity(entityType)
+                .<Specification<T>>map(f -> scopePredicate.and(f.audience(ctx, permissionKey)))
+                .orElse(scopePredicate);
+    }
+
+    private <T> Specification<T> scopePredicate(Set<Scope> scopes, Class<T> entityType, AuthContext ctx) {
         // ALL subsumes the others; short-circuit to an unconditional match rather
-        // than OR-ing a match-all with narrower predicates.
+        // than OR-ing a match-all with narrower predicates. Note this no longer
+        // returns from forPermission -- the audience still applies on top.
         if (scopes.contains(Scope.ALL)) return (root, query, cb) -> cb.conjunction();
 
-        AuthContext ctx = contextProvider.current();
         ResourceAuthorizationDescriptor<T> descriptor = registry.forEntity(entityType);
 
         Specification<T> combined = null;

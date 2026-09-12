@@ -383,6 +383,40 @@ public class TenantFixture {
     }
 
     /**
+     * Grants a single permission at ALL scope to an existing user, through a
+     * fresh role created for exactly that one grant. Unlike
+     * {@link #administratorFor}'s superuser role, this role carries nothing else,
+     * so a test proving audience narrowing isn't accidentally passing because the
+     * actor also holds some other permission at a wider scope.
+     *
+     * Binds its own tenant context via {@link #runUnauthenticated}, the same
+     * shape {@link #createAdminUser} and {@link #createPlatformAdmin} use — the
+     * caller does not need to wrap this in {@link #runAs} itself.
+     */
+    public void grantAtAllScope(UUID tenantId, UUID userId, String permissionKey) {
+        runUnauthenticated(tenantId, () -> {
+            Role role = new Role();
+            role.setId(Uuid7.generate());
+            role.setTenantId(tenantId);
+            role.setName("Fixture Grant " + permissionKey + " " + role.getId());
+            role.setDescription("Test fixture only");
+            role.setSystemTemplate(false);
+            role.setEnabled(true);
+
+            RoleGrant grant = new RoleGrant();
+            grant.setId(Uuid7.generate());
+            grant.setTenantId(tenantId);
+            grant.setRole(role);
+            grant.setPermissionKey(permissionKey);
+            grant.setScope(Scope.ALL);
+            role.getGrants().add(grant);
+
+            UUID roleId = roleRepository.saveAndFlush(role).getId();
+            userRoleRepository.saveAndFlush(new UserRole(tenantId, userId, roleId));
+        });
+    }
+
+    /**
      * Find-or-create, and it must look for BOTH names. role carries
      * UNIQUE (tenant_id, name), so checking only for "Administrator" means a second
      * call in a tenant that was never provisioned tries to create a second
