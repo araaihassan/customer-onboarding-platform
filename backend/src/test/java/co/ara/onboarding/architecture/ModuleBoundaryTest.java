@@ -108,4 +108,46 @@ class ModuleBoundaryTest {
                 .should().dependOnClassesThat().resideInAPackage("co.ara.onboarding.programme..")
                 .because("programme reaches customer through a facts port, the CustomerDirectory "
                        + "inversion. An import back would close the cycle.");
+
+    /**
+     * Its own named rule rather than folded into the cycle check: a one-way
+     * journey -> document import would still pass a plain no-cycles test.
+     * document depends on journey, never the reverse. There is deliberately NO
+     * DocumentDirectory port (spec 3.2).
+     */
+    @ArchTest
+    static final ArchRule noJourneyDependencyOnDocument =
+            noClasses().that().resideInAPackage("..journey..")
+                .should().dependOnClassesThat().resideInAPackage("..document..")
+                .because("document depends on journey, never the reverse. A one-way import "
+                       + "would still pass the plain no-cycles rule, which is why this is its "
+                       + "own named rule -- the same reasoning as noJourneyDependencyOnCustomer. "
+                       + "There is deliberately NO DocumentDirectory port (spec 3.2).");
+
+    /**
+     * Its own named rule rather than folded into the cycle check: a one-way
+     * workflow -> document import would still pass a plain no-cycles test.
+     * document depends on workflow's definitions read-only, never the reverse.
+     */
+    @ArchTest
+    static final ArchRule noWorkflowDependencyOnDocument =
+            noClasses().that().resideInAPackage("..workflow..")
+                .should().dependOnClassesThat().resideInAPackage("..document..")
+                .because("document depends on workflow, never the reverse. A one-way import "
+                       + "would still pass the plain no-cycles rule, which is why this is its "
+                       + "own named rule -- the same reasoning as noWorkflowDependencyOnJourney.");
+
+    /**
+     * Its own named rule rather than folded into the cycle check: a one-way
+     * task -> document import would still pass a plain no-cycles test.
+     * document depends on task only through the existing attachment_ref seam,
+     * never the reverse.
+     */
+    @ArchTest
+    static final ArchRule noTaskDependencyOnDocument =
+            noClasses().that().resideInAPackage("..task..")
+                .should().dependOnClassesThat().resideInAPackage("..document..")
+                .because("document depends on task, never the reverse. A one-way import "
+                       + "would still pass the plain no-cycles rule, which is why this is its "
+                       + "own named rule -- the same reasoning as noJourneyDependencyOnTask.");
 }
