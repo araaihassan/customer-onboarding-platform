@@ -3,6 +3,7 @@ package co.ara.onboarding.authz;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -44,8 +45,24 @@ public class AuthorizationPredicateBuilder {
         // the ALL case -- that is the whole mechanism (spec 6.2). Absent for every
         // entity that declares no filter, which is all of them but Document.
         return audiences.forEntity(entityType)
-                .<Specification<T>>map(f -> scopePredicate.and(f.audience(ctx, permissionKey)))
+                .<Specification<T>>map(f -> scopePredicate.and(requireNonNullAudience(f, ctx, permissionKey, entityType)))
                 .orElse(scopePredicate);
+    }
+
+    /**
+     * Specification.and(null) silently returns just the left-hand predicate --
+     * exactly the fail-OPEN shape AudienceFilter's own javadoc forbids ("must
+     * return cb.disjunction() to fail closed, never null"). Nothing implements
+     * AudienceFilter yet that returns null, so there is no live bug today, but
+     * Tasks 12/13 write the first real one against a javadoc-only contract; this
+     * turns a silently-widened read into a loud NullPointerException naming the
+     * offending entity type instead.
+     */
+    private <T> Specification<T> requireNonNullAudience(AudienceFilter<T> filter, AuthContext ctx,
+                                                        String permissionKey, Class<T> entityType) {
+        return Objects.requireNonNull(filter.audience(ctx, permissionKey),
+                "AudienceFilter for " + entityType.getSimpleName() + " returned null; "
+                        + "must return cb.disjunction() to fail closed, never null");
     }
 
     private <T> Specification<T> scopePredicate(Set<Scope> scopes, Class<T> entityType, AuthContext ctx) {

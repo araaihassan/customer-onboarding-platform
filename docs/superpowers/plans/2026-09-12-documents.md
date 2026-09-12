@@ -223,6 +223,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -264,11 +265,12 @@ class AudienceFilterTest extends PostgresTestBase {
     @Test
     void anAllScopedHolderIsNarrowedByTheAudienceFilter() {
         UUID tenantId = fixture.createTenant("audience-all");
-        UUID userId = fixture.createUser(tenantId, "admin@audience.test");
-        fixture.grantAtAllScope(tenantId, userId, PermissionKeys.CUSTOMER_VIEW);
-        fixture.runAs(tenantId, () -> fixture.createCustomer(tenantId, "Visible Co", null, null));
+        var userId = new AtomicReference<UUID>();
+        fixture.runAs(tenantId, () -> userId.set(fixture.createUser(tenantId, "admin@audience.test")));
+        fixture.grantAtAllScope(tenantId, userId.get(), PermissionKeys.CUSTOMER_VIEW);
+        fixture.runAs(tenantId, () -> fixture.createCustomer(tenantId, "Visible Co", null, null, null));
 
-        fixture.runAsUser(tenantId, userId, () -> {
+        fixture.runAsUser(tenantId, userId.get(), () -> {
             var page = authorizedQuery.findAll(customers, Customer.class,
                     PermissionKeys.CUSTOMER_VIEW, null, org.springframework.data.domain.Pageable.unpaged());
             assertThat(page.getContent())
@@ -280,11 +282,12 @@ class AudienceFilterTest extends PostgresTestBase {
     @Test
     void aDifferentPermissionKeyIsNotNarrowed() {
         UUID tenantId = fixture.createTenant("audience-key");
-        UUID userId = fixture.createUser(tenantId, "admin2@audience.test");
-        fixture.grantAtAllScope(tenantId, userId, PermissionKeys.CUSTOMER_EDIT);
-        fixture.runAs(tenantId, () -> fixture.createCustomer(tenantId, "Editable Co", null, null));
+        var userId = new AtomicReference<UUID>();
+        fixture.runAs(tenantId, () -> userId.set(fixture.createUser(tenantId, "admin2@audience.test")));
+        fixture.grantAtAllScope(tenantId, userId.get(), PermissionKeys.CUSTOMER_EDIT);
+        fixture.runAs(tenantId, () -> fixture.createCustomer(tenantId, "Editable Co", null, null, null));
 
-        fixture.runAsUser(tenantId, userId, () -> {
+        fixture.runAsUser(tenantId, userId.get(), () -> {
             var page = authorizedQuery.findAll(customers, Customer.class,
                     PermissionKeys.CUSTOMER_EDIT, null, org.springframework.data.domain.Pageable.unpaged());
             assertThat(page.getContent())
@@ -295,7 +298,17 @@ class AudienceFilterTest extends PostgresTestBase {
 }
 ```
 
-If `TenantFixture` has no `grantAtAllScope` helper, add one in this task following the shape of its existing role-granting code, and run it inside `runAs`.
+If `TenantFixture` has no `grantAtAllScope` helper, add one in this task following the shape of its existing role-granting code, self-binding via `runUnauthenticated` the same way `createAdminUser`/`createPlatformAdmin` already do (so the caller does not need to wrap the call in `runAs` itself).
+
+**Amended after Task 2's implementation (found on a real run, not caught at plan-writing time):**
+this snippet's `createUser(tenantId, "admin@audience.test")` call must run inside `fixture.runAs`
+— `createUser`'s own javadoc requires it (an unbound insert fails RLS's `WITH CHECK`), and every
+other call site in the suite already wraps it; the version above reflects that fix. Likewise,
+`TenantFixture.createCustomer` takes **five** arguments
+(`tenantId, displayName, ownerUserId, departmentId, teamId`), not four — the version above passes
+the fifth (`teamId`) as `null` too. Both are scaffolding bugs in this task's own seed code, not in
+`AudienceFilter`/`AudienceRegistry`/`AuthorizationPredicateBuilder`; see
+`.superpowers/sdd/2026-09-12-documents/task-2-report.md` for the full detail.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
