@@ -1020,18 +1020,26 @@ plan's intentions for it:**
   schema migration or a new column. **Note this seam is on `task` only, not on `comment`** —
   `comment`'s own columns in the same migration carry no equivalent pair, so a comment attachment
   (if sub-project 4 wants one) is a real schema addition, not a caller populating an existing field.
-- **Upload security is a deliberately deferred decision, not an oversight** (deferred 2026-09-12,
-  during sub-project 4's own brainstorming). Sub-project 4 accepts binary uploads from **external
-  portal users**, which is a class of exposure the platform has never had — every input it takes
-  today is JSON through bean validation. The defences were enumerated and explicitly parked, to be
-  decided before the upload path ships rather than designed around now: a size ceiling; an
-  extension/MIME allowlist validated against *sniffed* content rather than the client's
-  `Content-Type`; filename sanitisation with opaque generated storage keys, so no user-supplied
-  string ever reaches a filesystem path; `Content-Disposition: attachment` on every download;
-  malware scanning with an undownloadable pre-clean state; a per-version SHA-256; and a per-tenant
-  byte quota. None is decided. Whoever writes the sub-project 4 spec must resolve this section
-  rather than inherit it silently — an upload endpoint that ships without an explicit ruling here
-  has made the decision by default, which is the failure mode this note exists to prevent.
+- **Upload hardening was resolved 2026-09-13** (deferred 2026-09-12 at brainstorming, at the
+  user's instruction, not decided against). Sub-project 4 accepts binary uploads from **external
+  portal users**, a class of exposure the platform has never had — every input it took before this
+  was JSON through bean validation — so the enumerated defences got an explicit ruling rather than
+  being designed around silently. **Four ship:** a size ceiling (one `app.storage.max-upload-bytes`
+  property, one 413 path); a sniffed-content MIME allowlist, validated against the bytes actually
+  uploaded rather than the caller's declared `Content-Type`; `Content-Disposition: attachment` on
+  every download; and a per-version SHA-256 digest, computed alongside the upload stream and stored
+  on `document_version` — integrity, duplicate detection, and the provable version identity
+  sub-project 5's agreements need. **Two were never actually open**, forced by decisions made
+  elsewhere in the design: opaque generated storage keys (no user-supplied string ever reaches a
+  path) and streaming every byte through the application (no presigned URL exists to harden).
+  **Two are deferred, not dropped:** malware scanning (a ClamAV sidecar, an async
+  `UPLOADED→SCANNING→CLEAN/QUARANTINED` state machine, a visible pending state across the UI, and a
+  new test-stack container touch nearly every task in Phases 4–6 rather than bolt on — its own
+  focused piece of work once the core document flow is proven; revisit on a compliance requirement
+  naming it, or portal upload reaching production) and a per-tenant byte quota (an
+  operational/billing concern with its own backfill question for tenants that already exist;
+  revisit if multi-tenant storage cost becomes a real problem or the product decides to bill by
+  usage). Full ruling and reasoning: spec §2.3/§7.6.
 
 ## Plan deviations
 

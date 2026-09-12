@@ -64,19 +64,34 @@ service, a thin controller. This one does that **and** two things no previous su
 | **Expiry notifications** | Sub-project 6 owns notification. This stores `expires_at` and exposes the read; nothing here fires. |
 | **Orphaned-blob sweeping** | §7.4's write ordering can leave an unreferenced blob. Harmless and invisible; a sweeper belongs with Q11's retention work. |
 
-### 2.3 The deferred hardening decision
+### 2.3 The upload-hardening decision, resolved
 
-Recorded in CLAUDE.md under *What sub-project 4 inherits* and repeated here because this spec is
-where it must be resolved: a size ceiling; an extension/MIME allowlist validated against **sniffed**
-content rather than the client's `Content-Type`; filename sanitisation; `Content-Disposition:
-attachment` on every download; malware scanning with an undownloadable pre-clean state; a
-per-version SHA-256; a per-tenant byte quota.
+Recorded in CLAUDE.md under *What sub-project 4 inherits* as deferred at brainstorming on
+2026-09-12, and resolved here on 2026-09-13 after the human partner was presented the full
+enumeration — what each buys, what each costs — and ruled on every row. Nothing below was decided
+by this document going unread; an upload endpoint shipping without this section resolved would
+have made the ruling by default, which is exactly the failure mode deferring it (rather than
+guessing) was meant to prevent.
 
-Two of these are settled by other decisions in this document and are therefore **in** regardless:
-opaque generated storage keys (§7.2) mean no user-supplied string reaches a path, and
-streaming-through-the-application (§7.3) means every byte transits the gate. The rest are open.
-An upload endpoint that ships without an explicit ruling has made the ruling by default, which is
-the failure mode this paragraph exists to prevent.
+| Defence | Ruling | Reasoning |
+|---|---|---|
+| Opaque generated storage keys | **Settled, not a choice** | §7.2 already forces this: no user-supplied string reaches a path or object name. Decided before this enumeration existed. |
+| Streaming through the application | **Settled, not a choice** | §7.3 already forces this: every byte transits the gate; there is no presigned URL to harden. |
+| Size ceiling | **In** | One config property, one 413 path, bounding memory and storage per request. Low cost for a clear benefit. |
+| Sniffed-content MIME allowlist | **In** | Validated against the bytes actually uploaded, not the caller's declared `Content-Type` — closes "a `.pdf` that is really an HTML page." Some legitimate odd files may be rejected; that is the accepted cost. |
+| Filename sanitisation | **Already closed by opaque keys** | Same mechanism as the settled row above, not a second one — there is no filename-derived path anywhere left to sanitise. |
+| `Content-Disposition: attachment` on every download | **In** | One response header, closing stored-XSS-on-download. Breaks nothing. |
+| Malware scanning | **Out, for now** | Real protection, but not a bolt-on: a ClamAV sidecar, an async `UPLOADED → SCANNING → CLEAN/QUARANTINED` state machine, a visible pending state across the UI, and a new container in the test stack — it would touch nearly every task in Phases 4–6 rather than sit beside them. Better as its own focused piece of work once the core document flow is proven. **What would change this:** a compliance requirement naming it, or portal upload actually reaching production before a later sub-project revisits the question. |
+| Per-version SHA-256 | **In** | One column, one digest stream computed at upload time — integrity, duplicate detection, and the provable version identity sub-project 5's agreements need. |
+| Per-tenant byte quota | **Out, for now** | An operational/billing concern more than a security one, and the backfill question for tenants that already exist deserves its own design pass rather than a quick addition here. **What would change this:** multi-tenant storage cost actually becoming a problem, or a product decision to bill by usage. |
+
+Four of these rulings are real work, folded into the tasks that build the upload path rather than
+given a task of their own: the size ceiling and the sniffed-MIME allowlist are new tests and one
+new config property on Task 15's upload (inherited, not duplicated, by Task 26's portal upload,
+which calls the same method); the SHA-256 digest is a new `document_version` column (Task 8) and a
+digest computed alongside the upload stream (Task 15); `Content-Disposition: attachment` is a
+header assertion on Task 16's download. Malware scanning and the per-tenant quota add no task —
+their deferral is recorded here, not silently dropped.
 
 ---
 
@@ -158,9 +173,10 @@ migration that creates it, and receives no `GRANT DELETE`.
 
 ### 4.2 `document_version` — immutable
 
-`document_id`, `version_no`, `storage_key`, `size_bytes`, `content_type`, `uploaded_by`,
-`uploaded_at`, plus the review outcome: `review_status` (`PENDING` / `APPROVED` / `REJECTED`),
-`reviewed_by`, `reviewed_at`, `review_note`.
+`document_id`, `version_no`, `storage_key`, `size_bytes`, `content_type`, `sha256` (the hex digest
+of the uploaded bytes, computed alongside the same stream at upload time — §2.3/§7.6's ruling),
+`uploaded_by`, `uploaded_at`, plus the review outcome: `review_status` (`PENDING` / `APPROVED` /
+`REJECTED`), `reviewed_by`, `reviewed_at`, `review_note`.
 
 **Unique constraint on `(document_id, version_no)`.** Two clients racing a new version resolve as
 a 409 rather than needing a row lock — the constraint is the truth, not a convention. This is
@@ -557,10 +573,17 @@ and similar without further work.
 
 A port with one implementation is just an interface. Two are what keep it honest.
 
-### 7.6 Hardening
+### 7.6 Hardening, resolved
 
-See §2.3. Opaque keys and stream-through-the-app are settled here. The rest is an open decision
-this spec's reader must resolve.
+§2.3 carries the full ruling and its reasoning; this is the storage-layer summary of what it means
+for this port and its adapters. Opaque keys (§7.2) and streaming-through-the-app (§7.3) were never
+open — both are the design already, not a hardening choice layered on top of it. Three more bind
+directly to `BlobStore.put`/the upload path built on it: a size ceiling enforced before the first
+byte reaches `put`, a sniffed-content MIME check run against the stream itself rather than the
+caller's declared `contentType`, and a SHA-256 digest computed alongside that same stream and
+stored on `document_version` (§4.2). `Content-Disposition: attachment` is set by the download path
+that calls `open()`, not by the port. Malware scanning and a per-tenant byte quota are deferred —
+§2.3 has the reasoning and what would change either answer.
 
 ---
 

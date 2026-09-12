@@ -73,6 +73,8 @@ backend/src/main/java/co/ara/onboarding/platform/storage/
   LocalFsBlobStore.java
   S3BlobStore.java
   StorageProperties.java           app.storage.kind = local | s3
+                                   (Task 15 later adds app.storage.max-upload-bytes,
+                                    Task 7's size-ceiling ruling)
   StorageConfig.java               selects the adapter; fails startup on a bad combination
 ```
 
@@ -1269,8 +1271,8 @@ class DocumentSchemaTest extends PostgresTestBase {
     @Test
     void updatingAnImmutableVersionColumnIsRejected() {
         // The review columns MUST remain updatable; storage_key, size_bytes,
-        // content_type, version_no and document_id must not. A blanket UPDATE
-        // revoke would block review, so this is a trigger, not a grant.
+        // content_type, sha256, version_no and document_id must not. A blanket
+        // UPDATE revoke would block review, so this is a trigger, not a grant.
     }
 
     @Test
@@ -1338,6 +1340,10 @@ CREATE TABLE document_version (
     storage_key   text NOT NULL,
     size_bytes    bigint NOT NULL,
     content_type  text NOT NULL,
+    -- Task 7's hardening ruling (spec §2.3/§7.6): the hex SHA-256 of the uploaded
+    -- bytes, computed alongside the same stream at upload time. Integrity,
+    -- duplicate detection, and provable version identity for sub-project 5.
+    sha256        char(64) NOT NULL,
     review_status text NOT NULL,
     reviewed_by   uuid     NULL REFERENCES app_user(id),
     reviewed_at   timestamptz,
@@ -1360,6 +1366,7 @@ BEGIN
     OR NEW.storage_key  IS DISTINCT FROM OLD.storage_key
     OR NEW.size_bytes   IS DISTINCT FROM OLD.size_bytes
     OR NEW.content_type IS DISTINCT FROM OLD.content_type
+    OR NEW.sha256       IS DISTINCT FROM OLD.sha256
     OR NEW.uploaded_by  IS DISTINCT FROM OLD.uploaded_by
     OR NEW.uploaded_at  IS DISTINCT FROM OLD.uploaded_at THEN
         RAISE EXCEPTION 'document_version content is immutable once written';
@@ -1784,17 +1791,22 @@ git commit -m "feat(scoping): resolve Q9's three tiers and label targeting for p
 
 ### Task 15: Upload — create a document, and append a version
 
-**Files:** `DocumentService.upload`, `CreateDocumentRequest`, `DocumentServiceTest`
+**Files:** `DocumentService.upload`, `CreateDocumentRequest`, `DocumentServiceTest`, `StorageProperties` (Task 6; gains `max-upload-bytes`)
 **Interfaces:** Produces `upload(UUID caseId, CreateDocumentRequest, InputStream, long, String) → DocumentView` and `addVersion(UUID documentId, InputStream, long, String) → DocumentVersionView`.
 
 **This task implements Task 7's ruling.** If §2.3 still reads "open" when you reach this task, stop — the spec forbids shipping an upload path without it.
 
+**Config:** add `app.storage.max-upload-bytes` to `StorageProperties` (Task 6's class; that task shipped before this ruling existed, so this task extends it rather than Task 6). No default in the base profile, the same "unset is a startup failure, not an implied value" shape `app.storage.kind` already has — set an explicit value for `dev`/`test` in `application.yml`. This task is the one that both adds and consumes the property; there is no separate task for it.
+
 - [ ] **Step 1: Write the failing tests**
 
-Include: blob-first ordering (a failed row commit leaves no readable document but does not corrupt anything); `version_no` starts at 1 and increments; a second concurrent version at the same number is a 409, not a silent overwrite; a new version resets `review_status` to `PENDING`; `customer_id` is taken from the **resolved case**, never from the request body; plus every test Task 7's ruling requires.
+Include: blob-first ordering (a failed row commit leaves no readable document but does not corrupt anything); `version_no` starts at 1 and increments; a second concurrent version at the same number is a 409, not a silent overwrite; a new version resets `review_status` to `PENDING`; `customer_id` is taken from the **resolved case**, never from the request body; plus, from Task 7's ruling (spec §2.3/§7.6):
+  - an upload exceeding `app.storage.max-upload-bytes` is refused with a 413, and writes no row and no blob;
+  - an upload whose sniffed content does not match its declared category/extension (e.g. an HTML payload named `contract.pdf`) is refused, checked against the bytes themselves, not the caller's `Content-Type`;
+  - a successful upload's `document_version.sha256` is the actual hex SHA-256 of the uploaded bytes, computed from the same stream that is written to the blob store, not from the request's declared metadata.
 
 - [ ] **Step 2: Run to verify failure.**
-- [ ] **Step 3: Implement.** `caseId` resolved through `AuthorizedQuery` under `DOCUMENT_UPLOAD` before anything is written. `StageWriteScopeGuard` applies, as it does for tasks — a stage's `write_scope` narrows who may write inside it, on top of the record scope.
+- [ ] **Step 3: Implement.** `caseId` resolved through `AuthorizedQuery` under `DOCUMENT_UPLOAD` before anything is written. `StageWriteScopeGuard` applies, as it does for tasks — a stage's `write_scope` narrows who may write inside it, on top of the record scope. The size check runs before the stream reaches `BlobStore.put`; the MIME sniff and the SHA-256 digest both read the same stream once (a `DigestInputStream` wrapping a sniffing check, not two separate reads) so the bytes written, sniffed and hashed are provably the same bytes.
 - [ ] **Step 4: Run the tests.**
 - [ ] **Step 5: Commit.**
 
@@ -1803,9 +1815,9 @@ Include: blob-first ordering (a failed row commit leaves no readable document bu
 **Files:** `DocumentContentService.java`, `DocumentContentServiceTest.java`
 **Interfaces:** Produces `open(UUID documentId, int versionNo) → BlobContent(InputStream, String contentType, long sizeBytes, String filename)`, gated `DOCUMENT_VIEW`.
 
-- [ ] **Step 1: Write the failing tests** — a `document.manage`-only holder is refused (metadata is not bytes); a targeted document is refused to an ALL-scoped `document.view` holder outside the target; the stream is the exact bytes uploaded.
+- [ ] **Step 1: Write the failing tests** — a `document.manage`-only holder is refused (metadata is not bytes); a targeted document is refused to an ALL-scoped `document.view` holder outside the target; the stream is the exact bytes uploaded; and, from Task 7's ruling, the response carries `Content-Disposition: attachment` (with the document's real filename), never inline.
 - [ ] **Step 2: Run to verify failure.**
-- [ ] **Step 3: Implement.** Gated `DOCUMENT_VIEW` so the audience filter narrows it. **Never a presigned URL** — the local adapter cannot presign, and a presigned URL outlives a revoked share.
+- [ ] **Step 3: Implement.** Gated `DOCUMENT_VIEW` so the audience filter narrows it. **Never a presigned URL** — the local adapter cannot presign, and a presigned URL outlives a revoked share. Set `Content-Disposition: attachment` on every response this path produces — there is no branch that serves a document inline.
 - [ ] **Step 4: Run the tests.**
 - [ ] **Step 5: Commit.**
 
@@ -1952,7 +1964,7 @@ The last one proves the seam `SatisfyRequest`'s own doc comment promised sub-pro
 
 **This task implements Task 7's ruling for externally-supplied files.** External upload is the exposure the whole hardening decision was about; if §2.3 still reads "open", stop.
 
-- [ ] **Step 1: Write the failing tests** — a contact uploads with each of the three visibility choices SCREENS §17 names and gets the right tier; a contact cannot upload against **another customer's** case; a retired contact is refused; the uploaded document's `owner_contact_id` is the **acting contact**, never a value from the request body.
+- [ ] **Step 1: Write the failing tests** — a contact uploads with each of the three visibility choices SCREENS §17 names and gets the right tier; a contact cannot upload against **another customer's** case; a retired contact is refused; the uploaded document's `owner_contact_id` is the **acting contact**, never a value from the request body; and one test proving the portal path enforces Task 7's ruling too — e.g. an oversized or MIME-mismatched portal upload is refused the same way Task 15's tests already prove for the internal path. This is **not** duplicated logic to re-test exhaustively: it is inherited for free by reusing `DocumentService.upload` (Step 3), and this one test is what proves the reuse is real rather than a forked copy that could drift.
 - [ ] **Step 2: Run to verify failure.**
 - [ ] **Step 3: Implement.** Reuse `DocumentService.upload` — do not fork a parallel upload path, or Task 7's ruling would have to be implemented twice and would drift.
 - [ ] **Step 4: Run the tests.**
