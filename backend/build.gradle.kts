@@ -36,12 +36,15 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:0.12.6")
     implementation("org.bouncycastle:bcprov-jdk18on:1.79")
     runtimeOnly("org.postgresql:postgresql")
+    implementation(platform("software.amazon.awssdk:bom:2.29.52"))
+    implementation("software.amazon.awssdk:s3")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:postgresql")
+    testImplementation("org.testcontainers:minio")
     testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
 }
 

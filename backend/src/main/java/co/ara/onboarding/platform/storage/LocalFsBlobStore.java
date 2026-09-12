@@ -1,6 +1,5 @@
 package co.ara.onboarding.platform.storage;
 
-import co.ara.onboarding.platform.Uuid7;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -37,7 +36,7 @@ public class LocalFsBlobStore implements BlobStore {
 
     @Override
     public String put(InputStream content, long sizeBytes, String contentType) {
-        String key = newKey();
+        String key = StorageKeys.newKey();
         Path target = root.resolve(key);
         Path shardDir = target.getParent();
 
@@ -86,19 +85,4 @@ public class LocalFsBlobStore implements BlobStore {
         return Files.isRegularFile(root.resolve(storageKey));
     }
 
-    /**
-     * A UUIDv7 rendered lowercase hexadecimal (no dashes), sharded two levels.
-     * Corrected during Task 4's own review from the plan's original wording
-     * ("base32-lowercase") -- the code was never base32, only the comment was
-     * ever wrong; {@code UUID.toString()} is hex, and stripping its dashes stays
-     * hex. UUIDv7 rather than SecureRandom because a storage key need only be
-     * unique, not unpredictable -- access is always mediated by the application
-     * (spec 7.3), never by key secrecy. CLAUDE.md's rule is that values needing
-     * unpredictability use SecureRandom; this is explicitly not one of them, and
-     * saying so here stops a future reader "fixing" it.
-     */
-    private String newKey() {
-        String flat = Uuid7.generate().toString().replace("-", "");
-        return flat.substring(0, 2) + "/" + flat.substring(2, 4) + "/" + flat;
-    }
 }

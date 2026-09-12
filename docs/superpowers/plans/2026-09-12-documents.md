@@ -1033,6 +1033,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.CreateBucketRequest;
+import org.testcontainers.utility.DockerImageName;
 
 import java.net.URI;
 
@@ -1045,8 +1046,15 @@ import java.net.URI;
 @Testcontainers
 class S3BlobStoreTest extends BlobStoreContract {
 
+    // Amended during Task 5's own execution: "minio/minio:..." 404s. MinIO retired that
+    // Docker Hub repository entirely ("pull access denied, repository does not exist")
+    // and now publishes only to quay.io. Same tag, same image, different registry --
+    // MinIOContainer's own same-repository check requires declaring it an explicit
+    // compatible substitute rather than passing the quay.io reference bare.
     @Container
-    static final MinIOContainer MINIO = new MinIOContainer("minio/minio:RELEASE.2024-11-07T00-52-20Z");
+    static final MinIOContainer MINIO = new MinIOContainer(
+            DockerImageName.parse("quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z")
+                    .asCompatibleSubstituteFor("minio/minio"));
 
     private static S3BlobStore store;
 
