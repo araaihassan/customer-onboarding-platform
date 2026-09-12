@@ -1020,6 +1020,18 @@ plan's intentions for it:**
   schema migration or a new column. **Note this seam is on `task` only, not on `comment`** —
   `comment`'s own columns in the same migration carry no equivalent pair, so a comment attachment
   (if sub-project 4 wants one) is a real schema addition, not a caller populating an existing field.
+- **Upload security is a deliberately deferred decision, not an oversight** (deferred 2026-09-12,
+  during sub-project 4's own brainstorming). Sub-project 4 accepts binary uploads from **external
+  portal users**, which is a class of exposure the platform has never had — every input it takes
+  today is JSON through bean validation. The defences were enumerated and explicitly parked, to be
+  decided before the upload path ships rather than designed around now: a size ceiling; an
+  extension/MIME allowlist validated against *sniffed* content rather than the client's
+  `Content-Type`; filename sanitisation with opaque generated storage keys, so no user-supplied
+  string ever reaches a filesystem path; `Content-Disposition: attachment` on every download;
+  malware scanning with an undownloadable pre-clean state; a per-version SHA-256; and a per-tenant
+  byte quota. None is decided. Whoever writes the sub-project 4 spec must resolve this section
+  rather than inherit it silently — an upload endpoint that ships without an explicit ruling here
+  has made the decision by default, which is the failure mode this note exists to prevent.
 
 ## Plan deviations
 
