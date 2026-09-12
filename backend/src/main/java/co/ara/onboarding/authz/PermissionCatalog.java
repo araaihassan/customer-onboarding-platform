@@ -112,6 +112,20 @@ public final class PermissionCatalog {
         // CaseAttributeValueDescriptor exist ahead of validate() ever requiring them.
         add(PLAN_ISSUE,              "plan",      "onboarding_case", "Issue a schedule revision for a journey", RECORD);
         add(PLAN_APPROVE_SCHEDULE,   "plan",      "onboarding_case", "Record the customer's decision on a schedule revision", RECORD);
+        // Task 3 (sub-project 4): ALL-only with a null resourceType, the same
+        // shape as WORKFLOW_VIEW/WORKFLOW_MANAGE and PLAN_APPROVE_SHAPE above --
+        // there is no document entity yet for DEPARTMENT/TEAM/ASSIGNED to resolve
+        // against, so DescriptorRegistry.validate() needs no descriptor for these
+        // four. Task 8 adds the document module and its migration, Task 10 adds
+        // the five scoping descriptors, and Task 11 is what actually widens these
+        // to RECORD and reseeds role templates beyond Administrator --
+        // RoleTemplateCoverageTest only flags a permission catalogued at more
+        // than one scope, so these stay invisible to it (like WORKFLOW_VIEW)
+        // until that widening happens.
+        add(DOCUMENT_VIEW,           "document",  null,               "View documents",                 ALL_ONLY);
+        add(DOCUMENT_UPLOAD,         "document",  null,               "Upload a document or a new version", ALL_ONLY);
+        add(DOCUMENT_MANAGE,         "document",  null,               "Retarget or retire a document's metadata", ALL_ONLY);
+        add(DOCUMENT_REVIEW,         "document",  null,               "Approve or reject a reviewable document", ALL_ONLY);
     }
 
     /**

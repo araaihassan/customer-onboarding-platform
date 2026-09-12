@@ -184,7 +184,16 @@ public final class RoleTemplates {
             // requires Administrator to cover the whole catalog -- Project Manager and
             // Account Manager above are what actually closes RoleTemplateCoverageTest
             // for these two keys.
-            entry(PLAN_ISSUE, ALL), entry(PLAN_APPROVE_SCHEDULE, ALL)))
+            entry(PLAN_ISSUE, ALL), entry(PLAN_APPROVE_SCHEDULE, ALL),
+            // Task 3 (sub-project 4): the four document permissions are ALL-only
+            // in the catalog itself (no document entity yet -- Task 11 widens
+            // them and seeds Legal/Finance/Compliance/etc. beyond Administrator),
+            // so this is not a RoleTemplateCoverageTest candidate the way
+            // programme.manage was -- seeded here purely because
+            // RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
+            // requires Administrator to cover the whole catalog.
+            entry(DOCUMENT_VIEW, ALL), entry(DOCUMENT_UPLOAD, ALL),
+            entry(DOCUMENT_MANAGE, ALL), entry(DOCUMENT_REVIEW, ALL)))
     );
 
     private RoleTemplates() {}

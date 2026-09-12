@@ -53,6 +53,13 @@ public final class PermissionKeys {
     public static final String PLAN_APPROVE_SHAPE    = "plan.approve_shape";
     public static final String PLAN_ISSUE               = "plan.issue";
     public static final String PLAN_APPROVE_SCHEDULE    = "plan.approve_schedule";
+    // Task 3 (sub-project 4): only the four keys PortalPermissions references are
+    // added here. document.share and document.request (Task 11's role-seeding
+    // table) are out of this task's scope and land with the document module itself.
+    public static final String DOCUMENT_VIEW         = "document.view";
+    public static final String DOCUMENT_UPLOAD       = "document.upload";
+    public static final String DOCUMENT_MANAGE       = "document.manage";
+    public static final String DOCUMENT_REVIEW       = "document.review";
 
     private PermissionKeys() {}
 }
