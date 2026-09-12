@@ -43,3 +43,9 @@ app:
   platform-admin:
     email: ${APP_PLATFORM_ADMIN_EMAIL:}
     password: ${APP_PLATFORM_ADMIN_PASSWORD:}
+  storage:
+    # Where LocalFsBlobStore writes blobs. Unlike JWT_SECRET/DB_APP_PASSWORD this
+    # is not a secret -- a storage key's opacity, not the path's secrecy, is what
+    # keeps a blob safe (BlobStore's own javadoc) -- so a committed relative
+    # default is fine, and an operator overrides it for a real deployment.
+    local-root: ${STORAGE_LOCAL_ROOT:./data/blobs}

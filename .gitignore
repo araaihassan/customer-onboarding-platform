@@ -9,6 +9,10 @@ build/
 *.class
 *.log
 
+# LocalFsBlobStore's default storage root (app.storage.local-root); created
+# on every backend startup, including test context loads.
+backend/data/
+
 # Node / Next.js
 node_modules/
 .next/
