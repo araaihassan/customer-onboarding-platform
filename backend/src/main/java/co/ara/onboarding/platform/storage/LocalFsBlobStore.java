@@ -50,7 +50,12 @@ public class LocalFsBlobStore implements BlobStore {
             // final key -- readers only ever see the temp name (which nothing looks
             // up) or the fully-written final file, never a half-written one.
             Path tempFile = Files.createTempFile(shardDir, "upload-", ".tmp");
-            try {
+            try (content) {
+                // put() takes ownership of content (BlobStore's own contract) and
+                // closes it here, success or failure -- Files.copy reads it fully but
+                // never closes it itself, and leaving that to the caller is exactly
+                // how a real multipart upload stream (Task 15) would leak a file
+                // descriptor per put().
                 Files.copy(content, tempFile, StandardCopyOption.REPLACE_EXISTING);
                 Files.move(tempFile, target, StandardCopyOption.ATOMIC_MOVE);
             } finally {
@@ -82,12 +87,15 @@ public class LocalFsBlobStore implements BlobStore {
     }
 
     /**
-     * A UUIDv7 rendered base32-lowercase without padding, sharded two levels. UUIDv7
-     * rather than SecureRandom because a storage key need only be unique, not
-     * unpredictable -- access is always mediated by the application (spec 7.3), never
-     * by key secrecy. CLAUDE.md's rule is that values needing unpredictability use
-     * SecureRandom; this is explicitly not one of them, and saying so here stops a
-     * future reader "fixing" it.
+     * A UUIDv7 rendered lowercase hexadecimal (no dashes), sharded two levels.
+     * Corrected during Task 4's own review from the plan's original wording
+     * ("base32-lowercase") -- the code was never base32, only the comment was
+     * ever wrong; {@code UUID.toString()} is hex, and stripping its dashes stays
+     * hex. UUIDv7 rather than SecureRandom because a storage key need only be
+     * unique, not unpredictable -- access is always mediated by the application
+     * (spec 7.3), never by key secrecy. CLAUDE.md's rule is that values needing
+     * unpredictability use SecureRandom; this is explicitly not one of them, and
+     * saying so here stops a future reader "fixing" it.
      */
     private String newKey() {
         String flat = Uuid7.generate().toString().replace("-", "");

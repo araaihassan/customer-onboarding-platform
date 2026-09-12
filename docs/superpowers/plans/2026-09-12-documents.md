@@ -939,7 +939,7 @@ Add `BlobNotFoundException` (a `RuntimeException`) in the same package.
 
 ```java
 /**
- * A UUIDv7 rendered base32-lowercase without padding, sharded two levels. UUIDv7
+ * A UUIDv7 rendered lowercase hexadecimal (no dashes), sharded two levels. UUIDv7
  * rather than SecureRandom because a storage key need only be unique, not
  * unpredictable -- access is always mediated by the application (spec 7.3), never
  * by key secrecy. CLAUDE.md's rule is that values needing unpredictability use
@@ -951,6 +951,12 @@ private String newKey() {
     return flat.substring(0, 2) + "/" + flat.substring(2, 4) + "/" + flat;
 }
 ```
+
+<!-- Corrected during Task 4's own review (2026-09-12): this comment originally said
+"base32-lowercase," which was wrong -- the code below it was never base32, only the
+words describing it were; UUID.toString() is hex, and stripping its dashes stays
+hex. The encoding, sharding scheme and SecureRandom-vs-UUIDv7 reasoning are all
+unchanged; only the wrong word was replaced, here and in LocalFsBlobStore.java. -->
 
 `put` must write to a temporary file in the same directory and then atomically move it into place, so a crashed upload never leaves a partially-written blob readable under its final key.
 

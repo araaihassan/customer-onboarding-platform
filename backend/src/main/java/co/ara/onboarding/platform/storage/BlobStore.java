@@ -18,6 +18,12 @@ import java.io.InputStream;
 public interface BlobStore {
 
     /**
+     * Takes ownership of {@code content} and closes it, whether the write succeeds
+     * or fails -- callers must not close it themselves and must not reuse it after
+     * this call. This is what lets a real upload stream (a servlet/multipart body,
+     * Task 15) be handed straight to {@code put} without leaking a file descriptor
+     * per call.
+     *
      * @param sizeBytes the caller's declared length. Adapters may use it to choose
      *                  a transfer strategy but must not trust it for correctness.
      * @return the generated storage key, to be persisted on document_version.
