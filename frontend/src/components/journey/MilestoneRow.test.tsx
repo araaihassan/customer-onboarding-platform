@@ -166,4 +166,21 @@ describe("MilestoneRow", () => {
     renderRow(active);
     expect(screen.queryByText(/tasks open/)).toBeNull();
   });
+
+  // Merged in from components/journey/__tests__/MilestoneRow.test.tsx (final
+  // whole-branch review finding #6): this branch shipped two competing
+  // test-file conventions, and MilestoneRow ended up with both a co-located
+  // file (this one) and a __tests__/ one, added later by a task that did not
+  // notice the first already existed. Consolidated here, the co-located
+  // convention this file and tasks.test.tsx elsewhere already use; the
+  // __tests__/ copy is deleted. No test case dropped in the merge.
+  it("badges an internal-only milestone with a word, not only a colour", () => {
+    renderRow({ ...active, portalVisible: false });
+    expect(screen.getByText("Internal")).not.toBeNull();
+  });
+
+  it("adds no badge to a shared milestone", () => {
+    renderRow({ ...active, portalVisible: true });
+    expect(screen.queryByText("Internal")).toBeNull();
+  });
 });
