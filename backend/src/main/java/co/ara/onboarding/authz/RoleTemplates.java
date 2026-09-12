@@ -48,13 +48,28 @@ public final class RoleTemplates {
             entry(TASK_VIEW, TEAM), entry(COMMENT_CREATE, TEAM),
             entry(PLAN_APPROVE_SCHEDULE, DEPARTMENT))),
 
-        // Map.ofEntries, not Map.of: eighteen grants crosses Map.of's ten-pair ceiling.
+        // Map.ofEntries, not Map.of: twenty grants crosses Map.of's ten-pair ceiling.
         // TASK_MANAGE at TEAM (sub-project 3A Phase 1 Task 8): this template already
         // holds TASK_VIEW/TASK_COMPLETE at TEAM -- a role that can complete a task but
         // not create one, add a checklist item, or reassign it is incoherent.
         // PLAN_ISSUE at TEAM (Task 23, sub-project 3A gate 2): the Project Manager
         // coordinates delivery day to day, so issuing a schedule revision for a
         // journey they run belongs here rather than only on Administrator.
+        // PROGRAMME_VIEW/PROGRAMME_MANAGE at TEAM (Task 35, sub-project 3A close-out
+        // role review): this template already holds CASE_EDIT/CASE_ADVANCE/
+        // MILESTONE_EDIT at TEAM -- coordinating the parallel journeys a programme
+        // groups for one customer is the same day-to-day delivery responsibility as
+        // coordinating one journey, just one level up. Account Manager (above) was
+        // considered too -- it owns the ongoing relationship and could plausibly view
+        // a programme's rollup -- but PROGRAMME_MANAGE's actual shape ("edit a
+        // programme, its journeys and its participants") is delivery orchestration,
+        // not relationship ownership, so it belongs on the template that already does
+        // that work at this scope; not split across two templates without a second
+        // permission to tell VIEW and MANAGE apart. Both scopes are already exercised
+        // by an existing narrowest-scope write test (TEAM,
+        // ProgrammeMembershipServiceTest.aTeamScopedProgrammeManageHolderCanAddAParticipantWithinTheirOwnScope)
+        // and an existing ASSIGNED-scope read test (ProgrammeScopeTest) -- CLAUDE.md's
+        // "Working conventions" requirement was already met before this grant existed.
         new RoleTemplate("Project Manager", "Coordinates onboarding delivery", Map.ofEntries(
             entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
             entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM), entry(AUDIT_VIEW, TEAM),
@@ -65,7 +80,8 @@ public final class RoleTemplates {
             entry(REQUIREMENT_WAIVE, TEAM),
             entry(TASK_VIEW, TEAM), entry(TASK_MANAGE, TEAM), entry(TASK_COMPLETE, TEAM),
             entry(COMMENT_CREATE, TEAM),
-            entry(PLAN_ISSUE, TEAM))),
+            entry(PLAN_ISSUE, TEAM),
+            entry(PROGRAMME_VIEW, TEAM), entry(PROGRAMME_MANAGE, TEAM))),
 
         // TASK_COMPLETE joins MILESTONE_COMPLETE at the same ASSIGNED scope (spec
         // 5.2); no COMMENT_CREATE, for the same reason Sales Representative has
@@ -145,12 +161,14 @@ public final class RoleTemplates {
             // Administrator already holding CASE_VIEW and MILESTONE_COMPLETE at ALL.
             entry(TASK_VIEW, ALL), entry(TASK_MANAGE, ALL),
             entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL),
-            // Programmes (sub-project 3A Task 11): seeded Administrator-only for
-            // now -- RoleTemplateCoverageTest's ADMINISTRATOR_ONLY_PENDING_REVIEW-
-            // style gap for programme.manage is deliberate here too and is left for
-            // the later task that reviews which non-Administrator template should
-            // hold it (CLAUDE.md's "Phase 2 ... relies on it staying red until
-            // programme.manage and its siblings are seeded too").
+            // Programmes (sub-project 3A Task 11; role review closed at Task 35):
+            // seeded here purely because RoleTemplateValidityTest.administratorGrants
+            // EveryPermissionInTheCatalog requires Administrator to cover the whole
+            // catalog -- Project Manager above is what actually closes
+            // RoleTemplateCoverageTest for programme.view/programme.manage.
+            // PROGRAMME_CREATE stays ALL-only in the catalog itself (no programme yet
+            // to scope a create permission against, the same reasoning as
+            // CUSTOMER_CREATE/CASE_CREATE), so it is not a coverage-test candidate.
             entry(PROGRAMME_VIEW, ALL), entry(PROGRAMME_CREATE, ALL), entry(PROGRAMME_MANAGE, ALL),
             // Task 19 (sub-project 3A): plan.approve_shape is ALL-only in the
             // catalog itself (a workflow version has no narrower scope to resolve
