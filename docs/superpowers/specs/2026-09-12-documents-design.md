@@ -104,13 +104,19 @@ Each proven red by a temporary violation before being relied on.
 ### 3.2 No port back into `journey`
 
 `task` needed `TaskDirectory`/`TaskLifecycle` so `journey` could ask about tasks. `document` gets
-no equivalent, deliberately.
+no equivalent — but for a plainer reason than the one the ledger might suggest.
 
-CLAUDE.md records what the `task` port cost: `MilestoneRoadmapView.taskSummary` is computed by
-`TaskDirectoryAdapter.summaryFor` over every task on a milestone **regardless of the reader's
-scope**, is therefore an aggregate leak to an ASSIGNED-scoped reader, and after all that is never
-rendered by any frontend component. Nothing in `journey` needs to ask `document` anything, so the
-dependency stays one-way and that class of leak never opens here.
+CLAUDE.md's sub-project 3 close recorded that `MilestoneRoadmapView.taskSummary` was computed over
+every task on a milestone regardless of the reader's scope and was never rendered. **Both halves
+were fixed by sub-project 3A** (Task 5): `TaskDirectoryAdapter.summaryFor` now reads through
+`AuthorizedQuery` with the scope predicate ANDed in, defaulting every requested id to `(0, 0)` so a
+caller never sees a missing key, and `MilestoneRow.tsx` renders the count. Verified in the code on
+`main`, not inferred from the plan.
+
+So the argument against a port here is **not** that the pattern is unsafe — 3A demonstrated it can
+be done correctly. It is simply that nothing in `journey` needs to ask `document` anything. A port
+built anyway would be an unused seam carrying a standing obligation to keep its scope filtering
+right. The dependency stays one-way because one way is all that is needed.
 
 Requirement satisfaction flows the proven direction instead: `document` calls `journey`'s already
 gated `RequirementService.satisfy(requirementId, ref, refType)` with `ref = documentId` and
@@ -473,17 +479,27 @@ and therefore need their own descriptors even though no permission names them �
 `validate()` alone will not catch. Five descriptors, one validated requirement: expect
 `validate()` to stay green while a missing one fails at the first request that reads that entity.
 
-### 6.8 The `AuthorizationCoverageTest` finder rule
+### 6.8 The `AuthorizationCoverageTest` finder rule — already rebound
 
-CLAUDE.md prescribes the durable fix and this sub-project is where it should land: **bind
-`servicesDoNotCallRepositoryFindersDirectly` to any class in the covered packages that injects a
-`*Repository`, with an explicit exclusion list, rather than matching a `*Service`/`*Directory`
-name suffix.**
+**This sub-project inherits a working rule and must not re-do the rebind.** CLAUDE.md's
+sub-project 3 close prescribed binding `servicesDoNotCallRepositoryFindersDirectly` to
+repository *injection* rather than a `*Service`/`*Directory` name suffix. **Sub-project 3A Task 2
+did it**, and the result is on `main`: `injectsARepository()` selects the covered classes, a
+`FINDER_RULE_EXCLUSIONS` list of fully-qualified names carries every exemption visibly, and
+`finderRuleBindsToRepositoryInjectionNotClassName` asserts the list's contents so a future
+regression to name-shaping fails. Verified in the code, not taken from the plan.
 
-Three `task` classes are currently named specifically to dodge the suffix match, and
-`customer.OrgUnitResolver`'s exclusion is a no-op because its name matches neither suffix either.
-Adding `document..` to a rule known to be evadable would widen a rule that does not hold. The
-rebind is in scope; converting the existing evasions into visible exclusions is part of it.
+The rebind also went further than the sub-project 3 ledger anticipated: it surfaced four more
+classes the name-shaped rule was blind to, and `TaskDirectoryAdapter` was **fixed** rather than
+excluded — it no longer calls a finder outside `AuthorizedQuery`, so it carries no exclusion at all.
+
+What this sub-project owes the rule is therefore ordinary compliance, not reform:
+
+- Add `document..` to the rule's covered packages **in the same commit that adds the services**.
+- Every `document` class that injects a repository is covered automatically, whatever it is named.
+  There is no suffix to fall outside of any more.
+- **Add no new exclusion.** If a `document` class seems to need one, the design is wrong — the
+  adapter precedent is that the class gets fixed to read through `AuthorizedQuery`.
 
 ---
 
@@ -630,10 +646,14 @@ be verified against the code at close, not asserted.
 
 ### 11.1 Carried in, untouched by this sub-project's path
 
-TEAM-scoped user creation (`CreateUserRequest` still has no `teamIds`); the workflow builder's
-missing attribute/entry-condition UI; sub-project 3's task gaps (no task-edit UI, `taskSummary`
-unrendered, "Do now" unsorted, `task.assigned` and the ad-hoc `task.created` audit actions
-missing).
+TEAM-scoped user creation (`CreateUserRequest` still has no `teamIds`) and the workflow builder's
+missing attribute/entry-condition UI — to which §5.3 adds a third unauthorable field.
+
+**Sub-project 3's task gaps are closed, not carried.** 3A's Phase 1 closed all of them —
+`taskSummary` is scope-filtered and rendered, "Do now" is sorted, the task-edit UI and assignee
+picker exist, and the missing `task.*` audit actions are recorded. CLAUDE.md's sub-project 3
+section still reads as though they are open; a reader of this spec should trust the code over that
+section, and anyone editing CLAUDE.md next should prune it.
 
 ### 11.2 Touched deliberately
 
