@@ -3,6 +3,7 @@ package co.ara.onboarding.journey;
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
+import co.ara.onboarding.authz.AuthorizationService;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
@@ -93,6 +94,7 @@ public class PlanRevisionService {
     private final MilestoneDefinitionRepository milestoneDefinitions;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
+    private final AuthorizationService authorization;
     private final AuditRecorder audit;
     private final PlanShapeService planShapeService;
     private final CaseService caseService;
@@ -101,8 +103,9 @@ public class PlanRevisionService {
     public PlanRevisionService(PlanRevisionRepository revisions, PlanRevisionItemRepository items,
                                CaseRepository cases, MilestoneRepository milestones, StageRepository stages,
                                MilestoneDefinitionRepository milestoneDefinitions, AuthorizedQuery authorizedQuery,
-                               AuthContextProvider contextProvider, AuditRecorder audit,
-                               PlanShapeService planShapeService, CaseService caseService, Clock clock) {
+                               AuthContextProvider contextProvider, AuthorizationService authorization,
+                               AuditRecorder audit, PlanShapeService planShapeService, CaseService caseService,
+                               Clock clock) {
         this.revisions = revisions;
         this.items = items;
         this.cases = cases;
@@ -111,6 +114,7 @@ public class PlanRevisionService {
         this.milestoneDefinitions = milestoneDefinitions;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
+        this.authorization = authorization;
         this.audit = audit;
         this.planShapeService = planShapeService;
         this.caseService = caseService;
@@ -195,18 +199,57 @@ public class PlanRevisionService {
         return toView(revision, itemRows);
     }
 
-    @RequirePermission(PermissionKeys.PLAN_ISSUE)
+    /**
+     * Widened to {@code plan.issue} OR {@code plan.approve_schedule} (final
+     * whole-branch review finding #4): {@code plan.issue} and {@code
+     * plan.approve_schedule} are deliberately seeded to two DIFFERENT
+     * templates (Project Manager, Account Manager -- {@code RoleTemplates}),
+     * but before this fix every read here was gated {@code plan.issue} alone,
+     * so the ONE seeded role that can actually decide a schedule revision
+     * (Account Manager) got a 403 trying to even READ the revision it is
+     * supposed to approve -- {@code PlanTab.tsx} calls {@code
+     * usePlanRevisions(caseId)} unconditionally, so the whole tab errored out
+     * for that actor. {@link #callersOwnPlanReadPermission()} resolves the
+     * reads below under whichever of the two the caller actually holds, the
+     * same "fetch under the caller's own gating key" pattern {@code
+     * CaseService.resume} used for its own two-key OR before final review
+     * finding #2 split it back into two single-keyed methods -- that split
+     * does not apply here, since these three methods are pure reads with no
+     * separate internal-only caller to give its own gate to.
+     */
+    @RequirePermission({PermissionKeys.PLAN_ISSUE, PermissionKeys.PLAN_APPROVE_SCHEDULE})
     @Transactional(readOnly = true)
     public PlanRevisionView get(UUID revisionId) {
+        String permissionKey = callersOwnPlanReadPermission();
         PlanRevision revision = authorizedQuery.getById(
-                revisions, PlanRevision.class, PermissionKeys.PLAN_ISSUE, revisionId);
+                revisions, PlanRevision.class, permissionKey, revisionId);
         List<PlanRevisionItem> itemRows = authorizedQuery.findAll(items, PlanRevisionItem.class,
-                        PermissionKeys.PLAN_ISSUE,
+                        permissionKey,
                         (root, query, cb) -> cb.equal(root.get("planRevisionId"), revisionId),
                         Pageable.unpaged(Sort.by("sortOrder")))
                 .getContent();
         return toView(revision, itemRows);
     }
+
+    /**
+     * Which of {@link #get}/{@link #listForCase}/{@link #diff}'s two OR'd
+     * keys THIS caller actually holds, so the reads below resolve scope under
+     * a permission the actor is known to have -- {@link AuthorizedQuery}
+     * denies (empty/404, not an exception) when asked to scope by a key the
+     * caller does not hold at all. The method-level gate has already
+     * established at least one of the two holds; this only chooses which.
+     * {@code plan.issue} is checked first since it is the more common reader
+     * (Project Manager, who also issues); {@code plan.approve_schedule} is
+     * the Account Manager shape final review finding #4 fixes.
+     */
+    private String callersOwnPlanReadPermission() {
+        return PLAN_READ_KEYS.stream().filter(authorization::has).findFirst()
+                .orElseThrow(() -> new NoSuchElementException(
+                        "PermissionGateAspect should already have refused this call"));
+    }
+
+    private static final List<String> PLAN_READ_KEYS =
+            List.of(PermissionKeys.PLAN_ISSUE, PermissionKeys.PLAN_APPROVE_SCHEDULE);
 
     /**
      * Sub-project 3A, Task 27.5 (plan amendment): every schedule revision ever
@@ -225,20 +268,27 @@ public class PlanRevisionService {
      * empty list), then read the child rows through the same {@code
      * JpaSpecificationExecutor}-shaped {@link PlanRevisionRepository} filtered
      * on {@code caseId} -- no hand-rolled JPQL, no new repository method.
+     *
+     * Widened to {@code plan.issue} OR {@code plan.approve_schedule} (final
+     * whole-branch review finding #4) -- see {@link #get}'s own javadoc for
+     * why, and {@link #callersOwnPlanReadPermission()} for how the reads
+     * below resolve scope under whichever of the two the caller actually
+     * holds.
      */
-    @RequirePermission(PermissionKeys.PLAN_ISSUE)
+    @RequirePermission({PermissionKeys.PLAN_ISSUE, PermissionKeys.PLAN_APPROVE_SCHEDULE})
     @Transactional(readOnly = true)
     public List<PlanRevisionView> listForCase(UUID caseId) {
-        authorizedQuery.getById(cases, Case.class, PermissionKeys.PLAN_ISSUE, caseId);
+        String permissionKey = callersOwnPlanReadPermission();
+        authorizedQuery.getById(cases, Case.class, permissionKey, caseId);
 
         List<PlanRevision> revisionRows = authorizedQuery.findAll(revisions, PlanRevision.class,
-                        PermissionKeys.PLAN_ISSUE,
+                        permissionKey,
                         (root, query, cb) -> cb.equal(root.get("caseId"), caseId),
                         Pageable.unpaged(Sort.by(Sort.Direction.DESC, "revisionNumber")))
                 .getContent();
 
         Map<UUID, List<PlanRevisionItem>> itemsByRevisionId = authorizedQuery.findAll(items, PlanRevisionItem.class,
-                        PermissionKeys.PLAN_ISSUE,
+                        permissionKey,
                         (root, query, cb) -> cb.equal(root.get("caseId"), caseId),
                         Pageable.unpaged(Sort.by("sortOrder")))
                 .getContent().stream()
@@ -267,26 +317,33 @@ public class PlanRevisionService {
      * before reading either's items -- refusing with {@link
      * NoSuchElementException} (404) exactly as an out-of-scope id does, rather
      * than a 403 that would confirm the other case's revision exists.
+     *
+     * Widened to {@code plan.issue} OR {@code plan.approve_schedule} (final
+     * whole-branch review finding #4) -- see {@link #get}'s own javadoc for
+     * why, and {@link #callersOwnPlanReadPermission()} for how the reads
+     * below resolve scope under whichever of the two the caller actually
+     * holds.
      */
-    @RequirePermission(PermissionKeys.PLAN_ISSUE)
+    @RequirePermission({PermissionKeys.PLAN_ISSUE, PermissionKeys.PLAN_APPROVE_SCHEDULE})
     @Transactional(readOnly = true)
     public PlanRevisionDiffView diff(UUID revisionId, UUID againstRevisionId) {
+        String permissionKey = callersOwnPlanReadPermission();
         PlanRevision current = authorizedQuery.getById(
-                revisions, PlanRevision.class, PermissionKeys.PLAN_ISSUE, revisionId);
+                revisions, PlanRevision.class, permissionKey, revisionId);
         PlanRevision previous = authorizedQuery.getById(
-                revisions, PlanRevision.class, PermissionKeys.PLAN_ISSUE, againstRevisionId);
+                revisions, PlanRevision.class, permissionKey, againstRevisionId);
         if (!current.getCaseId().equals(previous.getCaseId())) {
             throw new NoSuchElementException(
                     "Revision " + againstRevisionId + " does not belong to the same case as " + revisionId);
         }
 
         List<PlanRevisionItem> currentItems = authorizedQuery.findAll(items, PlanRevisionItem.class,
-                        PermissionKeys.PLAN_ISSUE,
+                        permissionKey,
                         (root, query, cb) -> cb.equal(root.get("planRevisionId"), revisionId),
                         Pageable.unpaged(Sort.by("sortOrder")))
                 .getContent();
         List<PlanRevisionItem> previousItems = authorizedQuery.findAll(items, PlanRevisionItem.class,
-                        PermissionKeys.PLAN_ISSUE,
+                        permissionKey,
                         (root, query, cb) -> cb.equal(root.get("planRevisionId"), againstRevisionId),
                         Pageable.unpaged(Sort.by("sortOrder")))
                 .getContent();
@@ -317,22 +374,27 @@ public class PlanRevisionService {
      * so deciding an already-superseded (or already-decided) row is refused
      * rather than silently overwriting a prior decision.
      *
-     * Records {@code plan.revision_decided} BEFORE calling {@link
-     * CaseService#resume} -- {@code CauseBeforeEffectTest}'s whole reason for
-     * existing: nine journey call sites once recorded their cause after the
-     * reconcile it triggered, permanently misordering every audit row written
-     * before 2026-08-29 (see CLAUDE.md). {@code resume} is called ONLY when
-     * this decision is the case's FIRST-EVER APPROVED revision (QA Q22/Q23):
-     * gate 2's approval is what lets a customer-template journey start actually
-     * running, and a LATER revision being approved -- or rejected -- must never
-     * disturb an already-ACTIVE case; re-holding on every revision would mean
-     * an internal typo correction freezes a live project until the customer
-     * replies again. {@link #hasAnyApprovedRevision} is checked BEFORE this
-     * decision's own status is written, so it still reads {@code false} on the
-     * very first approval and {@code true} on every one after -- and {@code
-     * CaseService.resume} itself refuses ({@link CaseNotOnHoldException}) if
-     * called on a case that is not ON_HOLD, so a second call here would be a
-     * bug this guard exists to prevent, not merely a redundant one.
+     * Records {@code plan.revision_decided} BEFORE calling {@code
+     * CaseService.releasePlanHold} -- {@code CauseBeforeEffectTest}'s whole
+     * reason for existing: nine journey call sites once recorded their cause
+     * after the reconcile it triggered, permanently misordering every audit
+     * row written before 2026-08-29 (see CLAUDE.md). {@code releasePlanHold}
+     * is called ONLY when this decision is the case's FIRST-EVER APPROVED
+     * revision (QA Q22/Q23): gate 2's approval is what lets a
+     * customer-template journey start actually running, and a LATER revision
+     * being approved -- or rejected -- must never disturb an already-ACTIVE
+     * case; re-holding on every revision would mean an internal typo
+     * correction freezes a live project until the customer replies again.
+     * {@link #hasAnyApprovedRevision} is checked BEFORE this decision's own
+     * status is written, so it still reads {@code false} on the very first
+     * approval and {@code true} on every one after -- and {@code
+     * CaseService.releasePlanHold} itself refuses ({@link
+     * CaseNotOnHoldException}) if called on a case that is not ON_HOLD, so a
+     * second call here would be a bug this guard exists to prevent, not
+     * merely a redundant one. {@code releasePlanHold} exists (final
+     * whole-branch review finding #2) precisely so this internal call never
+     * has to go through {@code resume}'s public, {@code case.hold}-gated
+     * endpoint -- see {@code CaseService.resume}'s own javadoc.
      */
     @RequirePermission(PermissionKeys.PLAN_APPROVE_SCHEDULE)
     @Transactional
@@ -365,7 +427,7 @@ public class PlanRevisionService {
         // events (triggered transitively through resume) are stamped no earlier
         // than resume's own case.resumed -- both AFTER plan.revision_decided.
         if (releasesTheHold) {
-            caseService.resume(current.getCaseId());
+            caseService.releasePlanHold(current.getCaseId());
         }
 
         List<PlanRevisionItem> itemRows = authorizedQuery.findAll(items, PlanRevisionItem.class,

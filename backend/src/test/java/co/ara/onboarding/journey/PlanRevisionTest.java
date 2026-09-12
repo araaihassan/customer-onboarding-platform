@@ -21,6 +21,7 @@ import co.ara.onboarding.workflow.WorkflowVersionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.time.Duration;
 import java.time.LocalDate;
@@ -222,6 +223,29 @@ class PlanRevisionTest extends PostgresTestBase {
     }
 
     /**
+     * Final whole-branch review finding #2: {@code CaseService.resume} used to
+     * be gated {@code case.hold} OR {@code plan.approve_schedule}, widening
+     * not just {@code decide}'s internal release call but the PUBLIC {@code
+     * POST /cases/{id}/resume} endpoint too -- so {@code am} (holds only
+     * {@code plan.approve_schedule}, deliberately never {@code case.hold},
+     * the exact seeded Account Manager shape) could resume ANY case directly
+     * over the API. Fixed by reverting {@code resume}'s own gate to {@code
+     * case.hold} and giving {@code decide} a separate, ungated {@code
+     * releasePlanHold} to call internally. This test proves the asymmetry:
+     * the same {@code am} actor is refused calling the public method
+     * directly, while {@link #theFirstApprovalReleasesTheHoldAndAccruesTheDaysWaited}
+     * above already proves that actor still succeeds releasing the hold
+     * through {@code decide}'s internal path.
+     */
+    @Test
+    void anAccountManagerHoldingOnlyPlanApproveScheduleCannotResumeDirectlyThroughThePublicEndpoint() {
+        UUID heldCaseId = openHeldCaseOnCustomerTemplate();
+
+        assertThatThrownBy(() -> runAs(am, () -> caseService.resume(heldCaseId)))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
      * Q23: re-holding on every revision would mean an internal typo correction
      * freezes a live project until the customer replies again. Neither approving
      * nor rejecting a SECOND revision may disturb a case the first approval has
@@ -252,6 +276,35 @@ class PlanRevisionTest extends PostgresTestBase {
 
         assertThatThrownBy(() -> runAs(am, () -> planRevisionService.decide(first.id(), approve())))
                 .isInstanceOf(PlanGateException.class);
+    }
+
+    /**
+     * Final whole-branch review finding #4: {@code get}/{@code listForCase}/
+     * {@code diff} were all gated {@code plan.issue} alone, but {@code
+     * plan.issue} and {@code plan.approve_schedule} are deliberately seeded
+     * to two DIFFERENT templates ({@code RoleTemplates}: Project Manager,
+     * Account Manager) -- so the ONE seeded role that can actually decide a
+     * schedule revision (Account Manager) got a 403 trying to even READ the
+     * revision it is supposed to approve, and {@code PlanTab.tsx}'s
+     * unconditional {@code usePlanRevisions(caseId)} call meant the whole tab
+     * errored out for that actor. {@code am} holds ONLY {@code
+     * plan.approve_schedule} (see this class's own field javadoc, no {@code
+     * plan.issue} at all) -- this proves the widening lets it succeed at all
+     * three reads.
+     */
+    @Test
+    void anAccountManagerHoldingOnlyPlanApproveScheduleCanReadRevisions() {
+        PlanRevisionView first = runAs(pm, () -> planRevisionService.issue(caseId, note()));
+        PlanRevisionView second = runAs(pm, () -> planRevisionService.issue(caseId, note()));
+
+        PlanRevisionView read = runAs(am, () -> planRevisionService.get(second.id()));
+        assertThat(read.id()).isEqualTo(second.id());
+
+        List<PlanRevisionView> list = runAs(am, () -> planRevisionService.listForCase(caseId));
+        assertThat(list).extracting(PlanRevisionView::id).contains(first.id(), second.id());
+
+        PlanRevisionDiffView diff = runAs(am, () -> planRevisionService.diff(second.id(), first.id()));
+        assertThat(diff.rows()).isNotEmpty();
     }
 
     private DecidePlanRequest approve() {

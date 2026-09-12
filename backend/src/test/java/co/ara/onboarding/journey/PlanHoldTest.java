@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -100,6 +101,57 @@ class PlanHoldTest extends PostgresTestBase {
         assertThatThrownBy(() -> fixture.runAs(tenant,
                         () -> requirementService.satisfy(firstRequirementId(caseId), null, null)))
                 .isInstanceOf(CaseOnHoldException.class);      // the EXISTING mechanism, not a new one
+    }
+
+    /**
+     * Final whole-branch review finding #1: {@code CaseService.create} used to
+     * transition a customer-template case to {@code ON_HOLD} BEFORE calling
+     * {@code engine.reconcile}, which is the only place that computes a real
+     * stage entry ({@code enterStage} sets every first-stage milestone's
+     * {@code dueDate}) -- and {@code reconcile} early-returns immediately for
+     * an already-{@code ON_HOLD} case. So every customer-template case's first
+     * milestone kept {@code dueDate == null} forever, and {@code
+     * PlanRevisionService.issue}'s snapshot copied that null straight into the
+     * customer's very first schedule approval, defeating gate 2's whole
+     * purpose: there was nothing real to approve. Fixed by running {@code
+     * reconcile} while the case is still {@code ACTIVE} and moving the
+     * {@code ON_HOLD} transition to after it returns (still before {@code
+     * create} returns its view) -- proven here directly against the roadmap
+     * read AND against a schedule revision's own snapshot, the exact two
+     * readers the bug was invisible to before.
+     */
+    @Test
+    void theFirstMilestonesDueDateIsRealAssoonAsACustomerTemplateCaseIsCreated() {
+        // issue() itself refuses (PlanGateException) until gate 1's shape is
+        // approved -- onCustomerTemplate() alone only clones+publishes, so this
+        // test carries the template through gate 1 first, the same steps
+        // approvedCustomerJourney() below uses, rather than exercise gate 2 on
+        // a plan that was never eligible for it in the first place.
+        AtomicReference<UUID> caseIdRef = new AtomicReference<>();
+        fixture.runAs(tenant, () -> {
+            CustomerTemplate t = customerTemplate();
+            UUID contactId = fixture.createContact(tenant, t.customerId(),
+                    "sponsor+" + Uuid7.generate() + "@plan-hold.example");
+            planShapeService.submit(t.versionId());
+            planShapeService.decide(t.versionId(),
+                    new DecidePlanRequest(PlanDecision.APPROVED, "Approved", contactId));
+
+            caseIdRef.set(caseService.create(new CreateCaseRequest(t.customerId(), t.templateId(),
+                    "Customer Case " + Uuid7.generate(), Map.of())).id());
+        });
+        UUID caseId = caseIdRef.get();
+
+        // The case itself is still ON_HOLD (aJourneyOnACustomerTemplateStartsHeld
+        // already proves that) -- this test is about what happened to the
+        // milestone BEFORE the hold was applied, not about the hold itself.
+        LocalDate dueDate = runAsFixture(() ->
+                caseService.roadmap(caseId).stages().get(0).milestones().get(0).dueDate());
+        assertThat(dueDate).isNotNull();
+
+        PlanRevisionView rev = runAsFixture(() ->
+                planRevisionService.issue(caseId, new IssueRevisionRequest("v1")));
+        assertThat(rev.items()).isNotEmpty();
+        assertThat(rev.items().get(0).dueDate()).isEqualTo(dueDate);
     }
 
     @Test

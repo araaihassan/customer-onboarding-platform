@@ -194,21 +194,29 @@ class PlanRevisionControllerTest extends SecurityTestBase {
      * never {@code plan.issue}, so every one of the four must refuse it.
      */
     @Test
-    void endpointsGatedByPlanIssueAnswer403ForAnActorLackingIt() throws Exception {
+    void createStillRequiresPlanIssueButReadsNowAcceptPlanApproveScheduleToo() throws Exception {
         String revisionId = issueViaRest(pm, "for 403 probe");
 
+        // create carries plan.issue alone -- am (only plan.approve_schedule) is
+        // still refused here; this half of the original assertion still holds.
         mvc.perform(as(post(base() + "/plan-revisions"), am)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\"nope\"}"))
            .andExpect(status().isForbidden());
 
+        // Final whole-branch review finding #4: get/listForCase/diff used to be
+        // plan.issue-only too, so am -- the ONE seeded role shape that can
+        // actually decide a schedule revision -- got a 403 reading the very
+        // revision it is supposed to approve. Widened to accept
+        // plan.approve_schedule as well (PlanRevisionService's own javadoc);
+        // these three now succeed for am rather than 403, unlike create above.
         mvc.perform(as(get(base() + "/plan-revisions"), am))
-           .andExpect(status().isForbidden());
+           .andExpect(status().isOk());
 
         mvc.perform(as(get(base() + "/plan-revisions/" + revisionId), am))
-           .andExpect(status().isForbidden());
+           .andExpect(status().isOk());
 
         mvc.perform(as(get(base() + "/plan-revisions/" + revisionId + "/diff?against=" + revisionId), am))
-           .andExpect(status().isForbidden());
+           .andExpect(status().isOk());
     }
 
     /** {@code decide} carries {@code plan.approve_schedule} -- {@code pm} holds only {@code plan.issue}. */
