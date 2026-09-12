@@ -587,8 +587,15 @@ public class CaseService {
      * Parsing happens here, at the boundary, and never at evaluation time. A branch
      * condition that throws mid-transition wedges a case; one that swallows the
      * error evaluates false and silently skips a stage.
+     *
+     * A missing `attributes` JSON key binds to a null {@code Map}, not {@code {}} --
+     * Jackson's own default for an absent field, not a caller bug -- so {@code
+     * supplied} is normalised to empty here rather than trusted to be non-null.
+     * `CreateCaseRequest`/`UpdateCaseRequest.attributes()` share this one validation
+     * path, so the fix belongs here once, not at every call site.
      */
     private void validateAttributes(List<AttributeDefinition> declared, Map<String, String> supplied) {
+        supplied = supplied == null ? Map.of() : supplied;
         List<String> problems = new ArrayList<>();
         Set<String> known = declared.stream().map(AttributeDefinition::getKey).collect(toSet());
 
@@ -640,6 +647,7 @@ public class CaseService {
      * a state this representation can hold without needing DELETE at all.
      */
     private void upsertAttributes(Case c, List<AttributeDefinition> declared, Map<String, String> supplied) {
+        supplied = supplied == null ? Map.of() : supplied;
         Map<UUID, CaseAttributeValue> existing = readCaseChild(attributeValues, CaseAttributeValue.class, c.getId())
                 .stream().collect(toMap(CaseAttributeValue::getAttributeDefinitionId, v -> v));
 
