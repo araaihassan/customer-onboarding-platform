@@ -43,9 +43,25 @@ app:
   platform-admin:
     email: ${APP_PLATFORM_ADMIN_EMAIL:}
     password: ${APP_PLATFORM_ADMIN_PASSWORD:}
+  # app.storage.kind picks the BlobStore adapter (StorageConfig) and deliberately
+  # ships with NO default here, on the default profile -- the same shape as
+  # JWT_SECRET/DB_APP_PASSWORD above: a production deployment must choose "local"
+  # or "s3" explicitly, rather than silently falling back to a filesystem that a
+  # container recycles on restart. The dev/test profile document below opts both
+  # into "local", since neither runs against real object storage.
+
+---
+# dev and test only: select the local filesystem adapter and a root under the
+# build directory. Unlike JWT_SECRET/DB_APP_PASSWORD, app.storage.local.root is
+# not a secret -- a storage key's opacity, not the path's secrecy, is what keeps
+# a blob safe (BlobStore's own javadoc) -- so a committed relative default is
+# fine here, and this document never applies to the default (production) profile.
+spring:
+  config:
+    activate:
+      on-profile: dev,test
+app:
   storage:
-    # Where LocalFsBlobStore writes blobs. Unlike JWT_SECRET/DB_APP_PASSWORD this
-    # is not a secret -- a storage key's opacity, not the path's secrecy, is what
-    # keeps a blob safe (BlobStore's own javadoc) -- so a committed relative
-    # default is fine, and an operator overrides it for a real deployment.
-    local-root: ${STORAGE_LOCAL_ROOT:./data/blobs}
+    kind: local
+    local:
+      root: ${STORAGE_LOCAL_ROOT:./build/data/blobs}

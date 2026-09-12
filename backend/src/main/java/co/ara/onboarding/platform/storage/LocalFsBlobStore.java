@@ -1,8 +1,5 @@
 package co.ara.onboarding.platform.storage;
 
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
@@ -12,10 +9,17 @@ import java.nio.file.StandardCopyOption;
 
 /**
  * A filesystem-backed {@link BlobStore}, for local development and any
- * deployment that does not need object storage. Task 5 adds an S3-backed
- * sibling; both satisfy {@link BlobStoreContract}.
+ * deployment that does not need object storage. Both this and its S3-backed
+ * sibling satisfy {@link BlobStoreContract}.
+ *
+ * Deliberately NOT a Spring bean ({@code @Component}) -- {@link StorageConfig}
+ * constructs whichever adapter {@code app.storage.kind} selects explicitly, so
+ * that exactly one {@link BlobStore} candidate ever exists in the context.
+ * Leaving this annotated alongside a candidate {@code S3BlobStore} bean would
+ * give Spring two unqualified {@code BlobStore} implementations with no
+ * disambiguation -- exactly the ambiguity {@code StorageConfig} exists to
+ * prevent.
  */
-@Component
 public class LocalFsBlobStore implements BlobStore {
 
     private final Path root;
@@ -27,11 +31,6 @@ public class LocalFsBlobStore implements BlobStore {
         } catch (IOException e) {
             throw new UncheckedIOException("Could not create storage root " + root, e);
         }
-    }
-
-    @Autowired
-    public LocalFsBlobStore(StorageProperties properties) {
-        this(Path.of(properties.getLocalRoot()));
     }
 
     @Override
