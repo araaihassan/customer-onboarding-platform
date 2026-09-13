@@ -39,11 +39,12 @@ public class CustomerPortalContactDirectory implements PortalContactDirectory {
      * "Sponsor" is read off the customer's primary contact today -- the one
      * signal customer_contact already carries that distinguishes a customer's
      * main point of contact from any other. sub-project 4's own Task 8 adds a
-     * customer_contact.label column, but that is free-text Q9 audience
-     * targeting ("Finance", "Legal", "IT"), a different axis entirely, not a
-     * sponsor flag -- see docs/superpowers/specs/2026-09-12-documents-design.md
-     * §4.6. If a later sub-project gives "sponsor" its own dedicated
-     * representation, this is the one place that needs to change.
+     * customer_contact.label column, which IS surfaced here too (Task 13) --
+     * free-text Q9 audience targeting ("Finance", "Legal", "IT"), a different
+     * axis entirely from the sponsor flag -- see
+     * docs/superpowers/specs/2026-09-12-documents-design.md §4.6. If a later
+     * sub-project gives "sponsor" its own dedicated representation, this is the
+     * one place that needs to change.
      */
     @Override
     @Transactional(readOnly = true)
@@ -52,6 +53,6 @@ public class CustomerPortalContactDirectory implements PortalContactDirectory {
                 .filter(u -> u.getStatus() == UserStatus.ACTIVE)
                 .flatMap(u -> contacts.findByUserId(userId))
                 .filter(c -> c.getStatus() == ContactStatus.ACTIVE)
-                .map(c -> new PortalContactFacts(c.isPrimaryContact()));
+                .map(c -> new PortalContactFacts(c.getId(), c.getCustomerId(), c.getLabel(), c.isPrimaryContact()));
     }
 }
