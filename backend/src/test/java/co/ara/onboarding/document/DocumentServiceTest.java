@@ -4,16 +4,22 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.journey.Case;
+import co.ara.onboarding.journey.CaseService;
+import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
+import co.ara.onboarding.journey.WriteScopeException;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.platform.storage.StorageProperties;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
+import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
+import co.ara.onboarding.workflow.WriteScope;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -28,7 +34,11 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
+import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
+import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -49,6 +59,7 @@ class DocumentServiceTest extends PostgresTestBase {
     @Autowired DocumentCaseLinkRepository linkRepository;
     @Autowired RoleService roles;
     @Autowired StorageProperties storageProperties;
+    @Autowired CaseService cases;
 
     /** A minimal, real PDF magic prefix -- enough for Tika's own magic-byte detection to say "application/pdf". */
     private static final byte[] PDF_BYTES =
@@ -59,6 +70,74 @@ class DocumentServiceTest extends PostgresTestBase {
     private static final byte[] HTML_BYTES =
             ("<!DOCTYPE html>\n<html><head><title>Not a PDF</title></head>"
                     + "<body>Not actually a PDF</body></html>").getBytes(StandardCharsets.UTF_8);
+
+    /**
+     * A minimal but REAL OOXML package: a valid ZIP whose first entry is
+     * {@code [Content_Types].xml}, exactly the shape every real OOXML writer
+     * (Word, Excel, Apache POI, the OpenXML SDK) produces. Confirmed empirically
+     * against the actual {@code tika-core} jar (no {@code tika-parsers}, so no
+     * {@code ZipContainerDetector}) that this sniffs as {@code application/x-tika-ooxml}
+     * -- Tika's own concrete {@code .docx}/{@code .xlsx} magic entries don't
+     * exist at all, only a glob and a sub-class-of relationship, so a byte-only
+     * sniff (no filename) can never produce the concrete type with this
+     * dependency. See {@link ContentSniffGuard}'s own javadoc for the full
+     * reasoning.
+     */
+    private static byte[] realOoxmlPackage() throws Exception {
+        String contentTypesXml =
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
+                + "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
+                + "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
+                + "<Override PartName=\"/word/document.xml\" ContentType=\""
+                + "application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml\"/>"
+                + "</Types>";
+        String relsXml =
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
+                + "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\""
+                + " Target=\"word/document.xml\"/></Relationships>";
+        String documentXml =
+                "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
+                + "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\">"
+                + "<w:body><w:p><w:r><w:t>Hello</w:t></w:r></w:p></w:body></w:document>";
+
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(bos)) {
+            putZipEntry(zos, "[Content_Types].xml", contentTypesXml);
+            putZipEntry(zos, "_rels/.rels", relsXml);
+            putZipEntry(zos, "word/document.xml", documentXml);
+        }
+        return bos.toByteArray();
+    }
+
+    private static void putZipEntry(ZipOutputStream zos, String name, String content) throws Exception {
+        zos.putNextEntry(new ZipEntry(name));
+        zos.write(content.getBytes(StandardCharsets.UTF_8));
+        zos.closeEntry();
+    }
+
+    /**
+     * A minimal byte array satisfying Tika's own {@code application/msword}
+     * magic rule exactly, verified against the actual jar: the 8-byte
+     * OLE2/CFB signature at offset 0, plus the real internal stream name
+     * Word writes ("WordDocument", UTF-16LE) placed inside the 1152-4096
+     * byte window that rule inspects -- the same compound-file directory
+     * sector region a genuine {@code .doc} produced by Word actually stores
+     * that name in. Not a structurally-complete compound file (no real
+     * FAT/directory chain), but every byte Tika's magic rule reads is exactly
+     * what a real file contains at that position, which is the only thing a
+     * magic-based sniff can ever see anyway.
+     */
+    private static byte[] realOle2WordDocument() {
+        byte[] buf = new byte[4096];
+        byte[] sig = {(byte) 0xd0, (byte) 0xcf, (byte) 0x11, (byte) 0xe0,
+                      (byte) 0xa1, (byte) 0xb1, (byte) 0x1a, (byte) 0xe1};
+        System.arraycopy(sig, 0, buf, 0, sig.length);
+        byte[] streamName = "WordDocument".getBytes(StandardCharsets.UTF_16LE);
+        System.arraycopy(streamName, 0, buf, 1152, streamName.length);
+        return buf;
+    }
 
     /**
      * At least one read test at the narrowest catalogued scope -- the same
@@ -461,6 +540,162 @@ class DocumentServiceTest extends PostgresTestBase {
                         null, null, null, null),
                 new ByteArrayInputStream(HTML_BYTES), HTML_BYTES.length, "application/pdf")))
                 .isInstanceOf(UnacceptableContentTypeException.class);
+
+        fixture.runAs(tenant, () -> assertThat(documentRepository.findByCaseId(caseId[0])).isEmpty());
+    }
+
+    /**
+     * Review round 1, Important #2: tika-core alone has no ZipContainerDetector,
+     * so it can never produce the concrete DOCX mime type -- only the generic
+     * application/x-tika-ooxml a real Office package sniffs as (see
+     * ContentSniffGuard's own javadoc). This proves the allowlist fix actually
+     * lets a genuine Word document through, using REAL OOXML bytes rather than
+     * a guess at what Tika would say.
+     */
+    @Test
+    void uploadSucceedsForARealMinimalOoxmlDocxPackage() throws Exception {
+        UUID tenant = fixture.createTenant("doc-ooxml-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "ooxml-uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        byte[] docx = realOoxmlPackage();
+        AtomicReference<DocumentView> uploaded = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () -> uploaded.set(documents.upload(caseId[0],
+                new CreateDocumentRequest("contract.docx", DocumentCategory.CONTRACT, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(docx), docx.length, "application/octet-stream")));
+
+        fixture.runAs(tenant, () -> {
+            DocumentVersion v = versionRepository.findByDocumentId(uploaded.get().id()).get(0);
+            assertThat(v.getContentType()).isEqualTo("application/x-tika-ooxml");
+        });
+    }
+
+    /**
+     * Review round 1, Important #2's other half: a real, unmodified legacy
+     * .doc (OLE2/CFB) sniffs correctly via magic bytes alone, with no
+     * allowlist change needed -- confirmed against the actual tika-core jar
+     * before and after the OOXML fix, so this is a regression guard, not a
+     * new capability.
+     */
+    @Test
+    void uploadSucceedsForARealOle2StyleWordDocument() {
+        UUID tenant = fixture.createTenant("doc-ole2-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "ole2-uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        byte[] doc = realOle2WordDocument();
+        AtomicReference<DocumentView> uploaded = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () -> uploaded.set(documents.upload(caseId[0],
+                new CreateDocumentRequest("contract.doc", DocumentCategory.CONTRACT, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(doc), doc.length, "application/octet-stream")));
+
+        fixture.runAs(tenant, () -> {
+            DocumentVersion v = versionRepository.findByDocumentId(uploaded.get().id()).get(0);
+            assertThat(v.getContentType()).isEqualTo("application/msword");
+        });
+    }
+
+    /**
+     * Review round 1, Important #1: the same portal-actor case-resolution gap
+     * Task 14 fixed for forCase, proven closed for upload too. A portal
+     * contact holds document.upload at Scope.ALL with no AudienceFilter on
+     * Case to narrow it -- refused outright before caseId is even resolved,
+     * even against a case belonging to the portal contact's OWN customer
+     * (spec §8 never routes a portal caller through this exact signature
+     * anyway; this is a fail-closed guard on the method's own contract).
+     */
+    @Test
+    void uploadRefusesAPortalActorEvenForTheirOwnCustomersCase() {
+        UUID tenant = fixture.createTenant("doc-upload-portal-" + Uuid7.generate());
+        var portalUserId = new UUID[1];
+        var ownCustomersCaseId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Portal Upload Co " + Uuid7.generate(), null, null, null);
+            portalUserId[0] = fixture.createPortalUserForContact(
+                    tenant, customerId, "portal-upload-contact+" + Uuid7.generate() + "@example.com");
+            ownCustomersCaseId[0] = journey.newCase(tenant).getId();
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, portalUserId[0], () -> documents.upload(
+                ownCustomersCaseId[0],
+                new CreateDocumentRequest("Doc", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf")))
+                .isInstanceOf(NoSuchElementException.class);
+
+        fixture.runAs(tenant, () -> assertThat(documentRepository.findByCaseId(ownCustomersCaseId[0])).isEmpty());
+    }
+
+    /**
+     * Review round 1, Important #3: StageWriteScopeGuard's new Task 15
+     * {@code check(Case, Stage)} overload had zero test coverage -- every
+     * other test in this class uses {@code journey.newCase}, which never
+     * sets {@code currentStageId}, so {@code applyWriteScope} was a silent
+     * no-op throughout. This uses a REAL case (through {@code CaseService.create},
+     * which does run {@code CaseEngine.reconcile} and set {@code currentStageId})
+     * pinned to a published one-stage workflow whose stage is {@code OWNER_ONLY},
+     * the same construction {@code task.TaskWriteScopeTest.aWiderScopedHolderIsStillRefusedInsideAnOwnerOnlyStage}
+     * uses. TEAM is the scope under test (CLAUDE.md: "at least one write test
+     * must run at the narrowest [catalogued] scope" wherever a permission is
+     * catalogued at several) -- the actor's TEAM membership DOES match the
+     * case's own {@code owningTeamId}, so {@code document.upload}'s own
+     * record-level scope resolves this case successfully; the refusal proven
+     * here is specifically the write_scope guard narrowing ON TOP of that,
+     * because the actor is not the case's OWNER.
+     */
+    @Test
+    void aTeamScopedHolderIsStillRefusedInsideAnOwnerOnlyStage() {
+        UUID tenant = fixture.createTenant("doc-ws-owner-only-" + Uuid7.generate());
+        var teamScopeNonOwner = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            UUID team = fixture.createTeam(tenant, "Fixture Team " + Uuid7.generate());
+            teamScopeNonOwner[0] = fixture.createUser(tenant, "team-scope+" + Uuid7.generate() + "@example.com");
+            fixture.addToTeam(tenant, teamScopeNonOwner[0], team);
+            // WORKFLOW_VIEW is needed too -- applyWriteScope resolves the case's
+            // current Stage under it (the same "viewing a case is gated by more
+            // than case.view" shape CLAUDE.md already documents for CaseService),
+            // and with none granted the Stage lookup itself 404s before the
+            // write-scope check is even reached, the same way TaskWriteScopeTest's
+            // analogous test grants it alongside TASK_MANAGE/TASK_COMPLETE.
+            grant(teamScopeNonOwner[0], Map.of(
+                    PermissionKeys.DOCUMENT_UPLOAD, Scope.TEAM,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            UUID caseOwner = fixture.createUser(tenant, "doc-owner+" + Uuid7.generate() + "@example.com");
+
+            var restrictedStage = new WorkflowDefinitionRequest.StageRequest(
+                    "s1", "Restricted Stage", null, false, true, true, null,
+                    WriteScope.OWNER_ONLY, null, null, null,
+                    List.of(milestone("m1", "Milestone One", 1, List.of(), List.of(manual("Do it")))),
+                    List.of());
+            UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(restrictedStage), List.of(), 0L));
+
+            UUID customerId = fixture.createCustomer(
+                    tenant, "Doc Write Scope Co " + Uuid7.generate(), caseOwner, null, team);
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(),
+                    Map.of())).id();
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, teamScopeNonOwner[0], () -> documents.upload(caseId[0],
+                new CreateDocumentRequest("Doc", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf")))
+                .isInstanceOf(WriteScopeException.class);
 
         fixture.runAs(tenant, () -> assertThat(documentRepository.findByCaseId(caseId[0])).isEmpty());
     }

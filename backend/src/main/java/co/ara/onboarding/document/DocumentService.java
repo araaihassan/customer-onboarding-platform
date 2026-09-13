@@ -214,11 +214,36 @@ public class DocumentService {
      * "confirm the parent is visible first" idiom {@code task.TaskService}
      * already uses. {@link StageWriteScopeGuard} then narrows on top, the same
      * way it already does for {@code task} (see {@link #applyWriteScope}).
+     *
+     * <p>NOT safe unconditionally for a PORTAL actor -- the same gap
+     * {@link #forCase} already guards against, and a strictly worse shape
+     * here because this is a WRITE. {@code PortalPermissions} grants
+     * {@code document.upload} at {@code Scope.ALL} to both contacts and
+     * sponsors, and {@code Case} has no {@link co.ara.onboarding.authz.AudienceFilter}
+     * registered -- {@code AuthorizationPredicateBuilder.scopePredicate}
+     * short-circuits ALL to an unconditional match, so resolving {@code caseId}
+     * under {@code document.upload} for a portal actor would resolve ANY case
+     * in the tenant, letting a portal contact of customer A create a
+     * {@code Document} row on customer B's case (with {@code customerId}
+     * copied straight from B). Today this is only accidentally masked when
+     * {@code currentStageId} is non-null, because {@link #applyWriteScope}'s
+     * own {@code Stage} lookup is gated {@code WORKFLOW_VIEW} and 404s a
+     * portal actor -- a case with a null {@code currentStageId} (no guard at
+     * all) would sail straight through. Refused explicitly here, before the
+     * case lookup runs, rather than relying on that accident. Task 26 (the
+     * real portal upload endpoint) is what eventually replaces this with
+     * genuine narrowing -- spec §8 never routes a portal caller through this
+     * exact method signature anyway. {@code addVersion} does NOT need this
+     * guard: its {@code caseId} comes from an already-audience-filtered
+     * {@link Document}, never from the caller directly.
      */
     @RequirePermission(PermissionKeys.DOCUMENT_UPLOAD)
     @Transactional
     public DocumentView upload(UUID caseId, CreateDocumentRequest request,
                                InputStream content, long sizeBytes, String declaredContentType) {
+        if (contextProvider.current().userType() == UserType.PORTAL) {
+            throw new NoSuchElementException("Not found");
+        }
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_UPLOAD, caseId);
         applyWriteScope(c);
 
