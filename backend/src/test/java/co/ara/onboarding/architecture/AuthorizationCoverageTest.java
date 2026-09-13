@@ -353,7 +353,15 @@ class AuthorizationCoverageTest {
                                           // customerId resolution is exactly this shape --
                                           // added before ProgrammeService itself was written,
                                           // not retrofitted, same as task.. above.
-                                          "co.ara.onboarding.programme..")
+                                          "co.ara.onboarding.programme..",
+                                          // Sub-project 4 Task 14: DocumentService is the
+                                          // first *Service in this module. Added in the same
+                                          // commit that introduces it, before any finder call
+                                          // exists to catch -- the injection-shaped half of
+                                          // this rule covers it automatically, with no
+                                          // exclusion needed, exactly as this rule's own
+                                          // javadoc promises.
+                                          "co.ara.onboarding.document..")
                 // Union, not replace: a covered-package *Service/*Directory class that
                 // reaches a finder on a repository it does NOT hold as a field (passed
                 // as a parameter, obtained from another object, etc.) would be
