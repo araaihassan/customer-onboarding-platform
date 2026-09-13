@@ -65,3 +65,8 @@ app:
     kind: local
     local:
       root: ${STORAGE_LOCAL_ROOT:./build/data/blobs}
+    # Task 7's hardening ruling (spec §2.3/§7.6): the declared-size ceiling every
+    # upload is checked against before any stream is touched. No base-profile
+    # default, the same shape as kind/local.root above -- 25 MiB is a reasonable
+    # dev/test bound; a production deployment sets its own via the env var.
+    max-upload-bytes: ${STORAGE_MAX_UPLOAD_BYTES:26214400}

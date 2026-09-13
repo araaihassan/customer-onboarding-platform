@@ -19,12 +19,32 @@ public class StorageProperties {
     /** Which adapter to construct: "local" or "s3". No default -- see StorageConfig. */
     private String kind;
 
+    /**
+     * Task 7's hardening ruling (spec §2.3/§7.6): the ceiling every upload's
+     * DECLARED size is checked against, before any stream is touched. {@code Long}
+     * (boxed), not a primitive, so an unset value reads as {@code null} rather than
+     * silently as zero -- the same "unset is a startup failure, not an implied
+     * value" shape {@code kind} already has. Ships with no default in the base
+     * profile; {@code document.DocumentService}'s own {@code @PostConstruct} is
+     * what actually refuses to start when this is null (not this class, the way
+     * {@code kind}'s failure lives in {@link StorageConfig} rather than here) --
+     * keeping the check there, rather than here, is deliberate: a blanket check in
+     * this class would fire for every context that merely enables
+     * {@code StorageProperties} (StorageConfigTest's own narrow contexts included),
+     * even one that never touches document upload at all.
+     */
+    private Long maxUploadBytes;
+
     private final Local local = new Local();
     private final S3 s3 = new S3();
 
     public String getKind() { return kind; }
 
     public void setKind(String kind) { this.kind = kind; }
+
+    public Long getMaxUploadBytes() { return maxUploadBytes; }
+
+    public void setMaxUploadBytes(Long maxUploadBytes) { this.maxUploadBytes = maxUploadBytes; }
 
     public Local getLocal() { return local; }
 

@@ -4,19 +4,41 @@ import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.customer.OrgUnitResolver;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
+import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.platform.UserType;
+import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.platform.storage.BlobStore;
+import co.ara.onboarding.platform.storage.StorageProperties;
+import co.ara.onboarding.workflow.Stage;
+import co.ara.onboarding.workflow.StageRepository;
+import jakarta.annotation.PostConstruct;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import org.hibernate.exception.ConstraintViolationException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.SequenceInputStream;
+import java.io.UncheckedIOException;
+import java.security.DigestInputStream;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Arrays;
+import java.util.HexFormat;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -49,17 +71,66 @@ import java.util.UUID;
 @Service
 public class DocumentService {
 
+    /** A magic-byte/structural sniff needs only a small prefix, never the whole file. */
+    private static final int SNIFF_PREFIX_BYTES = 8192;
+
+    private static final String DOCUMENT_VERSION_NO_UNIQUE = "document_version_no_uq";
+
     private final DocumentRepository documents;
+    private final DocumentVersionRepository versions;
     private final CaseRepository cases;
+    private final StageRepository stages;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
+    private final StageWriteScopeGuard writeScope;
+    private final BlobStore blobStore;
+    private final StorageProperties storageProperties;
+    private final ContentSniffGuard sniffGuard;
+    private final OrgUnitResolver orgUnits;
+    private final Clock clock;
 
-    public DocumentService(DocumentRepository documents, CaseRepository cases,
-                           AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider) {
+    public DocumentService(DocumentRepository documents, DocumentVersionRepository versions,
+                           CaseRepository cases, StageRepository stages,
+                           AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
+                           StageWriteScopeGuard writeScope, BlobStore blobStore,
+                           StorageProperties storageProperties, ContentSniffGuard sniffGuard,
+                           OrgUnitResolver orgUnits, Clock clock) {
         this.documents = documents;
+        this.versions = versions;
         this.cases = cases;
+        this.stages = stages;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
+        this.writeScope = writeScope;
+        this.blobStore = blobStore;
+        this.storageProperties = storageProperties;
+        this.sniffGuard = sniffGuard;
+        this.orgUnits = orgUnits;
+        this.clock = clock;
+    }
+
+    /**
+     * Runs whether or not anything ever calls {@link #upload} -- a Spring
+     * singleton is instantiated eagerly at context refresh, the same reasoning
+     * {@code auth.JwtProperties}'s own {@code @PostConstruct} javadoc gives for
+     * why its guard cannot be removed by a later refactor that makes the
+     * gated operation lazy. Deliberately NOT on {@link StorageProperties}
+     * itself (contrast its own doc comment): that class is wired into
+     * {@code StorageConfigTest}'s narrow, Postgres-free contexts to prove
+     * {@code app.storage.kind}'s own guard, and a blanket failure here would
+     * fire for every one of those even though none of them ever touches
+     * document upload.
+     */
+    @PostConstruct
+    void validateMaxUploadBytes() {
+        if (storageProperties.getMaxUploadBytes() == null) {
+            throw new IllegalStateException(
+                    "app.storage.max-upload-bytes is not set. Every upload's declared size is"
+                            + " checked against this ceiling before its stream is ever touched, so a"
+                            + " deployment that forgot it would accept uploads of unbounded size with"
+                            + " no error anywhere -- there is no implied default. Set it, in bytes"
+                            + " (for example: 26214400 for 25 MiB).");
+        }
     }
 
     @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
@@ -124,6 +195,232 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public DocumentView get(UUID id) {
         return toView(authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, id));
+    }
+
+    /**
+     * Task 15: a new document, uploaded against {@code caseId}. Blob first, row
+     * second (spec §7.4/§5.1) -- {@link #captureContent} writes the blob before
+     * either row is inserted, and the whole method is one transaction, so any
+     * failure after that point (an unexpected constraint violation on the
+     * document row, say) rolls back both rows together, leaving nothing visible
+     * that points at a blob never actually written, and nothing corrupted by an
+     * orphaned one that was.
+     *
+     * {@code customerId} is copied from the RESOLVED case -- never accepted in
+     * {@link CreateDocumentRequest}, so there is no field a caller could even
+     * send to override it (CLAUDE.md's write-path invariant). {@code caseId}
+     * itself is resolved through {@link AuthorizedQuery} under
+     * {@code document.upload} before anything is written, the same
+     * "confirm the parent is visible first" idiom {@code task.TaskService}
+     * already uses. {@link StageWriteScopeGuard} then narrows on top, the same
+     * way it already does for {@code task} (see {@link #applyWriteScope}).
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_UPLOAD)
+    @Transactional
+    public DocumentView upload(UUID caseId, CreateDocumentRequest request,
+                               InputStream content, long sizeBytes, String declaredContentType) {
+        Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_UPLOAD, caseId);
+        applyWriteScope(c);
+
+        UUID actor = contextProvider.current().userId();
+        StoredContent stored = captureContent(request.category(), content, sizeBytes);
+
+        Document d = new Document();
+        d.setId(Uuid7.generate());
+        d.setTenantId(c.getTenantId());
+        d.setCaseId(c.getId());
+        d.setCustomerId(c.getCustomerId());
+        d.setName(request.name());
+        d.setCategory(request.category());
+        d.setVisibilityTier(request.visibilityTier());
+        d.setTargetDepartmentId(orgUnits.resolveDepartment(request.targetDepartmentId()));
+        d.setTargetContactLabel(request.targetContactLabel());
+        d.setOwnerContactId(request.ownerContactId());
+        d.setExpiresAt(request.expiresAt());
+        d.setStatus(DocumentStatus.ACTIVE);
+        d.setUploadedBy(actor);
+        // Reassigned, not discarded: Document's id is assigned in Java, not
+        // database-generated, so Spring Data's save() merges rather than
+        // persists -- merge() returns a DIFFERENT managed instance from the
+        // transient one passed in, with created_at/updated_at now populated
+        // by BaseEntity's own @PrePersist. Continuing to mutate the ORIGINAL
+        // (still-detached, still-null-timestamped) reference and saving it
+        // again would merge those nulls straight back over the real values on
+        // the second call -- exactly the "created_at violates not-null"
+        // failure this reassignment avoids.
+        d = documents.saveAndFlush(d);
+
+        DocumentVersion v = new DocumentVersion(Uuid7.generate(), c.getTenantId(), d.getId(), 1,
+                stored.storageKey(), sizeBytes, stored.contentType(), stored.sha256(),
+                ReviewStatus.PENDING, actor, Instant.now(clock));
+        versions.saveAndFlush(v);
+
+        d.setCurrentVersionId(v.getId());
+        d = documents.saveAndFlush(d);
+
+        return toView(d);
+    }
+
+    /**
+     * Task 15: a new version of an EXISTING document. {@code documentId} is
+     * resolved through {@link AuthorizedQuery} under {@code document.upload}
+     * first -- at ASSIGNED scope this is the document's own {@code uploaded_by}
+     * column (scoping.DocumentDescriptor), so an ASSIGNED-scoped holder may only
+     * add a version to a document they themselves originally uploaded. The
+     * case is then re-resolved (never trusted from the already-loaded Document
+     * row without going back through AuthorizedQuery) purely so
+     * {@link StageWriteScopeGuard} narrows on top, exactly as {@link #upload}
+     * does.
+     *
+     * {@code version_no} is the current max plus one; two callers racing this
+     * computation can both land on the same number, which
+     * {@code document_version_no_uq} then refuses as a 409
+     * ({@link DocumentVersionConflictException}) rather than a silent
+     * overwrite -- there is no row lock here the way
+     * {@code CaseRepository.lockById} serialises {@code CaseEngine.reconcile},
+     * because appending a version derives no state (spec §4.2). A new version
+     * always starts {@code PENDING}, regardless of any earlier version's own
+     * review outcome -- approving v1 says nothing about v2 (spec §5.1).
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_UPLOAD)
+    @Transactional
+    public DocumentVersionView addVersion(UUID documentId, InputStream content,
+                                          long sizeBytes, String declaredContentType) {
+        Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_UPLOAD, documentId);
+        Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_UPLOAD, d.getCaseId());
+        applyWriteScope(c);
+
+        UUID actor = contextProvider.current().userId();
+        StoredContent stored = captureContent(d.getCategory(), content, sizeBytes);
+
+        int nextVersionNo = versions.maxVersionNo(d.getId()) + 1;
+        DocumentVersion v = new DocumentVersion(Uuid7.generate(), d.getTenantId(), d.getId(), nextVersionNo,
+                stored.storageKey(), sizeBytes, stored.contentType(), stored.sha256(),
+                ReviewStatus.PENDING, actor, Instant.now(clock));
+        try {
+            versions.saveAndFlush(v);
+        } catch (DataIntegrityViolationException e) {
+            if (violates(e, DOCUMENT_VERSION_NO_UNIQUE)) {
+                throw new DocumentVersionConflictException(d.getId(), e);
+            }
+            // Every other constraint is rethrown untouched -- reporting an
+            // unrelated violation as a version race would send the caller
+            // hunting for a conflict that does not exist.
+            throw e;
+        }
+
+        d.setCurrentVersionId(v.getId());
+        d = documents.saveAndFlush(d);
+
+        return toVersionView(v);
+    }
+
+    /**
+     * The stage write_scope guard, applied to a case rather than a milestone --
+     * {@code document} attaches only to a case, so there is no Milestone to
+     * pass {@code StageWriteScopeGuard}'s original three-argument
+     * {@code check}, only its Task 15 {@code check(Case, Stage)} overload.
+     * Reads the CASE's own current stage (never a milestone's) because that is the
+     * only "where in the journey is this write happening" a document has.
+     * A case with no current stage yet has nothing to narrow against, so this
+     * is a no-op rather than a refusal -- the guard is subtractive only, and
+     * "nothing to subtract from" is not itself a reason to refuse.
+     */
+    private void applyWriteScope(Case c) {
+        if (c.getCurrentStageId() == null) return;
+        Stage stage = authorizedQuery.getById(stages, Stage.class, PermissionKeys.WORKFLOW_VIEW, c.getCurrentStageId());
+        writeScope.check(c, stage);
+    }
+
+    /**
+     * The size ceiling, the sniffed-content MIME check and the SHA-256 digest,
+     * all three from Task 7's ruling (spec §2.3/§7.6), applied to one stream
+     * read exactly once:
+     *
+     * <ol>
+     *   <li>The declared {@code sizeBytes} is checked against
+     *       {@code app.storage.max-upload-bytes} before the stream is touched
+     *       at all -- no I/O, no blob, no row.</li>
+     *   <li>A bounded PREFIX (enough for magic-byte detection) is read into a
+     *       byte array and sniffed. A rejection at this point has touched
+     *       nothing else -- no blob write, no row.</li>
+     *   <li>The prefix is replayed via {@link SequenceInputStream} ahead of the
+     *       stream's own remainder -- not a second read from the source, a
+     *       replay of the bytes already buffered followed by the rest of the
+     *       SAME stream -- wrapped in a {@link DigestInputStream} before
+     *       {@link BlobStore#put} ever sees it. The bytes sniffed, hashed and
+     *       written are therefore provably identical: one read, start to
+     *       end.</li>
+     * </ol>
+     */
+    private StoredContent captureContent(DocumentCategory category, InputStream content, long sizeBytes) {
+        enforceSizeCeiling(sizeBytes);
+
+        byte[] prefix = readPrefix(content, SNIFF_PREFIX_BYTES);
+        String sniffedType = sniffGuard.detect(prefix);
+        sniffGuard.enforce(category, sniffedType);
+
+        MessageDigest digest = sha256();
+        InputStream combined = new SequenceInputStream(new ByteArrayInputStream(prefix), content);
+        DigestInputStream digestStream = new DigestInputStream(combined, digest);
+
+        // BlobStore.put takes ownership of digestStream and closes it, reading
+        // it fully -- which is what finishes updating digest with every byte.
+        String storageKey = blobStore.put(digestStream, sizeBytes, sniffedType);
+        String sha256Hex = HexFormat.of().formatHex(digest.digest());
+
+        return new StoredContent(storageKey, sniffedType, sha256Hex);
+    }
+
+    private void enforceSizeCeiling(long sizeBytes) {
+        long max = storageProperties.getMaxUploadBytes();
+        if (sizeBytes > max) throw new UploadTooLargeException(sizeBytes, max);
+    }
+
+    private static byte[] readPrefix(InputStream in, int max) {
+        try {
+            byte[] buf = new byte[max];
+            int total = 0;
+            int r;
+            while (total < max && (r = in.read(buf, total, max - total)) != -1) {
+                total += r;
+            }
+            return total == max ? buf : Arrays.copyOf(buf, total);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Could not read upload prefix", e);
+        }
+    }
+
+    private static MessageDigest sha256() {
+        try {
+            return MessageDigest.getInstance("SHA-256");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 not available", e);
+        }
+    }
+
+    /**
+     * Matched on the constraint name Hibernate reports, not on message text,
+     * which is Postgres's to reword -- the same idiom
+     * {@code programme.ProgrammeMembershipService.violates} and
+     * {@code customer.CustomerContactService.violates} both already use.
+     */
+    private static boolean violates(Throwable failure, String constraintName) {
+        for (Throwable t = failure; t != null && t != t.getCause(); t = t.getCause()) {
+            if (t instanceof ConstraintViolationException cve
+                    && constraintName.equals(cve.getConstraintName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record StoredContent(String storageKey, String contentType, String sha256) {}
+
+    private static DocumentVersionView toVersionView(DocumentVersion v) {
+        return new DocumentVersionView(v.getId(), v.getDocumentId(), v.getVersionNo(), v.getSizeBytes(),
+                v.getContentType(), v.getSha256(), v.getReviewStatus(), v.getReviewedBy(), v.getReviewedAt(),
+                v.getReviewNote(), v.getUploadedBy(), v.getUploadedAt());
     }
 
     /** An EXISTS subquery over document_case_link, live links into caseId only. */

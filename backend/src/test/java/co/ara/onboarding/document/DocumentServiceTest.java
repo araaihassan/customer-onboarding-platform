@@ -6,17 +6,27 @@ import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.JourneyFixtures;
 import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.platform.storage.StorageProperties;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,8 +45,20 @@ class DocumentServiceTest extends PostgresTestBase {
     @Autowired JourneyFixtures journey;
     @Autowired DocumentService documents;
     @Autowired DocumentRepository documentRepository;
+    @Autowired DocumentVersionRepository versionRepository;
     @Autowired DocumentCaseLinkRepository linkRepository;
     @Autowired RoleService roles;
+    @Autowired StorageProperties storageProperties;
+
+    /** A minimal, real PDF magic prefix -- enough for Tika's own magic-byte detection to say "application/pdf". */
+    private static final byte[] PDF_BYTES =
+            "%PDF-1.4\n%âãÏÓ\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n"
+                    .getBytes(StandardCharsets.ISO_8859_1);
+
+    /** The brief's own example: real bytes that sniff as text/html, dressed up as a PDF upload. */
+    private static final byte[] HTML_BYTES =
+            ("<!DOCTYPE html>\n<html><head><title>Not a PDF</title></head>"
+                    + "<body>Not actually a PDF</body></html>").getBytes(StandardCharsets.UTF_8);
 
     /**
      * At least one read test at the narrowest catalogued scope -- the same
@@ -250,6 +272,304 @@ class DocumentServiceTest extends PostgresTestBase {
         // instead of the exception under test.
         assertThatThrownBy(() -> fixture.runAsUser(tenantB, actorB[0], () -> documents.get(documentId[0])))
                 .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * Task 15: upload creates a document pinned to version 1, with
+     * {@code customerId} copied from the RESOLVED case -- {@link CreateDocumentRequest}
+     * carries no such field at all, so there is nothing a caller could even
+     * send to override it (CLAUDE.md's write-path invariant). The version's
+     * own {@code content_type} is the SNIFFED type, not the caller's declared
+     * one (a mismatched declared type is passed deliberately, proving it is
+     * ignored for storage).
+     */
+    @Test
+    void uploadingADocumentPinsVersionOneAndCopiesCustomerIdFromTheResolvedCase() {
+        UUID tenant = fixture.createTenant("doc-upload-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        var customerId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            Case c = journey.newCase(tenant);
+            caseId[0] = c.getId();
+            customerId[0] = c.getCustomerId();
+            actor[0] = fixture.createUser(tenant, "uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        AtomicReference<DocumentView> uploaded = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () -> uploaded.set(documents.upload(caseId[0],
+                new CreateDocumentRequest("Master Services Agreement", DocumentCategory.CONTRACT,
+                        VisibilityTier.COMPANY_SHARED, null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length,
+                "declared-but-untrusted/type")));
+
+        assertThat(uploaded.get().customerId()).isEqualTo(customerId[0]);
+        assertThat(uploaded.get().currentVersionId()).isNotNull();
+
+        fixture.runAs(tenant, () -> {
+            List<DocumentVersion> versions = versionRepository.findByDocumentId(uploaded.get().id());
+            assertThat(versions).hasSize(1);
+            assertThat(versions.get(0).getVersionNo()).isEqualTo(1);
+            assertThat(versions.get(0).getReviewStatus()).isEqualTo(ReviewStatus.PENDING);
+            assertThat(versions.get(0).getContentType()).isEqualTo("application/pdf");
+        });
+    }
+
+    /**
+     * The digest is the actual SHA-256 of the bytes written, computed from the
+     * same stream {@code BlobStore.put} consumes -- not derived from the
+     * request's declared metadata, which is why the request above already
+     * carries a deliberately wrong declared type.
+     */
+    @Test
+    void aSuccessfulUploadsSha256IsTheActualDigestOfTheUploadedBytes() throws Exception {
+        UUID tenant = fixture.createTenant("doc-sha256-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "sha-uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        AtomicReference<DocumentView> uploaded = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () -> uploaded.set(documents.upload(caseId[0],
+                new CreateDocumentRequest("Cert", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf")));
+
+        String expected = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(PDF_BYTES));
+        fixture.runAs(tenant, () -> {
+            DocumentVersion v = versionRepository.findByDocumentId(uploaded.get().id()).get(0);
+            assertThat(v.getSha256()).isEqualTo(expected);
+        });
+    }
+
+    /** version_no starts at 1 (upload) and increments by one on each subsequent addVersion call. */
+    @Test
+    void versionNumbersStartAtOneAndIncrementOnEachAppendedVersion() {
+        UUID tenant = fixture.createTenant("doc-vno-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "vno-uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        var documentId = new UUID[1];
+        fixture.runAsUser(tenant, actor[0], () -> documentId[0] = documents.upload(caseId[0],
+                new CreateDocumentRequest("Doc", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf").id());
+
+        fixture.runAsUser(tenant, actor[0], () -> documents.addVersion(documentId[0],
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf"));
+        fixture.runAsUser(tenant, actor[0], () -> documents.addVersion(documentId[0],
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf"));
+
+        fixture.runAs(tenant, () -> {
+            List<Integer> versionNos = versionRepository.findByDocumentId(documentId[0]).stream()
+                    .map(DocumentVersion::getVersionNo).sorted().toList();
+            assertThat(versionNos).containsExactly(1, 2, 3);
+        });
+    }
+
+    /** A new version always starts PENDING, even when an earlier version was already approved. */
+    @Test
+    void aNewVersionResetsReviewStatusToPendingEvenWhenAnEarlierVersionWasApproved() {
+        UUID tenant = fixture.createTenant("doc-reset-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "reset-uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        var documentId = new UUID[1];
+        fixture.runAsUser(tenant, actor[0], () -> documentId[0] = documents.upload(caseId[0],
+                new CreateDocumentRequest("Doc", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf").id());
+
+        fixture.runAs(tenant, () -> {
+            DocumentVersion v1 = versionRepository.findByDocumentId(documentId[0]).get(0);
+            v1.setReviewStatus(ReviewStatus.APPROVED);
+            versionRepository.saveAndFlush(v1);
+        });
+
+        fixture.runAsUser(tenant, actor[0], () -> documents.addVersion(documentId[0],
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf"));
+
+        fixture.runAs(tenant, () -> {
+            DocumentVersion v2 = versionRepository.findByDocumentId(documentId[0]).stream()
+                    .filter(v -> v.getVersionNo() == 2).findFirst().orElseThrow();
+            assertThat(v2.getReviewStatus()).isEqualTo(ReviewStatus.PENDING);
+        });
+    }
+
+    /**
+     * Task 7's ruling: the declared size is checked against
+     * app.storage.max-upload-bytes BEFORE the stream is touched at all -- the
+     * actual bytes handed in are a normal, small PDF, and the refusal still
+     * fires purely off the declared (and here deliberately inflated) size.
+     * Writes no row and no blob.
+     */
+    @Test
+    void anUploadExceedingTheConfiguredCeilingIsRefusedWritingNoRow() {
+        UUID tenant = fixture.createTenant("doc-toolarge-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "toolarge-uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        long tooLarge = storageProperties.getMaxUploadBytes() + 1;
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> documents.upload(caseId[0],
+                new CreateDocumentRequest("Big", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), tooLarge, "application/pdf")))
+                .isInstanceOf(UploadTooLargeException.class);
+
+        fixture.runAs(tenant, () -> assertThat(documentRepository.findByCaseId(caseId[0])).isEmpty());
+    }
+
+    /**
+     * Task 7's ruling, the sniffed-content half: real HTML bytes, declared as
+     * a CONTRACT (which only accepts PDF/DOC/DOCX), is refused because the
+     * bytes themselves sniff as text/html -- never because of a filename or
+     * the caller's declared Content-Type, which here is a bald-faced lie
+     * ("application/pdf") that the check does not even consult. Writes no row.
+     */
+    @Test
+    void anUploadWhoseSniffedContentDoesNotMatchItsDeclaredCategoryIsRefused() {
+        UUID tenant = fixture.createTenant("doc-sniff-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "sniff-uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> documents.upload(caseId[0],
+                new CreateDocumentRequest("contract.pdf", DocumentCategory.CONTRACT, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(HTML_BYTES), HTML_BYTES.length, "application/pdf")))
+                .isInstanceOf(UnacceptableContentTypeException.class);
+
+        fixture.runAs(tenant, () -> assertThat(documentRepository.findByCaseId(caseId[0])).isEmpty());
+    }
+
+    /**
+     * Two callers append a version to the SAME document at the same moment.
+     * document_version_no_uq is the truth, not a pre-check -- both threads
+     * compute {@code maxVersionNo() + 1} before either commits (there is no
+     * row lock the way CaseEngine.reconcile has one, because appending a
+     * version derives no state), so both attempt version_no 2; the database
+     * lets exactly one through and the other's insert fails, translated to
+     * DocumentVersionConflictException rather than surfacing a raw
+     * DataIntegrityViolationException (500) or silently overwriting anything.
+     *
+     * This also proves blob-first ordering's "no corruption" half: the loser
+     * only ever reaches this exception from the try/catch around the row
+     * insert in DocumentService.addVersion, which runs strictly AFTER
+     * captureContent (the size check, the sniff and the blob write) has
+     * already completed without error -- so the loser's blob was written to
+     * the store before its row insert failed, exactly like any other
+     * unreferenced-but-harmless orphan (spec §7.4), and the database is left
+     * with precisely two version rows afterward, never three, never a
+     * duplicate, never a partial one.
+     */
+    /**
+     * A genuine database race with no lock serialising it (by design -- see
+     * the method javadoc) has an inherently timing-dependent window: unlike
+     * {@code ReconcileConcurrencyTest}'s row-locked race (where either
+     * interleaving is provably correct), here the two attempts must
+     * ACTUALLY overlap -- both reading {@code maxVersionNo} before either
+     * commits -- for the constraint to have anything to refuse. If one
+     * thread's connection is slower to acquire than the other's (a cold
+     * HikariCP borrow, a GC pause), it can finish its entire transaction
+     * before the second one even starts, and no collision occurs that
+     * attempt -- not a defect, just no overlap. So this retries against a
+     * FRESH document (version numbering restarts at 1 each time) until a
+     * genuine collision is observed, capped at 20 attempts; failing to ever
+     * observe one across 20 would itself indicate the race is not being
+     * constructed correctly, which is why that absence is itself asserted
+     * on below.
+     */
+    @Test
+    void aSecondConcurrentVersionAtTheSameNumberIsA409NotASilentOverwrite() throws Exception {
+        UUID tenant = fixture.createTenant("doc-race-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "race-uploader+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            boolean collided = false;
+            for (int attempt = 0; attempt < 20 && !collided; attempt++) {
+                var documentId = new UUID[1];
+                fixture.runAsUser(tenant, actor[0], () -> documentId[0] = documents.upload(caseId[0],
+                        new CreateDocumentRequest("Race Doc", DocumentCategory.OTHER,
+                                VisibilityTier.COMPANY_SHARED, null, null, null, null),
+                        new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf").id());
+                UUID theDocumentId = documentId[0];
+
+                var barrier = new CyclicBarrier(2);
+                Future<Object> a = pool.submit(() -> addVersionAfterBarrier(barrier, tenant, actor[0], theDocumentId));
+                Future<Object> b = pool.submit(() -> addVersionAfterBarrier(barrier, tenant, actor[0], theDocumentId));
+                Object resultA = a.get(30, TimeUnit.SECONDS);
+                Object resultB = b.get(30, TimeUnit.SECONDS);
+
+                long conflicts = List.of(resultA, resultB).stream()
+                        .filter(DocumentVersionConflictException.class::isInstance).count();
+                if (conflicts == 0) continue; // no genuine overlap this attempt -- try again on a fresh document
+
+                long successes = List.of(resultA, resultB).stream()
+                        .filter(DocumentVersionView.class::isInstance).count();
+                assertThat(conflicts).isEqualTo(1);
+                assertThat(successes).isEqualTo(1);
+
+                fixture.runAs(tenant, () -> {
+                    List<DocumentVersion> versions = versionRepository.findByDocumentId(theDocumentId);
+                    assertThat(versions).hasSize(2);
+                    assertThat(versions.stream().map(DocumentVersion::getVersionNo).sorted().toList())
+                            .containsExactly(1, 2);
+                });
+                collided = true;
+            }
+            assertThat(collided)
+                    .as("expected at least one of 20 concurrent attempts to genuinely race the same version_no")
+                    .isTrue();
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    /** Returns either the successful DocumentVersionView or the caught DocumentVersionConflictException. */
+    private Object addVersionAfterBarrier(CyclicBarrier barrier, UUID tenant, UUID actor, UUID documentId) {
+        try {
+            barrier.await();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        AtomicReference<DocumentVersionView> result = new AtomicReference<>();
+        try {
+            fixture.runAsUser(tenant, actor, () -> result.set(documents.addVersion(documentId,
+                    new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf")));
+            return result.get();
+        } catch (DocumentVersionConflictException e) {
+            return e;
+        }
     }
 
     private void grant(UUID userId, Map<String, Scope> grants) {

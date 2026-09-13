@@ -38,6 +38,11 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
     implementation(platform("software.amazon.awssdk:bom:2.29.52"))
     implementation("software.amazon.awssdk:s3")
+    // Task 15 / Task 7's hardening ruling (spec §2.3/§7.6): sniffs an upload's real
+    // content type from its bytes, never from the caller's declared Content-Type.
+    // tika-core alone (no tika-parsers) is enough for magic-byte detection and much
+    // lighter than the full Tika bundle.
+    implementation("org.apache.tika:tika-core:2.9.2")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
