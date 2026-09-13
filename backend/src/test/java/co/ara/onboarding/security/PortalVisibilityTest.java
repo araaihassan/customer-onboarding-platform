@@ -209,6 +209,57 @@ class PortalVisibilityTest extends PostgresTestBase {
                         .isEmpty());
     }
 
+    /**
+     * Reviewer's finding (post-approval Important, not Critical -- the reviewer
+     * hand-traced the boolean structure and confirmed it correct, but nothing in
+     * this file pinned it). anExplicitShareMakesASensitiveDocumentVisibleToThatContactOnly
+     * shares an UNTARGETED document, so byLabel is trivially true there either
+     * way -- it cannot distinguish the correct parenthesisation (the share is a
+     * true top-level disjunct against the WHOLE tier-and-label test) from the
+     * one wrong variant that would still pass every test in this file:
+     * {@code cb.and(atMyCustomer, cb.or(byTier, share), byLabel)}, which folds
+     * the share one level IN and leaves it subject to label targeting after all.
+     *
+     * Target the document at "Legal", give the shared contact an explicitly
+     * DIFFERENT label ("Finance"), and share it anyway. Only the correct
+     * parenthesisation makes this visible -- the wrong variant would still
+     * require byLabel, which is false here, and refuse it. This is precisely
+     * the brief's own "the one mechanism that is supposed to override
+     * everything."
+     */
+    @Test
+    void anExplicitShareOverridesLabelTargetingEvenWhenTheContactsOwnLabelDiffers() {
+        UUID tenant = fixture.createTenant("portal-vis-share-overrides-label");
+        UUID customerId = fixture.runAsReturning(tenant,
+                () -> fixture.createCustomer(tenant, "Acme", null, null, null));
+        UUID contactUserId = fixture.createPortalUserForContact(tenant, customerId, "finance@portal-vis-share-overrides-label.example");
+
+        var docRef = new AtomicReference<UUID>();
+        fixture.runAs(tenant, () -> {
+            var contact = contacts.findByUserId(contactUserId).orElseThrow();
+            contact.setLabel("Finance");
+            contacts.saveAndFlush(contact);
+            UUID contactId = contact.getId();
+
+            UUID uploader = fixture.createUser(tenant, "uploader@portal-vis-share-overrides-label.example");
+            Case c = journey.newCase(tenant);
+            // COMPANY_SHARED, targeted at "Legal" -- byTier would pass on its
+            // own, but byLabel must fail for a Finance-labelled contact. Only
+            // the share, ORed at the TOP level, can rescue this.
+            docRef.set(newDocument(tenant, c, uploader, customerId, VisibilityTier.COMPANY_SHARED, null, "Legal"));
+
+            documentShares.saveAndFlush(new DocumentShare(Uuid7.generate(), tenant, docRef.get(),
+                    SharePrincipalType.CONTACT, contactId, uploader, Instant.now()));
+        });
+
+        fixture.runAsUser(tenant, contactUserId, () ->
+                assertThat(authorizedQuery.findAll(documents, Document.class,
+                        PermissionKeys.DOCUMENT_VIEW, null, Pageable.unpaged()).getContent())
+                        .as("an explicit share overrides label targeting entirely -- a Finance-labelled "
+                                + "contact explicitly shared on a Legal-targeted document must still see it")
+                        .extracting(Document::getId).containsExactly(docRef.get()));
+    }
+
     @Test
     void anUnlabelledTargetIsVisibleToEveryContactAtTheCustomer() {
         UUID tenant = fixture.createTenant("portal-vis-unlabelled-target");
