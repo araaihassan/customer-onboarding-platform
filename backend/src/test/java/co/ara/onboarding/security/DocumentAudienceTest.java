@@ -136,6 +136,132 @@ class DocumentAudienceTest extends PostgresTestBase {
     }
 
     /**
+     * The DEPARTMENT-principal share test above never proves revocation actually
+     * does anything -- {@code revokedAt} could be ignored entirely and that test
+     * would still pass. Revoke the same share after confirming it widens, and
+     * confirm the document goes back to being refused.
+     */
+    @Test
+    void aRevokedShareNoLongerWidensTheAudience() {
+        UUID tenant = fixture.createTenant("doc-aud-revoke");
+        var userRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        var docRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        var shareRef = new java.util.concurrent.atomic.AtomicReference<DocumentShare>();
+        fixture.runAs(tenant, () -> {
+            UUID legal = fixture.createDepartment(tenant, "Legal");
+            UUID finance = fixture.createDepartment(tenant, "Finance");
+            UUID granter = fixture.createUser(tenant, "granter@doc-aud-revoke.example");
+            userRef.set(fixture.createUserInDepartment(tenant, "financeuser@doc-aud-revoke.example", finance));
+            Case c = journey.newCase(tenant);
+            docRef.set(newTargetedDocument(tenant, c, granter, legal));
+
+            shareRef.set(documentShares.saveAndFlush(new DocumentShare(Uuid7.generate(), tenant, docRef.get(),
+                    SharePrincipalType.DEPARTMENT, finance, granter, Instant.now())));
+        });
+        fixture.grantAtAllScope(tenant, userRef.get(), PermissionKeys.DOCUMENT_VIEW);
+
+        fixture.runAsUser(tenant, userRef.get(), () -> {
+            assertThat(authorizedQuery.findAll(documents, Document.class,
+                    PermissionKeys.DOCUMENT_VIEW, null, Pageable.unpaged()).getContent())
+                    .as("the live share widens past targeting, same as the sibling test")
+                    .extracting(Document::getId).containsExactly(docRef.get());
+        });
+
+        fixture.runAs(tenant, () -> {
+            shareRef.get().setRevokedAt(Instant.now());
+            documentShares.saveAndFlush(shareRef.get());
+        });
+
+        fixture.runAsUser(tenant, userRef.get(), () -> {
+            assertThat(authorizedQuery.findAll(documents, Document.class,
+                    PermissionKeys.DOCUMENT_VIEW, null, Pageable.unpaged()).getContent())
+                    .as("a revoked share must no longer widen the audience -- targeting reasserts itself")
+                    .isEmpty();
+        });
+    }
+
+    /**
+     * The DEPARTMENT-principal share is exercised above; the USER-principal
+     * disjunct has no test of its own yet. Share to one specific user and prove
+     * a second user -- otherwise identically placed -- does NOT gain access:
+     * this is a personal grant, not a department-wide one.
+     */
+    @Test
+    void anExplicitUserShareWidensOnlyForThatSpecificUser() {
+        UUID tenant = fixture.createTenant("doc-aud-user-share");
+        var grantedUserRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        var otherUserRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        var docRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        fixture.runAs(tenant, () -> {
+            UUID legal = fixture.createDepartment(tenant, "Legal");
+            UUID granter = fixture.createUser(tenant, "granter@doc-aud-user-share.example");
+            grantedUserRef.set(fixture.createUser(tenant, "granted@doc-aud-user-share.example"));
+            otherUserRef.set(fixture.createUser(tenant, "notgranted@doc-aud-user-share.example"));
+            Case c = journey.newCase(tenant);
+            docRef.set(newTargetedDocument(tenant, c, granter, legal));
+
+            documentShares.saveAndFlush(new DocumentShare(Uuid7.generate(), tenant, docRef.get(),
+                    SharePrincipalType.USER, grantedUserRef.get(), granter, Instant.now()));
+        });
+        fixture.grantAtAllScope(tenant, grantedUserRef.get(), PermissionKeys.DOCUMENT_VIEW);
+        fixture.grantAtAllScope(tenant, otherUserRef.get(), PermissionKeys.DOCUMENT_VIEW);
+
+        fixture.runAsUser(tenant, grantedUserRef.get(), () -> {
+            assertThat(authorizedQuery.findAll(documents, Document.class,
+                    PermissionKeys.DOCUMENT_VIEW, null, Pageable.unpaged()).getContent())
+                    .as("the named user's explicit share widens past targeting")
+                    .extracting(Document::getId).containsExactly(docRef.get());
+        });
+
+        fixture.runAsUser(tenant, otherUserRef.get(), () -> {
+            assertThat(authorizedQuery.findAll(documents, Document.class,
+                    PermissionKeys.DOCUMENT_VIEW, null, Pageable.unpaged()).getContent())
+                    .as("a USER share is personal -- a different user, otherwise identically placed, must not match")
+                    .isEmpty();
+        });
+    }
+
+    /**
+     * The single most important test this task was missing. sharedWith's EXISTS
+     * subquery correlates on {@code share.documentId = root.id}; nothing above
+     * proves that correlation actually holds. An uncorrelated subquery -- "any
+     * live share to this principal, on ANY document" -- would make every one of
+     * the tests above pass just as well, while actually leaking every OTHER
+     * targeted document in the tenant to a principal shared on just one of them.
+     * Two targeted documents, one shared: the principal must see only the one
+     * actually named in a document_share row for them.
+     */
+    @Test
+    void theShareSubqueryIsCorrelatedToItsOwnDocumentNotAnyDocumentThePrincipalWasEverSharedOn() {
+        UUID tenant = fixture.createTenant("doc-aud-correlation");
+        var userRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        var sharedDocRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        var unsharedDocRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        fixture.runAs(tenant, () -> {
+            UUID legal = fixture.createDepartment(tenant, "Legal");
+            UUID granter = fixture.createUser(tenant, "granter@doc-aud-correlation.example");
+            userRef.set(fixture.createUser(tenant, "reader@doc-aud-correlation.example"));
+            Case c = journey.newCase(tenant);
+            sharedDocRef.set(newTargetedDocument(tenant, c, granter, legal));
+            unsharedDocRef.set(newTargetedDocument(tenant, c, granter, legal));
+
+            // Shares only the FIRST document -- the second is targeted at the
+            // same department and never shared at all.
+            documentShares.saveAndFlush(new DocumentShare(Uuid7.generate(), tenant, sharedDocRef.get(),
+                    SharePrincipalType.USER, userRef.get(), granter, Instant.now()));
+        });
+        fixture.grantAtAllScope(tenant, userRef.get(), PermissionKeys.DOCUMENT_VIEW);
+
+        fixture.runAsUser(tenant, userRef.get(), () -> {
+            assertThat(authorizedQuery.findAll(documents, Document.class,
+                    PermissionKeys.DOCUMENT_VIEW, null, Pageable.unpaged()).getContent())
+                    .as("a share on ONE document must never widen an unrelated document in the same tenant -- "
+                            + "an uncorrelated EXISTS would leak the second document here too")
+                    .extracting(Document::getId).containsExactly(sharedDocRef.get());
+        });
+    }
+
+    /**
      * document.manage is deliberately NOT narrowed -- otherwise a mis-targeted
      * document becomes permanently unreachable and unfixable (spec 6.4).
      */
@@ -177,18 +303,23 @@ class DocumentAudienceTest extends PostgresTestBase {
     void documentManageCannotReadTheContentOfATargetedDocument() {
         UUID tenant = fixture.createTenant("doc-aud-content");
         var userRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        var otherDeptRef = new java.util.concurrent.atomic.AtomicReference<UUID>();
         var docRef = new java.util.concurrent.atomic.AtomicReference<Document>();
         fixture.runAs(tenant, () -> {
             UUID legal = fixture.createDepartment(tenant, "Legal");
-            UUID other = fixture.createDepartment(tenant, "Other");
-            userRef.set(fixture.createUserInDepartment(tenant, "reader@doc-aud-content.example", other));
+            otherDeptRef.set(fixture.createDepartment(tenant, "Other"));
+            userRef.set(fixture.createUserInDepartment(tenant, "reader@doc-aud-content.example", otherDeptRef.get()));
             Case c = journey.newCase(tenant);
             UUID docId = newTargetedDocument(tenant, c, userRef.get(), legal);
             docRef.set(documents.findById(docId).orElseThrow());
         });
 
+        // A REAL, non-null, MISMATCHED department -- not the null-departmentId
+        // fail-closed path every other negative test above rides. This is what
+        // actually exercises the targetDepartmentId != ctx.departmentId()
+        // comparison rather than the "no department at all" short-circuit.
         AuthContext ctx = new AuthContext(tenant, userRef.get(), UserType.INTERNAL,
-                null, Set.of());
+                otherDeptRef.get(), Set.of());
 
         var manageSpec = filter.audience(ctx, PermissionKeys.DOCUMENT_MANAGE);
         var viewSpec = filter.audience(ctx, PermissionKeys.DOCUMENT_VIEW);

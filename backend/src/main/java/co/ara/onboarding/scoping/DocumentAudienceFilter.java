@@ -47,6 +47,14 @@ public class DocumentAudienceFilter implements AudienceFilter<Document> {
         if (PermissionKeys.DOCUMENT_MANAGE.equals(permissionKey)) {
             return (root, query, cb) -> cb.conjunction();
         }
+        // Every key but document.manage -- document.view, and also
+        // document.share/document.review/document.upload/document.request, none
+        // of which spec 6.4 rules on individually -- is narrowed by this same
+        // audience. That is a deliberate safe default, not an oversight, and it
+        // has a real consequence: Task 19's share() and Task 27's review() will
+        // both 404 on a Legal-targeted document for anyone outside Legal,
+        // including an ALL-scoped Administrator. The recovery path is the one
+        // spec 6.4 already names -- retarget via document.manage first, then act.
         return ctx.userType() == UserType.PORTAL ? portalAudience(ctx) : internalAudience(ctx);
     }
 
