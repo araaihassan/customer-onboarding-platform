@@ -1,8 +1,12 @@
 package co.ara.onboarding.document;
 
+import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.journey.Case;
+import co.ara.onboarding.journey.CaseRepository;
+import co.ara.onboarding.platform.UserType;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
@@ -13,6 +17,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 /**
@@ -45,11 +50,16 @@ import java.util.UUID;
 public class DocumentService {
 
     private final DocumentRepository documents;
+    private final CaseRepository cases;
     private final AuthorizedQuery authorizedQuery;
+    private final AuthContextProvider contextProvider;
 
-    public DocumentService(DocumentRepository documents, AuthorizedQuery authorizedQuery) {
+    public DocumentService(DocumentRepository documents, CaseRepository cases,
+                           AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider) {
         this.documents = documents;
+        this.cases = cases;
         this.authorizedQuery = authorizedQuery;
+        this.contextProvider = contextProvider;
     }
 
     @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
@@ -65,10 +75,45 @@ public class DocumentService {
      * NULL}) -- a revoked link excludes the document from this case's list
      * again, the same "unlink is a column, not a DELETE" shape
      * {@link DocumentCaseLink}'s own doc comment describes.
+     *
+     * Resolves {@code caseId} through {@link AuthorizedQuery} FIRST, under
+     * {@code document.view} itself (never {@code case.view}) -- the same
+     * "confirm the parent is visible before listing its children" idiom
+     * {@code task.TaskService.forCase}, {@code journey.ApprovalService.listForCase}
+     * and {@code journey.PlanRevisionService.listForCase} all already use, each
+     * under their OWN gating permission rather than {@code case.view}, so an
+     * out-of-scope {@code caseId} is a 404 here too, rather than a silently
+     * empty page. Safe for an INTERNAL actor: {@code document.view}'s
+     * DEPARTMENT/TEAM scope ({@code scoping.DocumentDescriptor}) resolves off
+     * the SAME case-ownership columns {@code case.view}'s own descriptor does,
+     * so this can never resolve a case that actor's document scope would not
+     * also reach.
+     *
+     * NOT safe unconditionally, which is why the PORTAL branch below exists.
+     * {@code PortalPermissions} grants {@code document.view} at {@code Scope.ALL}
+     * -- a code constant, not a catalog scope -- and {@code Case} has no
+     * {@link co.ara.onboarding.authz.AudienceFilter} registered (only
+     * {@link Document} does). {@code AuthorizationPredicateBuilder.scopePredicate}
+     * short-circuits ALL to an unconditional match with nothing left to narrow
+     * it, so resolving {@code caseId} under {@code document.view} for a portal
+     * actor would resolve ANY case in the tenant -- turning today's uniformly
+     * empty result for an unreachable case into a 404-vs-200 existence oracle
+     * over every case, the same shape {@code AuthorizationCoverageTest.
+     * FINDER_RULE_EXCLUSIONS}'s own doc comment already records once for
+     * {@code TaskDirectoryAdapter} ("CASE_VIEW and TASK_VIEW are different
+     * permissions held at different scopes"). Spec §8 never actually routes a
+     * portal caller here anyway -- {@code GET /portal/documents} takes no
+     * {@code caseId} -- so this is a fail-closed guard on the method's own
+     * contract, not a path expected to fire in production.
      */
     @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
     @Transactional(readOnly = true)
     public Page<DocumentView> forCase(UUID caseId, Pageable pageable) {
+        if (contextProvider.current().userType() == UserType.PORTAL) {
+            throw new NoSuchElementException("Not found");
+        }
+        authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_VIEW, caseId);
+
         Specification<Document> homeOrLinked = (root, query, cb) ->
                 cb.or(cb.equal(root.get("caseId"), caseId), linkedInto(root, query, cb, caseId));
         return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, homeOrLinked, pageable)

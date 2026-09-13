@@ -136,6 +136,96 @@ class DocumentServiceTest extends PostgresTestBase {
                 .containsExactlyInAnyOrder(homeDocId[0], linkedDocId[0]);
     }
 
+    /**
+     * Review round 1, Important #1/#2: forCase now resolves caseId through
+     * AuthorizedQuery FIRST (the same "confirm the parent before listing its
+     * children" idiom TaskService.forCase/ApprovalService.listForCase/
+     * PlanRevisionService.listForCase already use), so a cross-tenant caseId
+     * must 404 here too, not just on get(). RLS on Case alone would already
+     * make this true even without the new resolution, but this test pins the
+     * behaviour down explicitly now that the resolution is a real code path
+     * rather than absent.
+     */
+    @Test
+    void forCaseWithACrossTenantCaseIdIsA404() {
+        UUID tenantA = fixture.createTenant("doc-forcase-tenant-a-" + Uuid7.generate());
+        UUID tenantB = fixture.createTenant("doc-forcase-tenant-b-" + Uuid7.generate());
+        var caseInA = new UUID[1];
+        var actorB = new UUID[1];
+
+        fixture.runAs(tenantA, () -> caseInA[0] = journey.newCase(tenantA).getId());
+
+        fixture.runAs(tenantB, () -> {
+            actorB[0] = fixture.createUser(tenantB, "forcase-actor-b+" + Uuid7.generate() + "@example.com");
+            fixture.grantAtAllScope(tenantB, actorB[0], PermissionKeys.DOCUMENT_VIEW);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenantB, actorB[0],
+                () -> documents.forCase(caseInA[0], Pageable.unpaged())))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * Review round 1, Important #2's other half: a SAME-tenant caseId outside
+     * the caller's own DOCUMENT_VIEW scope -- DEPARTMENT here, the narrowest
+     * scope with a real ownership column to test against (ASSIGNED is
+     * already covered above for list()/get(), and doesn't apply to Case at
+     * all: CaseDescriptor's ASSIGNED resolves through case_participant, which
+     * this scenario does not need). Proves the new resolution genuinely
+     * narrows by scope, not merely by tenant -- an actor granted document.view
+     * at DEPARTMENT only must not be able to list documents "for" a case
+     * owned by a DIFFERENT department, even within the same tenant.
+     */
+    @Test
+    void forCaseWithACaseOutsideTheCallersDepartmentScopeIsA404() {
+        UUID tenant = fixture.createTenant("doc-forcase-scope-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var otherDeptCaseId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID ownDepartment = fixture.createDepartment(tenant, "Reader's Department");
+            UUID otherDepartment = fixture.createDepartment(tenant, "Other Department");
+            actor[0] = fixture.createUserInDepartment(
+                    tenant, "forcase-dept-reader+" + Uuid7.generate() + "@example.com", ownDepartment);
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_VIEW, Scope.DEPARTMENT));
+
+            otherDeptCaseId[0] = journey.newCase(tenant, null, otherDepartment, null).getId();
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0],
+                () -> documents.forCase(otherDeptCaseId[0], Pageable.unpaged())))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * Review round 1, Important #1's own fail-closed guard, proven live rather
+     * than left as an untested branch: PortalPermissions grants document.view
+     * at Scope.ALL with no AudienceFilter on Case to narrow it, so forCase
+     * refuses a portal actor outright before ever resolving caseId, even
+     * against a case belonging to the portal contact's OWN customer. Spec §8
+     * never actually routes a portal caller here (GET /portal/documents takes
+     * no caseId), so this is a safety net on the method's own contract, not a
+     * path expected to fire in production -- but it must still demonstrably
+     * refuse, not silently do nothing.
+     */
+    @Test
+    void forCaseRefusesAPortalActorEvenForTheirOwnCustomersCase() {
+        UUID tenant = fixture.createTenant("doc-forcase-portal-" + Uuid7.generate());
+        var portalUserId = new UUID[1];
+        var ownCustomersCaseId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Portal Co " + Uuid7.generate(), null, null, null);
+            portalUserId[0] = fixture.createPortalUserForContact(
+                    tenant, customerId, "portal-contact+" + Uuid7.generate() + "@example.com");
+            ownCustomersCaseId[0] = journey.newCase(tenant).getId();
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, portalUserId[0],
+                () -> documents.forCase(ownCustomersCaseId[0], Pageable.unpaged())))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
     /** The write-path-shaped invariant applied to a read: a cross-tenant id is a 404, never a 500. */
     @Test
     void getOfADocumentInAnotherTenantIsA404() {
