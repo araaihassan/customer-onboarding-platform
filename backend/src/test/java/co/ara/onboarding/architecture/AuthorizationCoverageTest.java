@@ -390,6 +390,31 @@ class AuthorizationCoverageTest {
                 // dodge a suffix match.
                 .and(not(haveFullyQualifiedNameIn(FINDER_RULE_EXCLUSIONS)))
                 .should().callMethodWhere(
+                        // This predicate binds on NAME alone -- findAll/findOne/findById/
+                        // findBy* -- which is exactly why a repository method spelled
+                        // differently never reaches it, exemption or not. Two deliberate,
+                        // reviewed instances of that today, both on
+                        // document.DocumentVersionRepository, recorded HERE (beside the
+                        // predicate a reviewer of THIS guard actually reads) rather than
+                        // only in the repository's own file:
+                        //   - maxVersionNo(documentId) is safe unconditionally: it returns
+                        //     an aggregate int, not a scoped entity, so there is no row for
+                        //     it to leak regardless of who calls it or with what id.
+                        //   - versionAt(documentId, versionNo) is NOT unconditionally safe
+                        //     the same way -- it returns a real DocumentVersion, a scoped
+                        //     entity, and unlike maxVersionNo the only thing stopping it
+                        //     from matching this predicate is its name not starting with
+                        //     "findBy". It is safe today only because its one caller,
+                        //     document.DocumentContentService.open, calls it exclusively
+                        //     with a documentId already resolved through AuthorizedQuery
+                        //     under document.view moments earlier in the same method -- the
+                        //     same "fed only a pre-authorized id" shape FINDER_RULE_EXCLUSIONS
+                        //     already documents for journey.CaseEngine's own finder calls.
+                        //     Neither is added to FINDER_RULE_EXCLUSIONS: that list blanket-
+                        //     exempts every finder call a listed CLASS makes, present and
+                        //     future, which is too wide a grant for a safety argument that
+                        //     applies to this one METHOD's one caller -- a comment here is
+                        //     the right shape, not a rule change.
                         (target(name("findAll"))
                          .or(target(name("findOne")))
                          .or(target(name("findById")))
