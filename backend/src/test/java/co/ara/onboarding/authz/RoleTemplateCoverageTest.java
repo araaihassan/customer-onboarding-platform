@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -53,5 +54,26 @@ class RoleTemplateCoverageTest {
                 .as("a permission catalogued at several scopes but granted only to "
                   + "Administrator cannot be exercised at any narrower scope by any seeded role")
                 .isEmpty();
+    }
+
+    /**
+     * The generic sweep above only proves "held by at least one non-Administrator
+     * template" -- it says nothing about WHICH one. Q9's own department list
+     * names Legal, Finance and Compliance specifically for document review, so
+     * that specific assignment needs its own assertion; a role seeding that
+     * satisfied the generic test by granting document.review to, say, Support
+     * alone would pass it while missing the actual product requirement.
+     */
+    @Test
+    void documentReviewIsHeldByLegalFinanceAndCompliance() {
+        Set<String> holders = RoleTemplates.all().stream()
+                .filter(t -> t.grants().containsKey(PermissionKeys.DOCUMENT_REVIEW))
+                .map(RoleTemplates.RoleTemplate::name)
+                .collect(Collectors.toSet());
+
+        assertThat(holders)
+                .as("document.review must be held by Legal, Finance and Compliance, "
+                  + "the three role names Q9's own department list names")
+                .contains("Legal", "Finance", "Compliance");
     }
 }

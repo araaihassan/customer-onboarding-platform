@@ -101,11 +101,14 @@ class TenantProvisioningTest extends PostgresTestBase {
                     // catalog itself (no document entity yet), so seeded to
                     // Administrator only, same reasoning as workflow.view/manage
                     // above, invisible to RoleTemplateCoverageTest until Task 11
-                    // widens their scopes and reseeds beyond Administrator
+                    // widens their scopes and reseeds beyond Administrator. Task 11
+                    // then added document.share and document.request (47),
+                    // completing the six-key document set, and widened all six to
+                    // RECORD/ORG_SCOPES, seeding them beyond Administrator too
                     // (RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
                     // is the guard that keeps this number honest).
                     .as("Administrator must be seeded with its full template grant set")
-                    .hasSize(45);
+                    .hasSize(47);
         });
     }
 

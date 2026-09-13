@@ -1577,7 +1577,12 @@ git commit -m "feat(scoping): add the five document descriptors, all failing clo
 - Test: `backend/src/test/java/co/ara/onboarding/authz/RoleTemplateCoverageTest.java`
 
 **Interfaces:**
-- Consumes: the permission keys added in Task 3.
+- Consumes: the four permission keys added in Task 3. **Amendment (found executing this task):**
+  Task 3 only added four of the six keys this task seeds -- `document.share` and
+  `document.request` did not exist yet. This task adds both (`PermissionKeys`/`PermissionCatalog`)
+  as its own first step, and widens all six from ALL-only to RECORD (`document.view`/
+  `document.upload`) or ORG_SCOPES (the other four) in the same commit, before seeding role
+  templates. Tasks 3 and 11 together complete the six-key set, not Task 3 alone.
 - Produces: seeded grants. Tasks 21 and 35 build test roles on these.
 
 **Seeding is a deliberate act here.** CLAUDE.md records the same finding twice — `approval.decide` seeded to Administrator only, then `task.manage` seeded to Administrator only, both flagged as needing review before anything built on them. A third occurrence would be a pattern rather than an accident.
