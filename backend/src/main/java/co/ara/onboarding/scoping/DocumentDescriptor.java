@@ -4,6 +4,7 @@ import co.ara.onboarding.authz.AuthContext;
 import co.ara.onboarding.authz.RelationshipType;
 import co.ara.onboarding.authz.ResourceAuthorizationDescriptor;
 import co.ara.onboarding.document.Document;
+import co.ara.onboarding.document.DocumentCaseLink;
 import co.ara.onboarding.journey.Case;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
@@ -45,16 +46,32 @@ public class DocumentDescriptor implements ResourceAuthorizationDescriptor<Docum
                       RelationshipType.PARTICIPANT, RelationshipType.APPROVER);
     }
 
+    /**
+     * Task 20 review finding, now closed: this used to resolve ONLY through
+     * the document's HOME case ({@link #viaCase}), so a DEPARTMENT-scoped
+     * reader whose department owned only the case a document is LINKED
+     * into -- not its home case -- could not see it at all, even though
+     * {@code DocumentService.forCase}'s own {@code homeOrLinked} filter
+     * would otherwise match: {@code AuthorizationPredicateBuilder.forPermission}
+     * ANDs the scope predicate with that filter, and the scope predicate
+     * alone still rejected it. Widened to OR in a second path
+     * ({@link #viaLinkedCase}) through a LIVE {@code document_case_link}
+     * row, using the identical condition lambda as {@link #viaCase} so both
+     * paths test the exact same department/team match.
+     */
     @Override public Specification<Document> departmentScope(AuthContext ctx) {
-        return viaCase((root, query, cb, c) -> ctx.departmentId() == null
+        CaseCondition condition = (root, query, cb, c) -> ctx.departmentId() == null
                 ? cb.disjunction()
-                : cb.equal(c.get("owningDepartmentId"), ctx.departmentId()));
+                : cb.equal(c.get("owningDepartmentId"), ctx.departmentId());
+        return viaCase(condition).or(viaLinkedCase(condition));
     }
 
+    /** Same widening as {@link #departmentScope}, same reasoning -- see its own javadoc. */
     @Override public Specification<Document> teamScope(AuthContext ctx) {
-        return viaCase((root, query, cb, c) -> ctx.teamIds().isEmpty()
+        CaseCondition condition = (root, query, cb, c) -> ctx.teamIds().isEmpty()
                 ? cb.disjunction()
-                : c.get("owningTeamId").in(ctx.teamIds()));
+                : c.get("owningTeamId").in(ctx.teamIds());
+        return viaCase(condition).or(viaLinkedCase(condition));
     }
 
     /**
@@ -80,6 +97,33 @@ public class DocumentDescriptor implements ResourceAuthorizationDescriptor<Docum
             subquery.select(c.get("id"))
                     .where(condition.build(root, query, cb, c));
             return root.get("caseId").in(subquery);
+        };
+    }
+
+    /**
+     * One level deeper than {@link #viaCase}: matches a document that is
+     * LINKED (via a live {@code document_case_link} row) into ANY case
+     * satisfying {@code condition}, not just its own home case. The inner
+     * subquery selects case ids matching the condition (mirroring
+     * {@link #viaCase} exactly); the middle subquery selects the document
+     * ids of every LIVE link whose target case is one of those; the outer
+     * predicate tests this document's own id against that set. RLS still
+     * applies to every nested table, so a document cannot be reached through
+     * a link, or a case, in another tenant.
+     */
+    private Specification<Document> viaLinkedCase(CaseCondition condition) {
+        return (root, query, cb) -> {
+            var linkSub = query.subquery(UUID.class);
+            var link = linkSub.from(DocumentCaseLink.class);
+
+            var caseSub = linkSub.subquery(UUID.class);
+            var c = caseSub.from(Case.class);
+            caseSub.select(c.get("id")).where(condition.build(root, query, cb, c));
+
+            linkSub.select(link.get("documentId"))
+                   .where(cb.and(cb.isNull(link.get("revokedAt")), link.get("caseId").in(caseSub)));
+
+            return root.get("id").in(linkSub);
         };
     }
 

@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -60,9 +61,11 @@ import java.util.UUID;
 public class DocumentSharingService {
 
     private static final String DOCUMENT_SHARE_LIVE_UNIQUE = "document_share_live_uq";
+    private static final String DOCUMENT_CASE_LINK_LIVE_UNIQUE = "document_case_link_live_uq";
 
     private final DocumentRepository documents;
     private final DocumentShareRepository shares;
+    private final DocumentCaseLinkRepository links;
     private final CaseRepository cases;
     private final StageRepository stages;
     private final CustomerContactRepository contacts;
@@ -74,13 +77,14 @@ public class DocumentSharingService {
     private final Clock clock;
 
     public DocumentSharingService(DocumentRepository documents, DocumentShareRepository shares,
-                                  CaseRepository cases, StageRepository stages,
+                                  DocumentCaseLinkRepository links, CaseRepository cases, StageRepository stages,
                                   CustomerContactRepository contacts, AppUserRepository users,
                                   OrgUnitResolver orgUnits, AuthorizedQuery authorizedQuery,
                                   AuthContextProvider contextProvider, StageWriteScopeGuard writeScope,
                                   Clock clock) {
         this.documents = documents;
         this.shares = shares;
+        this.links = links;
         this.cases = cases;
         this.stages = stages;
         this.contacts = contacts;
@@ -232,6 +236,121 @@ public class DocumentSharingService {
         return toView(share);
     }
 
+    /**
+     * Task 20 (design spec 4.4, "the document's home stays document.case_id;
+     * a link row makes it additionally visible in another case"): the WRITE
+     * half of {@link DocumentCaseLink}, the "WHERE" companion to {@link #share}'s
+     * "WHO" -- {@code DocumentService.forCase}'s own {@code homeOrLinked}
+     * filter (Task 14) is the READ half, already built.
+     *
+     * <p>Both {@code documentId} and {@code caseId} are resolved through
+     * {@link AuthorizedQuery} under {@code document.share} FIRST, before
+     * anything is written -- the identical write-path invariant {@link #share}
+     * itself follows. The resolved target case's own {@code customerId} is
+     * then checked against the document's own, refused as an
+     * {@link IllegalArgumentException} (400) on a mismatch -- the same
+     * cross-reference shape {@link #resolveContact} already uses (a confused-
+     * deputy guard between two already-resolved records, never the acting
+     * actor's own scope).
+     *
+     * <p>Never mutates {@link Document#getCaseId()}/{@code getCustomerId()} --
+     * this is a pure insert into {@code document_case_link}; the document's
+     * own home is untouched.
+     *
+     * <p>{@code document_case_link_live_uq} is the identical partial-unique-
+     * index shape as {@code document_share_live_uq}, so this reuses
+     * {@link #share}'s own two-layer idempotency pattern verbatim: a
+     * Java-side pre-check ({@link #liveLinkTo}, mirroring {@link #liveShareTo})
+     * returns the existing live link idempotently, and the insert itself is
+     * still wrapped for the genuine database-level race, throwing
+     * {@link DuplicateDocumentCaseLinkException} (409) rather than attempting
+     * an in-transaction recovery -- see that exception's own javadoc, and
+     * {@link #share}'s, for why recovery cannot work.
+     *
+     * <p>{@link StageWriteScopeGuard} narrows against the document's HOME
+     * case only, matching every other write in this module -- whether the
+     * TARGET case's own {@code write_scope} should ALSO narrow linking into
+     * it is a real, unaddressed question, deliberately left open here rather
+     * than answered unilaterally.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_SHARE)
+    @Transactional
+    public DocumentCaseLinkView link(UUID documentId, UUID caseId) {
+        Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_SHARE, documentId);
+        Case targetCase = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_SHARE, caseId);
+        if (!targetCase.getCustomerId().equals(d.getCustomerId())) {
+            throw new IllegalArgumentException(
+                    "Case " + targetCase.getId() + " belongs to a different customer than document " + d.getId());
+        }
+
+        Case homeCase = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_SHARE, d.getCaseId());
+        applyWriteScope(homeCase);
+
+        Optional<DocumentCaseLink> existingLive = liveLinkTo(d.getId(), targetCase.getId());
+        if (existingLive.isPresent()) {
+            return toView(existingLive.get());
+        }
+
+        UUID actor = contextProvider.current().userId();
+        DocumentCaseLink link = new DocumentCaseLink(Uuid7.generate(), d.getTenantId(), d.getId(),
+                targetCase.getId(), actor, Instant.now(clock));
+        try {
+            links.saveAndFlush(link);
+        } catch (DataIntegrityViolationException e) {
+            if (violates(e, DOCUMENT_CASE_LINK_LIVE_UNIQUE)) {
+                throw new DuplicateDocumentCaseLinkException(e);
+            }
+            // Every other constraint is rethrown untouched -- see share()'s
+            // identical reasoning for why.
+            throw e;
+        }
+        return toView(link);
+    }
+
+    /**
+     * Ends a link -- a column, never a DELETE, the identical shape as
+     * {@link #revokeShare}. {@code (documentId, caseId)} is a PAIR, not a
+     * link id: both are resolved through {@link AuthorizedQuery} under
+     * {@code document.share} first, the live row between them is found via
+     * {@link #liveLinkTo} (the same {@code liveLinksOf}-filtered-in-Java
+     * shape {@link #liveShareTo} already uses), and only THAT row's own id
+     * is then re-resolved through {@link AuthorizedQuery} -- dispatching
+     * through {@code scoping.DocumentCaseLinkDescriptor} -- before it is
+     * mutated, never trusting the plain-finder result directly for the
+     * write, the same "resolve, then mutate" shape every other write in
+     * this class follows.
+     *
+     * <p>No live link between the pair (never linked, or already unlinked)
+     * is a {@link NoSuchElementException} (404) -- there is nothing to end.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_SHARE)
+    @Transactional
+    public DocumentCaseLinkView unlink(UUID documentId, UUID caseId) {
+        Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_SHARE, documentId);
+        Case targetCase = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_SHARE, caseId);
+
+        DocumentCaseLink plain = liveLinkTo(d.getId(), targetCase.getId())
+                .orElseThrow(() -> new NoSuchElementException(
+                        "No live link between document " + d.getId() + " and case " + targetCase.getId()));
+        DocumentCaseLink link = authorizedQuery.getById(
+                links, DocumentCaseLink.class, PermissionKeys.DOCUMENT_SHARE, plain.getId());
+
+        Case homeCase = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_SHARE, d.getCaseId());
+        applyWriteScope(homeCase);
+
+        if (link.getRevokedAt() == null) {
+            link.setRevokedAt(Instant.now(clock));
+            links.saveAndFlush(link);
+        }
+        return toView(link);
+    }
+
+    private Optional<DocumentCaseLink> liveLinkTo(UUID documentId, UUID caseId) {
+        return links.liveLinksOf(documentId).stream()
+                .filter(l -> l.getCaseId().equals(caseId))
+                .findFirst();
+    }
+
     private UUID resolvePrincipal(SharePrincipalType type, UUID principalId, Document d) {
         return switch (type) {
             case CONTACT -> resolveContact(principalId, d);
@@ -286,5 +405,10 @@ public class DocumentSharingService {
     private static DocumentShareView toView(DocumentShare s) {
         return new DocumentShareView(s.getId(), s.getDocumentId(), s.getPrincipalType(),
                 s.getPrincipalId(), s.getGrantedBy(), s.getGrantedAt(), s.getRevokedAt());
+    }
+
+    private static DocumentCaseLinkView toView(DocumentCaseLink l) {
+        return new DocumentCaseLinkView(l.getId(), l.getDocumentId(), l.getCaseId(),
+                l.getLinkedBy(), l.getLinkedAt(), l.getRevokedAt());
     }
 }
