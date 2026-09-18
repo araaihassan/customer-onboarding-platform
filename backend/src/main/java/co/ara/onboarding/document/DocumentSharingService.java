@@ -272,11 +272,24 @@ public class DocumentSharingService {
      * TARGET case's own {@code write_scope} should ALSO narrow linking into
      * it is a real, unaddressed question, deliberately left open here rather
      * than answered unilaterally.
+     *
+     * <p>Refuses with {@link IllegalStateException} (409) when the document
+     * is {@link DocumentStatus#RETIRED} -- the identical guard {@link #share}
+     * carries and for the identical reason: {@code scoping.DocumentDescriptor}'s
+     * {@code viaLinkedCase} widening (Task 20) means a fresh link on a
+     * RETIRED document would grant the target case's own department/team
+     * real {@code document.view} scope over it, silently re-granting access
+     * {@link DocumentService#retire}'s own cascade exists specifically to
+     * close -- not a cosmetic inconsistency with {@link #share}, but the
+     * same live re-grant hazard in a different shape.
      */
     @RequirePermission(PermissionKeys.DOCUMENT_SHARE)
     @Transactional
     public DocumentCaseLinkView link(UUID documentId, UUID caseId) {
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_SHARE, documentId);
+        if (d.getStatus() == DocumentStatus.RETIRED) {
+            throw new IllegalStateException("Document " + d.getId() + " is retired and cannot be linked");
+        }
         Case targetCase = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_SHARE, caseId);
         if (!targetCase.getCustomerId().equals(d.getCustomerId())) {
             throw new IllegalArgumentException(

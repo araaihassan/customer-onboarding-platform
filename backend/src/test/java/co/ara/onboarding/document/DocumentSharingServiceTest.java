@@ -977,6 +977,51 @@ class DocumentSharingServiceTest extends PostgresTestBase {
                         .isEqualTo(firstRevokedAt[0]));
     }
 
+    /**
+     * Task 20 review finding #1: {@code link()} carried no {@link DocumentStatus#RETIRED}
+     * guard at all, unlike its sibling {@link DocumentSharingService#share}
+     * (fixed in Task 19's own review round) -- the identical
+     * {@code sharingARetiredDocumentIsRefused} scenario, mirrored for link().
+     * This is not merely cosmetic: {@code DocumentDescriptor.viaLinkedCase}
+     * (Task 20's own descriptor widening) means a fresh link on a RETIRED
+     * document grants the target case's department/team real
+     * {@code document.view} scope over it, live -- a real way to re-grant
+     * access {@link DocumentService#retire}'s own cascade exists to close.
+     */
+    @Test
+    void linkingARetiredDocumentIsRefused() {
+        UUID tenant = fixture.createTenant("doc-link-retired-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var documentId = new UUID[1];
+        var secondCaseId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Link Retired Co " + Uuid7.generate(), null, null, null);
+            UUID templateId = journey.publishedTemplate();
+            UUID homeCaseId = cases.create(new CreateCaseRequest(
+                    customerId, templateId, "Home Case " + Uuid7.generate(), Map.of())).id();
+            secondCaseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, templateId, "Second Case " + Uuid7.generate(), Map.of())).id();
+            manager[0] = fixture.createUser(tenant, "link-retired+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(PermissionKeys.DOCUMENT_SHARE, Scope.ALL, PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+            documentId[0] = createDocument(tenant, homeCaseId, customerId, manager[0], VisibilityTier.COMPANY_SHARED);
+
+            Document d = documentRepository.findById(documentId[0]).orElseThrow();
+            d.setStatus(DocumentStatus.RETIRED);
+            documentRepository.saveAndFlush(d);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                sharing.link(documentId[0], secondCaseId[0])))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("retired");
+
+        fixture.runAs(tenant, () ->
+                assertThat(linkRepository.findByDocumentId(documentId[0]))
+                        .as("a refused link on a retired document must never be persisted")
+                        .isEmpty());
+    }
+
     /** unlink() applies the identical write-path invariant as link(): a cross-tenant documentId is a 404. */
     @Test
     void unlinkOfADocumentInAnotherTenantIsA404() {

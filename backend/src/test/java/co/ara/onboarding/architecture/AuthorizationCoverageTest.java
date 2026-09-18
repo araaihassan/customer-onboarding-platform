@@ -430,12 +430,20 @@ class AuthorizationCoverageTest {
                         //     before inserting a new one) -- both callers feed it only a
                         //     pre-authorized id, the same "fed only a pre-authorized id" shape
                         //     as the rest of this list.
-                        //   - document.DocumentCaseLinkRepository.liveLinksOf(documentId),
-                        //     added by Task 18 for the same retire() cascade: fed only a
+                        //   - document.DocumentCaseLinkRepository.liveLinksOf(documentId), added
+                        //     by Task 18 for the retire() cascade and given two more callers by
+                        //     Task 20: document.DocumentService.retire (fed only a document id
+                        //     already resolved through AuthorizedQuery under document.manage
+                        //     moments earlier in the same method, then used to revoke every LIVE
+                        //     row keyed off that one already-authorized document) and
+                        //     document.DocumentSharingService.link/unlink (both fed only a
                         //     document id already resolved through AuthorizedQuery under
-                        //     document.manage moments earlier in the same method, then used to
-                        //     revoke every LIVE row keyed off that one already-authorized
-                        //     document.
+                        //     document.share moments earlier in the same method -- link as an
+                        //     idempotency pre-check before inserting a new one, unlink to find
+                        //     the live link between the pair before re-resolving its own id
+                        //     through AuthorizedQuery) -- every caller feeds it only a
+                        //     pre-authorized id, the same "fed only a pre-authorized id" shape
+                        //     as the rest of this list.
                         //     None of these five is added to FINDER_RULE_EXCLUSIONS: that list
                         //     blanket-exempts every finder call a listed CLASS makes, present
                         //     and future, which is too wide a grant for a safety argument that

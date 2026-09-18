@@ -18,13 +18,23 @@ public interface DocumentCaseLinkRepository
     List<DocumentCaseLink> findByCaseId(UUID caseId);
 
     /**
-     * Every LIVE (not yet revoked) link on a document -- Task 18's
-     * {@code DocumentService.retire} cascade (design spec 5.5: "revokes every
-     * document_case_link row"), fed only a document id already resolved
-     * through {@code AuthorizedQuery} under {@code document.manage} moments
-     * earlier in the very same method, the same "fed only a pre-authorized
-     * id" shape {@code journey.CaseEngine}'s own finder calls already
-     * establish.
+     * Every LIVE (not yet revoked) link on a document. Three callers, all
+     * feeding it only a document id already resolved through
+     * {@code AuthorizedQuery} moments earlier in the very same method -- the
+     * same "fed only a pre-authorized id" shape {@code journey.CaseEngine}'s
+     * own finder calls already establish:
+     * <ul>
+     *   <li>Task 18's {@code DocumentService.retire} cascade (design spec
+     *       5.5: "revokes every document_case_link row"), under
+     *       {@code document.manage}.</li>
+     *   <li>Task 20's {@code DocumentSharingService.link}, under
+     *       {@code document.share}, as the idempotency pre-check that
+     *       returns an existing live link to the same target case unchanged
+     *       rather than attempting a duplicate insert.</li>
+     *   <li>Task 20's {@code DocumentSharingService.unlink}, under
+     *       {@code document.share}, to find the live link between the pair
+     *       before re-resolving its own id through {@code AuthorizedQuery}.</li>
+     * </ul>
      *
      * Named {@code liveLinksOf} rather than a {@code findBy*} shape
      * deliberately, mirroring {@code DocumentVersionRepository.maxVersionNo}/

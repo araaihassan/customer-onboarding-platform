@@ -66,13 +66,19 @@ import java.util.UUID;
  * stays a caller-supplied filter rather than being folded into either the
  * descriptor or the audience filter.
  *
- * Known, already-recorded gap this task does not fix (Task 10's own review):
- * {@code DocumentDescriptor}'s DEPARTMENT/TEAM/ASSIGNED scope predicates match
- * only a document's HOME case, not any case it is linked into -- so a
- * DEPARTMENT-scoped reader of a case a document is merely LINKED into (not
- * its home case) sees it only if also ALL-scoped, until Task 20 revisits the
- * descriptor. {@link DocumentServiceTest} exercises {@link #forCase}'s own
- * filter at ALL scope specifically to isolate it from this separate question.
+ * Task 10's own review found a gap here, closed by Task 20:
+ * {@code DocumentDescriptor}'s DEPARTMENT/TEAM scope predicates now match a
+ * document through its HOME case OR any case it is currently LINKED into via
+ * a live {@link DocumentCaseLink} row ({@code DocumentDescriptor.viaLinkedCase}),
+ * so a DEPARTMENT-scoped reader of a case a document is merely linked into no
+ * longer needs to also be ALL-scoped to see it. {@code assignedScope} stays
+ * HOME-case-only, and deliberately so -- unlike DEPARTMENT/TEAM it never
+ * widened: it reads the document's own {@code uploaded_by} column, a personal
+ * relationship (the {@code RelationshipType} invariant: "ASSIGNED means a
+ * personal relationship... access mediated by a team the user belongs to is
+ * TEAM"), never mediated by either case. {@link DocumentServiceTest} exercises
+ * {@link #forCase}'s own filter at ALL scope specifically to isolate it from
+ * this separate question.
  */
 @Service
 public class DocumentService {

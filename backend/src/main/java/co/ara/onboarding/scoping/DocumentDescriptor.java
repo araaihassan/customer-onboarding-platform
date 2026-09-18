@@ -110,6 +110,18 @@ public class DocumentDescriptor implements ResourceAuthorizationDescriptor<Docum
      * predicate tests this document's own id against that set. RLS still
      * applies to every nested table, so a document cannot be reached through
      * a link, or a case, in another tenant.
+     *
+     * <p>Like every scope predicate in this codebase, this one is
+     * permission-agnostic: {@code AuthorizationPredicateBuilder.forPermission}
+     * applies it to EVERY permission catalogued against {@code Document}
+     * ({@code document.view}, {@code document.manage}, {@code document.upload},
+     * {@code document.share} alike), not just the read path this widening was
+     * added for. That is safe only because every write against a document
+     * independently re-resolves its own ids under its own permission via
+     * {@link co.ara.onboarding.authz.AuthorizedQuery} first (CLAUDE.md's
+     * standing write-path invariant), never relying on scope alone -- a
+     * future write path must keep doing that re-resolution rather than
+     * leaning on this (or any) descriptor's scope predicate by itself.
      */
     private Specification<Document> viaLinkedCase(CaseCondition condition) {
         return (root, query, cb) -> {
