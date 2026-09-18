@@ -14,6 +14,7 @@ import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
 import co.ara.onboarding.workflow.WriteScope;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
@@ -23,6 +24,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
 import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
@@ -50,6 +56,7 @@ class DocumentSharingServiceTest extends PostgresTestBase {
     @Autowired CustomerContactRepository contactRepository;
     @Autowired RoleService roles;
     @Autowired CaseService cases;
+    @Autowired EntityManager entityManager;
 
     /**
      * The core scenario Task 19's brief names verbatim: a SENSITIVE document,
@@ -453,6 +460,144 @@ class DocumentSharingServiceTest extends PostgresTestBase {
         assertThatThrownBy(() -> fixture.runAsUser(tenant, teamScopeNonOwner[0], () ->
                 sharing.share(documentId[0], SharePrincipalType.USER, teamScopeNonOwner[0])))
                 .isInstanceOf(WriteScopeException.class);
+    }
+
+    /**
+     * Task 19 review finding #1: a caller sharing a document to a principal
+     * that ALREADY has a live share -- one still uncommitted at the database,
+     * so the Java-level idempotency pre-check
+     * ({@code DocumentSharingService.liveShareTo}) cannot see it and returns
+     * empty -- collides on {@code document_share_live_uq} at the database
+     * itself. The loser CANNOT recover inline: an earlier version of
+     * {@link DocumentSharingService#share} tried to re-read and return the
+     * winner's row from inside the same catch block, but Postgres aborts the
+     * whole transaction on a unique violation, so that re-read attempt itself
+     * fails with {@code 25P02 current transaction is aborted} (and Hibernate
+     * marks the session rollback-only on top) rather than ever returning a
+     * row. It must instead be refused with {@link DuplicateDocumentShareException}.
+     *
+     * <p>Forces the actual DATABASE-level path deterministically, never the
+     * Java pre-check, using the same "two real transactions, one thread each"
+     * shape {@code journey.ReconcileConcurrencyTest} already uses for its own
+     * row-lock race -- but unlike that test's {@code CyclicBarrier} (fine
+     * there because the hazard window is the whole width of
+     * {@code reconcile()}), the window here is only the gap between one
+     * {@code saveAndFlush} and the next, far too narrow to trust to thread
+     * scheduling alone. So the FIRST share is inserted directly via the
+     * repository (skipping {@code share()}'s own pre-check entirely -- this
+     * row is never returned by any call to {@code share}), then that
+     * transaction is held open with a real {@code pg_sleep} on the database
+     * side -- not a JVM sleep -- so the "still uncommitted" window is exact
+     * and independent of scheduling. While it is open, the real
+     * {@link DocumentSharingService#share} runs on a second thread: its own
+     * pre-check runs against the database and, seeing only committed data,
+     * finds nothing (the first row is not yet committed) -- exactly the
+     * "cannot see it" precondition that makes this a genuine database race
+     * rather than a lost idempotency check. Its insert then either blocks on
+     * the first transaction's still-open row and fails once that row commits,
+     * or fails immediately if the first transaction has committed by then;
+     * either way it collides for real. Simply inserting the first row and
+     * committing it BEFORE calling {@code share()} would not exercise this at
+     * all: the Java pre-check would find that already-committed row and
+     * return it idempotently, never reaching the catch block.
+     */
+    @Test
+    void concurrentSharesToTheSamePrincipalRaceThroughTheUniqueIndexAndTheLoserIsRefused() throws Exception {
+        UUID tenant = fixture.createTenant("doc-share-race-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Race Co " + Uuid7.generate(), null, null, null);
+            Case c = journey.newCase(tenant);
+            manager[0] = fixture.createUser(tenant, "share-race+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(PermissionKeys.DOCUMENT_SHARE, Scope.ALL, PermissionKeys.USER_VIEW, Scope.ALL));
+            documentId[0] = createDocument(tenant, c.getId(), customerId, manager[0], VisibilityTier.SENSITIVE);
+        });
+
+        CountDownLatch firstRowFlushed = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            // Thread A: inserts the FIRST live share directly, bypassing
+            // share()'s own pre-check entirely, then holds the transaction
+            // open for two real (database-side) seconds before letting it
+            // commit -- a window thread B's own pre-check and insert attempt
+            // are guaranteed to run well inside.
+            Future<?> first = pool.submit(() -> fixture.runUnauthenticated(tenant, () -> {
+                DocumentShare share = new DocumentShare(Uuid7.generate(), tenant, documentId[0],
+                        SharePrincipalType.USER, manager[0], manager[0], Instant.now(clock));
+                shareRepository.saveAndFlush(share);
+                firstRowFlushed.countDown();
+                entityManager.createNativeQuery("select pg_sleep(2)").getSingleResult();
+            }));
+
+            assertThat(firstRowFlushed.await(10, TimeUnit.SECONDS))
+                    .as("the first share must actually flush before thread B starts")
+                    .isTrue();
+
+            var outcome = new Object[1];
+            Future<?> second = pool.submit(() -> {
+                try {
+                    var view = new DocumentShareView[1];
+                    fixture.runAsUser(tenant, manager[0], () ->
+                            view[0] = sharing.share(documentId[0], SharePrincipalType.USER, manager[0]));
+                    outcome[0] = view[0];
+                } catch (RuntimeException e) {
+                    outcome[0] = e;
+                }
+            });
+
+            first.get(30, TimeUnit.SECONDS);
+            second.get(30, TimeUnit.SECONDS);
+
+            assertThat(outcome[0])
+                    .as("racing an uncommitted duplicate live share still in flight at the database is refused"
+                            + " with the dedicated conflict exception, never left to recover inline")
+                    .isInstanceOf(DuplicateDocumentShareException.class);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        fixture.runAs(tenant, () ->
+                assertThat(shareRepository.findByDocumentId(documentId[0]))
+                        .as("no duplicate row was ever inserted")
+                        .hasSize(1));
+    }
+
+    /**
+     * Task 19 review finding #3: a RETIRED document must refuse a NEW share
+     * -- otherwise this would silently re-grant access that
+     * {@link DocumentService#retire}'s own cascade exists specifically to
+     * close. {@link IllegalStateException}, mapped to 409 globally by
+     * {@code platform.ApiExceptionHandler}, is the same "the record is in
+     * the wrong state for this action" shape
+     * {@code authz.RoleService.deleteRole} already uses ("Role still has
+     * users assigned; disable it instead") -- chosen over a new dedicated
+     * exception type because this needs no domain-specific detail and the
+     * mapping already exists tenant-wide with no new handler required.
+     */
+    @Test
+    void sharingARetiredDocumentIsRefused() {
+        UUID tenant = fixture.createTenant("doc-share-retired-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Retired Co " + Uuid7.generate(), null, null, null);
+            Case c = journey.newCase(tenant);
+            manager[0] = fixture.createUser(tenant, "share-retired+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(PermissionKeys.DOCUMENT_SHARE, Scope.ALL, PermissionKeys.USER_VIEW, Scope.ALL));
+            documentId[0] = createDocument(tenant, c.getId(), customerId, manager[0], VisibilityTier.SENSITIVE);
+
+            Document d = documentRepository.findById(documentId[0]).orElseThrow();
+            d.setStatus(DocumentStatus.RETIRED);
+            documentRepository.saveAndFlush(d);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                sharing.share(documentId[0], SharePrincipalType.USER, manager[0])))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("retired");
     }
 
     private void grant(UUID userId, Map<String, Scope> grants) {

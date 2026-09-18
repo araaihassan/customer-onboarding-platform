@@ -124,9 +124,29 @@ public class DocumentSharingService {
      * 500: an explicit pre-check returns the existing live share idempotently
      * (the common case, and the one a caller retrying a share request
      * actually wants), and the insert itself is still wrapped in case two
-     * concurrent callers race the pre-check -- the loser re-reads and returns
-     * the row the winner just created, rather than 500ing or 409ing a request
-     * for access that, by the time it is answered, already exists.
+     * concurrent callers race the pre-check. That race CANNOT be recovered
+     * from inline the way an earlier version of this method tried to --
+     * Postgres aborts the whole transaction on the unique violation, so any
+     * further statement (including a "just re-read the winner's row" attempt)
+     * fails with {@code 25P02 current transaction is aborted} and Hibernate
+     * marks the session rollback-only on top, surfacing as
+     * {@code UnexpectedRollbackException} rather than ever returning a row.
+     * The loser is instead refused with {@link DuplicateDocumentShareException}
+     * (409) -- the same "throw a dedicated conflict exception, never try to
+     * recover in the same transaction" idiom {@code DocumentService#addVersion},
+     * {@code programme.ProgrammeMembershipService},
+     * {@code customer.CustomerContactService} and
+     * {@code provisioning.TenantProvisioningService} all already use for their
+     * own unique-index collisions. A caller that actually wants the
+     * idempotent "already shared" outcome gets it from the pre-check above on
+     * a retry, not from this branch.
+     *
+     * <p>Refuses with {@link IllegalStateException} (409, mapped globally by
+     * {@code platform.ApiExceptionHandler}, the same "role still has users
+     * assigned" shape {@code authz.RoleService.deleteRole} already uses) when
+     * the document is {@link DocumentStatus#RETIRED} -- otherwise a new share
+     * could silently re-grant access that {@link DocumentService#retire}'s
+     * own cascade exists specifically to close.
      *
      * {@link StageWriteScopeGuard} narrows on top, the same pattern
      * {@link DocumentService#upload}/{@code addVersion}/{@code patch}/
@@ -142,6 +162,9 @@ public class DocumentSharingService {
         }
 
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_SHARE, documentId);
+        if (d.getStatus() == DocumentStatus.RETIRED) {
+            throw new IllegalStateException("Document " + d.getId() + " is retired and cannot be shared");
+        }
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_SHARE, d.getCaseId());
         applyWriteScope(c);
 
@@ -159,15 +182,11 @@ public class DocumentSharingService {
             shares.saveAndFlush(share);
         } catch (DataIntegrityViolationException e) {
             if (violates(e, DOCUMENT_SHARE_LIVE_UNIQUE)) {
-                // Lost a race with a concurrent share to the same principal --
-                // the row that won already grants exactly the access this call
-                // asked for, so return it idempotently rather than surfacing a
-                // conflict for access that, by the time this call is answered,
-                // already exists.
-                return liveShareTo(d.getId(), principalType, resolvedPrincipalId)
-                        .map(DocumentSharingService::toView)
-                        .orElseThrow(() -> e);
+                throw new DuplicateDocumentShareException(e);
             }
+            // Every other constraint is rethrown untouched -- reporting an
+            // unrelated violation as a duplicate share would send the caller
+            // hunting for a conflict that does not exist.
             throw e;
         }
         return toView(share);

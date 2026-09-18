@@ -15,12 +15,20 @@ public interface DocumentShareRepository
     List<DocumentShare> findByDocumentId(UUID documentId);
 
     /**
-     * Every LIVE (not yet revoked) share on a document -- Task 18's
-     * {@code DocumentService.retire} cascade (design spec 5.5: "revokes every
-     * document_share row"), fed only a document id already resolved through
-     * {@code AuthorizedQuery} under {@code document.manage} moments earlier
-     * in the very same method -- the same "fed only a pre-authorized id"
-     * shape {@code journey.CaseEngine}'s own finder calls already establish.
+     * Every LIVE (not yet revoked) share on a document. Two callers, both
+     * feeding it only a document id already resolved through
+     * {@code AuthorizedQuery} moments earlier in the very same method -- the
+     * same "fed only a pre-authorized id" shape {@code journey.CaseEngine}'s
+     * own finder calls already establish:
+     * <ul>
+     *   <li>Task 18's {@code DocumentService.retire} cascade (design spec
+     *       5.5: "revokes every document_share row"), under
+     *       {@code document.manage}.</li>
+     *   <li>Task 19's {@code DocumentSharingService.share}, under
+     *       {@code document.share}, as the idempotency pre-check that returns
+     *       an already-live share to the same principal unchanged rather than
+     *       attempting a duplicate insert.</li>
+     * </ul>
      *
      * Named {@code liveSharesOf} rather than a {@code findBy*} shape
      * deliberately, mirroring {@code DocumentVersionRepository.maxVersionNo}/

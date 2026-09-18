@@ -419,14 +419,23 @@ class AuthorizationCoverageTest {
                         //     AuthorizedQuery under document.manage moments earlier in the
                         //     same method) purely to decide WHETHER to call the gated reopen
                         //     at all.
-                        //   - document.DocumentShareRepository.liveSharesOf(documentId) and
-                        //     document.DocumentCaseLinkRepository.liveLinksOf(documentId),
-                        //     both added by Task 18 for the same retire() cascade: each is
-                        //     fed only a document id already resolved through AuthorizedQuery
-                        //     under document.manage moments earlier in the very same method,
-                        //     then used to revoke every LIVE row keyed off that one
-                        //     already-authorized document -- the same "fed only a
-                        //     pre-authorized id" shape as the rest of this list.
+                        //   - document.DocumentShareRepository.liveSharesOf(documentId), added
+                        //     by Task 18 for the retire() cascade and given a second caller by
+                        //     Task 19: document.DocumentService.retire (fed only a document id
+                        //     already resolved through AuthorizedQuery under document.manage
+                        //     moments earlier in the same method, to revoke every LIVE share)
+                        //     and document.DocumentSharingService.share (fed only a document id
+                        //     already resolved through AuthorizedQuery under document.share
+                        //     moments earlier in the same method, as an idempotency pre-check
+                        //     before inserting a new one) -- both callers feed it only a
+                        //     pre-authorized id, the same "fed only a pre-authorized id" shape
+                        //     as the rest of this list.
+                        //   - document.DocumentCaseLinkRepository.liveLinksOf(documentId),
+                        //     added by Task 18 for the same retire() cascade: fed only a
+                        //     document id already resolved through AuthorizedQuery under
+                        //     document.manage moments earlier in the same method, then used to
+                        //     revoke every LIVE row keyed off that one already-authorized
+                        //     document.
                         //     None of these five is added to FINDER_RULE_EXCLUSIONS: that list
                         //     blanket-exempts every finder call a listed CLASS makes, present
                         //     and future, which is too wide a grant for a safety argument that
