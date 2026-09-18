@@ -506,6 +506,27 @@ public class DocumentService {
      *
      * {@link StageWriteScopeGuard} still applies on top, exactly as it does
      * for {@link #upload}/{@link #addVersion}/{@link #patch}.
+     *
+     * <p><b>Interaction with an ON_HOLD case, deliberately left as-is:</b> when
+     * the document being retired satisfied a requirement of a case that is
+     * currently {@code ON_HOLD}, the call into {@code journey.RequirementService
+     * .reopen} above throws {@code journey.CaseOnHoldException} -- and because
+     * that call runs inside this method's own {@code @Transactional} boundary
+     * (the same transaction, not a nested one), the exception rolls back the
+     * ENTIRE {@code retire} call, including the share and link revocations that
+     * would otherwise already have succeeded. Concretely: retiring a document
+     * that satisfied a requirement of a currently-held case fails completely --
+     * nothing is revoked, the document stays ACTIVE -- until the hold clears,
+     * even though revoking access to a wrongly-uploaded document is arguably
+     * most urgent exactly when something about the case is already wrong. This
+     * is deliberately NOT special-cased here: every other {@code
+     * RequirementService} mutation already refuses outright during a hold, and
+     * carving out an exception so retire's share/link revocations could survive
+     * while reopen still refuses would be a bigger change to hold semantics
+     * than this method should make unilaterally. A future decision to make
+     * retirement partially succeed under a hold (share/link revocation first,
+     * reopen deferred) needs to be made explicitly, with its own test, not as
+     * a side effect of this note.
      */
     @RequirePermission(PermissionKeys.DOCUMENT_MANAGE)
     @Transactional

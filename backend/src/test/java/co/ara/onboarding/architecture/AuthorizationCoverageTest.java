@@ -392,29 +392,46 @@ class AuthorizationCoverageTest {
                 .should().callMethodWhere(
                         // This predicate binds on NAME alone -- findAll/findOne/findById/
                         // findBy* -- which is exactly why a repository method spelled
-                        // differently never reaches it, exemption or not. Two deliberate,
-                        // reviewed instances of that today, both on
-                        // document.DocumentVersionRepository, recorded HERE (beside the
+                        // differently never reaches it, exemption or not. Five deliberate,
+                        // reviewed instances of that today, recorded HERE (beside the
                         // predicate a reviewer of THIS guard actually reads) rather than
-                        // only in the repository's own file:
-                        //   - maxVersionNo(documentId) is safe unconditionally: it returns
-                        //     an aggregate int, not a scoped entity, so there is no row for
-                        //     it to leak regardless of who calls it or with what id.
-                        //   - versionAt(documentId, versionNo) is NOT unconditionally safe
-                        //     the same way -- it returns a real DocumentVersion, a scoped
-                        //     entity, and unlike maxVersionNo the only thing stopping it
-                        //     from matching this predicate is its name not starting with
-                        //     "findBy". It is safe today only because its one caller,
+                        // only in each repository's own file:
+                        //   - document.DocumentVersionRepository.maxVersionNo(documentId) is
+                        //     safe unconditionally: it returns an aggregate int, not a scoped
+                        //     entity, so there is no row for it to leak regardless of who
+                        //     calls it or with what id.
+                        //   - document.DocumentVersionRepository.versionAt(documentId,
+                        //     versionNo) is NOT unconditionally safe the same way -- it
+                        //     returns a real DocumentVersion, a scoped entity, and unlike
+                        //     maxVersionNo the only thing stopping it from matching this
+                        //     predicate is its name not starting with "findBy". It is safe
+                        //     today only because its one caller,
                         //     document.DocumentContentService.open, calls it exclusively
                         //     with a documentId already resolved through AuthorizedQuery
                         //     under document.view moments earlier in the same method -- the
                         //     same "fed only a pre-authorized id" shape FINDER_RULE_EXCLUSIONS
                         //     already documents for journey.CaseEngine's own finder calls.
-                        //     Neither is added to FINDER_RULE_EXCLUSIONS: that list blanket-
-                        //     exempts every finder call a listed CLASS makes, present and
-                        //     future, which is too wide a grant for a safety argument that
-                        //     applies to this one METHOD's one caller -- a comment here is
-                        //     the right shape, not a rule change.
+                        //   - journey.RequirementRepository.satisfiedBy(ref, refType), added
+                        //     by Task 18: discovery only. journey.RequirementService.reopen
+                        //     re-resolves every match through AuthorizedQuery before mutating
+                        //     anything, and document.DocumentService.retire calls it directly
+                        //     first (fed only a document id already resolved through
+                        //     AuthorizedQuery under document.manage moments earlier in the
+                        //     same method) purely to decide WHETHER to call the gated reopen
+                        //     at all.
+                        //   - document.DocumentShareRepository.liveSharesOf(documentId) and
+                        //     document.DocumentCaseLinkRepository.liveLinksOf(documentId),
+                        //     both added by Task 18 for the same retire() cascade: each is
+                        //     fed only a document id already resolved through AuthorizedQuery
+                        //     under document.manage moments earlier in the very same method,
+                        //     then used to revoke every LIVE row keyed off that one
+                        //     already-authorized document -- the same "fed only a
+                        //     pre-authorized id" shape as the rest of this list.
+                        //     None of these five is added to FINDER_RULE_EXCLUSIONS: that list
+                        //     blanket-exempts every finder call a listed CLASS makes, present
+                        //     and future, which is too wide a grant for a safety argument that
+                        //     applies to this one METHOD's one caller -- a comment here is the
+                        //     right shape, not a rule change.
                         (target(name("findAll"))
                          .or(target(name("findOne")))
                          .or(target(name("findById")))

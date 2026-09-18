@@ -6,6 +6,7 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.journey.Case;
+import co.ara.onboarding.journey.CaseOnHoldException;
 import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
@@ -1195,6 +1196,26 @@ class DocumentServiceTest extends PostgresTestBase {
             // is unsettled again, even though status itself stays DONE.
             var milestone = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0);
             assertThat(milestone.progressPercent()).isLessThan(100);
+
+            // Fix round Finding 1: AuditActions.REQUIREMENT_REOPENED was added
+            // and RequirementService.reopen records it, but nothing had ever
+            // read it back -- the requirement/milestone assertions above prove
+            // the STATE changed, not that the event exists. Same shape as
+            // patchRetargetsADocumentOutOfAnEmptyDepartmentRecoveringVisibility's
+            // own audit assertion above: filter by action, assert resourceId
+            // and that the payload actually names the requirement/milestone
+            // reopened, not merely that some event with this action exists.
+            List<AuditEvent> reopened = auditEvents.findAll().stream()
+                    .filter(e -> "requirement.reopened".equals(e.getAction()))
+                    .toList();
+            assertThat(reopened).hasSize(1);
+            AuditEvent event = reopened.get(0);
+            assertThat(event.getResourceId()).isEqualTo(caseId[0]);
+            assertThat(event.getResourceType()).isEqualTo("onboarding_case");
+            assertThat(event.isTimelineVisible()).isTrue();
+            assertThat(event.getPayload())
+                    .contains(requirementId[0].toString())
+                    .contains(r.getMilestoneId().toString());
         });
     }
 
@@ -1277,6 +1298,153 @@ class DocumentServiceTest extends PostgresTestBase {
         // viewable, just not listed (DocumentService.retire's own javadoc).
         fixture.runAsUser(tenant, manager[0], () ->
                 assertThat(documents.get(retiredDocId[0]).status()).isEqualTo(DocumentStatus.RETIRED));
+    }
+
+    /**
+     * Task 18 fix round, Finding 2: CLAUDE.md's working convention --
+     * "wherever a permission is catalogued at several scopes, at least one
+     * write test must run at the narrowest one" (named because every write
+     * case in {@code UserAdminTest} granted {@code USER_MANAGE} at ALL, which
+     * is precisely why that escalation survived undetected) -- applied to
+     * {@code RequirementService.reopen}'s own re-resolution, since every one
+     * of Task 18's five original tests granted {@code MILESTONE_COMPLETE} at
+     * {@code Scope.ALL}.
+     *
+     * {@code MILESTONE_COMPLETE} is RECORD-scoped ({@code PermissionCatalog}:
+     * {@code RECORD = EnumSet.allOf(Scope.class)}); {@code ASSIGNED} is its
+     * narrowest, resolving through a real {@link co.ara.onboarding.journey.CaseParticipant}
+     * row ({@code scoping.RequirementDescriptor.assignedScope}) -- the same
+     * shape {@code scoping.JourneyScopingTest
+     * .completingAMilestoneAtAssignedScopeIsRefusedForSomeoneElsesCase}
+     * already proves for a direct {@code satisfy()} call.
+     *
+     * The manager here holds {@code document.manage} at ALL (so retire's own
+     * gate, and its Document/Case resolution, succeed) and
+     * {@code workflow.view} at ALL (so {@code applyWriteScope}'s Stage lookup
+     * succeeds), but {@code milestone.complete} only at ASSIGNED -- and is
+     * never added as a {@code CaseParticipant} on the case whose requirement
+     * the document satisfied. The requirement is satisfied here as the
+     * fixture's own administrator ({@code fixture.runAs}, not {@code manager}),
+     * so the refusal below cannot be a side effect of the satisfying call
+     * itself. The method-level {@code @RequirePermission(MILESTONE_COMPLETE)}
+     * on {@code reopen} lets {@code manager} in regardless of scope (it can
+     * only see that they hold the permission at SOME scope, not which
+     * record) -- the refusal proven here is {@code reopen}'s own
+     * re-resolution of the {@link Requirement} through {@code AuthorizedQuery},
+     * exactly the write-path half CLAUDE.md warns "keeps escaping" when
+     * untested at the narrowest scope. Nothing is revoked afterward either --
+     * the whole {@code retire} transaction rolled back, not just the reopen
+     * call.
+     */
+    @Test
+    void retireIsRefusedWhenTheActorsMilestoneCompleteGrantDoesNotCoverTheCase() {
+        UUID tenant = fixture.createTenant("doc-retire-narrow-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requirementId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Retire Narrow Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            manager[0] = fixture.createUser(tenant, "retire-narrow-manager+" + Uuid7.generate() + "@example.com");
+            // ASSIGNED, deliberately NOT ALL -- MILESTONE_COMPLETE's narrowest
+            // catalogued scope. manager is never added as a CaseParticipant
+            // on caseId[0], so RequirementDescriptor/MilestoneDescriptor's
+            // assignedScope resolves nothing for them.
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ASSIGNED,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            documentId[0] = createDocument(tenant, caseId[0], customerId, manager[0], null);
+            requirements.satisfy(requirementId[0], documentId[0], DocumentService.SATISFIED_REF_TYPE);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                documents.retire(documentId[0], "Wrong file uploaded")))
+                .isInstanceOf(NoSuchElementException.class);
+
+        fixture.runAs(tenant, () -> {
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getStatus()).isEqualTo(RequirementStatus.SATISFIED);
+
+            Document d = documentRepository.findById(documentId[0]).orElseThrow();
+            assertThat(d.getStatus()).isEqualTo(DocumentStatus.ACTIVE);
+        });
+    }
+
+    /**
+     * Task 18 fix round, Finding 4: {@code DocumentService.retire}'s own
+     * javadoc now documents this interaction explicitly -- proven live here
+     * rather than left as an implicit consequence of two independently-tested
+     * mechanisms. {@code RequirementTest} already proves a direct
+     * {@code satisfy()} call refuses with {@link CaseOnHoldException} against
+     * an {@code ON_HOLD} case; this proves that {@code retire} calling
+     * {@code reopen} INSIDE its own {@code @Transactional} method (Spring's
+     * default REQUIRED propagation joins the same transaction, it does not
+     * nest one) means that same refusal rolls back retire's OWN share/link
+     * revocations too, not just reopen's write -- proven by asserting the
+     * previously-live share is STILL live afterward, not merely that the
+     * method throws. Nothing is revoked; the document stays ACTIVE. This is
+     * the documented, deliberately-not-fixed behaviour: revoking access to a
+     * wrongly-uploaded document is most urgent exactly when the case is
+     * already ON_HOLD, and yet this fails completely until the hold clears --
+     * changing that is a bigger decision about hold semantics than this fix
+     * round makes.
+     */
+    @Test
+    void retireOfADocumentWhoseSatisfiedRequirementIsOnAnOnHoldCaseRevokesNothing() {
+        UUID tenant = fixture.createTenant("doc-retire-onhold-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requirementId = new UUID[1];
+        var documentId = new UUID[1];
+        var liveShareId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Retire OnHold Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            manager[0] = fixture.createUser(tenant, "retire-onhold-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            documentId[0] = createDocument(tenant, caseId[0], customerId, manager[0], null);
+            requirements.satisfy(requirementId[0], documentId[0], DocumentService.SATISFIED_REF_TYPE);
+
+            DocumentShare live = new DocumentShare(Uuid7.generate(), tenant, documentId[0],
+                    SharePrincipalType.USER, Uuid7.generate(), manager[0], Instant.now(clock));
+            shareRepository.saveAndFlush(live);
+            liveShareId[0] = live.getId();
+
+            cases.hold(caseId[0], "Waiting on legal");
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                documents.retire(documentId[0], "Wrong file uploaded")))
+                .isInstanceOf(CaseOnHoldException.class);
+
+        fixture.runAs(tenant, () -> {
+            // The whole transaction rolled back -- not just reopen's own write.
+            DocumentShare share = shareRepository.findById(liveShareId[0]).orElseThrow();
+            assertThat(share.getRevokedAt()).isNull();
+
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getStatus()).isEqualTo(RequirementStatus.SATISFIED);
+
+            Document d = documentRepository.findById(documentId[0]).orElseThrow();
+            assertThat(d.getStatus()).isEqualTo(DocumentStatus.ACTIVE);
+        });
     }
 
     private void grant(UUID userId, Map<String, Scope> grants) {
