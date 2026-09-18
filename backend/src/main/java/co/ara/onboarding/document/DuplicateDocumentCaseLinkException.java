@@ -1,8 +1,5 @@
 package co.ara.onboarding.document;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
-
 /**
  * Two concurrent {@code link} calls raced past the Java-level idempotency
  * pre-check ({@code DocumentSharingService#liveLinkTo}) for the same
@@ -18,13 +15,13 @@ import org.springframework.web.bind.annotation.ResponseStatus;
  * {@link DuplicateDocumentShareException}'s own javadoc for the full
  * explanation this class deliberately does not repeat.
  *
- * <p>Mapped to 409 by {@code @ResponseStatus} directly on this class, the
- * same reasoning as {@link DuplicateDocumentShareException}: no
- * {@code DocumentExceptionHandler} exists in this module yet (Task 22 adds
- * one), and this exception needs the correct status to hold the moment it
- * ships.
+ * <p>Originally mapped to 409 by a bare {@code @ResponseStatus} directly on
+ * this class (Task 20, before {@code DocumentExceptionHandler} existed) --
+ * removed by Task 22 for the identical reason documented in full on {@link
+ * DuplicateDocumentShareException}'s own javadoc: {@code
+ * DocumentExceptionHandler.onConflict(...)} now maps this exception, and the
+ * bare annotation would have been dead code reaching nothing once it did.
  */
-@ResponseStatus(HttpStatus.CONFLICT)
 public class DuplicateDocumentCaseLinkException extends RuntimeException {
 
     public DuplicateDocumentCaseLinkException(Throwable cause) {

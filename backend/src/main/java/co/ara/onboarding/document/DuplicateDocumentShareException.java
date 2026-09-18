@@ -1,8 +1,5 @@
 package co.ara.onboarding.document;
 
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.ResponseStatus;
-
 /**
  * Two concurrent {@code share} calls raced past the Java-level idempotency
  * pre-check ({@code DocumentSharingService#liveShareTo}) for the same
@@ -27,21 +24,18 @@ import org.springframework.web.bind.annotation.ResponseStatus;
  * ({@code DuplicateSlugException}) -- all of which throw a dedicated
  * exception from the catch block instead of attempting to recover inline.
  *
- * <p>Mapped to 409 by {@code @ResponseStatus} directly on this class, rather
- * than a {@code DocumentExceptionHandler}: no such handler exists in this
- * module yet (Task 22 adds one, alongside {@code DocumentController}), and
- * the three other exceptions this module already defines
- * ({@link DocumentVersionConflictException}, {@link UnacceptableContentTypeException},
- * {@link UploadTooLargeException}) all say "mapped by the controller (Task
- * 22)" and are genuinely unmapped until then. This one differs because the
- * fix that introduced it (Task 19 review) needed the correct status to hold
- * the moment it ships, not after a later task -- the annotation gives that
- * without needing to stand up a handler early. It stays correct once Task 22
- * adds {@code DocumentExceptionHandler} for the other three: Spring resolves
- * a type-level {@code @ResponseStatus} exactly as it would an
- * {@code @ExceptionHandler}, so nothing here needs to move.
+ * <p>Originally mapped to 409 by a bare {@code @ResponseStatus} directly on
+ * this class (Task 19, before {@code DocumentExceptionHandler} existed) --
+ * Task 22 removed that annotation once the handler's own
+ * {@code onConflict(...)} took over: a bare {@code @ResponseStatus} produces
+ * Spring's default (non-{@link org.springframework.http.ProblemDetail})
+ * error body, and {@code ExceptionHandlerExceptionResolver} resolves an
+ * {@code @ExceptionHandler} method before {@code
+ * ResponseStatusExceptionResolver} ever gets to the annotation anyway, so
+ * leaving both in place would have left the annotation dead code reaching
+ * nothing. See {@code DocumentExceptionHandler}'s own javadoc for the full
+ * reasoning.
  */
-@ResponseStatus(HttpStatus.CONFLICT)
 public class DuplicateDocumentShareException extends RuntimeException {
 
     public DuplicateDocumentShareException(Throwable cause) {

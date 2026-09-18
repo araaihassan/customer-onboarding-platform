@@ -452,6 +452,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/documents/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/documents/{id}/shares": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["share"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/documents/{id}/retire": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["retire"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/documents/{id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["link"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/customers": {
         parameters: {
             query?: never;
@@ -750,6 +814,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["decideForceComplete"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/cases/{caseId}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["forCase_1"];
+        put?: never;
+        post: operations["upload"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1060,7 +1140,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/t/{tenantSlug}/workflows/{id}": {
+    "/api/t/{tenantSlug}/documents/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1068,6 +1148,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_5"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["patch"];
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/workflows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_6"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1116,6 +1212,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["me"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_5"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/documents/{id}/versions/{versionNo}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["content"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1195,7 +1323,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_6"];
+        get: operations["get_7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1227,7 +1355,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_5"];
+        get: operations["list_6"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1243,10 +1371,42 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_6"];
+        get: operations["list_7"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/documents/{id}/shares/{shareId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["revokeShare"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/documents/{id}/links/{caseId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["unlink"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1805,6 +1965,102 @@ export interface components {
             /** Format: uuid */
             caseId: string;
         };
+        DocumentVersionView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            documentId?: string;
+            /** Format: int32 */
+            versionNo?: number;
+            /** Format: int64 */
+            sizeBytes?: number;
+            contentType?: string;
+            sha256?: string;
+            /** @enum {string} */
+            reviewStatus?: "PENDING" | "APPROVED" | "REJECTED";
+            /** Format: uuid */
+            reviewedBy?: string;
+            /** Format: date-time */
+            reviewedAt?: string;
+            reviewNote?: string;
+            /** Format: uuid */
+            uploadedBy?: string;
+            /** Format: date-time */
+            uploadedAt?: string;
+        };
+        ShareDocumentRequest: {
+            /** @enum {string} */
+            principalType: "CONTACT" | "USER" | "DEPARTMENT";
+            /** Format: uuid */
+            principalId: string;
+        };
+        DocumentShareView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            documentId?: string;
+            /** @enum {string} */
+            principalType?: "CONTACT" | "USER" | "DEPARTMENT";
+            /** Format: uuid */
+            principalId?: string;
+            /** Format: uuid */
+            grantedBy?: string;
+            /** Format: date-time */
+            grantedAt?: string;
+            /** Format: date-time */
+            revokedAt?: string;
+        };
+        RetireDocumentRequest: {
+            reason: string;
+        };
+        DocumentView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** Format: uuid */
+            customerId?: string;
+            name?: string;
+            /** @enum {string} */
+            category?: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
+            /** @enum {string} */
+            visibilityTier?: "COMPANY_SHARED" | "CONTACT_ONLY" | "SENSITIVE";
+            /** Format: uuid */
+            targetDepartmentId?: string;
+            targetContactLabel?: string;
+            /** Format: uuid */
+            ownerContactId?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** @enum {string} */
+            status?: "ACTIVE" | "RETIRED";
+            /** Format: uuid */
+            currentVersionId?: string;
+            /** Format: uuid */
+            uploadedBy?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        LinkDocumentRequest: {
+            /** Format: uuid */
+            caseId: string;
+        };
+        DocumentCaseLinkView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            documentId?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** Format: uuid */
+            linkedBy?: string;
+            /** Format: date-time */
+            linkedAt?: string;
+            /** Format: date-time */
+            revokedAt?: string;
+        };
         CreateCustomerRequest: {
             legalName?: string;
             displayName?: string;
@@ -1946,6 +2202,20 @@ export interface components {
             decisionNote?: string;
             items?: components["schemas"]["PlanRevisionItemView"][];
         };
+        CreateDocumentRequest: {
+            name: string;
+            /** @enum {string} */
+            category: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
+            /** @enum {string} */
+            visibilityTier: "COMPANY_SHARED" | "CONTACT_ONLY" | "SENSITIVE";
+            /** Format: uuid */
+            targetDepartmentId?: string;
+            targetContactLabel?: string;
+            /** Format: uuid */
+            ownerContactId?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+        };
         CreateCommentRequest: {
             /** @enum {string} */
             resourceType: "TASK" | "CASE";
@@ -2032,6 +2302,14 @@ export interface components {
             adminEmail: string;
             adminFullName: string;
         };
+        PatchDocumentRequest: {
+            name?: string;
+            /** @enum {string} */
+            category?: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
+            /** Format: uuid */
+            targetDepartmentId?: string;
+            targetContactLabel?: string;
+        };
         PlanShapeMilestoneView: {
             /** Format: uuid */
             id?: string;
@@ -2088,14 +2366,14 @@ export interface components {
             size?: number;
             sort?: string[];
         };
-        PageCustomerView: {
-            /** Format: int32 */
-            totalPages?: number;
+        PageDocumentView: {
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
+            totalPages?: number;
+            /** Format: int32 */
             size?: number;
-            content?: components["schemas"]["CustomerView"][];
+            content?: components["schemas"]["DocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
@@ -2110,17 +2388,35 @@ export interface components {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
+            unpaged?: boolean;
             paged?: boolean;
             /** Format: int32 */
             pageSize?: number;
             /** Format: int32 */
             pageNumber?: number;
-            unpaged?: boolean;
         };
         SortObject: {
             empty?: boolean;
             sorted?: boolean;
             unsorted?: boolean;
+        };
+        PageCustomerView: {
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            /** Format: int32 */
+            size?: number;
+            content?: components["schemas"]["CustomerView"][];
+            /** Format: int32 */
+            number?: number;
+            sort?: components["schemas"]["SortObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
+            pageable?: components["schemas"]["PageableObject"];
+            empty?: boolean;
         };
         AuditEventView: {
             /** Format: uuid */
@@ -2138,10 +2434,10 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
@@ -2245,10 +2541,10 @@ export interface components {
             candidates?: components["schemas"]["CandidateView"][];
         };
         PageUserView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
@@ -4276,6 +4572,293 @@ export interface operations {
             };
         };
     };
+    addVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description A new version appended, always starting PENDING */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentVersionView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Two callers appended a version at the same moment; retry */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The declared size exceeds app.storage.max-upload-bytes */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The sniffed content type is not accepted for the document's category */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    share: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ShareDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Shared -- or the existing live share, returned idempotently */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentShareView"];
+                };
+            };
+            /** @description The principal belongs to a different customer than the document */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The document or the principal is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The document is retired, or two callers raced the same share */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    retire: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetireDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Retired -- status set to RETIRED, shares and links revoked, never deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentView"];
+                };
+            };
+            /** @description A blank reason failed validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The case a satisfied requirement belongs to is currently ON_HOLD */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    link: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description Linked -- or the existing live link, returned idempotently */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentCaseLinkView"];
+                };
+            };
+            /** @description The target case belongs to a different customer than the document */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The document or the target case is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The document is retired, or two callers raced the same link */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     list_1: {
         parameters: {
             query: {
@@ -5582,6 +6165,132 @@ export interface operations {
             };
         };
     };
+    forCase_1: {
+        parameters: {
+            query: {
+                pageable: components["schemas"]["Pageable"];
+            };
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Documents whose home is this case, or a live link into it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PageDocumentView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    metadata: components["schemas"]["CreateDocumentRequest"];
+                };
+            };
+        };
+        responses: {
+            /** @description Uploaded, pinned to version 1 */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentView"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The declared size exceeds app.storage.max-upload-bytes */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The sniffed content type is not accepted for the declared category */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     forResource: {
         parameters: {
             query: {
@@ -6521,6 +7230,117 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The document's metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchDocumentRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentView"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    get_6: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
             /** @description The template */
             200: {
                 headers: {
@@ -6674,6 +7494,96 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["Me"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    list_5: {
+        parameters: {
+            query: {
+                pageable: components["schemas"]["Pageable"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every document visible to the caller, scope + audience filtered */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PageDocumentView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    content: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                versionNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The version's bytes, as an attachment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": string;
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The document, or that version number, is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Unprocessable Entity */
@@ -6876,7 +7786,7 @@ export interface operations {
             };
         };
     };
-    get_6: {
+    get_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -6978,7 +7888,7 @@ export interface operations {
             };
         };
     };
-    list_5: {
+    list_6: {
         parameters: {
             query?: never;
             header?: never;
@@ -7027,7 +7937,7 @@ export interface operations {
             };
         };
     };
-    list_6: {
+    list_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -7043,6 +7953,106 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PermissionView"][];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    revokeShare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                shareId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revoked (revoked_at set, never deleted) -- idempotent */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentShareView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The share is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    unlink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unlinked (revoked_at set, never deleted) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentCaseLinkView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The document, the case, or a live link between them is absent or out of scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Unprocessable Entity */
