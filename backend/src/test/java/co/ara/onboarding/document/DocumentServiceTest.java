@@ -1,5 +1,7 @@
 package co.ara.onboarding.document;
 
+import co.ara.onboarding.audit.AuditEvent;
+import co.ara.onboarding.audit.AuditEventRepository;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
 import co.ara.onboarding.authz.Scope;
@@ -60,6 +62,7 @@ class DocumentServiceTest extends PostgresTestBase {
     @Autowired RoleService roles;
     @Autowired StorageProperties storageProperties;
     @Autowired CaseService cases;
+    @Autowired AuditEventRepository auditEvents;
 
     /** A minimal, real PDF magic prefix -- enough for Tika's own magic-byte detection to say "application/pdf". */
     private static final byte[] PDF_BYTES =
@@ -807,20 +810,202 @@ class DocumentServiceTest extends PostgresTestBase {
         }
     }
 
+    /**
+     * Task 17: a plain rename/recategorise, no targeting field supplied.
+     * Proves PATCH semantics -- fields left out (targetDepartmentId/
+     * targetContactLabel both null on the request) are left exactly as they
+     * were, never blanked -- and that a non-retargeting patch records no
+     * document.retargeted event at all.
+     */
+    @Test
+    void patchRenamesAndRecategorisesWithoutTouchingUnsuppliedFieldsOrAuditingARetarget() {
+        UUID tenant = fixture.createTenant("doc-patch-rename-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var documentId = new UUID[1];
+        var targetDept = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            targetDept[0] = fixture.createDepartment(tenant, "Original Target " + Uuid7.generate());
+            Case c = journey.newCase(tenant);
+            manager[0] = fixture.createUser(tenant, "patch-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(PermissionKeys.DOCUMENT_MANAGE, Scope.ALL));
+            documentId[0] = createDocument(tenant, c.getId(), c.getCustomerId(), manager[0], targetDept[0]);
+        });
+
+        AtomicReference<DocumentView> patched = new AtomicReference<>();
+        fixture.runAsUser(tenant, manager[0], () -> patched.set(documents.patch(documentId[0],
+                new PatchDocumentRequest("Renamed Document", DocumentCategory.INVOICE, null, null))));
+
+        assertThat(patched.get().name()).isEqualTo("Renamed Document");
+        assertThat(patched.get().category()).isEqualTo(DocumentCategory.INVOICE);
+        // Untouched: neither targeting field was supplied on the request.
+        assertThat(patched.get().targetDepartmentId()).isEqualTo(targetDept[0]);
+        assertThat(patched.get().targetContactLabel()).isNull();
+
+        fixture.runAs(tenant, () -> assertThat(auditEvents.findAll())
+                .extracting(AuditEvent::getAction)
+                .doesNotContain("document.retargeted"));
+    }
+
+    /**
+     * The recovery case, spec Sec 6.4's entire justification for
+     * {@code document.manage} not being narrowed by {@link
+     * co.ara.onboarding.scoping.DocumentAudienceFilter}: a document targeted
+     * at a department with NO current members is invisible to every internal
+     * actor under {@code document.view} -- including an ALL-scoped one, since
+     * targeting binds everyone (Sec 6.4's own words) -- but still loadable
+     * and retargetable through {@code document.manage}. Proves the full
+     * round trip: unreachable via {@code get()} before, retargeted via
+     * {@code patch()}, reachable via {@code get()} again afterward for an
+     * actor who is now a real member of the NEW target department -- and
+     * that the retarget itself is audited as its own, compliance-only
+     * action (document.retargeted, timelineVisible=false -- Task 17's own
+     * ruling, matching the Task 29 plan section's reasoning).
+     */
+    @Test
+    void patchRetargetsADocumentOutOfAnEmptyDepartmentRecoveringVisibility() {
+        UUID tenant = fixture.createTenant("doc-patch-recovery-" + Uuid7.generate());
+        var emptyDept = new UUID[1];
+        var populatedDept = new UUID[1];
+        var manager = new UUID[1];
+        var viewerInPopulatedDept = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            emptyDept[0] = fixture.createDepartment(tenant, "Empty Legal " + Uuid7.generate());
+            populatedDept[0] = fixture.createDepartment(tenant, "Populated Finance " + Uuid7.generate());
+            Case c = journey.newCase(tenant);
+
+            // No department of their own -- isolates the audience filter's
+            // department-targeting narrowing from any department-scope
+            // narrowing DocumentDescriptor would otherwise also apply.
+            manager[0] = fixture.createUser(tenant, "patch-recovery-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+
+            viewerInPopulatedDept[0] = fixture.createUserInDepartment(tenant,
+                    "patch-recovery-viewer+" + Uuid7.generate() + "@example.com", populatedDept[0]);
+            grant(viewerInPopulatedDept[0], Map.of(PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+
+            documentId[0] = createDocument(tenant, c.getId(), c.getCustomerId(), manager[0], emptyDept[0]);
+        });
+
+        // Stuck: targeted at a department with zero members, so document.view
+        // -- even ALL-scoped -- resolves nobody, the manage holder included.
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () -> documents.get(documentId[0])))
+                .isInstanceOf(NoSuchElementException.class);
+
+        // Not stuck for document.manage: the audience filter returns
+        // conjunction() for it, so the manage holder can load it to fix it.
+        AtomicReference<DocumentView> patched = new AtomicReference<>();
+        fixture.runAsUser(tenant, manager[0], () -> patched.set(documents.patch(documentId[0],
+                new PatchDocumentRequest(null, null, populatedDept[0], null))));
+        assertThat(patched.get().targetDepartmentId()).isEqualTo(populatedDept[0]);
+
+        // Recovered: a real member of the NEW target department can see it now.
+        fixture.runAsUser(tenant, viewerInPopulatedDept[0], () ->
+                assertThat(documents.get(documentId[0]).id()).isEqualTo(documentId[0]));
+
+        fixture.runAs(tenant, () -> {
+            List<AuditEvent> retargeted = auditEvents.findAll().stream()
+                    .filter(e -> "document.retargeted".equals(e.getAction()))
+                    .toList();
+            assertThat(retargeted).extracting(AuditEvent::getResourceId).containsExactly(documentId[0]);
+            assertThat(retargeted).allMatch(e -> !e.isTimelineVisible());
+        });
+    }
+
+    /** The write-path invariant applied to PATCH: a cross-tenant id is a 404, never a 500. */
+    @Test
+    void patchOfADocumentInAnotherTenantIsA404() {
+        UUID tenantA = fixture.createTenant("doc-patch-tenant-a-" + Uuid7.generate());
+        UUID tenantB = fixture.createTenant("doc-patch-tenant-b-" + Uuid7.generate());
+        var documentId = new UUID[1];
+        var managerB = new UUID[1];
+
+        fixture.runAs(tenantA, () -> {
+            Case c = journey.newCase(tenantA);
+            UUID uploader = fixture.createUser(tenantA, "patch-cross-uploader+" + Uuid7.generate() + "@example.com");
+            documentId[0] = createDocument(tenantA, c, uploader);
+        });
+
+        fixture.runAs(tenantB, () -> {
+            managerB[0] = fixture.createUser(tenantB, "patch-cross-manager+" + Uuid7.generate() + "@example.com");
+            grant(managerB[0], Map.of(PermissionKeys.DOCUMENT_MANAGE, Scope.ALL));
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenantB, managerB[0], () ->
+                documents.patch(documentId[0], new PatchDocumentRequest("New Name", null, null, null))))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * The {@code write_scope} guard applies to PATCH exactly as it does to
+     * {@code upload}/{@code addVersion} (CLAUDE.md: "a new mutation against a
+     * case's stage calls through it rather than re-deriving the check") --
+     * a TEAM-scoped document.manage holder, matching the case's own team, is
+     * still refused inside an OWNER_ONLY stage when they are not the case's
+     * owner. TEAM is deliberately the scope under test (CLAUDE.md: "at least
+     * one write test must run at the narrowest [catalogued] scope"), the
+     * same construction {@code aTeamScopedHolderIsStillRefusedInsideAnOwnerOnlyStage}
+     * above uses for upload.
+     */
+    @Test
+    void aTeamScopedManageHolderIsStillRefusedInsideAnOwnerOnlyStageWhenPatching() {
+        UUID tenant = fixture.createTenant("doc-patch-ws-owner-only-" + Uuid7.generate());
+        var teamScopeNonOwner = new UUID[1];
+        var documentId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            UUID team = fixture.createTeam(tenant, "Fixture Team " + Uuid7.generate());
+            teamScopeNonOwner[0] = fixture.createUser(tenant, "patch-team-scope+" + Uuid7.generate() + "@example.com");
+            fixture.addToTeam(tenant, teamScopeNonOwner[0], team);
+            grant(teamScopeNonOwner[0], Map.of(
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.TEAM,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            UUID caseOwner = fixture.createUser(tenant, "patch-doc-owner+" + Uuid7.generate() + "@example.com");
+
+            var restrictedStage = new WorkflowDefinitionRequest.StageRequest(
+                    "s1", "Restricted Stage", null, false, true, true, null,
+                    WriteScope.OWNER_ONLY, null, null, null,
+                    List.of(milestone("m1", "Milestone One", 1, List.of(), List.of(manual("Do it")))),
+                    List.of());
+            UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(restrictedStage), List.of(), 0L));
+
+            UUID customerId = fixture.createCustomer(
+                    tenant, "Doc Patch Write Scope Co " + Uuid7.generate(), caseOwner, null, team);
+            UUID caseId = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(),
+                    Map.of())).id();
+            documentId[0] = createDocument(tenant, caseId, customerId, caseOwner, null);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, teamScopeNonOwner[0], () -> documents.patch(
+                documentId[0], new PatchDocumentRequest("New Name", null, null, null))))
+                .isInstanceOf(WriteScopeException.class);
+    }
+
     private void grant(UUID userId, Map<String, Scope> grants) {
         UUID role = roles.createRole("Fixture Role " + Uuid7.generate(), "", grants);
         roles.assignRole(userId, role);
     }
 
     private UUID createDocument(UUID tenant, Case c, UUID uploadedBy) {
+        return createDocument(tenant, c.getId(), c.getCustomerId(), uploadedBy, null);
+    }
+
+    /** Overload used by Task 17's tests to seed a document already targeted at a department. */
+    private UUID createDocument(UUID tenant, UUID caseId, UUID customerId, UUID uploadedBy, UUID targetDepartmentId) {
         Document d = new Document();
         d.setId(Uuid7.generate());
         d.setTenantId(tenant);
-        d.setCaseId(c.getId());
-        d.setCustomerId(c.getCustomerId());
+        d.setCaseId(caseId);
+        d.setCustomerId(customerId);
         d.setName("Fixture Document " + Uuid7.generate());
         d.setCategory(DocumentCategory.OTHER);
         d.setVisibilityTier(VisibilityTier.COMPANY_SHARED);
+        d.setTargetDepartmentId(targetDepartmentId);
         d.setStatus(DocumentStatus.ACTIVE);
         d.setUploadedBy(uploadedBy);
         return documentRepository.saveAndFlush(d).getId();

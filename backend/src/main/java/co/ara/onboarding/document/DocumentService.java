@@ -1,5 +1,7 @@
 package co.ara.onboarding.document;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
@@ -39,6 +41,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HexFormat;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -88,13 +91,14 @@ public class DocumentService {
     private final ContentSniffGuard sniffGuard;
     private final OrgUnitResolver orgUnits;
     private final Clock clock;
+    private final AuditRecorder audit;
 
     public DocumentService(DocumentRepository documents, DocumentVersionRepository versions,
                            CaseRepository cases, StageRepository stages,
                            AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
                            StageWriteScopeGuard writeScope, BlobStore blobStore,
                            StorageProperties storageProperties, ContentSniffGuard sniffGuard,
-                           OrgUnitResolver orgUnits, Clock clock) {
+                           OrgUnitResolver orgUnits, Clock clock, AuditRecorder audit) {
         this.documents = documents;
         this.versions = versions;
         this.cases = cases;
@@ -107,6 +111,7 @@ public class DocumentService {
         this.sniffGuard = sniffGuard;
         this.orgUnits = orgUnits;
         this.clock = clock;
+        this.audit = audit;
     }
 
     /**
@@ -338,6 +343,82 @@ public class DocumentService {
         d = documents.saveAndFlush(d);
 
         return toVersionView(v);
+    }
+
+    /**
+     * Task 17: the metadata-update and retargeting path, gated
+     * {@code document.manage} -- the ONE permission {@code
+     * scoping.DocumentAudienceFilter} deliberately does NOT narrow (see its
+     * own javadoc, and design spec Sec 6.4). That means the {@link
+     * AuthorizedQuery#getById} call below loads {@code id} regardless of
+     * its current targeting, precisely so a document targeted at a
+     * department that has since emptied out stays recoverable rather than
+     * permanently stuck -- the record-level DEPARTMENT/TEAM scope a
+     * {@code document.manage} holder is granted at still narrows through
+     * {@code scoping.DocumentDescriptor}, which resolves off the document's
+     * CASE ownership, never off the document's own target column, so it
+     * never re-imposes the same narrowing the audience filter just waived.
+     *
+     * {@link StageWriteScopeGuard} still applies on top, exactly as it does
+     * for {@link #upload}/{@link #addVersion} (CLAUDE.md: "a new mutation
+     * against a case's stage calls through it rather than re-deriving the
+     * check") -- retargeting is still a write against the case's document,
+     * and an {@code OWNER_ONLY} stage narrows it the same way regardless of
+     * which permission gates the call.
+     *
+     * PATCH semantics: only a supplied (non-null) field on {@code request}
+     * changes anything -- see {@link PatchDocumentRequest}'s own javadoc for
+     * why fields cannot be explicitly cleared back to null through this
+     * method. {@code targetDepartmentId}, when supplied, is resolved through
+     * {@link OrgUnitResolver} exactly like {@link CreateDocumentRequest}'s
+     * own field.
+     *
+     * Retargeting -- {@code targetDepartmentId} or {@code targetContactLabel}
+     * actually CHANGING value, not merely being resupplied with the value
+     * already on the row -- is recorded as its own action,
+     * {@link AuditActions#DOCUMENT_RETARGETED}, never folded into a generic
+     * "document updated" event (there is none): the same "retirement gets
+     * its own action" shape CLAUDE.md already states for
+     * {@code contact.deactivated}, because this is precisely the action a
+     * mis-targeting recovery needs to be able to find in the log on its own.
+     * A pure rename/recategorise records nothing here -- Task 29 is what
+     * eventually adds a general document.* audit family; this task adds
+     * only the one constant its own implementation needs.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_MANAGE)
+    @Transactional
+    public DocumentView patch(UUID id, PatchDocumentRequest request) {
+        Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_MANAGE, id);
+        Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_MANAGE, d.getCaseId());
+        applyWriteScope(c);
+
+        boolean retargeted = false;
+
+        if (request.name() != null) d.setName(request.name());
+        if (request.category() != null) d.setCategory(request.category());
+
+        if (request.targetDepartmentId() != null) {
+            UUID resolved = orgUnits.resolveDepartment(request.targetDepartmentId());
+            if (!resolved.equals(d.getTargetDepartmentId())) {
+                d.setTargetDepartmentId(resolved);
+                retargeted = true;
+            }
+        }
+        if (request.targetContactLabel() != null
+                && !request.targetContactLabel().equals(d.getTargetContactLabel())) {
+            d.setTargetContactLabel(request.targetContactLabel());
+            retargeted = true;
+        }
+
+        d = documents.saveAndFlush(d);
+
+        if (retargeted) {
+            audit.record(AuditActions.DOCUMENT_RETARGETED, "document", d.getId(),
+                    "Retargeted document " + d.getName(),
+                    Map.of("caseId", d.getCaseId().toString()));
+        }
+
+        return toView(d);
     }
 
     /**

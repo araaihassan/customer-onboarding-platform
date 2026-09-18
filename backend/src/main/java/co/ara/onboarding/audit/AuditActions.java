@@ -211,6 +211,18 @@ public final class AuditActions {
     // first approval, per CauseBeforeEffectTest's rule.
     public static final AuditAction PLAN_REVISION_DECIDED = of("plan.revision_decided", true);
 
+    // Sub-project 4 Task 17 (design spec Sec 6.4): compliance-only, not
+    // timeline-visible, unlike most document.* actions (documents are
+    // ordinarily business records -- see Task 29's own reasoning for the
+    // rest of the family). Retargeting is an access-control change --
+    // moving which department/label can even see a document -- closer to
+    // the compliance-only role.* family than to a business-record edit,
+    // the same distinction CLAUDE.md draws for user.* vs customer.*. Task
+    // 29 adds the other eight document.* actions; this is the one constant
+    // Task 17 itself needed (its own PATCH implementation records it) and
+    // must not be re-declared there.
+    public static final AuditAction DOCUMENT_RETARGETED = of("document.retargeted", false);
+
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
         BY_KEY.put(key, a);
