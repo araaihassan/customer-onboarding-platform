@@ -99,6 +99,12 @@ public final class AuditActions {
     // exactly what Task 15's stage/completion events already are.
     public static final AuditAction REQUIREMENT_SATISFIED      = of("requirement.satisfied", true);
     public static final AuditAction REQUIREMENT_WAIVED         = of("requirement.waived", true);
+    // Sub-project 4 Task 18 (design spec 5.5): timeline-visible for the same
+    // reason its two siblings above are -- a requirement reopening because the
+    // document that satisfied it was retired is exactly the progress narrative
+    // the customer's own Activity Timeline exists to show, the mirror image of
+    // satisfying or waiving it in the first place.
+    public static final AuditAction REQUIREMENT_REOPENED       = of("requirement.reopened", true);
     public static final AuditAction MILESTONE_COMPLETED        = of("milestone.completed", true);
     // Timeline-visible for the same reason case.stage_entered is: who let the case
     // leave a gated stage is exactly the progress narrative the customer's own

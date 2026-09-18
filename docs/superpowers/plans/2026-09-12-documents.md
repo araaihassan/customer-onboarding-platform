@@ -1877,6 +1877,22 @@ The third is the one that distinguishes this from the task rule and is easiest t
 - [ ] **Step 4: Run the tests.**
 - [ ] **Step 5: Commit.**
 
+**Plan amendment (found executing this task):** the discovery finder this task needs
+(`Requirement.satisfiedRef`/`satisfiedRefType` → matching rows) cannot be spelled
+`findBySatisfiedRefAndSatisfiedRefType` — `AuthorizationCoverageTest
+.servicesDoNotCallRepositoryFindersDirectly` binds on method NAME alone
+(`findAll`/`findOne`/`findById`/`findBy*`), not on whether the id is caller-supplied,
+so a method with that name called from `RequirementService` or `DocumentService`
+(both in covered packages) fails the guard regardless of how safe the call actually
+is. Follow the established, already-reviewed precedent this same module already set
+for exactly this shape — `DocumentVersionRepository.maxVersionNo`/`.versionAt`, named
+away from `findBy*` rather than earning a `FINDER_RULE_EXCLUSIONS` entry. The real
+names: `RequirementRepository.satisfiedBy(UUID ref, String refType)`,
+`DocumentShareRepository.liveSharesOf(UUID documentId)`,
+`DocumentCaseLinkRepository.liveLinksOf(UUID documentId)`. Tasks 24/25 (and anything
+else that reuses `Requirement.satisfiedRef`/`satisfiedRefType`'s discovery direction)
+should call `satisfiedBy`, not the name this section originally implied.
+
 ### Task 19: Shares
 
 **Files:** `DocumentSharingService.java` (share half), tests

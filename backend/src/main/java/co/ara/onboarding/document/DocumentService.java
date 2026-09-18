@@ -9,6 +9,8 @@ import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.customer.OrgUnitResolver;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
+import co.ara.onboarding.journey.RequirementRepository;
+import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
@@ -80,10 +82,25 @@ public class DocumentService {
 
     private static final String DOCUMENT_VERSION_NO_UNIQUE = "document_version_no_uq";
 
+    /**
+     * Task 18's own convention for {@code Requirement.satisfiedRefType}
+     * (lowercase, matching {@code task.TaskService}'s existing
+     * {@code requirements.satisfy(requirementId, taskId, "task")} call site
+     * exactly) -- this is the FIRST place in sub-project 4 that touches
+     * {@code satisfiedRefType} at all. Tasks 24/25 (document requirement
+     * instantiation and fulfilment) must reuse this exact constant rather
+     * than inventing a second string for the same concept.
+     */
+    static final String SATISFIED_REF_TYPE = "document";
+
     private final DocumentRepository documents;
     private final DocumentVersionRepository versions;
+    private final DocumentShareRepository shares;
+    private final DocumentCaseLinkRepository caseLinks;
     private final CaseRepository cases;
     private final StageRepository stages;
+    private final RequirementRepository requirementRepository;
+    private final RequirementService requirementService;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final StageWriteScopeGuard writeScope;
@@ -95,15 +112,21 @@ public class DocumentService {
     private final AuditRecorder audit;
 
     public DocumentService(DocumentRepository documents, DocumentVersionRepository versions,
+                           DocumentShareRepository shares, DocumentCaseLinkRepository caseLinks,
                            CaseRepository cases, StageRepository stages,
+                           RequirementRepository requirementRepository, RequirementService requirementService,
                            AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
                            StageWriteScopeGuard writeScope, BlobStore blobStore,
                            StorageProperties storageProperties, ContentSniffGuard sniffGuard,
                            OrgUnitResolver orgUnits, Clock clock, AuditRecorder audit) {
         this.documents = documents;
         this.versions = versions;
+        this.shares = shares;
+        this.caseLinks = caseLinks;
         this.cases = cases;
         this.stages = stages;
+        this.requirementRepository = requirementRepository;
+        this.requirementService = requirementService;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.writeScope = writeScope;
@@ -139,10 +162,18 @@ public class DocumentService {
         }
     }
 
+    /**
+     * Task 18's own review finding (deferred from Task 14): a RETIRED
+     * document must not appear in EITHER listing, so {@code notRetired()} is
+     * ANDed onto the scope+audience predicate here exactly as it is in
+     * {@link #forCase}. {@link #get} deliberately does NOT carry this filter
+     * -- a retired document stays reachable by id (it is a business record,
+     * never deleted, spec 7.1), just no longer listed.
+     */
     @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
     @Transactional(readOnly = true)
     public Page<DocumentView> list(Pageable pageable) {
-        return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, null, pageable)
+        return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, notRetired(), pageable)
                 .map(DocumentService::toView);
     }
 
@@ -193,7 +224,8 @@ public class DocumentService {
 
         Specification<Document> homeOrLinked = (root, query, cb) ->
                 cb.or(cb.equal(root.get("caseId"), caseId), linkedInto(root, query, cb, caseId));
-        return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, homeOrLinked, pageable)
+        return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW,
+                        homeOrLinked.and(notRetired()), pageable)
                 .map(DocumentService::toView);
     }
 
@@ -442,6 +474,73 @@ public class DocumentService {
     }
 
     /**
+     * Task 18 (design spec 5.5): what retiring a document revokes, all four
+     * parts in one transaction --
+     * <ol>
+     *   <li>Revokes every LIVE {@link DocumentShare} for it. A share is
+     *       access; ending the record ends the access.</li>
+     *   <li>Revokes every LIVE {@link DocumentCaseLink} for it.</li>
+     *   <li>Reopens any requirement it satisfied, through the gated
+     *       {@code journey.RequirementService.reopen} -- never a direct write
+     *       to requirement state, and no new caller of
+     *       {@code CaseEngine.reconcile} (that method's own job). Checked
+     *       FIRST via {@link RequirementRepository#satisfiedBy}, and
+     *       {@code reopen} is called only when that check is non-empty -- so
+     *       a {@code document.manage} holder retiring a document that never
+     *       satisfied anything never needs {@code milestone.complete} at
+     *       all. See {@code RequirementService.reopen}'s own javadoc for why
+     *       this is the mirror image of sub-project 3's task-cancellation
+     *       rule, not a contradiction of it.</li>
+     *   <li>Leaves the bytes. Business records are never deleted (spec 7.1)
+     *       -- there is no {@code BlobStore.delete} to call in the first
+     *       place.</li>
+     * </ol>
+     *
+     * {@code reason} is accepted for parity with the eventual
+     * {@code document.retired} audit action Task 29 adds (design spec
+     * section on audit actions) -- no such action exists yet in this task,
+     * so it is validated (a blank reason is refused, the same
+     * "no way to waive/cancel silently" shape {@code RequirementService.waive}
+     * and {@code task.TaskService.changeStatus}'s cancellation branch both
+     * already use) but not yet persisted or audited anywhere.
+     *
+     * {@link StageWriteScopeGuard} still applies on top, exactly as it does
+     * for {@link #upload}/{@link #addVersion}/{@link #patch}.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_MANAGE)
+    @Transactional
+    public DocumentView retire(UUID id, String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new IllegalArgumentException("A retirement reason is required");
+        }
+
+        Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_MANAGE, id);
+        Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_MANAGE, d.getCaseId());
+        applyWriteScope(c);
+
+        Instant now = Instant.now(clock);
+        for (DocumentShare share : shares.liveSharesOf(d.getId())) {
+            share.setRevokedAt(now);
+            shares.save(share);
+        }
+        for (DocumentCaseLink link : caseLinks.liveLinksOf(d.getId())) {
+            link.setRevokedAt(now);
+            caseLinks.save(link);
+        }
+
+        // Only calls the gated reopen when there is actually something to
+        // reopen -- see this method's own javadoc, point 3.
+        if (!requirementRepository.satisfiedBy(d.getId(), SATISFIED_REF_TYPE).isEmpty()) {
+            requirementService.reopen(d.getId(), SATISFIED_REF_TYPE);
+        }
+
+        d.setStatus(DocumentStatus.RETIRED);
+        d = documents.saveAndFlush(d);
+
+        return toView(d);
+    }
+
+    /**
      * The stage write_scope guard, applied to a case rather than a milestone --
      * {@code document} attaches only to a case, so there is no Milestone to
      * pass {@code StageWriteScopeGuard}'s original three-argument
@@ -547,6 +646,11 @@ public class DocumentService {
         return new DocumentVersionView(v.getId(), v.getDocumentId(), v.getVersionNo(), v.getSizeBytes(),
                 v.getContentType(), v.getSha256(), v.getReviewStatus(), v.getReviewedBy(), v.getReviewedAt(),
                 v.getReviewNote(), v.getUploadedBy(), v.getUploadedAt());
+    }
+
+    /** RETIRED excluded from every listing -- {@link #list}/{@link #forCase}'s own javadoc. */
+    private static Specification<Document> notRetired() {
+        return (root, query, cb) -> cb.notEqual(root.get("status"), DocumentStatus.RETIRED);
     }
 
     /** An EXISTS subquery over document_case_link, live links into caseId only. */

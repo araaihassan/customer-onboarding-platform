@@ -9,6 +9,11 @@ import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
+import co.ara.onboarding.journey.MilestoneStatus;
+import co.ara.onboarding.journey.Requirement;
+import co.ara.onboarding.journey.RequirementRepository;
+import co.ara.onboarding.journey.RequirementService;
+import co.ara.onboarding.journey.RequirementStatus;
 import co.ara.onboarding.journey.WriteScopeException;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.platform.storage.StorageProperties;
@@ -22,9 +27,12 @@ import org.springframework.data.domain.Pageable;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -56,12 +64,16 @@ class DocumentServiceTest extends PostgresTestBase {
     @Autowired TenantFixture fixture;
     @Autowired JourneyFixtures journey;
     @Autowired DocumentService documents;
+    @Autowired DocumentContentService content;
     @Autowired DocumentRepository documentRepository;
     @Autowired DocumentVersionRepository versionRepository;
+    @Autowired DocumentShareRepository shareRepository;
     @Autowired DocumentCaseLinkRepository linkRepository;
     @Autowired RoleService roles;
     @Autowired StorageProperties storageProperties;
     @Autowired CaseService cases;
+    @Autowired RequirementService requirements;
+    @Autowired RequirementRepository requirementRepository;
     @Autowired AuditEventRepository auditEvents;
 
     /** A minimal, real PDF magic prefix -- enough for Tika's own magic-byte detection to say "application/pdf". */
@@ -993,6 +1005,278 @@ class DocumentServiceTest extends PostgresTestBase {
         assertThatThrownBy(() -> fixture.runAsUser(tenant, teamScopeNonOwner[0], () -> documents.patch(
                 documentId[0], new PatchDocumentRequest("New Name", null, null, null))))
                 .isInstanceOf(WriteScopeException.class);
+    }
+
+    /**
+     * Task 18, design spec 5.5 point 1: retiring revokes every LIVE
+     * {@link DocumentShare} for the document -- a share already revoked
+     * before retirement is left exactly as it was, never re-stamped with a
+     * new {@code revokedAt}.
+     */
+    @Test
+    void retiringRevokesEveryLiveShare() {
+        UUID tenant = fixture.createTenant("doc-retire-shares-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var documentId = new UUID[1];
+        var liveShareId = new UUID[1];
+        var alreadyRevokedShareId = new UUID[1];
+        var alreadyRevokedAt = new Instant[1];
+
+        fixture.runAs(tenant, () -> {
+            Case c = journey.newCase(tenant);
+            manager[0] = fixture.createUser(tenant, "retire-share-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(PermissionKeys.DOCUMENT_MANAGE, Scope.ALL));
+            documentId[0] = createDocument(tenant, c, manager[0]);
+
+            DocumentShare live = new DocumentShare(Uuid7.generate(), tenant, documentId[0],
+                    SharePrincipalType.USER, Uuid7.generate(), manager[0], Instant.now(clock));
+            shareRepository.saveAndFlush(live);
+            liveShareId[0] = live.getId();
+
+            DocumentShare alreadyRevoked = new DocumentShare(Uuid7.generate(), tenant, documentId[0],
+                    SharePrincipalType.CONTACT, Uuid7.generate(), manager[0], Instant.now(clock));
+            // Truncated to microseconds -- Postgres timestamptz precision -- so
+            // the equality check below survives the DB round trip.
+            alreadyRevokedAt[0] = Instant.now(clock).minusSeconds(60).truncatedTo(ChronoUnit.MICROS);
+            alreadyRevoked.setRevokedAt(alreadyRevokedAt[0]);
+            shareRepository.saveAndFlush(alreadyRevoked);
+            alreadyRevokedShareId[0] = alreadyRevoked.getId();
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> documents.retire(documentId[0], "Wrong file uploaded"));
+
+        fixture.runAs(tenant, () -> {
+            DocumentShare live = shareRepository.findById(liveShareId[0]).orElseThrow();
+            assertThat(live.getRevokedAt()).isNotNull();
+
+            DocumentShare untouched = shareRepository.findById(alreadyRevokedShareId[0]).orElseThrow();
+            assertThat(untouched.getRevokedAt()).isEqualTo(alreadyRevokedAt[0]);
+        });
+    }
+
+    /**
+     * Task 18, design spec 5.5 point 2: retiring revokes every LIVE
+     * {@link DocumentCaseLink} for the document, the same "unlink is a
+     * column, not a DELETE" shape as shares -- and an already-revoked link
+     * is left untouched, the same idempotence proven above for shares.
+     */
+    @Test
+    void retiringRevokesEveryCrossJourneyLink() {
+        UUID tenant = fixture.createTenant("doc-retire-links-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var documentId = new UUID[1];
+        var liveLinkId = new UUID[1];
+        var alreadyRevokedLinkId = new UUID[1];
+        var alreadyRevokedAt = new Instant[1];
+
+        fixture.runAs(tenant, () -> {
+            Case home = journey.newCase(tenant);
+            Case other = journey.newCase(tenant);
+            manager[0] = fixture.createUser(tenant, "retire-link-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(PermissionKeys.DOCUMENT_MANAGE, Scope.ALL));
+            documentId[0] = createDocument(tenant, home, manager[0]);
+
+            DocumentCaseLink live = new DocumentCaseLink(
+                    Uuid7.generate(), tenant, documentId[0], other.getId(), manager[0], Instant.now(clock));
+            linkRepository.saveAndFlush(live);
+            liveLinkId[0] = live.getId();
+
+            Case yetAnother = journey.newCase(tenant);
+            DocumentCaseLink alreadyRevoked = new DocumentCaseLink(
+                    Uuid7.generate(), tenant, documentId[0], yetAnother.getId(), manager[0], Instant.now(clock));
+            alreadyRevokedAt[0] = Instant.now(clock).minusSeconds(60).truncatedTo(ChronoUnit.MICROS);
+            alreadyRevoked.setRevokedAt(alreadyRevokedAt[0]);
+            linkRepository.saveAndFlush(alreadyRevoked);
+            alreadyRevokedLinkId[0] = alreadyRevoked.getId();
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> documents.retire(documentId[0], "Wrong file uploaded"));
+
+        fixture.runAs(tenant, () -> {
+            DocumentCaseLink live = linkRepository.findById(liveLinkId[0]).orElseThrow();
+            assertThat(live.getRevokedAt()).isNotNull();
+
+            DocumentCaseLink untouched = linkRepository.findById(alreadyRevokedLinkId[0]).orElseThrow();
+            assertThat(untouched.getRevokedAt()).isEqualTo(alreadyRevokedAt[0]);
+        });
+    }
+
+    /**
+     * Task 18, design spec 5.5 point 3 -- the one that distinguishes
+     * retirement from sub-project 3's task-cancellation rule (a task is
+     * cancelled BEFORE it satisfies; a document is realistically retired
+     * AFTER it satisfied -- the wrong file was uploaded), and the easiest of
+     * the four to omit. Goes through the gated
+     * {@code journey.RequirementService.reopen}, never a direct write to
+     * requirement state -- proven here by the {@link Requirement} row itself
+     * reading OPEN again with every satisfying field cleared, and by the
+     * milestone's OWN {@code progressPercent} dropping back below 100 --
+     * both only reachable through a real {@code CaseEngine.reconcile}.
+     *
+     * Deliberately NOT asserted: the milestone's {@code status} reverting off
+     * DONE. {@code CaseEngine.recomputeStatusesAndProgress}'s own comment
+     * documents DONE as STICKY, same as SKIPPED -- once a milestone reads
+     * DONE, {@code reconcile} never re-evaluates its status again (Task 17's
+     * force-complete relies on exactly this so its own reconcile call cannot
+     * silently undo it). That stickiness is a pre-existing, deliberate
+     * property of {@code CaseEngine} this task does not touch and this plan
+     * explicitly forbids modifying ("CaseEngine is not modified anywhere in
+     * this plan" -- if a task appears to need an engine change, escalate
+     * rather than make it) -- so a milestone a retired document had
+     * completed keeps reading DONE even after its requirement reopens,
+     * while its own progress number quietly disagrees. Recorded here as a
+     * real, known gap for a later sub-project rather than worked around.
+     *
+     * There is no real document-satisfies-requirement wiring yet (Tasks
+     * 24/25), so the SATISFIED requirement is seeded directly through
+     * {@code RequirementService.satisfy}, using {@code "document"}
+     * (lowercase) as {@code satisfiedRefType} -- this sub-project's own
+     * convention, matching {@code task.TaskService}'s existing {@code "task"}
+     * call site, that Tasks 24/25 must reuse rather than inventing a second
+     * string for the same concept ({@link DocumentService#SATISFIED_REF_TYPE}).
+     */
+    @Test
+    void retiringReopensARequirementItSatisfied() {
+        UUID tenant = fixture.createTenant("doc-retire-reopen-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requirementId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Retire Reopen Co " + Uuid7.generate(), null, null, null);
+            // publishedTemplate()'s single-stage/single-milestone/single-requirement
+            // shape would complete the WHOLE CASE the moment this one requirement
+            // is satisfied -- CaseEngine.reconcile's own top-of-method guard then
+            // short-circuits on CaseStatus.COMPLETED and never runs again, hiding
+            // whatever reopen() does. publishedThreeStageWorkflow() gives stage
+            // one a SECOND milestone that stays outstanding, so satisfying the
+            // first milestone's requirement leaves the case genuinely ACTIVE and
+            // a real reconcile still has something to recompute after reopening.
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            manager[0] = fixture.createUser(tenant, "retire-reopen-manager+" + Uuid7.generate() + "@example.com");
+            // WORKFLOW_VIEW is needed too -- applyWriteScope resolves the
+            // case's current Stage under it, and with none granted the Stage
+            // lookup itself 404s before retire's own body ever runs (the
+            // same shape aTeamScopedHolderIsStillRefusedInsideAnOwnerOnlyStage
+            // above documents for upload/patch).
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            documentId[0] = createDocument(tenant, caseId[0], customerId, manager[0], null);
+
+            requirements.satisfy(requirementId[0], documentId[0], DocumentService.SATISFIED_REF_TYPE);
+        });
+
+        fixture.runAs(tenant, () -> {
+            var milestone = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0);
+            assertThat(milestone.status()).isEqualTo(MilestoneStatus.DONE);
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> documents.retire(documentId[0], "Wrong file uploaded"));
+
+        fixture.runAs(tenant, () -> {
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getStatus()).isEqualTo(RequirementStatus.OPEN);
+            assertThat(r.getSatisfiedRef()).isNull();
+            assertThat(r.getSatisfiedRefType()).isNull();
+            assertThat(r.getSatisfiedAt()).isNull();
+            assertThat(r.getSatisfiedBy()).isNull();
+
+            // The engine DID run (reconcile recomputes this unconditionally,
+            // unlike status -- see this test's own javadoc): the milestone's
+            // own weighted percent drops back below 100 once its requirement
+            // is unsettled again, even though status itself stays DONE.
+            var milestone = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0);
+            assertThat(milestone.progressPercent()).isLessThan(100);
+        });
+    }
+
+    /**
+     * Task 18, design spec 5.5 point 4: bytes are never deleted -- there is
+     * no {@code BlobStore.delete} to call in the first place (spec 7.1).
+     * Proven by successfully re-reading the exact same content after
+     * retirement, not merely by the absence of a delete call.
+     */
+    @Test
+    void retiringLeavesTheBlobReadableByKey() {
+        UUID tenant = fixture.createTenant("doc-retire-blob-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            manager[0] = fixture.createUser(tenant, "retire-blob-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL,
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> documentId[0] = documents.upload(caseId[0],
+                new CreateDocumentRequest("Doc", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf").id());
+
+        fixture.runAsUser(tenant, manager[0], () -> documents.retire(documentId[0], "Wrong file uploaded"));
+
+        fixture.runAsUser(tenant, manager[0], () -> {
+            try {
+                BlobContent blob = content.open(documentId[0], 1);
+                assertThat(blob.content().readAllBytes()).isEqualTo(PDF_BYTES);
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        });
+    }
+
+    /**
+     * The gap Task 14's own review deferred to this task: {@link
+     * DocumentService#list}/{@link DocumentService#forCase} must both
+     * exclude a RETIRED document, not merely leave it out of {@link
+     * DocumentService#get}'s own reach -- get() stays retrievable by id on
+     * purpose, since a retired document is still viewable, just not listed.
+     */
+    @Test
+    void aRetiredDocumentIsNotReturnedByAnyListing() {
+        UUID tenant = fixture.createTenant("doc-retire-listing-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var activeDocId = new UUID[1];
+        var retiredDocId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            Case c = journey.newCase(tenant);
+            caseId[0] = c.getId();
+            manager[0] = fixture.createUser(tenant, "retire-listing-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL));
+
+            activeDocId[0] = createDocument(tenant, c, manager[0]);
+            retiredDocId[0] = createDocument(tenant, c, manager[0]);
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> documents.retire(retiredDocId[0], "Wrong file uploaded"));
+
+        fixture.runAsUser(tenant, manager[0], () -> {
+            assertThat(documents.list(Pageable.unpaged()).getContent())
+                    .extracting(DocumentView::id).containsExactly(activeDocId[0]);
+            assertThat(documents.forCase(caseId[0], Pageable.unpaged()).getContent())
+                    .extracting(DocumentView::id).containsExactly(activeDocId[0]);
+        });
+
+        // get() stays retrievable by id -- a retired document is still
+        // viewable, just not listed (DocumentService.retire's own javadoc).
+        fixture.runAsUser(tenant, manager[0], () ->
+                assertThat(documents.get(retiredDocId[0]).status()).isEqualTo(DocumentStatus.RETIRED));
     }
 
     private void grant(UUID userId, Map<String, Scope> grants) {
