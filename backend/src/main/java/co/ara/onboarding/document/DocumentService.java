@@ -40,6 +40,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HexFormat;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -393,6 +394,13 @@ public class DocumentService {
         applyWriteScope(c);
 
         boolean retargeted = false;
+        // Captured before either targeting field is written, so the audit
+        // payload below can report what actually changed -- see this
+        // method's own javadoc and CLAUDE.md's "an audit trail the
+        // application can rewrite is not evidence": once d.setTargetXxx(...)
+        // runs, the pre-patch value is gone for good.
+        UUID fromDepartmentId = d.getTargetDepartmentId();
+        String fromContactLabel = d.getTargetContactLabel();
 
         if (request.name() != null) d.setName(request.name());
         if (request.category() != null) d.setCategory(request.category());
@@ -413,9 +421,21 @@ public class DocumentService {
         d = documents.saveAndFlush(d);
 
         if (retargeted) {
+            // A plain Map.of(...) throws NPE the moment any one of these four
+            // values is null (an untargeted document has a null
+            // targetDepartmentId/targetContactLabel), so this builds a mutable
+            // map and null-safe-converts each value instead -- AuditRecorder's
+            // payload is serialized through Jackson, which writes a null map
+            // value as JSON null with no special handling required.
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("caseId", d.getCaseId().toString());
+            payload.put("fromDepartmentId", fromDepartmentId == null ? null : fromDepartmentId.toString());
+            payload.put("toDepartmentId", d.getTargetDepartmentId() == null ? null : d.getTargetDepartmentId().toString());
+            payload.put("fromContactLabel", fromContactLabel);
+            payload.put("toContactLabel", d.getTargetContactLabel());
             audit.record(AuditActions.DOCUMENT_RETARGETED, "document", d.getId(),
                     "Retargeted document " + d.getName(),
-                    Map.of("caseId", d.getCaseId().toString()));
+                    payload);
         }
 
         return toView(d);

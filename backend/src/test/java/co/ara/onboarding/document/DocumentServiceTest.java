@@ -913,6 +913,15 @@ class DocumentServiceTest extends PostgresTestBase {
                     .toList();
             assertThat(retargeted).extracting(AuditEvent::getResourceId).containsExactly(documentId[0]);
             assertThat(retargeted).allMatch(e -> !e.isTimelineVisible());
+
+            // Task 17 fix round: the finding was that this event recorded
+            // neither the old nor the new target, so a second retarget would
+            // make the department history unreconstructable from the
+            // append-only log alone (spec 6.4). Assert the payload actually
+            // carries both ends of this move, not just that the event exists.
+            assertThat(retargeted.get(0).getPayload())
+                    .contains("\"fromDepartmentId\": \"" + emptyDept[0] + "\"")
+                    .contains("\"toDepartmentId\": \"" + populatedDept[0] + "\"");
         });
     }
 
