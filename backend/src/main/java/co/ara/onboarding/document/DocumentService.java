@@ -204,7 +204,7 @@ public class DocumentService {
     public Page<DocumentView> list(VisibilityTier visibilityTier, Pageable pageable) {
         return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW,
                         withTier(notRetired(), visibilityTier), pageable)
-                .map(DocumentService::toView);
+                .map(this::toView);
     }
 
     /**
@@ -358,7 +358,7 @@ public class DocumentService {
                 cb.lessThanOrEqualTo(root.get("expiresAt"), cutoff));
         return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW,
                         expiringSoon.and(notRetired()), pageable)
-                .map(DocumentService::toView);
+                .map(this::toView);
     }
 
     /**
@@ -410,7 +410,7 @@ public class DocumentService {
                 cb.or(cb.equal(root.get("caseId"), caseId), linkedInto(root, query, cb, caseId));
         return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW,
                         homeOrLinked.and(notRetired()), pageable)
-                .map(DocumentService::toView);
+                .map(this::toView);
     }
 
     @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
@@ -1093,10 +1093,21 @@ public class DocumentService {
         return cb.exists(subquery);
     }
 
-    private static DocumentView toView(Document d) {
+    /**
+     * Not static (Ruling 3, sub-project 4 Task 33): resolving
+     * {@code currentVersionNumber} needs the {@code versions} repository field.
+     * The one extra indexed-PK lookup per row this adds is an accepted small
+     * N+1 cost for list-size-bounded results, the same simplicity-over-micro-
+     * optimization precedent {@code frontend/src/lib/api/tasks.ts}'s own
+     * {@code useWorkContexts} already establishes in this codebase.
+     */
+    private DocumentView toView(Document d) {
+        Integer currentVersionNumber = d.getCurrentVersionId() == null
+                ? null
+                : versions.versionNumberOf(d.getCurrentVersionId()).orElse(null);
         return new DocumentView(d.getId(), d.getCaseId(), d.getCustomerId(), d.getName(),
                 d.getCategory(), d.getVisibilityTier(), d.getTargetDepartmentId(), d.getTargetContactLabel(),
                 d.getOwnerContactId(), d.getExpiresAt(), d.getStatus(), d.getCurrentVersionId(),
-                d.getUploadedBy(), d.getCreatedAt(), d.getUpdatedAt());
+                currentVersionNumber, d.getUploadedBy(), d.getCreatedAt(), d.getUpdatedAt());
     }
 }

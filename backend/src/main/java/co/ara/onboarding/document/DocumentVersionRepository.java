@@ -47,4 +47,23 @@ public interface DocumentVersionRepository
      */
     @Query("select v from DocumentVersion v where v.documentId = :documentId and v.versionNo = :versionNo")
     Optional<DocumentVersion> versionAt(@Param("documentId") UUID documentId, @Param("versionNo") int versionNo);
+
+    /**
+     * The version number of one {@code document_version} row, by its own id --
+     * used only by {@code DocumentService.toView} (Ruling 3, sub-project 4 Task
+     * 33) to populate {@code DocumentView.currentVersionNumber} from {@code
+     * Document.currentVersionId}, a bare UUID with no JPA relation of its own
+     * ({@link Document}'s own javadoc explains why). Every caller of {@code
+     * toView} has already resolved its {@link Document} through {@code
+     * AuthorizedQuery} before this runs -- the same "fed only a pre-authorized
+     * id" shape {@link #versionAt}'s own javadoc documents just above.
+     *
+     * Named {@code versionNumberOf} rather than a {@code findBy*} shape,
+     * mirroring {@link #maxVersionNo}/{@link #versionAt}: it returns a bare
+     * int projection, never a scoped entity, so it never matches
+     * {@code AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly}'s
+     * finder predicate and needs no exclusion there.
+     */
+    @Query("select v.versionNo from DocumentVersion v where v.id = :versionId")
+    Optional<Integer> versionNumberOf(@Param("versionId") UUID versionId);
 }

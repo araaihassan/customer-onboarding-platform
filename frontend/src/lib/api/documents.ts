@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { apiFetch } from "./client";
+import { apiFetch, apiFetchBlob } from "./client";
 import { caseKeys } from "./cases";
 import type { components } from "./generated";
 
@@ -121,6 +121,44 @@ export function useDocument(id: string) {
     queryFn: () => apiFetch<Document>(`/documents/${id}`),
     enabled: Boolean(id),
   });
+}
+
+/**
+ * Downloads one document version's real bytes and triggers a browser save --
+ * Task 33, Ruling 4. A plain async function, not a hook: triggering a
+ * download is an imperative action a click handler performs, not state a
+ * component renders (there is nothing to subscribe to, no loading/error UI
+ * beyond the click's own try/catch).
+ *
+ * `versionNumber` is `DocumentView.currentVersionNumber` (Ruling 3, backend
+ * `DocumentService.toView`) -- the content-download endpoint
+ * (`GET /documents/{id}/versions/{versionNo}/content`) takes a version
+ * NUMBER, never the bare `currentVersionId` UUID `DocumentView` also
+ * carries.
+ *
+ * The standard authenticated-SPA download pattern: fetch the bytes through
+ * `apiFetchBlob` (so the request carries the bearer token and gets the same
+ * refresh-on-401 retry every other request does -- a plain `<a href>` to the
+ * API could not attach either), wrap them in a temporary object URL, and
+ * click a programmatically-created, off-DOM `<a download>` -- the server
+ * already sets a real `Content-Disposition: attachment` header, but that
+ * header only matters for a plain navigation, not a same-origin
+ * `fetch`-then-blob flow, so the `download` attribute here is what actually
+ * names the saved file for the browser's save dialog.
+ */
+export async function downloadDocumentVersion(documentId: string, versionNumber: number, filename: string): Promise<void> {
+  const blob = await apiFetchBlob(`/documents/${documentId}/versions/${versionNumber}/content`);
+  const url = URL.createObjectURL(blob);
+  try {
+    const link = window.document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    window.document.body.appendChild(link);
+    link.click();
+    window.document.body.removeChild(link);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 /**

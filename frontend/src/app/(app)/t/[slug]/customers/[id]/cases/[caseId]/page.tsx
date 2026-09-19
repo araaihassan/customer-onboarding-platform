@@ -8,6 +8,7 @@ import { ArrowRightIcon, WorkflowIcon } from "@/components/icons";
 import { AwaitingApprovalBanner } from "@/components/journey/AwaitingApprovalBanner";
 import { CaseHeader } from "@/components/journey/CaseHeader";
 import { CaseSwitcher } from "@/components/journey/CaseSwitcher";
+import { DocumentsTab } from "@/components/journey/DocumentsTab";
 import { HoldDialog } from "@/components/journey/HoldDialog";
 import { PlanTab, type PlanPreviewMilestone } from "@/components/journey/PlanTab";
 import { Roadmap } from "@/components/journey/Roadmap";
@@ -27,10 +28,10 @@ import { t } from "@/lib/i18n";
 
 /**
  * The journey workspace (uispecs README §5): header card with the switcher
- * beneath its meta line, then the tab strip. Only the Journey tab has real
- * content yet -- Tasks/Documents/Agreements and a proper Timeline arrive with
- * the sub-projects that build those features; a missing tab would read as a
- * missing feature, so each renders an honest placeholder instead of being
+ * beneath its meta line, then the tab strip. Journey, Tasks and (Task 33)
+ * Documents all have real content now; Agreements still arrives with the
+ * sub-project that builds it -- a missing tab would read as a missing
+ * feature, so it still renders an honest placeholder instead of being
  * hidden.
  */
 export default function CaseWorkspacePage() {
@@ -137,7 +138,7 @@ export default function CaseWorkspacePage() {
           <div role="tabpanel" id={panelId(tab)} aria-labelledby={`tab-${tab}`}>
             {tab === "journey" && <JourneyPreview caseId={caseId} />}
             {tab === "tasks" && <TasksTab caseId={caseId} />}
-            {tab === "documents" && <EmptyState title={t("case.tabs.documents.empty")} />}
+            {tab === "documents" && <DocumentsTab caseId={caseId} />}
             {tab === "agreements" && <EmptyState title={t("case.tabs.agreements.empty")} />}
             {tab === "plan" && isCustomerTemplate && <PlanTab caseId={caseId} milestones={planMilestones} />}
             {tab === "timeline" && <TimelineTab caseId={caseId} />}

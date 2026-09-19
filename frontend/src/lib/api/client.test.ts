@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { apiFetch, setTenantSlug, __setAccessToken, __getAccessToken } from "./client";
+import { apiFetch, apiFetchBlob, setTenantSlug, __setAccessToken, __getAccessToken } from "./client";
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -200,5 +200,89 @@ describe("apiFetch", () => {
     const headers = new Headers((retryCall![1] as RequestInit).headers);
     expect(headers.has("Content-Type")).toBe(false);
     expect(headers.get("Authorization")).toBe("Bearer fresh-token");
+  });
+});
+
+/**
+ * Task 33, Ruling 4: `apiFetchBlob` must share `apiFetch`'s own auth-header
+ * attachment and 401-refresh-and-retry logic exactly, not a second copy that
+ * could drift -- these mirror `apiFetch`'s own "attaches the bearer token"
+ * and "refreshes once on 401 and retries" cases above, against the shared
+ * `sendWithRefresh` core, and add the one thing genuinely different: the
+ * response is read as a Blob, never parsed as JSON.
+ */
+describe("apiFetchBlob", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    setTenantSlug("acme");
+    __setAccessToken("initial-token");
+  });
+
+  it("attaches the bearer token and returns the response body as a Blob", async () => {
+    // A plain string body, not a Blob passed to the Response constructor --
+    // jsdom's own Response/Blob polyfill does not round-trip a Blob BODY
+    // faithfully (it stringifies it to "[object Blob]" before wrapping),
+    // which is an environment quirk of the test double, not of `.blob()`
+    // itself; a string body exercises the exact same `apiFetchBlob` code
+    // path without tripping it.
+    const fetchSpy = vi.fn().mockResolvedValue(new Response("file bytes", { status: 200, headers: { "Content-Type": "application/pdf" } }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await apiFetchBlob("/documents/doc-1/versions/1/content");
+
+    const firstCall = fetchSpy.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    expect(firstCall![0]).toBe("/api/t/acme/documents/doc-1/versions/1/content");
+    const headers = new Headers((firstCall![1] as RequestInit).headers);
+    expect(headers.get("Authorization")).toBe("Bearer initial-token");
+    expect(result).toBeInstanceOf(Blob);
+    expect(await result.text()).toBe("file bytes");
+  });
+
+  it("refreshes once on 401 and retries the original request, still returning a Blob", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 401 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ accessToken: "fresh-token", expiresInSeconds: 900 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("file bytes", { status: 200, headers: { "Content-Type": "application/pdf" } }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await apiFetchBlob("/documents/doc-1/versions/1/content");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(__getAccessToken()).toBe("fresh-token");
+    expect(await result.text()).toBe("file bytes");
+  });
+
+  it("throws ApiError on a non-ok response, never returning a Blob", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(new Response("not found", { status: 404 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(apiFetchBlob("/documents/missing/versions/1/content")).rejects.toThrow();
+  });
+
+  /**
+   * Production download code must go through `apiFetchBlob`, never reach
+   * past it into the module's test-only token seams -- the brief's own
+   * explicit requirement. This does not (and cannot) prove the seam is
+   * unused elsewhere in the codebase; it proves `apiFetchBlob` itself does
+   * not require a caller to touch `__getAccessToken`/`__setAccessToken` to
+   * get an authenticated request, which is what makes going through them a
+   * pure regression rather than ever necessary.
+   */
+  it("authenticates without the caller ever touching the token test seams", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(new Response("x", { status: 200 }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await apiFetchBlob("/documents/doc-1/versions/1/content");
+
+    const firstCall = fetchSpy.mock.calls[0];
+    const headers = new Headers((firstCall![1] as RequestInit).headers);
+    expect(headers.get("Authorization")).toBe("Bearer initial-token");
   });
 });

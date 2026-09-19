@@ -2169,14 +2169,58 @@ Verification: backend full suite green (821 tests, 0 failures/errors/skipped, in
 
 ### Task 33: Upload dialog, and the case workspace Documents tab
 
-**Files:** `UploadDialog.tsx`, `DocumentsTab.tsx`, `VisibilityAside.tsx`, tests
+**Files:** `UploadDialog.tsx`, `DocumentsTab.tsx`, `VisibilityAside.tsx`, tests, and (added during
+execution, not anticipated by this line originally) `DocumentView.java`, `DocumentService.java`,
+`DocumentVersionRepository.java`, `client.ts`, `documents.ts`, and the case workspace route
+(`app/(app)/t/[slug]/customers/[id]/cases/[caseId]/page.tsx`).
 **Interfaces:** Consumes `useUploadDocument`, `useCaseDocuments`. Mounts into the existing case workspace SegmentedControl (`Journey · Tasks · Documents · Agreements · Activity`).
 
-- [ ] **Step 1: Write the failing tests** — the visibility select offers exactly the three tiers; a `SENSITIVE` selection surfaces the explanation rather than silently restricting; **the upload control's enabled state waits for the mutation** rather than optimistically flipping.
-- [ ] **Step 2: Run to verify failure.**
-- [ ] **Step 3: Implement.** The right aside is `SCREENS.md` §7's "How visibility works", three tiers explained in one sentence each, colour-coded by semantic fg.
-- [ ] **Step 4: Run vitest, tsc, lint.**
-- [ ] **Step 5: Commit.**
+- [x] **Step 1: Write the failing tests** — the visibility select offers exactly the three tiers; a `SENSITIVE` selection surfaces the explanation rather than silently restricting; **the upload control's enabled state waits for the mutation** rather than optimistically flipping.
+- [x] **Step 2: Run to verify failure.**
+- [x] **Step 3: Implement.** The right aside is `SCREENS.md` §7's "How visibility works", three tiers explained in one sentence each, colour-coded by semantic fg.
+- [x] **Step 4: Run vitest, tsc, lint.**
+- [x] **Step 5: Commit.**
+
+**Execution note (four rulings, and one deliberate deviation from a ruling's literal wording):**
+
+1. The design spec's own "SCREENS §6" citation for the Documents tab row shape is stale (§6 is an
+   unrelated Gantt screen); `SCREENS.md` §3's "Other tabs" subsection is the real spec and is what
+   `DocumentsTab.tsx` implements. No code consequence, recorded for the next reader.
+2. `VisibilityAside.tsx` is a standalone component, mounted inside `UploadDialog.tsx` beside the
+   visibility `<select>` (not the case workspace's own right rail, which stays reserved for later
+   sub-projects). All three tiers' explanations render always; the currently-selected tier's own
+   row gets a real border/background/weight difference (`data-emphasized`), never a hide/reveal
+   interaction this design system does not otherwise use.
+3. `DocumentView` gained `currentVersionNumber` (nullable `Integer`) so the case tab's Open button
+   can build the correct `GET /documents/{id}/versions/{versionNo}/content` URL, which needs a
+   version NUMBER, not the bare `currentVersionId` UUID already on the view. **Deviation from this
+   ruling's own literal suggested code** (`versions.findById(d.getCurrentVersionId())`): that call
+   would have tripped `AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly` --
+   `DocumentService` is covered by that rule (package-level, added at Task 14) and `findById`
+   matches its name-shaped finder predicate exactly, with no exclusion for it or for this new call
+   site. Added `DocumentVersionRepository.versionNumberOf(UUID)` instead -- a `@Query`-backed,
+   non-`findBy*`-named method returning a bare `Integer` projection, the identical shape
+   `maxVersionNo`/`versionAt` already use in the same file specifically to stay invisible to that
+   rule while remaining safe (every caller of `DocumentService.toView` has already resolved its
+   `Document` through `AuthorizedQuery` before `toView` runs). `toView` itself is no longer `static`
+   (it needs the `versions` repository field), so its three `DocumentService::toView` method
+   references became `this::toView`. Backend suite re-run green after the change (see the branch's
+   own test-summary note); OpenAPI regenerated and `generated.ts` picked up the new field with only
+   springdoc's usual reordering noise alongside it.
+4. `client.ts` gained `apiFetchBlob`, sharing `apiFetch`'s auth-header-attachment and
+   401-refresh-and-retry logic through a new shared `sendWithRefresh` helper (no duplicated retry
+   logic). `documents.ts` gained `downloadDocumentVersion` (a plain async function, not a hook) that
+   calls it and triggers a browser save via a temporary `URL.createObjectURL` + a
+   programmatically-clicked `<a download>`. Wired to the case tab's Open button.
+
+**Plan-deviation note for future execution against this file:** a Response's `Blob` BODY does not
+round-trip byte-for-byte through jsdom's own `Response`/`Blob` polyfill in this test environment --
+constructing `new Response(someBlob, ...)` and later reading `.blob()`/`.text()` back yields the
+literal string `"[object Blob]"` rather than the original bytes. Tests exercising `apiFetchBlob`/
+`downloadDocumentVersion` use a plain string Response body instead (`new Response("bytes", ...)`),
+which round-trips correctly and exercises the identical code path. Not a `apiFetchBlob` defect --
+confirmed by reproducing the same `new Response(blob)` round-trip successfully in plain Node
+outside jsdom.
 
 ### Task 34: Request and review dialogs
 

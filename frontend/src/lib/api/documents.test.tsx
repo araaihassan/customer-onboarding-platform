@@ -6,6 +6,7 @@ import { __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import { caseKeys } from "./cases";
 import {
   documentKeys,
+  downloadDocumentVersion,
   useAddVersion,
   useCaseDocuments,
   useCreateDocumentRequest,
@@ -437,5 +438,61 @@ describe("useReviewVersion", () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.detail("d-1") });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.pending() });
+  });
+});
+
+/**
+ * Task 33, Ruling 4: a plain async function, not a hook -- triggering a
+ * download is an imperative action, not state to render. Fetches through
+ * `apiFetchBlob` (so it carries the bearer token and the refresh-on-401
+ * retry, unlike a plain `<a href>`), then wraps the bytes in a temporary
+ * object URL and clicks a programmatically-created `<a download>`.
+ */
+describe("downloadDocumentVersion", () => {
+  it("fetches the version's content by NUMBER, not by the version id", async () => {
+    fetchMock.mockResolvedValue(new Response("bytes", { status: 200 }));
+    vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn().mockReturnValue("blob:mock-url"), revokeObjectURL: vi.fn() });
+    // jsdom has no real navigation -- stub the anchor's own click so this
+    // test's only concern (which URL was fetched) isn't drowned out by an
+    // unrelated "Not implemented: navigation" console warning.
+    const realCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = realCreateElement(tag);
+      if (tag === "a") vi.spyOn(el, "click").mockImplementation(() => {});
+      return el;
+    });
+
+    await downloadDocumentVersion("doc-1", 3, "MSA.pdf");
+
+    expect(lastUrl()).toBe("/api/t/acme/documents/doc-1/versions/3/content");
+
+    createElementSpy.mockRestore();
+  });
+
+  it("creates an object URL for the fetched bytes, names the saved file, and revokes the URL afterwards", async () => {
+    fetchMock.mockResolvedValue(new Response("bytes", { status: 200 }));
+    const createObjectURL = vi.fn().mockReturnValue("blob:mock-url");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+
+    let capturedAnchor: HTMLAnchorElement | undefined;
+    const realCreateElement = document.createElement.bind(document);
+    const createElementSpy = vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const el = realCreateElement(tag);
+      if (tag === "a") {
+        capturedAnchor = el as HTMLAnchorElement;
+        vi.spyOn(el, "click").mockImplementation(() => {});
+      }
+      return el;
+    });
+
+    await downloadDocumentVersion("doc-1", 3, "MSA.pdf");
+
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(capturedAnchor?.download).toBe("MSA.pdf");
+    expect(capturedAnchor?.href).toContain("blob:mock-url");
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock-url");
+
+    createElementSpy.mockRestore();
   });
 });

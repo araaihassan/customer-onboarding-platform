@@ -401,6 +401,10 @@ class DocumentServiceTest extends PostgresTestBase {
 
         assertThat(uploaded.get().customerId()).isEqualTo(customerId[0]);
         assertThat(uploaded.get().currentVersionId()).isNotNull();
+        // Ruling 3 (sub-project 4 Task 33): currentVersionNumber is the version
+        // NUMBER the content-download endpoint actually takes, resolved from
+        // currentVersionId -- a fresh upload's first version is always 1.
+        assertThat(uploaded.get().currentVersionNumber()).isEqualTo(1);
 
         fixture.runAs(tenant, () -> {
             List<DocumentVersion> versions = versionRepository.findByDocumentId(uploaded.get().id());

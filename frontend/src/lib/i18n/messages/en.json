@@ -537,5 +537,21 @@
   "documents.filter.sensitive": "Sensitive",
   "documents.filter.openRequests": "Open requests",
   "documents.filter.openRequests.disabledReason": "Not available yet: there is no endpoint to list open document requests across the tenant",
-  "documents.hiddenCount.line": "{visible} VISIBLE · {hidden} HIDDEN BY SCOPE"
+  "documents.hiddenCount.line": "{visible} VISIBLE · {hidden} HIDDEN BY SCOPE",
+  "documents.aside.title": "How visibility works",
+  "documents.aside.companyShared": "Visible to every approved contact at the customer and the case team.",
+  "documents.aside.contactOnly": "Visible only to the uploading contact and permitted reviewers -- other contacts at the same company cannot see it.",
+  "documents.aside.sensitive": "Restricted even within the customer's own company until it is explicitly shared.",
+  "documents.upload.title": "Upload document",
+  "documents.upload.name": "Name",
+  "documents.upload.file": "File",
+  "documents.upload.category": "Category",
+  "documents.upload.visibility": "Visibility",
+  "documents.upload.submit": "Upload",
+  "documents.tab.upload": "Upload document",
+  "documents.tab.empty.title": "No documents yet",
+  "documents.tab.empty.description": "Documents uploaded to this case will appear here.",
+  "documents.tab.open": "Open",
+  "documents.tab.meta": "{tier} · v{version}",
+  "documents.tab.meta.noVersion": "{tier} · no version yet"
 }
