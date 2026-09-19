@@ -1,5 +1,7 @@
 package co.ara.onboarding.document;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
@@ -22,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
@@ -75,13 +78,14 @@ public class DocumentSharingService {
     private final AuthContextProvider contextProvider;
     private final StageWriteScopeGuard writeScope;
     private final Clock clock;
+    private final AuditRecorder audit;
 
     public DocumentSharingService(DocumentRepository documents, DocumentShareRepository shares,
                                   DocumentCaseLinkRepository links, CaseRepository cases, StageRepository stages,
                                   CustomerContactRepository contacts, AppUserRepository users,
                                   OrgUnitResolver orgUnits, AuthorizedQuery authorizedQuery,
                                   AuthContextProvider contextProvider, StageWriteScopeGuard writeScope,
-                                  Clock clock) {
+                                  Clock clock, AuditRecorder audit) {
         this.documents = documents;
         this.shares = shares;
         this.links = links;
@@ -94,6 +98,7 @@ public class DocumentSharingService {
         this.contextProvider = contextProvider;
         this.writeScope = writeScope;
         this.clock = clock;
+        this.audit = audit;
     }
 
     /**
@@ -193,6 +198,17 @@ public class DocumentSharingService {
             // hunting for a conflict that does not exist.
             throw e;
         }
+
+        // Task 29: "onboarding_case"/c.getId() -- same resourceType every
+        // other timeline-visible document.* action uses (AuditActions' own
+        // comment above DOCUMENT_UPLOADED). Never recorded on the idempotent
+        // early-return above -- nothing changed there, nothing to record.
+        audit.record(AuditActions.DOCUMENT_SHARED, "onboarding_case", c.getId(),
+                "Shared document " + d.getName(),
+                Map.of("documentId", d.getId().toString(),
+                        "principalType", principalType.name(),
+                        "principalId", resolvedPrincipalId.toString()));
+
         return toView(share);
     }
 
@@ -232,6 +248,19 @@ public class DocumentSharingService {
         if (share.getRevokedAt() == null) {
             share.setRevokedAt(Instant.now(clock));
             shares.saveAndFlush(share);
+
+            // Task 29: compliance-only (AuditActions.DOCUMENT_SHARE_REVOKED),
+            // matching DOCUMENT_RETARGETED's own resourceType precedent --
+            // "document"/d.getId(), not "onboarding_case" -- see that
+            // constant's own comment. Only on the branch that actually
+            // revokes; the idempotent early-return above records nothing,
+            // the same "nothing changed" reasoning as share()'s own
+            // pre-check.
+            audit.record(AuditActions.DOCUMENT_SHARE_REVOKED, "document", d.getId(),
+                    "Revoked share of document " + d.getName(),
+                    Map.of("shareId", share.getId().toString(),
+                            "principalType", share.getPrincipalType().name(),
+                            "principalId", share.getPrincipalId().toString()));
         }
         return toView(share);
     }
@@ -317,6 +346,16 @@ public class DocumentSharingService {
             // identical reasoning for why.
             throw e;
         }
+
+        // Task 29: recorded against the document's HOME case
+        // ("onboarding_case"/homeCase.getId()) -- the document.* family's own
+        // narrative belongs to the case the document actually lives in, not
+        // the case it was merely linked into -- with the target case named in
+        // the payload. Never recorded on the idempotent early-return above.
+        audit.record(AuditActions.DOCUMENT_LINKED, "onboarding_case", homeCase.getId(),
+                "Linked document " + d.getName() + " into another case",
+                Map.of("documentId", d.getId().toString(), "targetCaseId", targetCase.getId().toString()));
+
         return toView(link);
     }
 
@@ -354,6 +393,14 @@ public class DocumentSharingService {
         if (link.getRevokedAt() == null) {
             link.setRevokedAt(Instant.now(clock));
             links.saveAndFlush(link);
+
+            // Task 29: compliance-only (AuditActions.DOCUMENT_UNLINKED, not in
+            // the original brief's nine-key list -- see that constant's own
+            // comment for why it was added), the identical resourceType shape
+            // as DOCUMENT_SHARE_REVOKED above -- "document"/d.getId().
+            audit.record(AuditActions.DOCUMENT_UNLINKED, "document", d.getId(),
+                    "Unlinked document " + d.getName() + " from another case",
+                    Map.of("targetCaseId", targetCase.getId().toString()));
         }
         return toView(link);
     }

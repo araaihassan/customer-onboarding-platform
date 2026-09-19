@@ -520,6 +520,17 @@ public class DocumentService {
         d.setCurrentVersionId(v.getId());
         d = documents.saveAndFlush(d);
 
+        // Task 29: recorded against "onboarding_case"/c.getId() -- NOT
+        // "document"/d.getId() -- so this surfaces on the case's own Activity
+        // Timeline (journey.TimelineService.forCase resolves an exact
+        // (resourceType, resourceId) match). See AuditActions' own comment
+        // above DOCUMENT_UPLOADED for the full reasoning. No cause-before-
+        // effect ordering concern here: persistNewDocument calls nothing on
+        // RequirementService/CaseEngine itself.
+        audit.record(AuditActions.DOCUMENT_UPLOADED, "onboarding_case", c.getId(),
+                "Uploaded document " + d.getName(),
+                Map.of("documentId", d.getId().toString(), "category", d.getCategory().name()));
+
         return toView(d);
     }
 
@@ -573,6 +584,15 @@ public class DocumentService {
 
         d.setCurrentVersionId(v.getId());
         d = documents.saveAndFlush(d);
+
+        // Task 29: same "onboarding_case"/case-id resourceType as document.uploaded --
+        // see that call site's own comment. resourceId is the DOCUMENT's id
+        // (not the version id), keeping every document.* action's OWN
+        // identifying payload field ("documentId") consistent, even though the
+        // event itself is filed against the case.
+        audit.record(AuditActions.DOCUMENT_VERSION_ADDED, "onboarding_case", c.getId(),
+                "Added version " + nextVersionNo + " to document " + d.getName(),
+                Map.of("documentId", d.getId().toString(), "versionNo", nextVersionNo));
 
         return toVersionView(v);
     }
@@ -695,13 +715,12 @@ public class DocumentService {
      *       place.</li>
      * </ol>
      *
-     * {@code reason} is accepted for parity with the eventual
-     * {@code document.retired} audit action Task 29 adds (design spec
-     * section on audit actions) -- no such action exists yet in this task,
-     * so it is validated (a blank reason is refused, the same
+     * {@code reason} is validated (a blank reason is refused, the same
      * "no way to waive/cancel silently" shape {@code RequirementService.waive}
      * and {@code task.TaskService.changeStatus}'s cancellation branch both
-     * already use) but not yet persisted or audited anywhere.
+     * already use) and, as of Task 29, recorded as {@link AuditActions#DOCUMENT_RETIRED}'s
+     * own payload -- see this method's body for the exact placement relative
+     * to the share/link revocation and the conditional reopen call below.
      *
      * {@link StageWriteScopeGuard} still applies on top, exactly as it does
      * for {@link #upload}/{@link #addVersion}/{@link #patch}.
@@ -747,6 +766,17 @@ public class DocumentService {
             link.setRevokedAt(now);
             caseLinks.save(link);
         }
+
+        // Task 29, this method's own javadoc's own forward reference, finally
+        // closed: recorded AFTER the share/link revocation saves above but
+        // BEFORE the conditional reopen call below -- cause before effect,
+        // since reopen may itself complete further audited work (case.completed
+        // moving backward, in principle). "onboarding_case"/c.getId(), the same
+        // resourceType every other timeline-visible document.* action uses --
+        // see AuditActions' own comment.
+        audit.record(AuditActions.DOCUMENT_RETIRED, "onboarding_case", c.getId(),
+                "Retired document " + d.getName() + ": " + reason,
+                Map.of("documentId", d.getId().toString(), "reason", reason));
 
         // Only calls the gated reopen when there is actually something to
         // reopen -- see this method's own javadoc, point 3.

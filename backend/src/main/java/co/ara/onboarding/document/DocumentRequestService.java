@@ -1,5 +1,7 @@
 package co.ara.onboarding.document;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
@@ -18,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -54,12 +57,13 @@ public class DocumentRequestService {
     private final StageWriteScopeGuard writeScope;
     private final RequirementService requirementService;
     private final Clock clock;
+    private final AuditRecorder audit;
 
     public DocumentRequestService(DocumentRequestRepository requests, DocumentRepository documents,
                                   CaseRepository cases, StageRepository stages,
                                   CustomerContactRepository contacts, AuthorizedQuery authorizedQuery,
                                   AuthContextProvider contextProvider, StageWriteScopeGuard writeScope,
-                                  RequirementService requirementService, Clock clock) {
+                                  RequirementService requirementService, Clock clock, AuditRecorder audit) {
         this.requests = requests;
         this.documents = documents;
         this.cases = cases;
@@ -70,6 +74,7 @@ public class DocumentRequestService {
         this.writeScope = writeScope;
         this.requirementService = requirementService;
         this.clock = clock;
+        this.audit = audit;
     }
 
     /**
@@ -117,6 +122,17 @@ public class DocumentRequestService {
         dr.setRequestedAt(Instant.now(clock));
 
         dr = requests.saveAndFlush(dr);
+
+        // Task 29: "onboarding_case"/c.getId() -- same resourceType every
+        // other timeline-visible document.* action uses (AuditActions' own
+        // comment above DOCUMENT_UPLOADED). DocumentInstantiation's own
+        // requirement-instantiated document_request rows deliberately record
+        // nothing here (see that class's own javadoc) -- this fires only for
+        // THIS method's ad-hoc path.
+        audit.record(AuditActions.DOCUMENT_REQUESTED, "onboarding_case", c.getId(),
+                "Requested a document on case " + c.getId(),
+                Map.of("requestId", dr.getId().toString(), "category", dr.getCategory().name()));
+
         return toView(dr);
     }
 
@@ -168,6 +184,15 @@ public class DocumentRequestService {
         if (dr.getStatus() != DocumentRequestStatus.WITHDRAWN) {
             dr.setStatus(DocumentRequestStatus.WITHDRAWN);
             dr = requests.saveAndFlush(dr);
+
+            // Task 29: same "onboarding_case" resourceType as document.requested
+            // above. Only on the branch that actually transitions status --
+            // the already-WITHDRAWN idempotent no-op records nothing, the
+            // same "nothing changed" reasoning DocumentSharingService.share/
+            // revokeShare already use.
+            audit.record(AuditActions.DOCUMENT_REQUEST_WITHDRAWN, "onboarding_case", c.getId(),
+                    "Withdrew document request " + dr.getId() + ": " + reason,
+                    Map.of("requestId", dr.getId().toString(), "reason", reason));
         }
         return toView(dr);
     }
@@ -227,25 +252,21 @@ public class DocumentRequestService {
      * null (an ad-hoc request), there is nothing to satisfy regardless of
      * {@code requiresReview}, and {@code satisfy} is never called.
      *
-     * <p>No audit action is recorded here -- there is no {@code
-     * document.request_fulfilled}-shaped entry among Task 29's own future ten
-     * {@code document.*} audit actions. That silence is only harmless for
-     * ONE of this method's three branches, not all of them: when {@code
-     * requirementId != null && !requiresReview}, {@code satisfy} below fires
-     * and {@code requirement.satisfied} genuinely does carry the
-     * {@code OPEN -&gt; FULFILLED} transition's audit trail. For an ad-hoc
-     * request ({@code requirementId == null}) and for a request whose {@code
-     * requiresReview} is true, neither {@code document.uploaded} (no upload
-     * happens inside this method -- the document already existed) nor {@code
-     * requirement.satisfied} (never called in either branch) fires, so
-     * {@code OPEN -&gt; FULFILLED} is completely unrecorded for those two
-     * branches -- asymmetric with {@code withdraw}'s own future {@code
-     * document.request_withdrawn} action (also Task 29). Task 29's own plan
-     * entry already lists ten future {@code document.*} actions, not nine;
-     * it should also consider whether that list needs an eleventh, covering
-     * fulfilment specifically for these two currently-silent branches, rather
-     * than this javadoc having claimed full coverage it does not actually
-     * have.
+     * <p><b>Task 29 closes the gap this javadoc used to flag</b>: {@link
+     * AuditActions#DOCUMENT_REQUEST_FULFILLED} (added specifically because
+     * this method's own silence here was a real, asymmetric gap -- not in
+     * Task 29's original nine-key brief, see that constant's own comment) is
+     * recorded UNCONDITIONALLY, covering all three branches this method can
+     * take (ad-hoc, requires-review, and satisfy-eligible alike) -- never
+     * only the one branch that happened to already get an audit trail for
+     * free through {@code requirement.satisfied}. Recorded immediately after
+     * {@code dr} is saved and BEFORE the conditional {@code satisfy} call
+     * below, per {@code AuditRecorder}'s cause-before-effect ordering rule:
+     * {@code satisfy} may itself trigger further recorded work
+     * ({@code requirement.satisfied}, and in turn {@code milestone.completed}),
+     * so this method's own record of the fulfilment must precede it.
+     * "onboarding_case"/c.getId(), the same resourceType every other
+     * timeline-visible document.* action uses.
      *
      * <p>{@link StageWriteScopeGuard} narrows on top, the same pattern
      * {@link #create} and {@link #withdraw} already use.
@@ -279,6 +300,13 @@ public class DocumentRequestService {
         dr.setStatus(DocumentRequestStatus.FULFILLED);
         dr.setFulfilledDocumentId(d.getId());
         dr = requests.saveAndFlush(dr);
+
+        // Cause before effect (see this method's own javadoc): recorded
+        // unconditionally, before the conditional satisfy call below, which
+        // may itself trigger requirement.satisfied and milestone.completed.
+        audit.record(AuditActions.DOCUMENT_REQUEST_FULFILLED, "onboarding_case", c.getId(),
+                "Fulfilled document request " + dr.getId(),
+                Map.of("requestId", dr.getId().toString(), "documentId", d.getId().toString()));
 
         if (dr.getRequirementId() != null && !dr.isRequiresReview()) {
             requirementService.satisfy(dr.getRequirementId(), d.getId(), DocumentService.SATISFIED_REF_TYPE);

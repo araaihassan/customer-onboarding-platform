@@ -1,5 +1,7 @@
 package co.ara.onboarding.document;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
@@ -21,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
@@ -93,11 +96,16 @@ import java.util.UUID;
  * second look would make correcting a reviewer's own mis-click impossible
  * without an entirely new version.
  *
- * <p>No audit action is recorded here -- {@code document.reviewed} is one of
- * Task 29's own future {@code document.*} audit family, not this task's job
- * (the same "not yet audited, a later task's job" note {@link
- * DocumentService#retire}'s own javadoc already carries for {@code
- * document.retired}).
+ * <p>As of Task 29, recorded ONCE per call as {@link AuditActions#DOCUMENT_REVIEWED}
+ * -- covering both the APPROVED and REJECTED decision in a single action
+ * (the decision itself lives in the payload), never once per requirement the
+ * APPROVED branch's loop happens to satisfy. Recorded after {@code
+ * versions.save(v)} but BEFORE either branch's own {@code satisfy}/
+ * {@code reopen} calls, per {@code AuditRecorder}'s cause-before-effect rule
+ * -- both may themselves trigger further recorded work ({@code
+ * requirement.satisfied}/{@code requirement.reopened}, and in turn {@code
+ * milestone.completed}). "onboarding_case"/c.getId(), the same resourceType
+ * every other timeline-visible document.* action uses.
  */
 @Service
 public class DocumentReviewService {
@@ -113,12 +121,13 @@ public class DocumentReviewService {
     private final AuthContextProvider contextProvider;
     private final StageWriteScopeGuard writeScope;
     private final Clock clock;
+    private final AuditRecorder audit;
 
     public DocumentReviewService(DocumentRepository documents, DocumentVersionRepository versions,
                                  DocumentRequestRepository requests, CaseRepository cases, StageRepository stages,
                                  RequirementRepository requirementRepository, RequirementService requirementService,
                                  AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
-                                 StageWriteScopeGuard writeScope, Clock clock) {
+                                 StageWriteScopeGuard writeScope, Clock clock, AuditRecorder audit) {
         this.documents = documents;
         this.versions = versions;
         this.requests = requests;
@@ -130,6 +139,7 @@ public class DocumentReviewService {
         this.contextProvider = contextProvider;
         this.writeScope = writeScope;
         this.clock = clock;
+        this.audit = audit;
     }
 
     @RequirePermission(PermissionKeys.DOCUMENT_REVIEW)
@@ -152,6 +162,13 @@ public class DocumentReviewService {
         v.setReviewedAt(Instant.now(clock));
         v.setReviewNote(note);
         versions.save(v);
+
+        // Cause before effect (see this method's own javadoc): recorded once,
+        // before either branch's own satisfy/reopen calls below.
+        audit.record(AuditActions.DOCUMENT_REVIEWED, "onboarding_case", c.getId(),
+                "Reviewed version " + versionNo + " of document " + d.getName() + ": " + decision,
+                Map.of("documentId", d.getId().toString(), "versionNo", versionNo,
+                        "decision", decision.name()));
 
         if (decision == ReviewDecision.APPROVED) {
             for (DocumentRequest request : requests.fulfilledBy(d.getId())) {
