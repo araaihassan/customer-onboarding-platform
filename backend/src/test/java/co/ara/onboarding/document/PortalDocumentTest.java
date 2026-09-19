@@ -5,6 +5,7 @@ import co.ara.onboarding.customer.CustomerContactRepository;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.journey.Case;
+import co.ara.onboarding.journey.CaseRepository;
 import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
@@ -20,16 +21,19 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 
 import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
 import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -69,10 +73,12 @@ class PortalDocumentTest extends SecurityTestBase {
 
     @Autowired JourneyFixtures journey;
     @Autowired CaseService cases;
+    @Autowired CaseRepository caseRepository;
     @Autowired AppUserRepository appUsers;
     @Autowired CustomerContactRepository customerContacts;
     @Autowired DocumentRepository documentRepository;
     @Autowired DocumentVersionRepository versionRepository;
+    @Autowired DocumentService documentService;
 
     private String tenantSlug;
     private UUID tenant;
@@ -375,6 +381,88 @@ class PortalDocumentTest extends SecurityTestBase {
         mvc.perform(as(uploadRequest(UUID.randomUUID(), "Ghost.pdf", "OTHER", "COMPANY_SHARED",
                         PDF_BYTES, "application/pdf"), contact))
            .andExpect(status().isNotFound());
+    }
+
+    /**
+     * 2026-09-19 review-round finding: the review fix added three self-defence
+     * checks to {@link DocumentService#uploadFromPortal} but none had a test
+     * that would actually catch a regression -- the normal HTTP path
+     * structurally cannot produce a mismatched id, since {@link
+     * PortalDocumentController} always resolves and passes the caller's OWN
+     * contact. Proven here by calling {@link DocumentService#uploadFromPortal}
+     * directly (bypassing the controller entirely) while genuinely
+     * authenticated as contact A, but supplying contact B's real, resolvable
+     * {@code customer_contact} id -- at the SAME customer, so this cannot be
+     * confused with {@link #uploadRefusesAgainstAnotherCustomersCase}'s
+     * customer-mismatch shape -- as {@code actingContactId}. If the method's
+     * own {@code contact.id().equals(actingContactId)} check (finding 1 of the
+     * review round) were ever removed or weakened, this fails instead of
+     * silently passing.
+     *
+     * <p>Never asserts inside the {@code runAsUser} lambda itself (CLAUDE.md:
+     * "Never assert an exception inside a fixture.runAs(...) lambda... those
+     * helpers run in a TransactionTemplate; catching inside leaves it
+     * rollback-only") -- {@code assertThatThrownBy} wraps the WHOLE {@code
+     * runAsUser} call instead, the same shape {@code DocumentIsolationTest}'s
+     * three cross-tenant tests already use.
+     */
+    @Test
+    void uploadFromPortalRefusesWhenActingContactIdDoesNotMatchTheAuthenticatedContact() {
+        seedTenant();
+        var customerId = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            customerId[0] = fixture.createCustomer(tenant, "Mismatch Co " + Uuid7.generate(), null, null, null);
+            caseId[0] = journey.newCaseForCustomer(tenant, customerId[0]).getId();
+        });
+        AppUser contactA = portalContact(customerId[0], "contact-a");
+        AppUser contactB = portalContact(customerId[0], "contact-b");
+        UUID contactBOwnId = fixture.runAsReturning(tenant, () ->
+                customerContacts.findByUserId(contactB.getId()).orElseThrow().getId());
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, contactA.getId(), () -> {
+            Case c = caseRepository.findById(caseId[0]).orElseThrow();
+            documentService.uploadFromPortal(c, contactBOwnId,
+                    new CreateDocumentRequest("Mismatch.pdf", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                            null, null, null, null),
+                    new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf");
+        })).isInstanceOf(NoSuchElementException.class);
+
+        fixture.runAs(tenant, () -> assertThat(documentRepository.findByCaseId(caseId[0])).isEmpty());
+    }
+
+    /**
+     * 2026-09-19 review-round finding: {@link PortalDocumentView} excludes
+     * {@code targetDepartmentId}, {@code targetContactLabel} and {@code
+     * uploadedBy}, but nothing asserted their actual ABSENCE from a real
+     * response body -- proven here on both portal endpoints (the upload's
+     * 201 and the list's 200), so mapping either endpoint back through the
+     * internal {@link DocumentView} (or widening {@link PortalDocumentView}
+     * itself) fails this test instead of passing silently.
+     */
+    @Test
+    void portalResponsesExcludeInternalRoutingMetadataOnBothTheUploadAndTheListEndpoints() throws Exception {
+        seedTenant();
+        var customerId = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            customerId[0] = fixture.createCustomer(tenant, "Narrow View Co " + Uuid7.generate(), null, null, null);
+            caseId[0] = journey.newCaseForCustomer(tenant, customerId[0]).getId();
+        });
+        AppUser contact = portalContact(customerId[0], "narrow-view-contact");
+
+        mvc.perform(as(uploadRequest(caseId[0], "Narrow.pdf", "OTHER", "COMPANY_SHARED",
+                        PDF_BYTES, "application/pdf"), contact))
+           .andExpect(status().isCreated())
+           .andExpect(jsonPath("$.targetDepartmentId").doesNotExist())
+           .andExpect(jsonPath("$.targetContactLabel").doesNotExist())
+           .andExpect(jsonPath("$.uploadedBy").doesNotExist());
+
+        mvc.perform(as(get(base() + "/documents"), contact))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.content[0].targetDepartmentId").doesNotExist())
+           .andExpect(jsonPath("$.content[0].targetContactLabel").doesNotExist())
+           .andExpect(jsonPath("$.content[0].uploadedBy").doesNotExist());
     }
 
     private AppUser portalContact(UUID customerId, String emailPrefix) {
