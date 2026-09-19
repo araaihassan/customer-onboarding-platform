@@ -6,8 +6,10 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
+import co.ara.onboarding.journey.Requirement;
 import co.ara.onboarding.journey.RequirementRepository;
 import co.ara.onboarding.journey.RequirementService;
+import co.ara.onboarding.journey.RequirementStatus;
 import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
@@ -29,7 +31,17 @@ import java.util.UUID;
  * <p>{@code documentId} is resolved through {@link AuthorizedQuery} under
  * {@code document.review} FIRST -- the same "confirm the parent is visible
  * before writing" idiom every other write in this module already uses -- and
- * the specific version is then resolved by number through {@link
+ * is then refused with {@link IllegalArgumentException} (400) if its status
+ * is {@link DocumentStatus#RETIRED}, the identical guard and exception/status
+ * shape {@link DocumentRequestService#fulfil} already carries for the same
+ * reason: {@link DocumentService#retire} reopens whatever the document
+ * satisfied at retirement time, but a {@link DocumentRequest} it fulfilled
+ * stays FULFILLED with {@code fulfilledDocumentId} still pointing at it, so
+ * without this check a later APPROVE on any version of the now-unreachable
+ * document would silently re-satisfy the requirement retirement already
+ * reopened. Checked before resolving the specific version, so a retired
+ * document's review is refused uniformly regardless of version number. The
+ * specific version is then resolved by number through {@link
  * DocumentVersionRepository#versionAt}, a pre-authorized-id discovery finder
  * (see its own javadoc) rather than a fresh caller-supplied entity id.
  * {@link StageWriteScopeGuard} narrows on top exactly as it does for {@link
@@ -38,14 +50,19 @@ import java.util.UUID;
  * <p><b>APPROVE</b> discovers every {@code FULFILLED} {@link DocumentRequest}
  * this document fulfilled ({@link DocumentRequestRepository#fulfilledBy}) and,
  * for each one that is requirement-instantiated ({@code requirementId != null}),
- * calls the existing gated {@code journey.RequirementService#satisfy}.
- * Deliberately does NOT filter by {@code requiresReview} first: {@code satisfy}
- * is already idempotent (a second call on an already-SATISFIED requirement is
- * a documented no-op -- see its own javadoc), so a request whose {@code
+ * calls the existing gated {@code journey.RequirementService#satisfy} --
+ * unless {@link RequirementRepository#byId} shows the requirement is ALREADY
+ * {@code SATISFIED}, in which case the call is skipped entirely rather than
+ * relying on {@code satisfy}'s own idempotent early-return. That early-return
+ * runs AFTER {@code satisfy}'s own {@code milestone.complete} gate and its
+ * {@code CaseOnHoldException} check, so calling it at all -- even for what
+ * would end up a pure no-op -- demands a permission and a case state a no-op
+ * has no real reason to require; skipping the call is what actually avoids
+ * that friction, not the idempotency {@code satisfy} already had. Deliberately
+ * does NOT filter by {@code requiresReview} first: a request whose {@code
  * requiresReview} was false (already satisfied back at {@code fulfil} time,
- * Task 25) just gets a harmless redundant call. Simpler and more robust than
- * adding a filter that would have to be kept in sync with {@code satisfy}'s
- * own idempotency contract.
+ * Task 25) is caught by the same already-SATISFIED skip above, so there is no
+ * separate filter to keep in sync with {@code satisfy}'s own contract.
  *
  * <p><b>REJECT</b> mirrors {@link DocumentService#retire}'s own reopen
  * cascade exactly: {@link RequirementRepository#satisfiedBy} finds whatever
@@ -119,6 +136,11 @@ public class DocumentReviewService {
     @Transactional
     public DocumentVersionView review(UUID documentId, int versionNo, ReviewDecision decision, String note) {
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_REVIEW, documentId);
+
+        if (d.getStatus() == DocumentStatus.RETIRED) {
+            throw new IllegalArgumentException("Document " + d.getId() + " is retired and cannot be reviewed");
+        }
+
         DocumentVersion v = versions.versionAt(d.getId(), versionNo)
                 .orElseThrow(() -> new NoSuchElementException("Not found"));
 
@@ -133,9 +155,20 @@ public class DocumentReviewService {
 
         if (decision == ReviewDecision.APPROVED) {
             for (DocumentRequest request : requests.fulfilledBy(d.getId())) {
-                if (request.getRequirementId() != null) {
-                    requirementService.satisfy(request.getRequirementId(), d.getId(), DocumentService.SATISFIED_REF_TYPE);
-                }
+                UUID requirementId = request.getRequirementId();
+                if (requirementId == null) continue;
+
+                // Skip the call entirely -- not merely rely on satisfy's own
+                // idempotent early-return -- when the requirement is already
+                // SATISFIED: satisfy's own gate (milestone.complete) and its
+                // CaseOnHoldException check both run BEFORE that early-return,
+                // so calling it at all would demand permission/hold conditions
+                // a pure no-op has no business requiring. See this class's own
+                // javadoc and RequirementRepository.byId's.
+                Requirement requirement = requirementRepository.byId(requirementId).orElse(null);
+                if (requirement != null && requirement.getStatus() == RequirementStatus.SATISFIED) continue;
+
+                requirementService.satisfy(requirementId, d.getId(), DocumentService.SATISFIED_REF_TYPE);
             }
         } else {
             if (!requirementRepository.satisfiedBy(d.getId(), DocumentService.SATISFIED_REF_TYPE).isEmpty()) {

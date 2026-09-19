@@ -338,6 +338,172 @@ class DocumentReviewServiceTest extends PostgresTestBase {
     }
 
     /**
+     * Review-round Finding 1: {@code DocumentService.retire} reopens whatever
+     * a document satisfied, but a {@link DocumentRequest} it fulfilled stays
+     * FULFILLED with {@code fulfilledDocumentId} still pointing at the now-
+     * retired document -- so before this fix, APPROVE-ing any version of a
+     * retired document would call {@code satisfy} again and silently
+     * re-complete the requirement retirement had just reopened. Mirrors
+     * {@code DocumentRequestServiceTest}'s own retired-document refusal for
+     * {@code fulfil}: same {@link IllegalArgumentException}, same 400 shape.
+     * Also proves no partial state: the version's own {@code reviewStatus}
+     * stays {@code PENDING} (never flips to APPROVED) and the requirement
+     * stays {@code OPEN} (never re-satisfied) -- the refusal happens before
+     * either write.
+     */
+    @Test
+    void approvingAVersionOfARetiredDocumentIsRefused() {
+        UUID tenant = fixture.createTenant("doc-review-retired-approve-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var documentId = new UUID[1];
+        var requirementId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "review-retired-approve+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REVIEW, Scope.ALL,
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Review Retired Approve Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            UUID caseId = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            documentId[0] = createDocumentWithVersion(tenant, caseId, customerId, manager[0]);
+            requirements.satisfy(requirementId[0], documentId[0], DocumentService.SATISFIED_REF_TYPE);
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> documentService.retire(documentId[0], "Wrong file uploaded"));
+
+        fixture.runAs(tenant, () -> {
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getStatus()).isEqualTo(RequirementStatus.OPEN); // retire's own reopen cascade already ran
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                review.review(documentId[0], 1, ReviewDecision.APPROVED, "Too late")))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        fixture.runAs(tenant, () -> {
+            DocumentVersion v = versionRepository.versionAt(documentId[0], 1).orElseThrow();
+            assertThat(v.getReviewStatus()).isEqualTo(ReviewStatus.PENDING); // unchanged -- refused before any write
+            assertThat(v.getReviewedBy()).isNull();
+
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getStatus()).isEqualTo(RequirementStatus.OPEN); // NOT re-satisfied
+        });
+    }
+
+    /** The same refusal on the REJECT branch -- the check runs before either decision is applied. */
+    @Test
+    void rejectingAVersionOfARetiredDocumentIsRefused() {
+        UUID tenant = fixture.createTenant("doc-review-retired-reject-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "review-retired-reject+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REVIEW, Scope.ALL,
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            Case c = journey.newCase(tenant);
+            documentId[0] = createDocumentWithVersion(tenant, c.getId(), c.getCustomerId(), manager[0]);
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> documentService.retire(documentId[0], "Wrong file uploaded"));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                review.review(documentId[0], 1, ReviewDecision.REJECTED, "Too late")))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        fixture.runAs(tenant, () -> {
+            DocumentVersion v = versionRepository.versionAt(documentId[0], 1).orElseThrow();
+            assertThat(v.getReviewStatus()).isEqualTo(ReviewStatus.PENDING); // unchanged -- refused before any write
+        });
+    }
+
+    /**
+     * Review-round Finding 2: calling {@code satisfy} unconditionally makes
+     * {@code milestone.complete} a hard prerequisite even when the requirement
+     * is ALREADY satisfied -- a pure no-op re-approval. This actor holds
+     * {@code document.review} but deliberately NOT {@code milestone.complete};
+     * if the fix's skip did not actually run, this would fail with {@link
+     * org.springframework.security.access.AccessDeniedException} instead.
+     */
+    @Test
+    void approvingIsPermittedWithoutMilestoneCompleteWhenTheRequirementIsAlreadySatisfied() {
+        UUID tenant = fixture.createTenant("doc-review-noop-" + Uuid7.generate());
+        var reviewerOnly = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            reviewerOnly[0] = fixture.createUser(tenant, "review-noop+" + Uuid7.generate() + "@example.com");
+            grant(reviewerOnly[0], Map.of(
+                    PermissionKeys.DOCUMENT_REVIEW, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+            // Deliberately NOT granted MILESTONE_COMPLETE -- the whole point of this test.
+
+            UUID customerId = fixture.createCustomer(tenant, "Review NoOp Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            UUID caseId = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            UUID requirementId = cases.roadmap(caseId).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            documentId[0] = createDocumentWithVersion(tenant, caseId, customerId, reviewerOnly[0]);
+            // Satisfied already, as an actor with milestone.complete (fixture.runAs's own
+            // context) -- reviewerOnly never needs that permission for this call to happen.
+            requirements.satisfy(requirementId, documentId[0], DocumentService.SATISFIED_REF_TYPE);
+            createFulfilledRequestRow(tenant, caseId, requirementId, reviewerOnly[0], documentId[0], true);
+        });
+
+        var view = new DocumentVersionView[1];
+        fixture.runAsUser(tenant, reviewerOnly[0], () ->
+                view[0] = review.review(documentId[0], 1, ReviewDecision.APPROVED, "Already satisfied elsewhere"));
+
+        assertThat(view[0].reviewStatus()).isEqualTo(ReviewStatus.APPROVED);
+    }
+
+    /**
+     * Regression control for Finding 2's fix: when there IS something real
+     * left to satisfy, the composition with {@code milestone.complete} is
+     * completely unchanged -- the skip only ever fires for an already-
+     * SATISFIED requirement, never a genuinely open one.
+     */
+    @Test
+    void approvingStillRequiresMilestoneCompleteWhenSatisfyingIsNotANoOp() {
+        UUID tenant = fixture.createTenant("doc-review-composition-" + Uuid7.generate());
+        var reviewerOnly = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            reviewerOnly[0] = fixture.createUser(tenant, "review-composition+" + Uuid7.generate() + "@example.com");
+            grant(reviewerOnly[0], Map.of(
+                    PermissionKeys.DOCUMENT_REVIEW, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+            // Deliberately NOT granted MILESTONE_COMPLETE.
+
+            UUID customerId = fixture.createCustomer(tenant, "Review Composition Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            UUID caseId = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            UUID requirementId = cases.roadmap(caseId).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            documentId[0] = createDocumentWithVersion(tenant, caseId, customerId, reviewerOnly[0]);
+            // Requirement is NOT yet satisfied -- this is real work, not a no-op.
+            createFulfilledRequestRow(tenant, caseId, requirementId, reviewerOnly[0], documentId[0], true);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, reviewerOnly[0], () ->
+                review.review(documentId[0], 1, ReviewDecision.APPROVED, "Needs milestone.complete too")))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
      * Design spec 5.4's own words, quoted in the plan's brief: "an ordinary
      * AuthorizedQuery listing filtered to review_status = PENDING; it needs
      * no carve-out." A DEPARTMENT-scoped holder sees only the PENDING version

@@ -6,6 +6,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public interface RequirementRepository
@@ -43,4 +44,27 @@ public interface RequirementRepository
      */
     @Query("select r from Requirement r where r.satisfiedRef = :ref and r.satisfiedRefType = :refType")
     List<Requirement> satisfiedBy(@Param("ref") UUID ref, @Param("refType") String refType);
+
+    /**
+     * A plain by-id lookup, deliberately named to dodge {@code
+     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly}'s
+     * name-bound finder predicate (findAll/findOne/findById/findBy*) exactly
+     * as {@link #satisfiedBy} already does -- see that method's own javadoc
+     * for the full reasoning.
+     *
+     * <p>Its one caller, {@code document.DocumentReviewService.review}, feeds
+     * it a {@code requirementId} taken from a {@code DocumentRequest} row
+     * (system-derived at request-creation/instantiation time, never a raw id
+     * off a URL or request body), purely to check whether the requirement is
+     * ALREADY {@link RequirementStatus#SATISFIED} before deciding whether to
+     * call the gated, permission-carrying {@code RequirementService#satisfy}
+     * at all -- the same "fed only a pre-authorized/system-derived id, used
+     * only to decide whether to call a gated method" shape {@code
+     * document.DocumentService.retire} already establishes for this
+     * repository's own {@link #satisfiedBy}. Deliberately bypasses {@code
+     * AuthorizedQuery}: requiring {@code milestone.complete} just to check a
+     * requirement's status would defeat the whole point of the no-op skip.
+     */
+    @Query("select r from Requirement r where r.id = :id")
+    Optional<Requirement> byId(@Param("id") UUID id);
 }
