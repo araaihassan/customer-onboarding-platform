@@ -44,6 +44,7 @@ import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -190,6 +191,55 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public Page<DocumentView> list(Pageable pageable) {
         return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, notRetired(), pageable)
+                .map(DocumentService::toView);
+    }
+
+    /**
+     * Task 28: every document (across every case) whose {@code expires_at} is
+     * set and falls at or before {@code now + within} -- the read half of
+     * design spec's expiry seam. <b>Nothing fires here</b>: this stores and
+     * exposes {@code expires_at}; sub-project 6 owns the actual notification
+     * (design spec's own scope table names this explicitly). No controller
+     * method calls this either -- the 37-task plan names no frontend hook or
+     * endpoint for it, unlike Tasks 23/25's own late-discovered HTTP surfaces.
+     *
+     * <p>{@code now} is read from the injected {@link Clock}, matching every
+     * other timestamp this class computes ({@link #persistNewDocument},
+     * {@link #addVersion}) rather than a bare {@code Instant.now()} --
+     * CLAUDE.md's own "asserted a due date against the bare, zero-arg
+     * {@code LocalDate.now()}... instead of {@code LocalDate.now(clock)}"
+     * finding is exactly the class of bug this avoids.
+     *
+     * <p>The boundary is INCLUSIVE ({@code <=}, not {@code <}): a document
+     * expiring at EXACTLY {@code now + within} is due within the window, not
+     * one instant outside it.
+     *
+     * <p>Delegates to {@link AuthorizedQuery#findAll} under {@code
+     * document.view} exactly like {@link #list}/{@link #forCase}, so the same
+     * scope (departments/teams/uploader) and audience (targeting/sharing)
+     * narrowing already proven for those two methods applies here for free --
+     * this method adds no scope or audience logic of its own, only the
+     * expiry+not-retired predicate. {@link #notRetired()} is ANDed in exactly
+     * as it is for {@link #list}, since a retired document's own expiry date
+     * is no longer meaningful (spec's own scope table, and this method's own
+     * javadoc above).
+     *
+     * <p>Written so Postgres can use {@code document_tenant_expiry_idx}
+     * ({@code V23__document.sql}: {@code ON document (tenant_id, expires_at)
+     * WHERE expires_at IS NOT NULL AND status = 'ACTIVE'}) -- the predicate
+     * filters on {@code expires_at IS NOT NULL} and (via {@link #notRetired()})
+     * {@code status <> 'RETIRED'} rather than relying on Java-side filtering,
+     * the same column shape that partial index was built for.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
+    @Transactional(readOnly = true)
+    public Page<DocumentView> expiring(Duration within, Pageable pageable) {
+        Instant cutoff = Instant.now(clock).plus(within);
+        Specification<Document> expiringSoon = (root, query, cb) -> cb.and(
+                cb.isNotNull(root.get("expiresAt")),
+                cb.lessThanOrEqualTo(root.get("expiresAt"), cutoff));
+        return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW,
+                        expiringSoon.and(notRetired()), pageable)
                 .map(DocumentService::toView);
     }
 
