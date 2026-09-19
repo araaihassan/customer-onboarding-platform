@@ -410,7 +410,7 @@ class AuthorizationCoverageTest {
                 .should().callMethodWhere(
                         // This predicate binds on NAME alone -- findAll/findOne/findById/
                         // findBy* -- which is exactly why a repository method spelled
-                        // differently never reaches it, exemption or not. Five deliberate,
+                        // differently never reaches it, exemption or not. Six deliberate,
                         // reviewed instances of that today, recorded HERE (beside the
                         // predicate a reviewer of THIS guard actually reads) rather than
                         // only in each repository's own file:
@@ -462,7 +462,38 @@ class AuthorizationCoverageTest {
                         //     through AuthorizedQuery) -- every caller feeds it only a
                         //     pre-authorized id, the same "fed only a pre-authorized id" shape
                         //     as the rest of this list.
-                        //     None of these five is added to FINDER_RULE_EXCLUSIONS: that list
+                        //   - document.DocumentRepository.count(Specification), reached ONLY
+                        //     through the new authz.AuthorizedQuery.countIgnoringScope (Task
+                        //     32 fix round 1, called from
+                        //     document.DocumentService.visibilitySummary's `total` half, the
+                        //     "08 VISIBLE · 61 HIDDEN BY SCOPE" hidden-count line). This one is
+                        //     NOT "fed only a pre-authorized id" like the five above, and is
+                        //     materially more sensitive: it is a deliberate, standing bypass of
+                        //     the SCOPE half of record-level authorization (the
+                        //     DEPARTMENT/TEAM/ASSIGNED union), for every caller, every time --
+                        //     not a one-off id fed in after an earlier resolution. What keeps it
+                        //     safe is that the AUDIENCE filter (scoping.DocumentAudienceFilter)
+                        //     still applies on top -- forPermissionIgnoringScope ANDs it in
+                        //     exactly like forPermission does -- so a portal contact's own
+                        //     atMyCustomer boundary and an internal actor's own
+                        //     department/contact targeting both still narrow this count; only
+                        //     the SCOPE union is skipped, and the only thing ever disclosed is a
+                        //     bare integer bounded to the caller's own already-visible filter,
+                        //     never a row. Review round 1 of this exact task found the FIRST
+                        //     version of visibilitySummary bypassed BOTH halves (a direct
+                        //     documents.count(filter) call with no AuthorizedQuery involvement
+                        //     at all), which let a portal contact of one customer read a count
+                        //     that included another customer's documents in the same tenant --
+                        //     see DocumentService.visibilitySummary's own javadoc for the full
+                        //     incident and fix. Doubly not caught by the predicate below: count
+                        //     is not findAll/findOne/findById/findBy*-named, AND it is now
+                        //     reached from authz.AuthorizedQuery itself, a package this rule's
+                        //     own sibling (servicesDoNotCallRepositoryFindersDirectly, above)
+                        //     deliberately never covers ("authz is deliberately NOT included") --
+                        //     recorded here anyway because this comment block's whole purpose is
+                        //     to be the COMPLETE list a reviewer checks, not a rule's own blind
+                        //     spot.
+                        //     None of these six is added to FINDER_RULE_EXCLUSIONS: that list
                         //     blanket-exempts every finder call a listed CLASS makes, present
                         //     and future, which is too wide a grant for a safety argument that
                         //     applies to this one METHOD's one caller -- a comment here is the

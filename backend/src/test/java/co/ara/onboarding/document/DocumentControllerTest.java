@@ -3,6 +3,7 @@ package co.ara.onboarding.document;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.identity.AppUser;
+import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
@@ -68,6 +69,7 @@ class DocumentControllerTest extends SecurityTestBase {
 
     @Autowired JourneyFixtures journey;
     @Autowired CaseService cases;
+    @Autowired AppUserRepository appUsers;
 
     private String tenantSlug;
     private UUID tenant;
@@ -154,6 +156,55 @@ class DocumentControllerTest extends SecurityTestBase {
         mvc.perform(as(get(base() + "/documents/visibility-summary").param("visibilityTier", "SENSITIVE"), actor))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.visible").value(0))
+           .andExpect(jsonPath("$.hidden").value(0));
+    }
+
+    /**
+     * CRITICAL, review round 1 -- this is the reviewer's own throwaway
+     * probe, kept as a permanent regression test rather than discarded once
+     * disproven. Before the fix: a portal contact of customer A, carrying
+     * their own JWT, hit this OPERATOR route (never {@code
+     * /portal/documents} -- {@code SecurityConfig} has no userType-based
+     * route gate, so the operator controller is reachable by a portal JWT to
+     * begin with) and got {@code {"visible":1,"hidden":3}}, where the 3
+     * "hidden" were customer B's documents in the SAME tenant -- a
+     * same-tenant, cross-CUSTOMER disclosure through the scope-union bypass
+     * skipping the audience filter too. After the fix ({@code
+     * AuthorizedQuery#countIgnoringScope} keeps the audience filter ANDed
+     * on), {@code DocumentAudienceFilter.portalAudience}'s {@code
+     * atMyCustomer} conjunct collapses this portal contact's {@code total}
+     * back down to customer A alone, so {@code hidden} is exactly zero.
+     */
+    @Test
+    void aPortalContactHittingTheOperatorVisibilitySummaryRouteNeverSeesAnotherCustomersDocuments() throws Exception {
+        var customerAId = new UUID[1];
+        var customerBId = new UUID[1];
+        var caseAId = new UUID[1];
+        var caseBId = new UUID[1];
+        var portalContact = new AppUser[1];
+
+        fixture.runAs(tenant, () -> {
+            customerAId[0] = fixture.createCustomer(tenant, "Probe Customer A " + Uuid7.generate(), null, null, null);
+            customerBId[0] = fixture.createCustomer(tenant, "Probe Customer B " + Uuid7.generate(), null, null, null);
+            caseAId[0] = journey.newCaseForCustomer(tenant, customerAId[0]).getId();
+            caseBId[0] = journey.newCaseForCustomer(tenant, customerBId[0]).getId();
+
+            UUID portalContactUserId = fixture.createPortalUserForContact(
+                    tenant, customerAId[0], "probe-portal+" + Uuid7.generate() + "@example.com");
+            portalContact[0] = appUsers.findById(portalContactUserId).orElseThrow();
+        });
+
+        // Customer A's own document -- the portal contact's own customer.
+        upload(caseAId[0], "Probe A.pdf");
+        // Customer B's documents -- a DIFFERENT customer, same tenant. This
+        // is exactly what the reviewer's probe found leaking as "hidden".
+        upload(caseBId[0], "Probe B1.pdf");
+        upload(caseBId[0], "Probe B2.pdf");
+        upload(caseBId[0], "Probe B3.pdf");
+
+        mvc.perform(as(get(base() + "/documents/visibility-summary"), portalContact[0]))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.visible").value(1))
            .andExpect(jsonPath("$.hidden").value(0));
     }
 

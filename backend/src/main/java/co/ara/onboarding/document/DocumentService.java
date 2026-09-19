@@ -208,36 +208,60 @@ public class DocumentService {
     }
 
     /**
-     * Task 32: the codebase's SECOND deliberate {@code AuthorizedQuery}
-     * bypass -- the first and, until now, only one is {@code
-     * journey.TimelineService} via {@code audit.AuditQuery}
-     * ({@code AuthorizationCoverageTest}'s own documented carve-out). Spec §9
-     * names this the "08 VISIBLE · 61 HIDDEN BY SCOPE" line on the `docs`
-     * screen: without it, a scoped view (a DEPARTMENT-scoped reader, say)
-     * that happens to see zero rows is visually indistinguishable from a
-     * tenant that genuinely has no documents at all -- CLAUDE.md's own
-     * `taskSummary` finding is the shape of leak this line must not repeat,
-     * so this is written as a bounded aggregate, not a repeat of that gap.
+     * Task 32: the codebase's SECOND deliberate authorization bypass -- the
+     * first and, until now, only one is {@code journey.TimelineService} via
+     * {@code audit.AuditQuery} ({@code AuthorizationCoverageTest}'s own
+     * documented carve-out). Spec §9 names this the "08 VISIBLE · 61 HIDDEN
+     * BY SCOPE" line on the `docs` screen: without it, a scoped view (a
+     * DEPARTMENT-scoped reader, say) that happens to see zero rows is
+     * visually indistinguishable from a tenant that genuinely has no
+     * documents at all -- CLAUDE.md's own `taskSummary` finding is the shape
+     * of leak this line must not repeat, so this is written as a bounded
+     * aggregate, not a repeat of that gap.
      *
-     * <p><b>Why disclosing this ONE integer is safe even though {@code
-     * total} bypasses the scope+audience predicate entirely:</b> {@code
-     * total} is a bare {@code COUNT}, bounded to the exact SAME filter
-     * ({@code visibilityTier} plus {@link #notRetired()}) the caller already
-     * supplied and already sees the {@code visible} half of through the
-     * fully-authorized {@link #list} -- never a document's own id, name,
-     * category, target, or any other field. This is exactly the shape
+     * <p><b>Corrected mechanism, review round 1.</b> The first version of
+     * this method bypassed {@code AuthorizedQuery} entirely for {@code total}
+     * (a direct {@code documents.count(filter)} repository call), which a
+     * security review proved unsafe live: a portal contact holds {@code
+     * document.view} at {@code Scope.ALL} ({@code authz.PortalPermissions}'
+     * own javadoc states, in capitals, this is safe ONLY because {@code
+     * scoping.DocumentAudienceFilter} narrows every other read reaching that
+     * grant), and a full bypass skipped that narrowing too -- so a portal
+     * contact of customer A could read a {@code total} that included
+     * customer B's documents in the SAME tenant, a disclosure RLS does
+     * nothing to stop (RLS is tenant isolation, not audience narrowing). The
+     * fix, now what this method actually does: {@code total} bypasses ONLY
+     * the record-level SCOPE union (DEPARTMENT/TEAM/ASSIGNED), through
+     * {@link AuthorizedQuery#countIgnoringScope} /
+     * {@code AuthorizationPredicateBuilder#forPermissionIgnoringScope} -- the
+     * AUDIENCE filter ({@code scoping.DocumentAudienceFilter}) still applies
+     * on top, exactly as it does for {@code visible}'s fully-authorized
+     * {@link #list}. That is what collapses a portal actor's own {@code
+     * total} back down to their own customer (closing the disclosure above),
+     * and an internal ALL-scoped reader's {@code total} down to documents
+     * actually targeted at them or generally shared -- design spec §10
+     * invariant 5, "the audience filter binds ALL", holds for this read too
+     * now, not just for {@link #list}/{@link #forCase}.
+     *
+     * <p><b>Why disclosing this ONE integer is still safe</b> with the scope
+     * union bypassed: {@code total} is a bare {@code COUNT}, bounded to the
+     * exact SAME filter ({@code visibilityTier} plus {@link #notRetired()})
+     * the caller already supplied and already sees the {@code visible} half
+     * of through the fully-authorized {@link #list} -- never a document's own
+     * id, name, category, target, or any other field. This is the same shape
      * {@code AuthorizationCoverageTest}'s own comment already establishes as
      * safe for {@code journey.TimelineService}'s carve-out ("narrowed to one
      * resource id... never row content"): here the narrowing is "bounded to
-     * the caller's own filter context" rather than "one resource id", but the
-     * safety argument is the same one, carried into this codebase's second
-     * exception rather than copied wholesale -- a caller learns only THAT
-     * more matching documents exist somewhere in the tenant and roughly how
-     * many, never which ones, who uploaded them, or what they are about.
-     * Postgres RLS ({@code app.tenant_id}) still confines {@code total} to
-     * the current tenant regardless of this bypass -- the same safety net
-     * {@code journey.TimelineService}'s own carve-out relies on -- so this is
-     * a scope+audience bypass within one tenant, never a cross-tenant one.
+     * the caller's own filter context, AND still audience-narrowed" rather
+     * than "one resource id", but the safety argument is the same one --
+     * a caller learns only THAT more matching, audience-visible documents
+     * exist somewhere in the tenant and roughly how many, never which ones,
+     * who uploaded them, or what they are about. Postgres RLS ({@code
+     * app.tenant_id}) still confines {@code total} to the current tenant
+     * regardless of the scope-union bypass -- the same safety net {@code
+     * journey.TimelineService}'s own carve-out relies on -- so what remains
+     * bypassed after this fix is a same-tenant, same-audience record-level
+     * SCOPE widening only, never a cross-tenant or cross-audience one.
      *
      * <p>{@code visible} deliberately uses {@code PageRequest.of(0, 1)}, NOT
      * {@code Pageable.unpaged()}: {@link Page#getTotalElements()} always
@@ -256,16 +280,19 @@ public class DocumentService {
      * earlier -- which could transiently push the raw difference to -1. This
      * is a rare, self-correcting-on-refresh anomaly, never a security
      * concern (both numbers still come from the same tenant, the same
-     * filter, and disclose nothing about individual rows either way) -- the
-     * clamp exists purely so the UI is never asked to render a nonsensical
-     * negative count.
+     * filter and audience narrowing, and disclose nothing about individual
+     * rows either way) -- the clamp exists purely so the UI is never asked
+     * to render a nonsensical negative count.
      *
      * <p>Verified against {@code AuthorizationCoverageTest}'s finder-rule
      * regex (binds on {@code findAll}/{@code findOne}/{@code findById}/
      * {@code findBy*} by name): {@link DocumentRepository#count(Specification)}
-     * is named {@code count}, which that predicate does not match, so this
-     * call needed no new exclusion in that test -- confirmed by running it,
-     * not assumed.
+     * -- now reached only through {@link AuthorizedQuery#countIgnoringScope},
+     * never directly -- is named {@code count}, which that predicate does not
+     * match, so this call needed no new exclusion in that test -- confirmed
+     * by running it, not assumed. The bypass itself is recorded in that
+     * test's own "deliberate, reviewed instances" enumeration comment (sixth
+     * entry, added alongside this fix), not just here.
      */
     @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
     @Transactional(readOnly = true)
@@ -276,12 +303,10 @@ public class DocumentService {
                         filter, PageRequest.of(0, 1))
                 .getTotalElements();
 
-        // Deliberate AuthorizedQuery bypass -- see this method's own javadoc
-        // above for the full safety argument. RLS still confines this to the
-        // current tenant; only the record-level scope+audience predicate is
-        // skipped, and only to produce a bare count bounded to the same
-        // filter the caller already supplied.
-        long total = documents.count(filter);
+        // Deliberate scope-union bypass, audience filter still applied --
+        // see this method's own javadoc above for the full safety argument
+        // and the review-round-1 finding that made this NOT a full bypass.
+        long total = authorizedQuery.countIgnoringScope(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, filter);
 
         long hidden = Math.max(0, total - visible);
         return new DocumentVisibilitySummaryView(visible, hidden);
