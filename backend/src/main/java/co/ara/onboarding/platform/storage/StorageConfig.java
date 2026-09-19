@@ -1,5 +1,6 @@
 package co.ara.onboarding.platform.storage;
 
+import jakarta.servlet.MultipartConfigElement;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -26,6 +27,57 @@ import java.util.Locale;
  */
 @Configuration(proxyBeanMethods = false)
 public class StorageConfig {
+
+    /**
+     * Task 22 review Finding 1: nothing configured {@code
+     * spring.servlet.multipart.max-file-size}/{@code max-request-size}, so Spring
+     * Boot's own UNCONFIGURED defaults (1 MiB per file, 10 MiB per request) sat in
+     * front of {@code document.DocumentService}'s own {@code
+     * app.storage.max-upload-bytes} ceiling -- an oversized upload was refused by
+     * the servlet container, as an unmapped {@code MaxUploadSizeExceededException}
+     * (a raw 500), long before {@code DocumentService}'s own checked ceiling and
+     * its mapped 413 ever had a chance to run.
+     *
+     * <p>Defining this bean ourselves is what actually wins: {@code
+     * MultipartAutoConfiguration.multipartConfigElement()} is {@code
+     * @ConditionalOnMissingBean}, so registering one here suppresses Boot's own
+     * default and every {@code Servlet} bean picks this one up instead (wired by
+     * {@code ServletWebServerApplicationContext} the same way either bean would
+     * be). Binding it straight to {@code app.storage.max-upload-bytes} -- the
+     * SAME property {@link DocumentService} already enforces at the application
+     * layer -- keeps the two ceilings from drifting apart: one property to
+     * change, not two, and a deployment that raises the application's own limit
+     * does not silently reintroduce this exact bug at a lower, forgotten one.
+     *
+     * <p>{@code maxRequestSize} adds a fixed slack on top of {@code
+     * maxFileSize} for the surrounding multipart envelope itself (boundaries,
+     * part headers, and -- on the document create endpoint only -- the small
+     * "metadata" JSON part), so a file sized exactly at the ceiling does not tip
+     * the overall request over a second, tighter limit purely from that
+     * overhead.
+     *
+     * <p>Falls back to 25 MiB (the same value {@code application.yml}'s own
+     * dev/test profile document defaults {@code STORAGE_MAX_UPLOAD_BYTES} to)
+     * when {@code app.storage.max-upload-bytes} is unset, rather than throwing
+     * here: {@link DocumentService}'s own {@code @PostConstruct} is the one place
+     * that refuses to start the application over an unset ceiling (see its own
+     * javadoc for why it lives there and not on {@link StorageProperties}
+     * itself), and duplicating that guard here would just produce a second,
+     * less legible failure for the identical condition -- this bean only needs
+     * SOME positive number to hand the servlet container regardless of profile,
+     * not the authoritative refusal.
+     */
+    private static final long DEFAULT_MAX_UPLOAD_BYTES = 26_214_400; // 25 MiB
+    private static final long MULTIPART_ENVELOPE_SLACK_BYTES = 65_536; // 64 KiB
+
+    @Bean
+    public MultipartConfigElement multipartConfigElement(StorageProperties properties) {
+        long maxFileBytes = properties.getMaxUploadBytes() != null
+                ? properties.getMaxUploadBytes()
+                : DEFAULT_MAX_UPLOAD_BYTES;
+        long maxRequestBytes = maxFileBytes + MULTIPART_ENVELOPE_SLACK_BYTES;
+        return new MultipartConfigElement("", maxFileBytes, maxRequestBytes, 0);
+    }
 
     @Bean
     public BlobStore blobStore(StorageProperties properties) {

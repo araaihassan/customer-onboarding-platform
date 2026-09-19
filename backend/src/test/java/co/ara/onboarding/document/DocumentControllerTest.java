@@ -9,6 +9,7 @@ import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.security.SecurityTestBase;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jayway.jsonpath.JsonPath;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -235,6 +236,71 @@ class DocumentControllerTest extends SecurityTestBase {
         assertThat(result.getResponse().getContentAsByteArray()).isEqualTo(PDF_BYTES);
     }
 
+    /**
+     * Task 22 review Finding 2 -- verified empirically, not just from reading
+     * {@code ContentDisposition}'s source, before this fix existed: uploading a
+     * document named {@code Contract "Final" Draft.pdf} and reading the RAW
+     * (unparsed) {@code Content-Disposition} response header produced
+     * <pre>{@code
+     * attachment; filename="=?UTF-8?Q?Contract_"Final"_Draft.pdf?="; filename*=UTF-8''Contract%20%22Final%22%20Draft.pdf
+     * }</pre>
+     * -- Spring 6.2.1's {@code ContentDisposition.toString()}, once a non-ASCII
+     * charset is supplied (exactly what {@link DocumentController#content} does),
+     * builds the legacy {@code filename="..."} parameter through a MIME
+     * quoted-printable encoder ({@code encodeQuotedPrintableFilename}) whose own
+     * "printable" bitset does NOT exclude a raw {@code "} (only {@code =}/{@code
+     * ?}/{@code _} are excluded) -- so the embedded, UNESCAPED double quotes above
+     * are real, reproducible, and break the enclosing quoted string for any parser
+     * that reads it literally (RFC 6266/2616 quoted-string grammar requires an
+     * embedded DQUOTE to be backslash-escaped; {@code encodeQuotedPairs}, the
+     * sibling method that DOES escape it correctly, is only used on the
+     * ASCII-only branch this controller's UTF-8 charset never takes). There is no
+     * public option on {@link org.springframework.http.ContentDisposition} to
+     * skip that legacy parameter and emit only the always-correctly-encoded
+     * {@code filename*=} -- so the fix is at the input, not the header-building
+     * call: {@link CreateDocumentRequest#name}/{@link PatchDocumentRequest#name}
+     * now reject a literal double quote outright.
+     *
+     * <p>CR/LF were checked the same way and are NOT vulnerable to this
+     * (verified, not assumed): the equivalent probe for
+     * {@code Evil\r\nX-Injected: true.pdf} produced
+     * <pre>{@code
+     * attachment; filename="=?UTF-8?Q?Evil=0D=0AX-Injected:_true.pdf?="; filename*=UTF-8''Evil%0D%0AX-Injected%3A%20true.pdf
+     * }</pre>
+     * -- both forms hex/percent-encode the raw bytes ({@code =0D=0A}, {@code
+     * %0D%0A}); no literal CR or LF byte reaches the header text either way, so
+     * this is not classic CRLF response-splitting. Control characters are
+     * rejected anyway, as uncontroversial defense-in-depth no legitimate filename
+     * needs regardless of this specific header mechanism.
+     */
+    @Test
+    void createRejectsANameContainingADoubleQuote() throws Exception {
+        mvc.perform(as(uploadRequest(caseId, "Contract \"Final\" Draft.pdf"), actor))
+           .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void createRejectsANameContainingCarriageReturnOrLinefeed() throws Exception {
+        mvc.perform(as(uploadRequest(caseId, "Evil\r\nX-Injected: true.pdf"), actor))
+           .andExpect(status().isBadRequest());
+    }
+
+    /** {@link PatchDocumentRequest#name} carries the identical restriction -- see above. */
+    @Test
+    void patchRejectsANameContainingADoubleQuoteOrAControlCharacter() throws Exception {
+        UUID documentId = upload("Patchable.pdf");
+
+        mvc.perform(as(patch(base() + "/documents/" + documentId), actor)
+                        .contentType("application/json")
+                        .content(JSON.writeValueAsString(Map.of("name", "Bad \"Quote\".pdf"))))
+           .andExpect(status().isBadRequest());
+
+        mvc.perform(as(patch(base() + "/documents/" + documentId), actor)
+                        .contentType("application/json")
+                        .content(JSON.writeValueAsString(Map.of("name", "Evil\r\nX-Injected: true.pdf"))))
+           .andExpect(status().isBadRequest());
+    }
+
     @Test
     void retireMarksTheDocumentRetiredThroughHttp() throws Exception {
         UUID documentId = upload("To Retire.pdf");
@@ -333,8 +399,21 @@ class DocumentControllerTest extends SecurityTestBase {
                 JsonPath.read(result.getResponse().getContentAsString(), "$.id"));
     }
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    // Built through a real JSON serializer, not string concatenation -- a name
+    // containing a literal quote, backslash or control character must come
+    // through as PROPERLY JSON-escaped bytes on the wire (exactly what any real
+    // HTTP client's own JSON layer would produce), never as raw bytes dropped
+    // into a hand-built JSON literal, which would just be malformed JSON.
     private MockHttpServletRequestBuilder uploadRequest(UUID targetCaseId, String name) {
-        String metadata = "{\"name\":\"" + name + "\",\"category\":\"CONTRACT\",\"visibilityTier\":\"COMPANY_SHARED\"}";
+        String metadata;
+        try {
+            metadata = JSON.writeValueAsString(Map.of(
+                    "name", name, "category", "CONTRACT", "visibilityTier", "COMPANY_SHARED"));
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
         return multipart(base() + "/cases/" + targetCaseId + "/documents")
                 .file(new MockMultipartFile("file", name, "application/pdf", PDF_BYTES))
                 .file(new MockMultipartFile("metadata", "", "application/json",

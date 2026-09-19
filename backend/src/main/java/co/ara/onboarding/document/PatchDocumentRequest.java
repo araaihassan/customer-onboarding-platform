@@ -1,5 +1,7 @@
 package co.ara.onboarding.document;
 
+import jakarta.validation.constraints.Pattern;
+
 import java.util.UUID;
 
 /**
@@ -33,6 +35,13 @@ import java.util.UUID;
  * document already has -- is audited as its own action,
  * {@code document.retargeted}, never folded into a generic update: see
  * {@link DocumentService#patch}'s own javadoc.
+ *
+ * {@code name}, when supplied, carries the same control-character/double-quote
+ * restriction {@link CreateDocumentRequest#name} does (Task 22 review Finding
+ * 2 -- see that field's own javadoc for the empirical evidence); {@code
+ * @Pattern} passes a null field through untouched, so this adds no new
+ * requirement on top of the class's own "every field is optional" contract.
  */
-public record PatchDocumentRequest(String name, DocumentCategory category,
-                                   UUID targetDepartmentId, String targetContactLabel) {}
+public record PatchDocumentRequest(
+        @Pattern(regexp = CreateDocumentRequest.NAME_PATTERN, message = CreateDocumentRequest.NAME_MESSAGE) String name,
+        DocumentCategory category, UUID targetDepartmentId, String targetContactLabel) {}

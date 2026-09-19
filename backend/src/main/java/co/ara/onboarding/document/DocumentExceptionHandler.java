@@ -1,9 +1,11 @@
 package co.ara.onboarding.document;
 
+import co.ara.onboarding.platform.storage.StorageProperties;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
  * document's own exception-to-HTTP mapping, following {@code
@@ -30,6 +32,21 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  *       already states this status (Task 7's sniffed-content ruling).</li>
  *   <li>{@link UploadTooLargeException} -- 413, its own javadoc already
  *       states this status (Task 7's declared-size ceiling).</li>
+ *   <li>{@link MaxUploadSizeExceededException} -- also 413 (Task 22 review
+ *       Finding 1): the CONTAINER's own ceiling, {@code
+ *       platform.storage.StorageConfig}'s {@code MultipartConfigElement} bean
+ *       (bound to the same {@code app.storage.max-upload-bytes} value {@link
+ *       UploadTooLargeException} is checked against), refusing a request
+ *       before Spring MVC ever reaches a controller method -- so this handler,
+ *       not {@link DocumentController}, is the only place that can map it.
+ *       Left unmapped, this was a raw 500: a framework type with no handler
+ *       anywhere, surfacing well before {@code DocumentService}'s own declared-
+ *       size check could ever run for a large enough upload. Mapped here, not
+ *       in {@code platform.ApiExceptionHandler}, purely because it is only
+ *       ever thrown by this module's multipart endpoints today -- naming it in
+ *       {@code platform} would be premature generalisation, not a module-cycle
+ *       problem (it is a {@code org.springframework.web.multipart} type, not a
+ *       domain one).</li>
  *   <li>{@link DocumentVersionConflictException}, {@link
  *       DuplicateDocumentShareException} and {@link
  *       DuplicateDocumentCaseLinkException} -- one combined 409 handler,
@@ -57,6 +74,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @RestControllerAdvice
 class DocumentExceptionHandler {
 
+    private final StorageProperties storage;
+
+    DocumentExceptionHandler(StorageProperties storage) {
+        this.storage = storage;
+    }
+
     @ExceptionHandler(UnacceptableContentTypeException.class)
     ProblemDetail onUnacceptableContentType(UnacceptableContentTypeException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
@@ -65,6 +88,29 @@ class DocumentExceptionHandler {
     @ExceptionHandler(UploadTooLargeException.class)
     ProblemDetail onUploadTooLarge(UploadTooLargeException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE, e.getMessage());
+    }
+
+    /**
+     * Same status, same {@link ProblemDetail} shape as {@link
+     * #onUploadTooLarge} -- a caller should not be able to tell, from the
+     * response alone, whether the container's own multipart ceiling or the
+     * application's declared-size check is what refused the upload.
+     *
+     * <p>Deliberately does NOT echo {@link MaxUploadSizeExceededException#getMaxUploadSize()}:
+     * verified against {@code StandardMultipartHttpServletRequest.handleParseFailure}'s
+     * own source that the {@code StandardServletMultipartResolver} path this
+     * application uses always constructs this exception as {@code new
+     * MaxUploadSizeExceededException(-1, ex)} -- the real ceiling is never
+     * threaded through from the servlet container's own parse failure, so
+     * {@code getMaxUploadSize()} is reliably {@code -1} here, not the
+     * configured value. {@link StorageProperties#getMaxUploadBytes()} is the
+     * one place that value is actually known.
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ProblemDetail onMaxUploadSizeExceeded(MaxUploadSizeExceededException e) {
+        long max = e.getMaxUploadSize() >= 0 ? e.getMaxUploadSize() : storage.getMaxUploadBytes();
+        return ProblemDetail.forStatusAndDetail(HttpStatus.PAYLOAD_TOO_LARGE,
+                "Upload exceeds the " + max + " byte multipart ceiling (app.storage.max-upload-bytes)");
     }
 
     @ExceptionHandler({DocumentVersionConflictException.class, DuplicateDocumentShareException.class,
