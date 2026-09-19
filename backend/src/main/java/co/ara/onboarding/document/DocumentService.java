@@ -5,6 +5,8 @@ import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
+import co.ara.onboarding.authz.PortalContactDirectory;
+import co.ara.onboarding.authz.PortalContactFacts;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.customer.CustomerContact;
 import co.ara.onboarding.customer.CustomerContactRepository;
@@ -112,6 +114,7 @@ public class DocumentService {
     private final CustomerContactRepository contacts;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
+    private final PortalContactDirectory portalContacts;
     private final StageWriteScopeGuard writeScope;
     private final BlobStore blobStore;
     private final StorageProperties storageProperties;
@@ -126,6 +129,7 @@ public class DocumentService {
                            RequirementRepository requirementRepository, RequirementService requirementService,
                            CustomerContactRepository contacts,
                            AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
+                           PortalContactDirectory portalContacts,
                            StageWriteScopeGuard writeScope, BlobStore blobStore,
                            StorageProperties storageProperties, ContentSniffGuard sniffGuard,
                            OrgUnitResolver orgUnits, Clock clock, AuditRecorder audit) {
@@ -140,6 +144,7 @@ public class DocumentService {
         this.contacts = contacts;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
+        this.portalContacts = portalContacts;
         this.writeScope = writeScope;
         this.blobStore = blobStore;
         this.storageProperties = storageProperties;
@@ -326,6 +331,39 @@ public class DocumentService {
      * actor there is no scope predicate that call could apply (the same
      * reasoning {@link PortalCaseAccess}'s own javadoc gives in full).
      *
+     * <p><b>Self-defending, matching {@link #upload}'s own precedent -- fixed
+     * in a review round, not part of Task 26's original shape.</b> This
+     * method used to trust {@code c} and {@code actingContactId} completely,
+     * with all three of the following guarantees living ENTIRELY in {@code
+     * PortalDocumentController}: that the caller is actually a PORTAL actor,
+     * that {@code actingContactId} genuinely names the authenticated
+     * principal's own linked contact (never one a caller could simply pass
+     * in), and that the case and contact actually share a customer. That
+     * inverted {@link #upload}'s own convention (refuses {@code
+     * UserType.PORTAL} INSIDE the service, not the controller) and repeated
+     * the exact "gated write path trusting caller-supplied ids" shape
+     * CLAUDE.md names as the cause of three prior sub-project-1 escalations
+     * -- a future caller of this method that skipped or got the controller's
+     * own resolution wrong would have had nothing here to catch it. Now this
+     * method re-derives all three facts itself, before touching the upload
+     * stream at all: (1) the current actor is genuinely {@code
+     * UserType.PORTAL}; (2) re-resolving the acting contact through {@link
+     * PortalContactDirectory#findActiveContactForUser} off the CURRENT
+     * principal's own user id -- never trusting the parameter alone -- and
+     * confirming its {@code id()} equals {@code actingContactId}, closing
+     * "caller could pass anyone's contact id"; and (3) re-confirming {@code
+     * c.getCustomerId()} equals that resolved contact's own {@code
+     * customerId()}, defense in depth on top of {@link PortalCaseAccess}'s
+     * own check, so this method stays safe even if some future caller skips
+     * that step. All three refuse with the same {@link NoSuchElementException}
+     * ("Not found") this method's own pre-existing failure shape already
+     * uses -- indistinguishable from any other reason this call 404s.
+     * {@code PortalDocumentController}'s own resolution is NOT redundant with
+     * this -- it is what determines WHICH case and contact in the first
+     * place; this is re-verifying the security-relevant facts before writing,
+     * the same "confirm, don't just consume" shape {@link #resolveOwnerContact}
+     * already uses for a caller-supplied contact id on the internal path.
+     *
      * <p>{@code actingContactId} is forced onto {@link Document#ownerContactId}
      * UNCONDITIONALLY, regardless of {@code visibilityTier} -- never read from
      * {@code request.ownerContactId()} (which is always null anyway, since
@@ -362,7 +400,20 @@ public class DocumentService {
     @Transactional
     public DocumentView uploadFromPortal(Case c, UUID actingContactId, CreateDocumentRequest request,
                                          InputStream content, long sizeBytes, String declaredContentType) {
-        UUID actor = contextProvider.current().userId();
+        var ctx = contextProvider.current();
+        if (ctx.userType() != UserType.PORTAL) {
+            throw new NoSuchElementException("Not found");
+        }
+        PortalContactFacts contact = portalContacts.findActiveContactForUser(ctx.userId())
+                .orElseThrow(() -> new NoSuchElementException("Not found"));
+        if (!contact.id().equals(actingContactId)) {
+            throw new NoSuchElementException("Not found");
+        }
+        if (!c.getCustomerId().equals(contact.customerId())) {
+            throw new NoSuchElementException("Not found");
+        }
+
+        UUID actor = ctx.userId();
         StoredContent stored = captureContent(request.category(), content, sizeBytes);
 
         // No targeting field a portal caller could have supplied in the first

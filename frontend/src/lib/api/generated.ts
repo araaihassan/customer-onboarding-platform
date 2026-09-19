@@ -2054,35 +2054,22 @@ export interface components {
             /** Format: date-time */
             expiresAt?: string;
         };
-        DocumentView: {
+        PortalDocumentView: {
             /** Format: uuid */
             id?: string;
             /** Format: uuid */
             caseId?: string;
-            /** Format: uuid */
-            customerId?: string;
             name?: string;
             /** @enum {string} */
             category?: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
             /** @enum {string} */
             visibilityTier?: "COMPANY_SHARED" | "CONTACT_ONLY" | "SENSITIVE";
-            /** Format: uuid */
-            targetDepartmentId?: string;
-            targetContactLabel?: string;
+            /** @enum {string} */
+            status?: "ACTIVE" | "RETIRED";
             /** Format: uuid */
             ownerContactId?: string;
             /** Format: date-time */
             expiresAt?: string;
-            /** @enum {string} */
-            status?: "ACTIVE" | "RETIRED";
-            /** Format: uuid */
-            currentVersionId?: string;
-            /** Format: uuid */
-            uploadedBy?: string;
-            /** Format: date-time */
-            createdAt?: string;
-            /** Format: date-time */
-            updatedAt?: string;
         };
         DocumentVersionView: {
             /** Format: uuid */
@@ -2131,6 +2118,36 @@ export interface components {
         };
         RetireDocumentRequest: {
             reason: string;
+        };
+        DocumentView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** Format: uuid */
+            customerId?: string;
+            name?: string;
+            /** @enum {string} */
+            category?: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
+            /** @enum {string} */
+            visibilityTier?: "COMPANY_SHARED" | "CONTACT_ONLY" | "SENSITIVE";
+            /** Format: uuid */
+            targetDepartmentId?: string;
+            targetContactLabel?: string;
+            /** Format: uuid */
+            ownerContactId?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** @enum {string} */
+            status?: "ACTIVE" | "RETIRED";
+            /** Format: uuid */
+            currentVersionId?: string;
+            /** Format: uuid */
+            uploadedBy?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
         };
         LinkDocumentRequest: {
             /** Format: uuid */
@@ -2482,21 +2499,21 @@ export interface components {
             size?: number;
             sort?: string[];
         };
-        PageDocumentView: {
+        PagePortalDocumentView: {
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             size?: number;
-            content?: components["schemas"]["DocumentView"][];
+            content?: components["schemas"]["PortalDocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2504,11 +2521,11 @@ export interface components {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            pageSize?: number;
+            paged?: boolean;
             /** Format: int32 */
             pageNumber?: number;
-            paged?: boolean;
+            /** Format: int32 */
+            pageSize?: number;
             unpaged?: boolean;
         };
         SortObject: {
@@ -2530,13 +2547,29 @@ export interface components {
                 [key: string]: string[];
             };
         };
+        PageDocumentView: {
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            /** Format: int32 */
+            size?: number;
+            content?: components["schemas"]["DocumentView"][];
+            /** Format: int32 */
+            number?: number;
+            sort?: components["schemas"]["SortObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
+            pageable?: components["schemas"]["PageableObject"];
+            empty?: boolean;
+        };
         PageCustomerView: {
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
@@ -2545,6 +2578,8 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2568,8 +2603,6 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
@@ -2578,6 +2611,8 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2675,8 +2710,6 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
@@ -2685,6 +2718,8 @@ export interface components {
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -4727,7 +4762,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["DocumentView"];
+                    "*/*": components["schemas"]["PortalDocumentView"];
                 };
             };
             /** @description Validation failed */
@@ -7895,7 +7930,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "*/*": components["schemas"]["PageDocumentView"];
+                    "*/*": components["schemas"]["PagePortalDocumentView"];
                 };
             };
             /** @description Unprocessable Entity */

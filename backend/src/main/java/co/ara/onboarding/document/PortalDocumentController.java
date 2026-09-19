@@ -71,6 +71,11 @@ import static org.springframework.http.HttpStatus.CREATED;
  * PortalCaseAccess} is the one place that does, and it is a named exclusion
  * in {@code AuthorizationCoverageTest.FINDER_RULE_EXCLUSIONS} for exactly
  * that reason.
+ *
+ * <p>Both endpoints return {@link PortalDocumentView}, not the internal
+ * {@link DocumentView} -- fixed in a review round. See that type's own
+ * javadoc for why {@code targetDepartmentId}/{@code targetContactLabel}/
+ * {@code uploadedBy} must never cross this boundary.
  */
 @RestController
 @RequestMapping("/api/t/{tenantSlug}/portal")
@@ -98,8 +103,8 @@ public class PortalDocumentController {
             @ApiResponse(responseCode = "200",
                     description = "Every document visible to the acting contact, per scoping.DocumentAudienceFilter's portal branch")
     })
-    public Page<DocumentView> list(Pageable pageable) {
-        return documents.list(pageable);
+    public Page<PortalDocumentView> list(Pageable pageable) {
+        return documents.list(pageable).map(PortalDocumentView::from);
     }
 
     @PostMapping(value = "/cases/{caseId}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -115,7 +120,7 @@ public class PortalDocumentController {
             @ApiResponse(responseCode = "422", description = "The sniffed content type is not accepted for the declared category",
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public DocumentView upload(@PathVariable UUID caseId, @RequestPart("file") MultipartFile file,
+    public PortalDocumentView upload(@PathVariable UUID caseId, @RequestPart("file") MultipartFile file,
                                @Valid @RequestPart("metadata") PortalCreateDocumentRequest metadata)
             throws IOException {
         // principal(), not current(): this controller runs with no transaction of
@@ -133,7 +138,7 @@ public class PortalDocumentController {
                 metadata.name(), metadata.category(), metadata.visibilityTier(),
                 null, null, null, metadata.expiresAt());
 
-        return documents.uploadFromPortal(c, contact.id(), internal,
-                file.getInputStream(), file.getSize(), file.getContentType());
+        return PortalDocumentView.from(documents.uploadFromPortal(c, contact.id(), internal,
+                file.getInputStream(), file.getSize(), file.getContentType()));
     }
 }
