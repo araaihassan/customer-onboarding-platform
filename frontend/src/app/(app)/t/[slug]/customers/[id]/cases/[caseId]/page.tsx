@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CommentThread } from "@/components/comment/CommentThread";
+import { RequestDocumentDialog } from "@/components/documents/RequestDocumentDialog";
 import { ArrowRightIcon, WorkflowIcon } from "@/components/icons";
 import { AwaitingApprovalBanner } from "@/components/journey/AwaitingApprovalBanner";
 import { CaseHeader } from "@/components/journey/CaseHeader";
@@ -46,6 +47,7 @@ export default function CaseWorkspacePage() {
   const resume = useResume();
   const canHold = useHasPermission("case.hold");
   const [holding, setHolding] = useState(false);
+  const [requestingDocument, setRequestingDocument] = useState(false);
 
   // Q21/Q22/Q23: the Plan tab and the held-case banner both only apply to a
   // case pinned to a customer-owned template's version -- neither CaseView
@@ -112,7 +114,11 @@ export default function CaseWorkspacePage() {
     <section className="flex flex-col" style={{ gap: "var(--ob-space-16)" }}>
       <BackLink slug={slug} customerId={customerId} />
 
-      <CaseHeader caseData={caseQuery.data} customer={customer.data} />
+      <CaseHeader
+        caseData={caseQuery.data}
+        customer={customer.data}
+        onRequestDocument={() => setRequestingDocument(true)}
+      />
 
       {showAwaitingApproval && (
         <AwaitingApprovalBanner
@@ -186,6 +192,9 @@ export default function CaseWorkspacePage() {
       </div>
 
       {holding && <HoldDialog caseId={caseId} onClose={() => setHolding(false)} />}
+      {requestingDocument && (
+        <RequestDocumentDialog caseId={caseId} onClose={() => setRequestingDocument(false)} />
+      )}
     </section>
   );
 }

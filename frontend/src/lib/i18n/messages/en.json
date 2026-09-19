@@ -553,5 +553,18 @@
   "documents.tab.empty.description": "Documents uploaded to this case will appear here.",
   "documents.tab.open": "Open",
   "documents.tab.meta": "{tier} · v{version}",
-  "documents.tab.meta.noVersion": "{tier} · no version yet"
+  "documents.tab.meta.noVersion": "{tier} · no version yet",
+  "documents.request.title": "Request document",
+  "documents.request.category": "Category",
+  "documents.request.description": "Description (optional)",
+  "documents.request.requiresReview": "Requires review before it satisfies a requirement",
+  "documents.request.submit": "Send request",
+  "case.header.requestDocument": "Request document",
+  "documents.review.title": "Review version {version}",
+  "documents.review.decision.approve": "Approve",
+  "documents.review.decision.reject": "Reject",
+  "documents.review.note": "Note",
+  "documents.review.note.rejectRequired": "A note is required when rejecting",
+  "documents.review.submit": "Submit review",
+  "documents.review.action": "Review"
 }

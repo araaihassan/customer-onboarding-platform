@@ -2224,8 +2224,9 @@ outside jsdom.
 
 ### Task 34: Request and review dialogs
 
-**Files:** `RequestDocumentDialog.tsx`, `ReviewDialog.tsx`, tests
-**Interfaces:** Consumes `useCreateDocumentRequest`, `useReviewVersion`. Wires the case header's `Request document` primary action from `SCREENS.md` §6.
+**Files:** `RequestDocumentDialog.tsx`, `ReviewDialog.tsx`, `CaseHeader.tsx`, the case workspace
+`page.tsx`, tests
+**Interfaces:** Consumes `useCreateDocumentRequest`, `useReviewVersion`. Wires the case header's `Request document` primary action from `SCREENS.md` §3 (not §6, a stale citation -- §6 is an unrelated Gantt screen).
 
 - [ ] **Step 1: Write the failing tests** — the request dialog exposes `requires_review`; the review dialog requires a note on rejection; a user without `document.review` never sees the review affordance (permission gating, matching the existing screens' pattern).
 - [ ] **Step 2: Run to verify failure.**

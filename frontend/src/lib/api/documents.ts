@@ -24,6 +24,8 @@ export type ShareDocumentRequest = components["schemas"]["ShareDocumentRequest"]
 export type DocumentShare = components["schemas"]["DocumentShareView"];
 export type DocumentCaseLink = components["schemas"]["DocumentCaseLinkView"];
 export type ReviewVersionRequest = components["schemas"]["ReviewVersionRequest"];
+/** Task 34: the two decisions `ReviewDialog` offers, re-exported so a caller never hand-writes the literal union. */
+export type ReviewDecision = ReviewVersionRequest["decision"];
 
 export type DocumentRequest = components["schemas"]["DocumentRequestView"];
 export type CreateDocumentRequestRequest = components["schemas"]["CreateDocumentRequestRequest"];
