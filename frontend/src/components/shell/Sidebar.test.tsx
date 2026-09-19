@@ -129,6 +129,17 @@ describe("Sidebar", () => {
     expect(linkNamed(/programmes/i)?.getAttribute("href")).toBe("/t/acme/programmes");
   });
 
+  it("omits Documents without document.view", () => {
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/documents/i)).toBeNull();
+  });
+
+  it("offers Documents with document.view at any scope", () => {
+    permissions = { "document.view": ["ASSIGNED"] };
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/documents/i)?.getAttribute("href")).toBe("/t/acme/documents");
+  });
+
   it("omits Administration without role.view or user.view", () => {
     permissions = { "customer.view": ["ALL"] };
     render(<Sidebar slug="acme" />);

@@ -214,10 +214,11 @@ export class Api {
     return (await response.json()) as T;
   }
 
-  createCustomer(displayName: string) {
+  /** `owningDepartmentId` is optional and omitted when absent -- `CreateCustomerRequest`'s field is a nullable `UUID`, and every existing caller predates this parameter. */
+  createCustomer(displayName: string, owningDepartmentId?: string) {
     return this.post<{ id: string }>(
       "/customers",
-      { displayName, legalName: `${displayName} Ltd`, industry: "Software", country: "GB" },
+      { displayName, legalName: `${displayName} Ltd`, industry: "Software", country: "GB", owningDepartmentId },
       201,
     );
   }
@@ -297,8 +298,52 @@ export class Api {
     return this.post<{ id: string }>("/cases", { customerId, templateId, name, attributes }, 201);
   }
 
-  createUser(email: string, fullName: string) {
-    return this.post<{ id: string }>("/admin/users", { email, fullName }, 201);
+  /** `departmentId` is optional and omitted from the body entirely when absent -- `CreateUserRequest.departmentId` is a nullable `UUID`, matching every other caller that predates this parameter. */
+  createUser(email: string, fullName: string, departmentId?: string) {
+    return this.post<{ id: string }>("/admin/users", { email, fullName, departmentId }, 201);
+  }
+
+  createDepartment(name: string) {
+    return this.post<{ id: string }>("/admin/departments", { name, description: "" }, 201);
+  }
+
+  /**
+   * `document.upload`'s own two-part multipart contract (`file` + JSON
+   * `metadata`), the API-seeding equivalent of `lib/api/documents.ts`'s
+   * `useUploadDocument` -- see that hook's own doc comment for why `metadata`
+   * needs an explicit `mimeType` rather than a bare string value (Spring's
+   * `@RequestPart` resolves its converter from the part's own declared
+   * Content-Type). `content`/`mimeType` default to plain text -- `OTHER`
+   * (this helper's own default category) allows `text/plain` in
+   * `ContentSniffGuard`'s allowlist, sniffed from the real bytes, never the
+   * declared type.
+   */
+  async uploadDocument(
+    caseId: string,
+    metadata: { name: string; category?: string; visibilityTier?: string; targetDepartmentId?: string },
+    fileName = "fixture.txt",
+    content = "Seed content for e2e.",
+    mimeType = "text/plain",
+  ) {
+    const response = await this.request.post(`/api/t/${this.slug}/cases/${caseId}/documents`, {
+      headers: this.headers,
+      multipart: {
+        file: { name: fileName, mimeType, buffer: Buffer.from(content) },
+        metadata: {
+          name: "metadata.json",
+          mimeType: "application/json",
+          buffer: Buffer.from(
+            JSON.stringify({ category: "OTHER", visibilityTier: "COMPANY_SHARED", ...metadata }),
+          ),
+        },
+      },
+    });
+    expect(response.status(), await bodyOf(response)).toBe(201);
+    return (await response.json()) as { id: string; name: string };
+  }
+
+  shareDocument(documentId: string, principalType: "CONTACT" | "USER" | "DEPARTMENT", principalId: string) {
+    return this.post<{ id: string }>(`/documents/${documentId}/shares`, { principalType, principalId }, 201);
   }
 
   assignRole(userId: string, roleId: string) {
@@ -340,7 +385,11 @@ export class Api {
 
 /**
  * A colleague holding exactly the grants given, and nothing else — activated and
- * able to sign in.
+ * able to sign in. `departmentId` is optional (backward-compatible with every
+ * existing caller) -- when given, it is set on the user itself, the same
+ * `AppUser.departmentId` `AuthContext.departmentId()` resolves per-request,
+ * so a DEPARTMENT-scoped grant here actually has a department to resolve
+ * against.
  */
 export async function seedUser(
   request: APIRequestContext,
@@ -348,9 +397,10 @@ export async function seedUser(
   tenant: Tenant,
   name: string,
   grants: Record<string, string>,
+  departmentId?: string,
 ): Promise<string> {
   const email = `${name}@${tenant.slug}.test`;
-  const { id: userId } = await admin.createUser(email, name);
+  const { id: userId } = await admin.createUser(email, name, departmentId);
   const { id: roleId } = await admin.createRole(`${name}-role`, grants);
   await admin.assignRole(userId, roleId);
 

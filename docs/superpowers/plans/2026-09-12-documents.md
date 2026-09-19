@@ -2240,15 +2240,53 @@ outside jsdom.
 
 ### Task 35: An e2e spec for the visibility arc
 
-**Files:** `frontend/e2e/documents.spec.ts`
+**Files:** `frontend/e2e/documents.spec.ts` — **amended at execution**: also
+`frontend/src/components/shell/Sidebar.tsx` (+ its test), `frontend/src/app/(app)/t/[slug]/documents/page.tsx`
+(+ its test), `frontend/e2e/support/tenant.ts`, `frontend/src/lib/i18n/messages/en.json`.
 
-- [ ] **Step 1: Write the spec.** Seed through the API (`e2e/support/tenant.ts`), then drive the browser: upload a company-shared document and a Legal-targeted one; confirm a Finance user sees one and the hidden-count line says so; share the targeted one explicitly and confirm it appears.
+- [x] **Step 0 (found during pre-dispatch research, not in the plan's original scope): assemble the
+  tenant-wide `docs` page and its nav entry.** Task 32's own Ruling 5 deferred this ("a future
+  page-assembly task"), and this task's own pre-dispatch research (`progress.md`, "Task 35:
+  pre-dispatch research") confirmed the gap was real and larger than "just assemble a page": no
+  route (`frontend/src/app/(app)/t/[slug]/documents/page.tsx`) existed at all, AND no sidebar nav
+  item pointed to it either. This task closes both, since Step 1's own spec cannot drive a browser
+  through a screen with no route and no way to navigate to it: a "Documents" nav item in
+  `Sidebar.tsx` gated `useHasPermission("document.view")`, and the page itself composing
+  `ScopeFilterRow`/`HiddenCountLine`/`DocumentTable`/`VisibilityAside` (Tasks 31-33, unchanged) with
+  local `tier`/`page` state. **Real design decision, not resolved by the plan or the brief:** this
+  page carries no Upload action. `SCREENS.md` §7 names exactly three pieces for this screen (the
+  scope filter row, the table, the right aside) and no upload affordance; `UploadDialog` (Task 33)
+  is structurally per-case (`POST /cases/{caseId}/documents`, a required `caseId` prop), and no
+  case-picker component exists anywhere in this codebase to drive one from a tenant-wide screen —
+  not even task creation, itself case-scoped only. Upload already has a real home, the case
+  workspace's own Documents tab, where `caseId` is naturally in scope; inventing a customer→case
+  picker here would be new, unspecified feature work, not the smallest correct wiring this task
+  calls for.
+- [x] **Step 1: Write the spec.** Seed through the API (`e2e/support/tenant.ts`, which gained
+  `createDepartment`, `uploadDocument`, `shareDocument`, and an optional `departmentId` parameter on
+  `createUser`/`seedUser`/`createCustomer`), then drive the browser: upload an untargeted
+  ("company-shared") document and a Legal-targeted one; confirm a DEPARTMENT-scoped Finance reader
+  sees the first, not the second, and the hidden-count line says so; share the targeted one
+  explicitly and confirm it appears.
+  **Amended from the plan's own one-department/one-customer framing, found necessary during
+  execution — read `DocumentService.visibilitySummary`'s own javadoc before changing this fixture
+  further.** `document.view`'s two narrowing mechanisms (`DocumentDescriptor`'s record-level SCOPE,
+  inherited from the document's case; `DocumentAudienceFilter`'s targeting/sharing AUDIENCE, which
+  binds even an ALL-scoped reader) compose by AND, and disclose very differently: an
+  audience-excluded document is invisible to BOTH the `visible` and the scope-ignoring `total`
+  queries alike (the audience predicate is baked into both), so it contributes NOTHING to the
+  hidden-count line, by design. Only a SCOPE-excluded document can move that count off zero. A
+  single-department/single-customer fixture would have made the hidden-count assertion pass
+  vacuously against a count that is always zero — so the fixture seeds a SECOND department/customer
+  (Legal, never targeted at anyone, on its own case) purely to give the hidden-count line something
+  real to report, alongside the Legal-targeted document living on Finance's own case (which the
+  audience filter alone hides).
 
 **Two traps this suite has hit before, both recorded in CLAUDE.md:**
 - **Never `.check()`/`.fill()`-and-assume against a control whose state depends on an async round trip.** Use `.click()` followed by an auto-retrying `expect(...)`.
 - **Omitted `List`/`Map` request fields NPE the server rather than defaulting.** Seed every field explicitly, including `dependsOnMilestoneKeys`, `branchRules`, `attributes` and `autoAdvance: true`.
 
-- [ ] **Step 2: Run it live against a scratch database.**
+- [x] **Step 2: Run it live against a scratch database.**
 
 ```powershell
 $env:DB_URL = "jdbc:postgresql://localhost:5432/onboarding_e2e_sp4"
@@ -2257,8 +2295,28 @@ npx playwright test documents.spec.ts
 
 Activation tokens exist only in `frontend/e2e/.artifacts/backend.log`; Playwright gives a test no way to read a `webServer`'s stdout.
 
-- [ ] **Step 3: Fix what it finds.** Every previous first live run found real defects. **Never weaken an assertion to make a spec pass** — rule each finding as product bug or spec bug, and say which in the commit.
-- [ ] **Step 4: Commit.**
+**Executed against `jdbc:postgresql://localhost:5434/onboarding_e2e_sp4`** (the machine's
+`onboarding-db` container was already mapped to host port 5434, not 5432 — a native `postgres.exe`
+Windows service, unrelated to this branch, already owned 5432; CLAUDE.md's own "If 5432 is already
+taken, map another port and set `DB_URL` to match" covers exactly this).
+
+- [x] **Step 3: Fix what it finds.** Every previous first live run found real defects. **Never weaken an assertion to make a spec pass** — rule each finding as product bug or spec bug, and say which in the commit. **Two findings, both spec bugs, neither a product bug:**
+  1. `DocumentSharingService.applyWriteScope` resolves the case's current `Stage` (to check
+     `write_scope`) through `AuthorizedQuery` under `workflow.view`, not `document.share` — the same
+     "viewing a case's full representation is gated by more than `case.view`" trap CLAUDE.md already
+     documents for `CaseService`'s own `currentStageName` lookup, now confirmed live for a document
+     write path too. The hand-built "legal" role granted only `document.share`; every
+     `shareDocument` call 404'd with no department/audience explanation until `workflow.view` was
+     added to that role. Traced by direct SQL against the running scratch database (confirmed the
+     department ids matched exactly, ruling out an audience-predicate bug) before finding the second
+     `AuthorizedQuery.getById` call inside `applyWriteScope` that the first pass had missed reading.
+  2. The spec's own `beforeAll` originally performed the Legal→Finance share BEFORE the Finance
+     reader's browser session ever loaded the page, so there was no "before" state left to observe —
+     the first live run failed with `toHaveCount(0)` receiving `1` for `legalTargeted`, because it
+     was already shared by the time that assertion ran. Fixed by moving the `shareDocument` call out
+     of `beforeAll` and into the test body itself, between the "before" and "after" assertion
+     halves.
+- [x] **Step 4: Commit.**
 
 ### Task 36: An e2e spec for request → fulfil → review → satisfy
 
