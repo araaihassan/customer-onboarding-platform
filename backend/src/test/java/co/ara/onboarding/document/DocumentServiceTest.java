@@ -545,7 +545,18 @@ class DocumentServiceTest extends PostgresTestBase {
         });
     }
 
-    /** version_no starts at 1 (upload) and increments by one on each subsequent addVersion call. */
+    /**
+     * version_no starts at 1 (upload) and increments by one on each subsequent
+     * addVersion call. Also pins {@code DocumentView.currentVersionNumber}
+     * (Ruling 3, Task 33) against a document that has actually been through
+     * more than one append -- the field's own mechanism (`toView` resolving
+     * it from `currentVersionId`, which `addVersion` keeps in step on every
+     * append) was otherwise only proven against a single-version upload
+     * elsewhere in this file, which cannot tell a correctly-updated field
+     * apart from one that happens to start right and never moves. This is
+     * the regression the field exists to prevent: a stale "always shows v1"
+     * Open link once a document has more than one version.
+     */
     @Test
     void versionNumbersStartAtOneAndIncrementOnEachAppendedVersion() {
         UUID tenant = fixture.createTenant("doc-vno-" + Uuid7.generate());
@@ -554,7 +565,10 @@ class DocumentServiceTest extends PostgresTestBase {
         fixture.runAs(tenant, () -> {
             caseId[0] = journey.newCase(tenant).getId();
             actor[0] = fixture.createUser(tenant, "vno-uploader+" + Uuid7.generate() + "@example.com");
-            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+            // DOCUMENT_VIEW alongside DOCUMENT_UPLOAD -- this test also reads
+            // the document back through documents.get to assert
+            // currentVersionNumber, which is gated separately from upload.
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL, PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
         });
 
         var documentId = new UUID[1];
@@ -573,6 +587,9 @@ class DocumentServiceTest extends PostgresTestBase {
                     .map(DocumentVersion::getVersionNo).sorted().toList();
             assertThat(versionNos).containsExactly(1, 2, 3);
         });
+
+        fixture.runAsUser(tenant, actor[0],
+                () -> assertThat(documents.get(documentId[0]).currentVersionNumber()).isEqualTo(3));
     }
 
     /** A new version always starts PENDING, even when an earlier version was already approved. */
