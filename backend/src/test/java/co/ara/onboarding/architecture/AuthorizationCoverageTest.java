@@ -334,7 +334,13 @@ class AuthorizationCoverageTest {
             // :130-132,184; RequirementService.java:82,120) authorizes the case id
             // through AuthorizedQuery before ever calling lockAndLoad, but nothing
             // stops a future caller from passing an unauthorized id straight to it.
-            "co.ara.onboarding.journey.CaseEngine");
+            "co.ara.onboarding.journey.CaseEngine",
+            // Sub-project 4 Task 24: DocumentInstantiation is called inside
+            // CaseService.create's own transaction (via DocumentRequestLifecycleAdapter),
+            // on a caseId that method just created and fully controls -- the identical
+            // shape task.TaskInstantiation's own entry above already documents, DOCUMENT
+            // rather than TASK.
+            "co.ara.onboarding.document.DocumentInstantiation");
 
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
@@ -482,10 +488,16 @@ class AuthorizationCoverageTest {
         // the rule silently fails to see. TaskDirectoryAdapter is deliberately NOT
         // asserted here any more (sub-project 3A Task 5): it no longer calls a
         // finder outside AuthorizedQuery, so it carries no exclusion at all --
-        // see FINDER_RULE_EXCLUSIONS' own comment for why.
+        // see FINDER_RULE_EXCLUSIONS' own comment for why. DocumentInstantiation
+        // (sub-project 4 Task 24) is the same shape as TaskInstantiation.
+        // DocumentRequestLifecycleAdapter is deliberately NOT asserted here, same
+        // reasoning as TaskDirectoryAdapter's own omission: it injects no
+        // repository of its own (only DocumentInstantiation), so it never matches
+        // injectsARepository() and needs no exclusion at all.
         assertThat(FINDER_RULE_EXCLUSIONS)
                 .contains("co.ara.onboarding.task.TaskInstantiation",
-                          "co.ara.onboarding.task.TaskLifecycleAdapter")
+                          "co.ara.onboarding.task.TaskLifecycleAdapter",
+                          "co.ara.onboarding.document.DocumentInstantiation")
                 .doesNotContain("co.ara.onboarding.task.TaskDirectoryAdapter");
     }
 }

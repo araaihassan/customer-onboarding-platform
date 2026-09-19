@@ -48,6 +48,15 @@ public class RequirementDefinition extends TenantScopedEntity {
     @Column(name = "approver_relationship")
     private String approverRelationship;
 
+    /**
+     * Design spec 5.3: whether fulfilling this requirement needs review before
+     * it satisfies. Nullable -- {@code V23__document.sql} added the column with
+     * no default so every existing frozen row keeps its current meaning -- and
+     * read as {@code false} wherever it is consumed (DocumentInstantiation).
+     */
+    @Column(name = "requires_review")
+    private Boolean requiresReview;
+
     public UUID getVersionId() { return versionId; }
     public void setVersionId(UUID versionId) { this.versionId = versionId; }
 
@@ -74,4 +83,7 @@ public class RequirementDefinition extends TenantScopedEntity {
 
     public String getApproverRelationship() { return approverRelationship; }
     public void setApproverRelationship(String approverRelationship) { this.approverRelationship = approverRelationship; }
+
+    public Boolean getRequiresReview() { return requiresReview; }
+    public void setRequiresReview(Boolean requiresReview) { this.requiresReview = requiresReview; }
 }
