@@ -73,12 +73,14 @@ public class DocumentController {
     private final DocumentService documents;
     private final DocumentContentService content;
     private final DocumentSharingService sharing;
+    private final DocumentReviewService review;
 
     public DocumentController(DocumentService documents, DocumentContentService content,
-                              DocumentSharingService sharing) {
+                              DocumentSharingService sharing, DocumentReviewService review) {
         this.documents = documents;
         this.content = content;
         this.sharing = sharing;
+        this.review = review;
     }
 
     @GetMapping("/documents")
@@ -211,6 +213,23 @@ public class DocumentController {
                 .contentType(MediaType.parseMediaType(blob.contentType()))
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
                 .body(new InputStreamResource(blob.content()));
+    }
+
+    @PostMapping("/documents/{id}/versions/{versionNo}/review")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Approved or rejected -- reviewStatus/reviewedBy/reviewedAt/reviewNote set"),
+            @ApiResponse(responseCode = "400", description = "Validation failed",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = "The document, or that version number, is absent or out of scope",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "The case a satisfied requirement belongs to is currently ON_HOLD",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public DocumentVersionView review(@PathVariable UUID id, @PathVariable int versionNo,
+                                      @Valid @RequestBody ReviewVersionRequest request) {
+        return review.review(id, versionNo, request.decision(), request.note());
     }
 
     @PostMapping("/documents/{id}/retire")

@@ -87,6 +87,8 @@ class DocumentControllerTest extends SecurityTestBase {
                     PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
                     PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
                     PermissionKeys.DOCUMENT_SHARE, Scope.ALL,
+                    PermissionKeys.DOCUMENT_REVIEW, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
                     PermissionKeys.USER_VIEW, Scope.ALL,
                     // A real case pinned to a published template (linkAndUnlinkRoundTripThroughHttp's
                     // own cases.create, unlike journey.newCase's fixture cases) has a real
@@ -299,6 +301,31 @@ class DocumentControllerTest extends SecurityTestBase {
                         .contentType("application/json")
                         .content(JSON.writeValueAsString(Map.of("name", "Evil\r\nX-Injected: true.pdf"))))
            .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * Task 27: the real HTTP path through {@link DocumentController#review},
+     * proving the controller actually reaches {@link DocumentReviewService}
+     * (scope-filtering correctness is already fully proven at the service
+     * layer by {@link DocumentReviewServiceTest}) -- and that a version
+     * number not associated with this document 404s.
+     */
+    @Test
+    void reviewApprovesAVersionThroughHttp() throws Exception {
+        UUID documentId = upload("To Review.pdf");
+
+        mvc.perform(as(post(base() + "/documents/" + documentId + "/versions/1/review"), actor)
+                        .contentType("application/json")
+                        .content("{\"decision\":\"APPROVED\",\"note\":\"Looks good\"}"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.reviewStatus").value("APPROVED"))
+           .andExpect(jsonPath("$.reviewNote").value("Looks good"))
+           .andExpect(jsonPath("$.reviewedBy").value(actor.getId().toString()));
+
+        mvc.perform(as(post(base() + "/documents/" + documentId + "/versions/99/review"), actor)
+                        .contentType("application/json")
+                        .content("{\"decision\":\"APPROVED\"}"))
+           .andExpect(status().isNotFound());
     }
 
     @Test
