@@ -14,7 +14,7 @@ import jakarta.validation.constraints.NotBlank;
  * document_request} has no reason column, the identical precedent {@link
  * DocumentService#retire}'s own javadoc already establishes for its own
  * {@code reason} parameter: {@code document.request_withdrawn} is one of Task
- * 29's own nine future {@code document.*} audit actions that will carry it in
+ * 29's own ten future {@code document.*} audit actions that will carry it in
  * the audit payload once that action exists, so validating-but-not-storing it
  * now is not a gap, it is the known shape of a value waiting on its own audit
  * action to land.

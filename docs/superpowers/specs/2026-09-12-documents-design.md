@@ -606,6 +606,7 @@ All under `/api/t/{slug}/`.
 | `POST` | `/documents/{id}/links` · `DELETE` …`/{caseId}` | `document.share` |
 | `POST` | `/cases/{caseId}/document-requests` | `document.request` |
 | `POST` | `/document-requests/{id}/withdraw` | `document.request` |
+| `POST` | `/document-requests/{id}/fulfil` | `document.request` |
 | `GET` | `/portal/documents` · `POST` `/portal/cases/{caseId}/documents` | portal-derived |
 
 Every id taken from a URL or body is resolved through `AuthorizedQuery` **before** it is written —

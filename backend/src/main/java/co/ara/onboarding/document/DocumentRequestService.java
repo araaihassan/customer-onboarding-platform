@@ -193,6 +193,20 @@ public class DocumentRequestService {
      * DocumentSharingService#link}'s own cross-journey links) should also
      * count is a real, unresolved edge case, deliberately not solved here.
      *
+     * <p>Also refused with {@link IllegalArgumentException} (400) when the
+     * resolved document's own {@code status} is {@link DocumentStatus#RETIRED}
+     * -- the same "document is unsuitable for this fulfilment" shape as the
+     * cross-case check just above, read consistently as the same exception
+     * and status. {@link DocumentService#get} deliberately keeps a retired
+     * document reachable by id (a status change, not an existence change),
+     * so {@code AuthorizedQuery} resolving it above succeeds fine; without
+     * this check a requirement could be satisfied against a document nobody
+     * can ever open again, with nothing left to reopen it, since {@link
+     * DocumentService#retire} already reopened whatever it satisfied at the
+     * time it was retired -- exactly the silent-false-positive shape {@code
+     * journey.RequirementService#reopen}'s own javadoc names as the reason
+     * retirement reopens requirements in the first place.
+     *
      * <p>Refused with {@link IllegalStateException} (409) when the request's
      * own {@code status} is not {@link DocumentRequestStatus#OPEN} -- the
      * mirror image of {@link #withdraw}'s own already-FULFILLED guard: here
@@ -214,10 +228,24 @@ public class DocumentRequestService {
      * {@code requiresReview}, and {@code satisfy} is never called.
      *
      * <p>No audit action is recorded here -- there is no {@code
-     * document.request_fulfilled}-shaped entry among Task 29's own future
-     * nine {@code document.*} audit actions; fulfilment's own audit trail is
-     * carried by whatever {@code document.uploaded}/{@code
-     * requirement.satisfied} already record.
+     * document.request_fulfilled}-shaped entry among Task 29's own future ten
+     * {@code document.*} audit actions. That silence is only harmless for
+     * ONE of this method's three branches, not all of them: when {@code
+     * requirementId != null && !requiresReview}, {@code satisfy} below fires
+     * and {@code requirement.satisfied} genuinely does carry the
+     * {@code OPEN -&gt; FULFILLED} transition's audit trail. For an ad-hoc
+     * request ({@code requirementId == null}) and for a request whose {@code
+     * requiresReview} is true, neither {@code document.uploaded} (no upload
+     * happens inside this method -- the document already existed) nor {@code
+     * requirement.satisfied} (never called in either branch) fires, so
+     * {@code OPEN -&gt; FULFILLED} is completely unrecorded for those two
+     * branches -- asymmetric with {@code withdraw}'s own future {@code
+     * document.request_withdrawn} action (also Task 29). Task 29's own plan
+     * entry already lists ten future {@code document.*} actions, not nine;
+     * it should also consider whether that list needs an eleventh, covering
+     * fulfilment specifically for these two currently-silent branches, rather
+     * than this javadoc having claimed full coverage it does not actually
+     * have.
      *
      * <p>{@link StageWriteScopeGuard} narrows on top, the same pattern
      * {@link #create} and {@link #withdraw} already use.
@@ -233,6 +261,11 @@ public class DocumentRequestService {
         if (!d.getCaseId().equals(dr.getCaseId())) {
             throw new IllegalArgumentException(
                     "Document " + d.getId() + " belongs to a different case than document request " + dr.getId());
+        }
+
+        if (d.getStatus() == DocumentStatus.RETIRED) {
+            throw new IllegalArgumentException(
+                    "Document " + d.getId() + " is retired and cannot fulfil document request " + dr.getId());
         }
 
         if (dr.getStatus() != DocumentRequestStatus.OPEN) {

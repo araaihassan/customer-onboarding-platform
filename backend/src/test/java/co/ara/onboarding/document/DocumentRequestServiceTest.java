@@ -654,6 +654,65 @@ class DocumentRequestServiceTest extends PostgresTestBase {
     }
 
     /**
+     * A RETIRED document is kept reachable by id on purpose ({@link
+     * DocumentService#get}'s own javadoc: retirement is a status change, not
+     * an existence change), so {@code AuthorizedQuery} resolves it fine here
+     * -- but {@code fulfil} must refuse it anyway (400, the same shape as the
+     * cross-case check just above), or a requirement could be satisfied
+     * against a document nobody can ever open again, with nothing left to
+     * ever reopen it ({@code journey.RequirementService#reopen}'s own
+     * javadoc names exactly this as retirement's reason for reopening
+     * requirements in the first place). Also proves no partial state is left
+     * behind: the request stays {@code OPEN} and the linked requirement is
+     * never satisfied.
+     */
+    @Test
+    void fulfillingWithARetiredDocumentIsRefusedAndLeavesNoPartialState() {
+        UUID tenant = fixture.createTenant("doc-req-fulfil-retired-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requirementId = new UUID[1];
+        var requestId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "fulfil-retired-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Fulfil Retired Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            requestId[0] = createRequestRow(tenant, caseId[0], requirementId[0], manager[0], false);
+            documentId[0] = createDocument(tenant, caseId[0], customerId, manager[0]);
+
+            Document d = documentRepository.findById(documentId[0]).orElseThrow();
+            d.setStatus(DocumentStatus.RETIRED);
+            documentRepository.saveAndFlush(d);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                requests.fulfil(requestId[0], documentId[0])))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        fixture.runAs(tenant, () -> {
+            DocumentRequest dr = requestRepository.findById(requestId[0]).orElseThrow();
+            assertThat(dr.getStatus()).isEqualTo(DocumentRequestStatus.OPEN);
+            assertThat(dr.getFulfilledDocumentId()).isNull();
+
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getStatus()).isEqualTo(RequirementStatus.OPEN);
+            assertThat(r.getSatisfiedRef()).isNull();
+        });
+    }
+
+    /**
      * A cross-tenant (or otherwise nonexistent) {@code requestId} is a 404,
      * the identical shape {@link #aCrossTenantRequestIdAnswers404NeverForbidden}
      * already proves for {@code withdraw}.

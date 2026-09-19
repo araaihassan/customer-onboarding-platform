@@ -1994,6 +1994,28 @@ The last one proves the seam `SatisfyRequest`'s own doc comment promised sub-pro
 - [ ] **Step 4: Run the tests.**
 - [ ] **Step 5: Commit.**
 
+**Amendment, found executing this task:** this task's own "Files"/"Interfaces" lines name only
+the service method, but neither design spec §8's endpoint table nor this brief lists an HTTP
+surface for `fulfil` at all — yet Task 30's frontend hook list already names `useFulfilRequest`
+as its own distinct hook and Task 36's e2e spec drives "request → fulfil → review → satisfy" as a
+live browser step, neither possible without a real, callable endpoint. This task also adds
+`POST /document-requests/{id}/fulfil` (`document.request`) on the existing
+`DocumentRequestController`, matching `withdraw`'s own sibling path shape, and corrects that
+controller's own class javadoc, which had wrongly claimed `fulfil` would never touch it. Spec §8's
+endpoint table is amended to carry the new row.
+
+**Amendment, found at task review:** the resolved `documentId` was checked against the resolved
+request's own `caseId` but never against its own `status` — a `RETIRED` document (kept reachable
+by id on purpose, per Task 18's own retirement design) could fulfil a request and permanently
+satisfy a requirement, with nothing left to ever reopen it. `fulfil` now also refuses
+(`IllegalArgumentException`, 400, the same shape as the cross-case check right next to it) when
+the resolved document's `status` is `DocumentStatus.RETIRED`. The same review also corrected this
+task's own javadoc: contrary to its original claim, fulfilment's `OPEN → FULFILLED` transition is
+audited only via `requirement.satisfied` for the `requirementId != null && !requiresReview`
+branch — the ad-hoc branch and the `requiresReview == true` branch record nothing at all, an
+asymmetry Task 29 should weigh when it decides its final action list (which itself already runs to
+ten future `document.*` actions, not nine, per this task's own corrected count above).
+
 ### Task 26: The portal upload endpoint
 
 **Files:** `PortalDocumentController.java`, `PortalDocumentTest.java`
