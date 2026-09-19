@@ -594,12 +594,25 @@ public class DocumentService {
      * own (now-stale) javadoc used to document as a deliberate simplification:
      * {@code owner_contact_id} has a foreign key to {@code customer_contact(id)},
      * which only proves the contact exists SOMEWHERE in the tenant, never that
-     * it belongs to the same customer as the document being uploaded -- and
-     * {@code owner_contact_id} is exactly what gates CONTACT_ONLY visibility
-     * ({@code scoping.DocumentAudienceFilter}), so an unresolved id let an
-     * internal actor point a CONTACT_ONLY document's owner at a contact
-     * belonging to a completely different customer, handing that unrelated
-     * customer's portal user visibility into a document that is not theirs.
+     * it belongs to the same customer as the document being uploaded. Note this
+     * is NOT the cross-customer disclosure it might look like at first glance --
+     * {@code scoping.DocumentAudienceFilter#portalAudience}'s {@code atMyCustomer}
+     * conjunct is ANDed with the CONTACT_ONLY tier check, so a customer-B contact
+     * can never pass that branch for a customer-A document regardless of what
+     * {@code owner_contact_id} points at; that read-side check was independently
+     * sufficient against disclosure even before this fix. What an unresolved id
+     * DID leave open: (1) a bogus or cross-tenant id surfaced a raw
+     * {@code DataIntegrityViolationException} instead of a clean 404, the same
+     * existence-oracle class {@link OrgUnitResolver} already exists to close for
+     * department/team ids; (2) a CONTACT_ONLY document could be silently created
+     * with an owner at the WRONG customer, making it permanently unreachable by
+     * anyone -- no contact at the right customer matches {@code owner_contact_id},
+     * and no contact at the wrong customer passes {@code atMyCustomer}; and (3)
+     * defense-in-depth -- a future write path, or a future change to the filter
+     * above, that ever consults {@code owner_contact_id} without also checking
+     * {@code atMyCustomer} would turn an unvalidated cross-customer id into a
+     * real disclosure, and validating it here closes that class of risk before
+     * it can matter rather than relying solely on the read side.
      *
      * <p>Mirrors {@link DocumentSharingService#resolveContact} exactly:
      * {@code null} passes straight through (an untargeted document has no

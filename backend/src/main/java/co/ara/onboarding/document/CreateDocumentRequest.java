@@ -27,10 +27,15 @@ import java.util.UUID;
  * refusing a contact belonging to a different customer than the case with
  * {@link IllegalArgumentException} (400). This was originally left as a raw,
  * unvalidated FK write (a documented, deliberate simplification deferred to
- * Task 17's PATCH); found during a later security review to be a real
- * cross-customer disclosure vector instead, because {@code owner_contact_id}
- * is exactly what gates CONTACT_ONLY visibility
- * ({@code scoping.DocumentAudienceFilter}) -- fixed directly on this path
+ * Task 17's PATCH); a later security review found this to be a real gap after
+ * all, though not the disclosure vector it first appeared to be -- {@code
+ * scoping.DocumentAudienceFilter}'s CONTACT_ONLY branch is already gated on
+ * the reading contact's OWN customer, so a wrong {@code owner_contact_id}
+ * could never surface a document to an unrelated customer. What it did leave
+ * open: a bogus/cross-tenant id 500ing instead of 404ing, a CONTACT_ONLY
+ * document silently created unreachable by anyone (owner at the wrong
+ * customer), and an unvalidated cross-customer id sitting live for any future
+ * write path or filter change to trip over -- fixed directly on this path
  * rather than deferred further. See {@link DocumentService#resolveOwnerContact}'s
  * own javadoc for the full reasoning.
  */

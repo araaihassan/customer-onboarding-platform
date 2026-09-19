@@ -420,14 +420,19 @@ class DocumentServiceTest extends PostgresTestBase {
      * #resolveContact}/{@code DocumentSharingService#link} and {@code
      * DocumentRequestService}'s own contact resolution already carry).
      * {@code owner_contact_id} is exactly what gates CONTACT_ONLY visibility
-     * ({@code scoping.DocumentAudienceFilter}), so an internal actor could
-     * otherwise upload a CONTACT_ONLY document and point its owner at a
-     * contact belonging to a completely different customer, handing that
-     * unrelated customer's portal user visibility into a document that is
-     * not theirs. Refused as an {@link IllegalArgumentException} (400) --
-     * never the actor's own scope, and never the 404 an absent or
-     * out-of-scope contact id already gets from {@code AuthorizedQuery
-     * #getById} on its own.
+     * ({@code scoping.DocumentAudienceFilter}), but that filter's own
+     * {@code atMyCustomer} conjunct already independently stops a cross-customer
+     * owner from ever disclosing the document to the wrong customer's portal
+     * user -- so this test is NOT proving a disclosure fix. What it proves
+     * instead: an internal actor could otherwise upload a CONTACT_ONLY document
+     * whose owner belongs to a different customer than the case, which the FK
+     * alone cannot catch (it only proves the contact exists somewhere in the
+     * tenant) and which would make the document permanently unreachable by
+     * anyone -- and this refuses that with a clean {@link IllegalArgumentException}
+     * (400) instead of either silently persisting an orphaned document or
+     * surfacing a raw FK violation. Never the actor's own scope, and never the
+     * 404 an absent or out-of-scope contact id already gets from
+     * {@code AuthorizedQuery#getById} on its own.
      */
     @Test
     void uploadRefusesAnOwnerContactBelongingToADifferentCustomerThanTheCase() {
