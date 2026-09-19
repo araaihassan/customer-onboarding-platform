@@ -31,13 +31,14 @@ const TIER_FILTERS: ReadonlyArray<{ value: "ALL" | DocumentVisibilityTier; label
  * inside a table cell -- a different job).
  *
  * **Ruling 4 (see `task-32-brief.md`).** "Open requests" has no backing data
- * yet -- no `document_request` list endpoint exists anywhere (Task 30's own
- * `useDocumentRequests` doc comment already records this gap for the
- * case-scoped read; there is no tenant-wide one either). All five buttons
- * `SCREENS.md` §7 names are still rendered -- CLAUDE.md requires implementing
- * the design as specified, not silently dropping a row -- but this one is
- * `disabled` and carries no `onClick`/`onChange` call at all, so it can never
- * report a selection nothing can actually filter by.
+ * yet -- `GET /cases/{caseId}/document-requests` exists now (Task 36 closed
+ * that case-scoped gap; `useDocumentRequests` no longer records it as open),
+ * but this filter needs a TENANT-WIDE listing, which still does not exist
+ * anywhere. All five buttons `SCREENS.md` §7 names are still rendered --
+ * CLAUDE.md requires implementing the design as specified, not silently
+ * dropping a row -- but this one is `disabled` and carries no
+ * `onClick`/`onChange` call at all, so it can never report a selection
+ * nothing can actually filter by.
  */
 export function ScopeFilterRow({
   active,

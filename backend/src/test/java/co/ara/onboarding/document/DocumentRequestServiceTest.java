@@ -18,6 +18,8 @@ import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
 import co.ara.onboarding.workflow.WriteScope;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Pageable;
+import org.springframework.security.access.AccessDeniedException;
 
 import java.time.Instant;
 import java.util.List;
@@ -785,6 +787,101 @@ class DocumentRequestServiceTest extends PostgresTestBase {
         assertThatThrownBy(() -> fixture.runAsUser(tenantA, managerA[0], () ->
                 requests.fulfil(requestId[0], documentIdInB[0])))
                 .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * Task 36 review: {@code forCase} had zero dedicated tests before this --
+     * its only exercise was the e2e spec's single admin-happy-path call. These
+     * three mirror {@code DocumentServiceTest.forCase}'s own three
+     * (cross-tenant, out-of-scope-department, portal), the exact precedent
+     * {@code DocumentRequestService.forCase}'s own javadoc already cites.
+     *
+     * A cross-tenant {@code caseId} is a 404, never a 500 or a leak across the
+     * tenant boundary -- the same shape {@code aCrossTenantRequestIdAnswers404NeverForbidden}
+     * already proves for {@code withdraw}, now proven for the {@code caseId}
+     * {@code forCase} itself resolves.
+     */
+    @Test
+    void forCaseWithACrossTenantCaseIdIsA404() {
+        UUID tenantA = fixture.createTenant("doc-req-forcase-xt-a-" + Uuid7.generate());
+        UUID tenantB = fixture.createTenant("doc-req-forcase-xt-b-" + Uuid7.generate());
+        var caseInA = new UUID[1];
+        var actorB = new UUID[1];
+
+        fixture.runAs(tenantA, () -> caseInA[0] = journey.newCase(tenantA).getId());
+
+        fixture.runAs(tenantB, () -> {
+            actorB[0] = fixture.createUser(tenantB, "forcase-actor-b+" + Uuid7.generate() + "@example.com");
+            grant(actorB[0], Map.of(PermissionKeys.DOCUMENT_REQUEST, Scope.ALL));
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenantB, actorB[0],
+                () -> requests.forCase(caseInA[0], Pageable.unpaged())))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * A SAME-tenant {@code caseId} outside the caller's own {@code
+     * document.request} scope -- DEPARTMENT here, the same narrowest
+     * real-ownership scope {@code DocumentServiceTest
+     * .forCaseWithACaseOutsideTheCallersDepartmentScopeIsA404} exercises.
+     * Proves {@code forCase}'s resolution genuinely narrows by scope, not
+     * merely by tenant.
+     */
+    @Test
+    void forCaseWithACaseOutsideTheCallersDepartmentScopeIsA404() {
+        UUID tenant = fixture.createTenant("doc-req-forcase-scope-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var otherDeptCaseId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID ownDepartment = fixture.createDepartment(tenant, "Reader's Department");
+            UUID otherDepartment = fixture.createDepartment(tenant, "Other Department");
+            actor[0] = fixture.createUserInDepartment(
+                    tenant, "forcase-dept-reader+" + Uuid7.generate() + "@example.com", ownDepartment);
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_REQUEST, Scope.DEPARTMENT));
+
+            otherDeptCaseId[0] = journey.newCase(tenant, null, otherDepartment, null).getId();
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0],
+                () -> requests.forCase(otherDeptCaseId[0], Pageable.unpaged())))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * Deliberately NOT the same shape as {@code DocumentServiceTest
+     * .forCaseRefusesAPortalActorEvenForTheirOwnCustomersCase}, and this is
+     * the point worth pinning down: that test needs {@code DocumentService
+     * .forCase}'s own explicit {@code UserType.PORTAL} guard because {@code
+     * PortalPermissions} grants {@code document.view} at {@code Scope.ALL}
+     * with no {@code AudienceFilter} on {@code Case} to narrow it. {@code
+     * document.request} is NOT one of the two keys {@code
+     * PortalPermissions.forContact}/{@code forSponsor} grant (only {@code
+     * document.view}/{@code document.upload}) -- so a portal actor calling
+     * {@code DocumentRequestService.forCase} never reaches the {@code caseId}
+     * resolution at all; {@code @RequirePermission}'s own gate refuses them
+     * first, as {@link AccessDeniedException} (403), because they hold no
+     * {@code document.request} grant whatsoever.
+     * {@code forCase} needs no equivalent portal special-case of its own --
+     * proven here rather than left an untested assumption.
+     */
+    @Test
+    void forCaseRefusesAPortalActorOutrightWithNoDocumentRequestGrantAtAll() {
+        UUID tenant = fixture.createTenant("doc-req-forcase-portal-" + Uuid7.generate());
+        var portalUserId = new UUID[1];
+        var ownCustomersCaseId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Portal Co " + Uuid7.generate(), null, null, null);
+            portalUserId[0] = fixture.createPortalUserForContact(
+                    tenant, customerId, "portal-contact+" + Uuid7.generate() + "@example.com");
+            ownCustomersCaseId[0] = journey.newCase(tenant).getId();
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, portalUserId[0],
+                () -> requests.forCase(ownCustomersCaseId[0], Pageable.unpaged())))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     private void grant(UUID userId, Map<String, Scope> grants) {
