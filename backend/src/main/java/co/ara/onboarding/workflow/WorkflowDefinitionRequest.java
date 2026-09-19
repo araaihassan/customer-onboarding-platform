@@ -59,7 +59,14 @@ public record WorkflowDefinitionRequest(
             int weight,
             boolean mandatory,
             String documentCategory,
-            RelationshipType approverRelationship) {}
+            RelationshipType approverRelationship,
+            // Boxed, not primitive boolean, matching MilestoneRequest.portalVisible's own
+            // reasoning: a missing key must not silently bind to a wrong default the way
+            // StageRequest.autoAdvance once did. Null is read as false wherever this is
+            // consumed (DocumentInstantiation.instantiateForCase's own
+            // Boolean.TRUE.equals(...) check), matching RequirementDefinition.requiresReview's
+            // own documented null-is-false column semantics.
+            Boolean requiresReview) {}
 
     public record BranchRuleRequest(
             ConditionRequest condition,

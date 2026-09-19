@@ -72,7 +72,7 @@ class TransitionTest extends PostgresTestBase {
         UUID tenant = fixture.createTenant("trans-optional");
         fixture.runAs(tenant, () -> {
             var optional = new WorkflowDefinitionRequest.RequirementRequest(
-                    RequirementKind.MANUAL, "Optional", 1, false, null, null);
+                    RequirementKind.MANUAL, "Optional", 1, false, null, null, null);
             UUID versionId = journey.publish(new WorkflowDefinitionRequest(List.of(
                     stage("s1", "Stage One", List.of(
                             milestone("m1", "M1", 1, List.of(), List.of(manual("Mandatory"), optional)))),

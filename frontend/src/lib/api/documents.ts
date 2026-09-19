@@ -28,6 +28,7 @@ export type ReviewVersionRequest = components["schemas"]["ReviewVersionRequest"]
 export type ReviewDecision = ReviewVersionRequest["decision"];
 
 export type DocumentRequest = components["schemas"]["DocumentRequestView"];
+export type DocumentRequestPage = components["schemas"]["PageDocumentRequestView"];
 export type CreateDocumentRequestRequest = components["schemas"]["CreateDocumentRequestRequest"];
 export type DocumentRequestStatus = NonNullable<DocumentRequest["status"]>;
 
@@ -308,27 +309,29 @@ export function useLinkDocument() {
 /**
  * Every document request open against one case.
  *
- * **A real, pre-existing backend gap, not a frontend defect**: there is no
- * `GET /cases/{caseId}/document-requests` endpoint today.
- * `DocumentRequestController` (backend/src/main/java/co/ara/onboarding/document/DocumentRequestController.java)
- * maps only `POST /cases/{caseId}/document-requests` (create),
- * `POST /document-requests/{id}/withdraw` and `POST /document-requests/{id}/fulfil`
- * -- no `@GetMapping` at all -- and `DocumentRequestService` has no
- * `list`/`forCase` method for a controller to call even if one existed.
- * Confirmed by reading both files directly, not inferred from `generated.ts`
- * being incomplete. This hook is written to the shape Task 30's own brief and
- * the plan's Interfaces line (`docs/superpowers/plans/2026-09-12-documents.md`,
- * Task 30) specify, matching the case-scoped path a symmetrical backend
- * endpoint would need, so a future backend task only has to add the endpoint
- * -- not also come back here to add the hook. Until that endpoint exists,
- * calling this hook against a live backend 404s; every test below exercises
- * it against a mocked `fetch`, which cannot detect that gap, only the hook's
- * own client-side behaviour once a matching endpoint exists.
+ * **The backend gap this hook's doc comment used to describe is closed**
+ * (Task 36): `DocumentRequestController` now maps `GET
+ * /cases/{caseId}/document-requests` to `DocumentRequestService.forCase`,
+ * which resolves `caseId` through `AuthorizedQuery` under `document.request`
+ * first (a 404 for an out-of-scope or cross-tenant case, never a silently
+ * empty page), then reads through the same `AuthorizedQuery.findAll` every
+ * other listing in this module uses -- never the pre-existing
+ * `DocumentRequestRepository.findByCaseId` finder, which stays a narrowly
+ * scoped exclusion for `DocumentInstantiation` alone.
+ *
+ * **One real correctness fix made alongside closing that gap**: this hook
+ * previously typed its result as a bare `DocumentRequest[]`, written before
+ * the endpoint existed and guessing at its shape. The real endpoint is
+ * paginated, the same `Page<DocumentRequestView>` shape every other listing
+ * in this module (`useDocuments`, `useCaseDocuments`) already returns -- so
+ * this now types and returns `DocumentRequestPage`, with `.content` carrying
+ * the array. Caught here, before a live e2e run would have caught it via a
+ * `.map is not a function` failure the first time a real component consumed it.
  */
 export function useDocumentRequests(caseId: string) {
   return useQuery({
     queryKey: documentKeys.requestsForCase(caseId),
-    queryFn: () => apiFetch<DocumentRequest[]>(`/cases/${caseId}/document-requests`),
+    queryFn: () => apiFetch<DocumentRequestPage>(`/cases/${caseId}/document-requests`),
     enabled: Boolean(caseId),
   });
 }

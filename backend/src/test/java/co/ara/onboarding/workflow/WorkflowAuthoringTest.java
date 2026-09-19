@@ -19,6 +19,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static co.ara.onboarding.workflow.WorkflowFixtures.document;
+import static co.ara.onboarding.workflow.WorkflowFixtures.documentRequiringReview;
 import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
 import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
 import static co.ara.onboarding.workflow.WorkflowFixtures.oneStage;
@@ -31,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class WorkflowAuthoringTest extends PostgresTestBase {
 
     @Autowired WorkflowService workflows;
+    @Autowired PublishService publisher;
     @Autowired TenantFixture fixture;
     @Autowired RoleService roles;
     @Autowired AuditEventRepository auditEvents;
@@ -115,6 +117,50 @@ class WorkflowAuthoringTest extends PostgresTestBase {
             UUID companyId = registration.milestones().get(0).id();
             assertThat(registration.milestones().get(1).dependsOnMilestoneIds())
                     .containsExactly(companyId);
+        });
+    }
+
+    /**
+     * Task 36: requiresReview (design spec 5.3) is now authorable through the
+     * raw PUT, by any path -- not just readable off {@link RequirementDefinition}
+     * as it was before this task. {@code RequirementDefinition}'s own doc
+     * comment named this exact gap and its fix in advance: {@code
+     * WorkflowService.copyVersionInto}'s deep copy (a new draft from a
+     * published version, or {@code CustomerTemplateService.clone}) round-trips
+     * requirement data through {@code toRequirementRequest}/{@code
+     * toRequirementView}, and until this task neither carried a {@code
+     * requiresReview} field to thread through -- so this proves it at BOTH
+     * points the comment named: the immediate {@code replaceDraft} response,
+     * and a second draft copied from the published version.
+     *
+     * Two DOCUMENT requirements on the same milestone, only one asking for
+     * review, so this also proves {@code requiresReview} is per-requirement,
+     * never a milestone-wide default leaking onto its sibling.
+     */
+    @Test
+    void requiresReviewRoundTripsThroughAuthoringAndADraftCopiedFromPublished() {
+        UUID tenant = fixture.createTenant("author-review");
+        fixture.runAs(tenant, () -> {
+            var template = workflows.createTemplate("Review Round Trip", "");
+            UUID draftId = workflows.createDraft(template.id());
+
+            var request = new WorkflowDefinitionRequest(
+                    List.of(stage("onboarding", "Onboarding", List.of(
+                            milestone("compliance", "Compliance", 1, List.of(),
+                                    List.of(documentRequiringReview("Signed NDA", "NDA"),
+                                            document("Company handbook", "OTHER")))))),
+                    List.of(), 0L);
+
+            var saved = workflows.replaceDraft(draftId, request);
+            var requirements = saved.stages().get(0).milestones().get(0).requirements();
+            assertThat(requirements.get(0).requiresReview()).isTrue();
+            assertThat(requirements.get(1).requiresReview()).isNull();
+
+            var published = publisher.publish(draftId);
+            UUID v2 = workflows.createDraft(published.templateId());
+            var copiedRequirements = workflows.getDefinition(v2).stages().get(0).milestones().get(0).requirements();
+            assertThat(copiedRequirements.get(0).requiresReview()).isTrue();
+            assertThat(copiedRequirements.get(1).requiresReview()).isNull();
         });
     }
 

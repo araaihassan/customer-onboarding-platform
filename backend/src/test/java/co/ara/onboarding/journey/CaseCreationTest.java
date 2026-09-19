@@ -72,7 +72,7 @@ class CaseCreationTest extends PostgresTestBase {
                     stage("s2", "Stage Two", List.of(
                             milestone("m2", "Optional-only Milestone", 1, List.of(),
                                     List.of(new RequirementRequest(
-                                            RequirementKind.MANUAL, "Nice to have", 1, false, null, null)))))),
+                                            RequirementKind.MANUAL, "Nice to have", 1, false, null, null, null)))))),
                     List.of(), 0L));
             UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
 

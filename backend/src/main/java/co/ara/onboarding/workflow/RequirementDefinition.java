@@ -54,18 +54,13 @@ public class RequirementDefinition extends TenantScopedEntity {
      * no default so every existing frozen row keeps its current meaning -- and
      * read as {@code false} wherever it is consumed (DocumentInstantiation).
      *
-     * <b>Not yet exposed through authoring, and silently dropped by the
-     * deep-copy path.</b> Nothing in {@code workflow} exposes this field
-     * through {@code WorkflowDefinitionRequest}/{@code RequirementRequest}/
-     * {@code RequirementView} yet -- that is a later task's job -- so
-     * {@code WorkflowService.copyVersionInto}'s deep copy (used both for a new
-     * draft from a published version and by {@code CustomerTemplateService.clone})
-     * round-trips requirement data through {@code RequirementRequest.toRequest},
-     * which has no {@code requiresReview} field, and never carries this value
-     * across. Inert today because nothing writes a real value through
-     * authoring, but whichever future task adds {@code requiresReview} to those
-     * request/view types must also add it to {@code copyVersionInto}'s own
-     * round trip, or cloning/copying a version will silently lose real data.
+     * Exposed through authoring as of Task 36: {@code WorkflowDefinitionRequest}
+     * /{@code RequirementRequest} and {@code WorkflowDefinitionView.RequirementView}
+     * both carry a boxed {@code requiresReview}, {@code WorkflowService.newRequirement}
+     * sets it, and both directions of {@code toRequirementView}/{@code toRequirementRequest}
+     * thread it through -- so {@code copyVersionInto}'s deep copy (a new draft from a
+     * published version, and {@code CustomerTemplateService.clone}) now carries a real
+     * value forward instead of silently dropping it.
      */
     @Column(name = "requires_review")
     private Boolean requiresReview;

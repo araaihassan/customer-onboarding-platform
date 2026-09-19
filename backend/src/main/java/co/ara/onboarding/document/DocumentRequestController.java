@@ -5,7 +5,10 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import jakarta.validation.Valid;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ProblemDetail;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -47,6 +50,15 @@ import static org.springframework.http.HttpStatus.CREATED;
  * lands on the EXISTING {@link DocumentController} instead, per the plan's
  * own ruling.
  *
+ * <p><b>Correction (Task 36):</b> a GET was still missing entirely --
+ * confirmed directly, this class carried exactly three POST mappings and no
+ * way to discover a case's document requests over HTTP at all, which made
+ * Task 36's own e2e spec impossible to write (there was no way to find the
+ * id of {@code DocumentInstantiation}'s auto-instantiated request before
+ * calling {@code fulfil} on it). {@code GET /cases/{caseId}/document-requests}
+ * closes it, delegating to {@link DocumentRequestService#forCase} with the
+ * same thin-controller shape as every other method here.
+ *
  * <p>This class deliberately needs no new exception mapping of its own: every
  * exception {@link DocumentRequestService} throws directly ({@link
  * IllegalArgumentException}, {@link IllegalStateException}, {@link
@@ -69,6 +81,18 @@ public class DocumentRequestController {
 
     public DocumentRequestController(DocumentRequestService requests) {
         this.requests = requests;
+    }
+
+    @GetMapping("/cases/{caseId}/document-requests")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Every document request on the case, ad-hoc and requirement-instantiated alike"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public Page<DocumentRequestView> forCase(@PathVariable UUID caseId, Pageable pageable) {
+        return requests.forCase(caseId, pageable);
     }
 
     @PostMapping("/cases/{caseId}/document-requests")

@@ -2322,10 +2322,50 @@ taken, map another port and set `DB_URL` to match" covers exactly this).
 
 **Files:** `frontend/e2e/document-requests.spec.ts`
 
-- [ ] **Step 1: Write the spec.** Author a workflow with a `DOCUMENT` requirement (through the API `PUT` — the builder cannot author `requires_review`, and this plan's §5.3 note says so), open a case, confirm the request instantiates, fulfil it, confirm the requirement stays open, approve the review, confirm the milestone completes.
-- [ ] **Step 2: Run it live.**
-- [ ] **Step 3: Fix what it finds.**
-- [ ] **Step 4: Commit.**
+**Amendment (executed):** this task's own literal one-file scope turned out to
+be blocked on two real, pre-existing gaps, both closed here as prerequisites
+rather than parked a third time (Task 30 and Task 32's own Ruling 4 had
+already parked the second one twice):
+
+1. **`requiresReview` was unauthorable by ANY path, not just the builder UI**
+   the brief's own text names. `WorkflowDefinitionRequest.RequirementRequest`
+   had no `requiresReview` field at all, and `WorkflowService.newRequirement`
+   never set one — confirmed directly against the DTOs, not assumed. Closed by
+   threading a boxed `Boolean requiresReview` through `RequirementRequest`/
+   `WorkflowDefinitionView.RequirementView` and both of `WorkflowService`'s
+   conversion directions (`toRequirementView`, `toRequirementRequest`), per
+   `RequirementDefinition.requiresReview`'s own doc comment, which named this
+   exact gap and its fix in advance. Proven by a new backend test,
+   `WorkflowAuthoringTest.requiresReviewRoundTripsThroughAuthoringAndADraftCopiedFromPublished`,
+   at both points that comment named: the immediate `replaceDraft` response,
+   and a second draft deep-copied from the published version.
+2. **No way to list a case's document requests over HTTP at all.**
+   `DocumentRequestController` had exactly three POST mappings (create/
+   withdraw/fulfil) and no `@GetMapping` — `DocumentInstantiation
+   .instantiateForCase`'s auto-instantiated rows were undiscoverable, which
+   made this task's own Step 1 impossible (no way to find the id of the
+   auto-created request before calling `fulfil` on it). Closed by
+   `DocumentRequestService.forCase` (resolving `caseId` through
+   `AuthorizedQuery` under `document.request` first, then reading through
+   `AuthorizedQuery.findAll` — never the pre-existing narrowly-scoped
+   `DocumentRequestRepository.findByCaseId`, which stays `DocumentInstantiation`'s
+   own exclusion) and a matching `GET /cases/{caseId}/document-requests`
+   mapping. `lib/api/documents.ts`'s `useDocumentRequests(caseId)` (Task 30)
+   already targeted this exact path and needed no new code, only its own doc
+   comment updated — except one real bug found alongside it: the hook was
+   typed to return a bare array, guessed before the endpoint existed, where
+   the real endpoint returns a `Page`. Fixed to `DocumentRequestPage`.
+
+Both changes needed an OpenAPI regen (`./gradlew openApiSpec` +
+`npm run generate:api`), and touched two backend test fixtures whose
+`RequirementRequest` constructor calls gained a seventh positional argument
+(`journey.CaseCreationTest`, `journey.TransitionTest`, `workflow.WorkflowFixtures`
+itself, which also gained a `documentRequiringReview` builder).
+
+- [x] **Step 1: Write the spec.** Author a workflow with a `DOCUMENT` requirement (through the API `PUT` — the builder cannot author `requires_review`, and this plan's §5.3 note says so), open a case, confirm the request instantiates, fulfil it, confirm the requirement stays open, approve the review, confirm the milestone completes.
+- [x] **Step 2: Run it live.** Passed on the first live run against a scratch database (`onboarding_e2e_sp4b`) — no product or spec defect surfaced, unlike every other first live run recorded elsewhere in this file, because both real gaps the spec would otherwise have hit were already closed above before the run rather than discovered by it.
+- [x] **Step 3: Fix what it finds.** Nothing to fix in the live run itself; see the two gaps closed above, found by pre-dispatch code reading rather than by the run.
+- [x] **Step 4: Commit.**
 
 ### Task 37: Whole-branch verification and close-out
 

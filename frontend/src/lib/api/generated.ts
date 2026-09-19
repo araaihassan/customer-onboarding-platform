@@ -907,7 +907,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["forCase_2"];
         put?: never;
         post: operations["create_6"];
         delete?: never;
@@ -1604,6 +1604,7 @@ export interface components {
             documentCategory?: string;
             /** @enum {string} */
             approverRelationship?: "OWNER" | "ASSIGNEE" | "PARTICIPANT" | "APPROVER" | "CREATOR";
+            requiresReview?: boolean;
         };
         StageRequest: {
             key?: string;
@@ -1694,6 +1695,7 @@ export interface components {
             documentCategory?: string;
             /** @enum {string} */
             approverRelationship?: "OWNER" | "ASSIGNEE" | "PARTICIPANT" | "APPROVER" | "CREATOR";
+            requiresReview?: boolean;
         };
         StageView: {
             /** Format: uuid */
@@ -2539,20 +2541,20 @@ export interface components {
             sort?: string[];
         };
         PagePortalDocumentView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["PortalDocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2564,13 +2566,13 @@ export interface components {
             pageNumber?: number;
             /** Format: int32 */
             pageSize?: number;
-            unpaged?: boolean;
             paged?: boolean;
+            unpaged?: boolean;
         };
         SortObject: {
             empty?: boolean;
-            unsorted?: boolean;
             sorted?: boolean;
+            unsorted?: boolean;
         };
         Me: {
             /** Format: uuid */
@@ -2587,20 +2589,20 @@ export interface components {
             };
         };
         PageDocumentView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2611,20 +2613,20 @@ export interface components {
             hidden?: number;
         };
         PageCustomerView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2644,20 +2646,20 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -2732,6 +2734,24 @@ export interface components {
         PlanRevisionDiffView: {
             rows?: components["schemas"]["PlanRevisionDiffRowView"][];
         };
+        PageDocumentRequestView: {
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            /** Format: int32 */
+            size?: number;
+            content?: components["schemas"]["DocumentRequestView"][];
+            /** Format: int32 */
+            number?: number;
+            sort?: components["schemas"]["SortObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
+            pageable?: components["schemas"]["PageableObject"];
+            empty?: boolean;
+        };
         CandidateView: {
             /** Format: uuid */
             caseId?: string;
@@ -2751,20 +2771,20 @@ export interface components {
             candidates?: components["schemas"]["CandidateView"][];
         };
         PageUserView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
@@ -6777,6 +6797,57 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    forCase_2: {
+        parameters: {
+            query: {
+                pageable: components["schemas"]["Pageable"];
+            };
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every document request on the case, ad-hoc and requirement-instantiated alike */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PageDocumentRequestView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
                 };
             };
         };

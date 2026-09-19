@@ -349,7 +349,9 @@ describe("useLinkDocument", () => {
 
 describe("useDocumentRequests", () => {
   it("lists a case's document requests", async () => {
-    fetchMock.mockResolvedValue(reply([{ id: "r-1", caseId: "c-1" }]));
+    // The real endpoint is paginated (Task 36) -- the same { content: [...] }
+    // envelope useCaseDocuments' own mock above uses, not a bare array.
+    fetchMock.mockResolvedValue(reply({ content: [{ id: "r-1", caseId: "c-1" }] }));
 
     const { Wrapper } = makeWrapper();
     const { result } = renderHook(() => useDocumentRequests("c-1"), { wrapper: Wrapper });

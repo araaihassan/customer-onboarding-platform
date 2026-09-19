@@ -15,6 +15,9 @@ import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -134,6 +137,39 @@ public class DocumentRequestService {
                 Map.of("requestId", dr.getId().toString(), "category", dr.getCategory().name()));
 
         return toView(dr);
+    }
+
+    /**
+     * Task 36: lists a case's document requests -- the one gap that made this
+     * whole module's own e2e spec impossible to write, since {@code
+     * DocumentInstantiation.instantiateForCase}'s auto-instantiated rows are
+     * otherwise undiscoverable over HTTP (it runs fire-and-forget inside
+     * {@code CaseService.create}'s own transaction and returns nothing to any
+     * caller). Resolves {@code caseId} through {@link AuthorizedQuery} FIRST,
+     * under {@code document.request} itself, the same "confirm the parent is
+     * visible before listing its children" idiom {@link DocumentService#forCase}
+     * and {@code task.TaskService.forCase} already use -- so an out-of-scope
+     * {@code caseId} is a 404 here too, never a silently empty page.
+     *
+     * <p>Deliberately does NOT call {@link DocumentRequestRepository#findByCaseId}
+     * -- that finder is a narrowly-scoped exclusion for {@code
+     * DocumentInstantiation} alone (safe there only because it runs on a
+     * caseId {@code CaseService.create} just created and fully controls).
+     * This method takes {@code caseId} from a URL path instead, so it reads
+     * through {@link AuthorizedQuery#findAll} under the same {@code
+     * document.request} permission, exactly the shape {@code
+     * AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly}
+     * exists to enforce.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_REQUEST)
+    @Transactional(readOnly = true)
+    public Page<DocumentRequestView> forCase(UUID caseId, Pageable pageable) {
+        authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_REQUEST, caseId);
+
+        Specification<DocumentRequest> onCase = (root, query, cb) -> cb.equal(root.get("caseId"), caseId);
+        return authorizedQuery.findAll(requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST,
+                        onCase, pageable)
+                .map(DocumentRequestService::toView);
     }
 
     /**
