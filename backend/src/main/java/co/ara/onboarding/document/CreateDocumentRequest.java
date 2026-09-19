@@ -21,13 +21,18 @@ import java.util.UUID;
  * {@code customer.OrgUnitResolver} before being written -- the same existing
  * component {@code CustomerService} already uses for the identical id, so a
  * bogus department id 404s rather than surfacing a raw FK violation.
- * {@code ownerContactId} is not independently resolved this task: {@code
- * document_owner_ck} is what actually requires it be non-null when
- * {@code visibilityTier} is {@code CONTACT_ONLY}, and a dangling id today
- * surfaces as a raw FK violation -- the same documented, deliberate
- * simplification other not-yet-decided cross-reference paths in this
- * codebase carry until a real need forces the question (Task 17's PATCH,
- * which owns retargeting, is the more natural place to close it).
+ * {@code ownerContactId}, when supplied, is likewise resolved before being
+ * written -- {@link DocumentService#resolveOwnerContact} -- through
+ * {@link co.ara.onboarding.authz.AuthorizedQuery} under {@code contact.view},
+ * refusing a contact belonging to a different customer than the case with
+ * {@link IllegalArgumentException} (400). This was originally left as a raw,
+ * unvalidated FK write (a documented, deliberate simplification deferred to
+ * Task 17's PATCH); found during a later security review to be a real
+ * cross-customer disclosure vector instead, because {@code owner_contact_id}
+ * is exactly what gates CONTACT_ONLY visibility
+ * ({@code scoping.DocumentAudienceFilter}) -- fixed directly on this path
+ * rather than deferred further. See {@link DocumentService#resolveOwnerContact}'s
+ * own javadoc for the full reasoning.
  */
 public record CreateDocumentRequest(@NotBlank @Pattern(regexp = NAME_PATTERN, message = NAME_MESSAGE) String name,
                                     @NotNull DocumentCategory category,

@@ -6,6 +6,8 @@ import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.customer.CustomerContact;
+import co.ara.onboarding.customer.CustomerContactRepository;
 import co.ara.onboarding.customer.OrgUnitResolver;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
@@ -107,6 +109,7 @@ public class DocumentService {
     private final StageRepository stages;
     private final RequirementRepository requirementRepository;
     private final RequirementService requirementService;
+    private final CustomerContactRepository contacts;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final StageWriteScopeGuard writeScope;
@@ -121,6 +124,7 @@ public class DocumentService {
                            DocumentShareRepository shares, DocumentCaseLinkRepository caseLinks,
                            CaseRepository cases, StageRepository stages,
                            RequirementRepository requirementRepository, RequirementService requirementService,
+                           CustomerContactRepository contacts,
                            AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
                            StageWriteScopeGuard writeScope, BlobStore blobStore,
                            StorageProperties storageProperties, ContentSniffGuard sniffGuard,
@@ -133,6 +137,7 @@ public class DocumentService {
         this.stages = stages;
         this.requirementRepository = requirementRepository;
         this.requirementService = requirementService;
+        this.contacts = contacts;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.writeScope = writeScope;
@@ -304,7 +309,7 @@ public class DocumentService {
         d.setVisibilityTier(request.visibilityTier());
         d.setTargetDepartmentId(orgUnits.resolveDepartment(request.targetDepartmentId()));
         d.setTargetContactLabel(request.targetContactLabel());
-        d.setOwnerContactId(request.ownerContactId());
+        d.setOwnerContactId(resolveOwnerContact(request.ownerContactId(), c));
         d.setExpiresAt(request.expiresAt());
         d.setStatus(DocumentStatus.ACTIVE);
         d.setUploadedBy(actor);
@@ -582,6 +587,42 @@ public class DocumentService {
         if (c.getCurrentStageId() == null) return;
         Stage stage = authorizedQuery.getById(stages, Stage.class, PermissionKeys.WORKFLOW_VIEW, c.getCurrentStageId());
         writeScope.check(c, stage);
+    }
+
+    /**
+     * Closes the confused-deputy gap {@link CreateDocumentRequest#ownerContactId}'s
+     * own (now-stale) javadoc used to document as a deliberate simplification:
+     * {@code owner_contact_id} has a foreign key to {@code customer_contact(id)},
+     * which only proves the contact exists SOMEWHERE in the tenant, never that
+     * it belongs to the same customer as the document being uploaded -- and
+     * {@code owner_contact_id} is exactly what gates CONTACT_ONLY visibility
+     * ({@code scoping.DocumentAudienceFilter}), so an unresolved id let an
+     * internal actor point a CONTACT_ONLY document's owner at a contact
+     * belonging to a completely different customer, handing that unrelated
+     * customer's portal user visibility into a document that is not theirs.
+     *
+     * <p>Mirrors {@link DocumentSharingService#resolveContact} exactly:
+     * {@code null} passes straight through (an untargeted document has no
+     * owner contact at all, the same "nullable stays nullable" contract
+     * {@link OrgUnitResolver#resolveDepartment} already carries for
+     * {@code targetDepartmentId}), a non-null id is resolved through
+     * {@link AuthorizedQuery} under {@code contact.view} -- composing that
+     * READ permission with this method's own {@code document.upload} WRITE
+     * gate, the same shape used throughout this module -- and a resolved
+     * contact belonging to a different customer than {@code c} is refused
+     * with {@link IllegalArgumentException} (400, never the 404 an absent or
+     * out-of-scope contact id already gets from {@code AuthorizedQuery
+     * #getById} on its own).
+     */
+    private UUID resolveOwnerContact(UUID ownerContactId, Case c) {
+        if (ownerContactId == null) return null;
+        CustomerContact contact = authorizedQuery.getById(
+                contacts, CustomerContact.class, PermissionKeys.CONTACT_VIEW, ownerContactId);
+        if (!contact.getCustomerId().equals(c.getCustomerId())) {
+            throw new IllegalArgumentException(
+                    "Contact " + contact.getId() + " belongs to a different customer than case " + c.getId());
+        }
+        return contact.getId();
     }
 
     /**

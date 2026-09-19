@@ -412,6 +412,101 @@ class DocumentServiceTest extends PostgresTestBase {
     }
 
     /**
+     * The confused-deputy gap this test exists to close: {@code
+     * CreateDocumentRequest.ownerContactId} used to be written straight from
+     * the request body with no cross-reference check at all, unlike every
+     * other id this module's write paths accept (CLAUDE.md's write-path
+     * invariant, and the identical shape {@code DocumentSharingService
+     * #resolveContact}/{@code DocumentSharingService#link} and {@code
+     * DocumentRequestService}'s own contact resolution already carry).
+     * {@code owner_contact_id} is exactly what gates CONTACT_ONLY visibility
+     * ({@code scoping.DocumentAudienceFilter}), so an internal actor could
+     * otherwise upload a CONTACT_ONLY document and point its owner at a
+     * contact belonging to a completely different customer, handing that
+     * unrelated customer's portal user visibility into a document that is
+     * not theirs. Refused as an {@link IllegalArgumentException} (400) --
+     * never the actor's own scope, and never the 404 an absent or
+     * out-of-scope contact id already gets from {@code AuthorizedQuery
+     * #getById} on its own.
+     */
+    @Test
+    void uploadRefusesAnOwnerContactBelongingToADifferentCustomerThanTheCase() {
+        UUID tenant = fixture.createTenant("doc-owner-mismatch-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        var otherContactId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            Case c = journey.newCase(tenant);
+            caseId[0] = c.getId();
+            actor[0] = fixture.createUser(tenant, "owner-mismatch+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(
+                    PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL,
+                    PermissionKeys.CONTACT_VIEW, Scope.ALL));
+
+            UUID otherCustomerId = fixture.createCustomer(
+                    tenant, "Other Owner Customer " + Uuid7.generate(), null, null, null);
+            otherContactId[0] = fixture.createContact(
+                    tenant, otherCustomerId, "other-owner+" + Uuid7.generate() + "@example.com");
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, actor[0], () -> documents.upload(caseId[0],
+                new CreateDocumentRequest("KYC Doc", DocumentCategory.KYC, VisibilityTier.CONTACT_ONLY,
+                        null, null, otherContactId[0], null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf")))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        fixture.runAs(tenant, () -> assertThat(documentRepository.findByCaseId(caseId[0])).isEmpty());
+    }
+
+    /** The positive counterpart: a contact genuinely belonging to the SAME customer as the case is accepted and round-trips. */
+    @Test
+    void uploadAcceptsAnOwnerContactBelongingToTheSameCustomerAsTheCase() {
+        UUID tenant = fixture.createTenant("doc-owner-match-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        var contactId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            Case c = journey.newCase(tenant);
+            caseId[0] = c.getId();
+            actor[0] = fixture.createUser(tenant, "owner-match+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(
+                    PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL,
+                    PermissionKeys.CONTACT_VIEW, Scope.ALL));
+            contactId[0] = fixture.createContact(
+                    tenant, c.getCustomerId(), "owner-match-contact+" + Uuid7.generate() + "@example.com");
+        });
+
+        AtomicReference<DocumentView> uploaded = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () -> uploaded.set(documents.upload(caseId[0],
+                new CreateDocumentRequest("KYC Doc", DocumentCategory.KYC, VisibilityTier.CONTACT_ONLY,
+                        null, null, contactId[0], null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf")));
+
+        assertThat(uploaded.get().ownerContactId()).isEqualTo(contactId[0]);
+    }
+
+    /** No regression: a null ownerContactId (no CONTACT_ONLY targeting) still uploads without resolving anything. */
+    @Test
+    void uploadWithANullOwnerContactIdStillSucceeds() {
+        UUID tenant = fixture.createTenant("doc-owner-null-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "owner-null+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL));
+        });
+
+        AtomicReference<DocumentView> uploaded = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () -> uploaded.set(documents.upload(caseId[0],
+                new CreateDocumentRequest("Doc", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf")));
+
+        assertThat(uploaded.get().ownerContactId()).isNull();
+    }
+
+    /**
      * The digest is the actual SHA-256 of the bytes written, computed from the
      * same stream {@code BlobStore.put} consumes -- not derived from the
      * request's declared metadata, which is why the request above already
