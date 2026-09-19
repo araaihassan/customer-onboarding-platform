@@ -516,6 +516,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/document-requests/{id}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["withdraw"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/customers": {
         parameters: {
             query?: never;
@@ -836,6 +852,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/cases/{caseId}/document-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["create_6"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/cases/{caseId}/comments": {
         parameters: {
             query?: never;
@@ -845,7 +877,7 @@ export interface paths {
         };
         get: operations["forResource"];
         put?: never;
-        post: operations["create_6"];
+        post: operations["create_7"];
         delete?: never;
         options?: never;
         head?: never;
@@ -973,7 +1005,7 @@ export interface paths {
         };
         get: operations["list_3"];
         put?: never;
-        post: operations["create_7"];
+        post: operations["create_8"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1069,7 +1101,7 @@ export interface paths {
         };
         get: operations["list_4"];
         put?: never;
-        post: operations["create_8"];
+        post: operations["create_9"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2061,6 +2093,33 @@ export interface components {
             /** Format: date-time */
             revokedAt?: string;
         };
+        WithdrawDocumentRequestRequest: {
+            reason: string;
+        };
+        DocumentRequestView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** Format: uuid */
+            requirementId?: string;
+            /** Format: uuid */
+            requestedOfContactId?: string;
+            /** @enum {string} */
+            category?: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
+            description?: string;
+            /** Format: date-time */
+            dueAt?: string;
+            requiresReview?: boolean;
+            /** @enum {string} */
+            status?: "OPEN" | "FULFILLED" | "WITHDRAWN";
+            /** Format: uuid */
+            fulfilledDocumentId?: string;
+            /** Format: uuid */
+            requestedBy?: string;
+            /** Format: date-time */
+            requestedAt?: string;
+        };
         CreateCustomerRequest: {
             legalName?: string;
             displayName?: string;
@@ -2215,6 +2274,16 @@ export interface components {
             ownerContactId?: string;
             /** Format: date-time */
             expiresAt?: string;
+        };
+        CreateDocumentRequestRequest: {
+            /** @enum {string} */
+            category: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
+            description?: string;
+            /** Format: date-time */
+            dueAt?: string;
+            requiresReview?: boolean;
+            /** Format: uuid */
+            requestedOfContactId?: string;
         };
         CreateCommentRequest: {
             /** @enum {string} */
@@ -2377,28 +2446,28 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         PageableObject: {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            unpaged?: boolean;
-            paged?: boolean;
             /** Format: int32 */
             pageSize?: number;
             /** Format: int32 */
             pageNumber?: number;
+            unpaged?: boolean;
+            paged?: boolean;
         };
         SortObject: {
             empty?: boolean;
-            sorted?: boolean;
             unsorted?: boolean;
+            sorted?: boolean;
         };
         PageCustomerView: {
             /** Format: int64 */
@@ -2411,11 +2480,11 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         AuditEventView: {
@@ -2444,11 +2513,11 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -2551,11 +2620,11 @@ export interface components {
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
             first?: boolean;
             last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             empty?: boolean;
         };
         TeamMemberView: {
@@ -4859,6 +4928,77 @@ export interface operations {
             };
         };
     };
+    withdraw: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WithdrawDocumentRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description Withdrawn -- status set to WITHDRAWN, idempotent, never satisfies its requirement */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentRequestView"];
+                };
+            };
+            /** @description A blank reason failed validation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The request is already fulfilled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     list_1: {
         parameters: {
             query: {
@@ -6291,6 +6431,68 @@ export interface operations {
             };
         };
     };
+    create_6: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateDocumentRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description Requested -- an ad-hoc request, requirementId always null */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentRequestView"];
+                };
+            };
+            /** @description The contact belongs to a different customer than the case */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     forResource: {
         parameters: {
             query: {
@@ -6343,7 +6545,7 @@ export interface operations {
             };
         };
     };
-    create_6: {
+    create_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -6747,7 +6949,7 @@ export interface operations {
             };
         };
     };
-    create_7: {
+    create_8: {
         parameters: {
             query?: never;
             header?: never;
@@ -7029,7 +7231,7 @@ export interface operations {
             };
         };
     };
-    create_8: {
+    create_9: {
         parameters: {
             query?: never;
             header?: never;
