@@ -452,6 +452,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/portal/cases/{caseId}/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/documents/{id}/versions": {
         parameters: {
             query?: never;
@@ -861,7 +877,7 @@ export interface paths {
         };
         get: operations["forCase_1"];
         put?: never;
-        post: operations["upload"];
+        post: operations["upload_1"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1252,6 +1268,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/portal/documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_5"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/me": {
         parameters: {
             query?: never;
@@ -1275,7 +1307,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_5"];
+        get: operations["list_6"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1403,7 +1435,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_6"];
+        get: operations["list_7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1419,7 +1451,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_7"];
+        get: operations["list_8"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2013,6 +2045,45 @@ export interface components {
             /** Format: uuid */
             caseId: string;
         };
+        PortalCreateDocumentRequest: {
+            name: string;
+            /** @enum {string} */
+            category: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
+            /** @enum {string} */
+            visibilityTier: "COMPANY_SHARED" | "CONTACT_ONLY" | "SENSITIVE";
+            /** Format: date-time */
+            expiresAt?: string;
+        };
+        DocumentView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** Format: uuid */
+            customerId?: string;
+            name?: string;
+            /** @enum {string} */
+            category?: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
+            /** @enum {string} */
+            visibilityTier?: "COMPANY_SHARED" | "CONTACT_ONLY" | "SENSITIVE";
+            /** Format: uuid */
+            targetDepartmentId?: string;
+            targetContactLabel?: string;
+            /** Format: uuid */
+            ownerContactId?: string;
+            /** Format: date-time */
+            expiresAt?: string;
+            /** @enum {string} */
+            status?: "ACTIVE" | "RETIRED";
+            /** Format: uuid */
+            currentVersionId?: string;
+            /** Format: uuid */
+            uploadedBy?: string;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
         DocumentVersionView: {
             /** Format: uuid */
             id?: string;
@@ -2060,36 +2131,6 @@ export interface components {
         };
         RetireDocumentRequest: {
             reason: string;
-        };
-        DocumentView: {
-            /** Format: uuid */
-            id?: string;
-            /** Format: uuid */
-            caseId?: string;
-            /** Format: uuid */
-            customerId?: string;
-            name?: string;
-            /** @enum {string} */
-            category?: "CONTRACT" | "AGREEMENT" | "NDA" | "COMPANY_REGISTRATION" | "TAX" | "KYC" | "TECHNICAL" | "CERTIFICATE" | "INVOICE" | "OTHER";
-            /** @enum {string} */
-            visibilityTier?: "COMPANY_SHARED" | "CONTACT_ONLY" | "SENSITIVE";
-            /** Format: uuid */
-            targetDepartmentId?: string;
-            targetContactLabel?: string;
-            /** Format: uuid */
-            ownerContactId?: string;
-            /** Format: date-time */
-            expiresAt?: string;
-            /** @enum {string} */
-            status?: "ACTIVE" | "RETIRED";
-            /** Format: uuid */
-            currentVersionId?: string;
-            /** Format: uuid */
-            uploadedBy?: string;
-            /** Format: date-time */
-            createdAt?: string;
-            /** Format: date-time */
-            updatedAt?: string;
         };
         LinkDocumentRequest: {
             /** Format: uuid */
@@ -2434,6 +2475,47 @@ export interface components {
             /** Format: int32 */
             progressPercent?: number;
         };
+        Pageable: {
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            size?: number;
+            sort?: string[];
+        };
+        PageDocumentView: {
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            first?: boolean;
+            last?: boolean;
+            /** Format: int32 */
+            size?: number;
+            content?: components["schemas"]["DocumentView"][];
+            /** Format: int32 */
+            number?: number;
+            sort?: components["schemas"]["SortObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
+            empty?: boolean;
+        };
+        PageableObject: {
+            /** Format: int64 */
+            offset?: number;
+            sort?: components["schemas"]["SortObject"];
+            /** Format: int32 */
+            pageSize?: number;
+            /** Format: int32 */
+            pageNumber?: number;
+            paged?: boolean;
+            unpaged?: boolean;
+        };
+        SortObject: {
+            empty?: boolean;
+            sorted?: boolean;
+            unsorted?: boolean;
+        };
         Me: {
             /** Format: uuid */
             id?: string;
@@ -2448,52 +2530,13 @@ export interface components {
                 [key: string]: string[];
             };
         };
-        Pageable: {
-            /** Format: int32 */
-            page?: number;
-            /** Format: int32 */
-            size?: number;
-            sort?: string[];
-        };
-        PageDocumentView: {
-            /** Format: int64 */
-            totalElements?: number;
-            /** Format: int32 */
-            totalPages?: number;
-            /** Format: int32 */
-            size?: number;
-            content?: components["schemas"]["DocumentView"][];
-            /** Format: int32 */
-            number?: number;
-            sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
-            pageable?: components["schemas"]["PageableObject"];
-            first?: boolean;
-            last?: boolean;
-            empty?: boolean;
-        };
-        PageableObject: {
-            /** Format: int64 */
-            offset?: number;
-            sort?: components["schemas"]["SortObject"];
-            unpaged?: boolean;
-            /** Format: int32 */
-            pageNumber?: number;
-            /** Format: int32 */
-            pageSize?: number;
-            paged?: boolean;
-        };
-        SortObject: {
-            empty?: boolean;
-            unsorted?: boolean;
-            sorted?: boolean;
-        };
         PageCustomerView: {
             /** Format: int64 */
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
@@ -2503,8 +2546,6 @@ export interface components {
             /** Format: int32 */
             numberOfElements?: number;
             pageable?: components["schemas"]["PageableObject"];
-            first?: boolean;
-            last?: boolean;
             empty?: boolean;
         };
         AuditEventView: {
@@ -2527,6 +2568,8 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
@@ -2536,8 +2579,6 @@ export interface components {
             /** Format: int32 */
             numberOfElements?: number;
             pageable?: components["schemas"]["PageableObject"];
-            first?: boolean;
-            last?: boolean;
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -2634,6 +2675,8 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            first?: boolean;
+            last?: boolean;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
@@ -2643,8 +2686,6 @@ export interface components {
             /** Format: int32 */
             numberOfElements?: number;
             pageable?: components["schemas"]["PageableObject"];
-            first?: boolean;
-            last?: boolean;
             empty?: boolean;
         };
         TeamMemberView: {
@@ -4661,6 +4702,72 @@ export interface operations {
             };
         };
     };
+    upload: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    metadata: components["schemas"]["PortalCreateDocumentRequest"];
+                };
+            };
+        };
+        responses: {
+            /** @description Uploaded, pinned to version 1, owned by the acting contact */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentView"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description No active linked contact for the caller, or the case is absent, cross-tenant, or belongs to a different customer than the acting contact (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The declared size exceeds app.storage.max-upload-bytes */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The sniffed content type is not accepted for the declared category */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
     addVersion: {
         parameters: {
             query?: never;
@@ -6447,7 +6554,7 @@ export interface operations {
             };
         };
     };
-    upload: {
+    upload_1: {
         parameters: {
             query?: never;
             header?: never;
@@ -7771,6 +7878,37 @@ export interface operations {
             };
         };
     };
+    list_5: {
+        parameters: {
+            query: {
+                pageable: components["schemas"]["Pageable"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every document visible to the acting contact, per scoping.DocumentAudienceFilter's portal branch */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PageDocumentView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     me: {
         parameters: {
             query?: never;
@@ -7800,7 +7938,7 @@ export interface operations {
             };
         };
     };
-    list_5: {
+    list_6: {
         parameters: {
             query: {
                 pageable: components["schemas"]["Pageable"];
@@ -8181,7 +8319,7 @@ export interface operations {
             };
         };
     };
-    list_6: {
+    list_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -8230,7 +8368,7 @@ export interface operations {
             };
         };
     };
-    list_7: {
+    list_8: {
         parameters: {
             query?: never;
             header?: never;

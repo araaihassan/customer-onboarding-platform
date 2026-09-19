@@ -279,12 +279,18 @@ public class DocumentService {
      * own {@code Stage} lookup is gated {@code WORKFLOW_VIEW} and 404s a
      * portal actor -- a case with a null {@code currentStageId} (no guard at
      * all) would sail straight through. Refused explicitly here, before the
-     * case lookup runs, rather than relying on that accident. Task 26 (the
-     * real portal upload endpoint) is what eventually replaces this with
-     * genuine narrowing -- spec §8 never routes a portal caller through this
-     * exact method signature anyway. {@code addVersion} does NOT need this
-     * guard: its {@code caseId} comes from an already-audience-filtered
-     * {@link Document}, never from the caller directly.
+     * case lookup runs, rather than relying on that accident. {@code
+     * addVersion} does NOT need this guard: its {@code caseId} comes from an
+     * already-audience-filtered {@link Document}, never from the caller
+     * directly.
+     *
+     * <p><b>Task 26 update:</b> the real portal upload path now exists --
+     * {@link #uploadFromPortal}, reached through {@code
+     * PortalDocumentController} and {@link PortalCaseAccess}, which does the
+     * genuine narrowing this method deliberately never attempts. This method
+     * itself is unchanged and still refuses every portal actor outright:
+     * spec §8 never routes a portal caller through THIS exact signature
+     * (with a raw, caller-supplied {@code caseId}) either way.
      */
     @RequirePermission(PermissionKeys.DOCUMENT_UPLOAD)
     @Transactional
@@ -298,7 +304,88 @@ public class DocumentService {
 
         UUID actor = contextProvider.current().userId();
         StoredContent stored = captureContent(request.category(), content, sizeBytes);
+        UUID resolvedTargetDepartmentId = orgUnits.resolveDepartment(request.targetDepartmentId());
+        UUID resolvedOwnerContactId = resolveOwnerContact(request.ownerContactId(), c);
 
+        return persistNewDocument(c, actor, request, resolvedTargetDepartmentId,
+                request.targetContactLabel(), resolvedOwnerContactId, stored, sizeBytes);
+    }
+
+    /**
+     * Task 26: the real portal upload endpoint that finally replaces
+     * {@link #upload}'s own blanket portal refusal with genuine narrowing --
+     * see that method's own javadoc for the case-existence-oracle this exists
+     * to close.
+     *
+     * <p>{@code c} arrives ALREADY resolved and ALREADY validated -- by
+     * {@link PortalCaseAccess#resolveForContact}, called by {@code
+     * PortalDocumentController} before this method is ever invoked -- never a
+     * raw {@code caseId} this method resolves itself. There is nothing left
+     * here to bypass: unlike {@link #upload}, this method never calls {@link
+     * AuthorizedQuery#getById} on {@code Case} at all, because for a portal
+     * actor there is no scope predicate that call could apply (the same
+     * reasoning {@link PortalCaseAccess}'s own javadoc gives in full).
+     *
+     * <p>{@code actingContactId} is forced onto {@link Document#ownerContactId}
+     * UNCONDITIONALLY, regardless of {@code visibilityTier} -- never read from
+     * {@code request.ownerContactId()} (which is always null anyway, since
+     * {@link PortalCreateDocumentRequest} carries no such field for a caller
+     * to even populate). {@code document_owner_ck} only requires a non-null
+     * owner when the tier IS {@code CONTACT_ONLY}; it does not forbid one
+     * otherwise, so recording the acting contact as owner on every portal
+     * upload -- COMPANY_SHARED and SENSITIVE included -- is always a safe,
+     * meaningful "who uploaded this" fact, not just a CONTACT_ONLY-only
+     * concern.
+     *
+     * <p><b>Deliberately does NOT call {@link #applyWriteScope} at all</b> --
+     * not an oversight, a considered ruling. {@code write_scope}
+     * (ANY/DEPARTMENT/TEAM/OWNER_ONLY) narrows which INTERNAL staff may write
+     * during a stage, checked against {@code ctx.userId()}/{@code teamIds()}/
+     * {@code departmentId()} -- none of which has any meaningful mapping to a
+     * portal contact. Applying it here would unpredictably block a customer
+     * from uploading a document they were explicitly asked for, based on an
+     * internal-only collaboration restriction that was never designed with an
+     * external party in mind. Skipping it also sidesteps a SECOND portal
+     * oracle: {@link #applyWriteScope}'s own {@link Stage} lookup is gated
+     * {@code WORKFLOW_VIEW}, a permission portal actors never hold either, so
+     * calling it here would 404 every portal upload against a case that has
+     * entered a stage at all -- an accidental, permission-shaped refusal, not
+     * a deliberate one. Portal's own narrowing is a complete, independent
+     * security model for this audience: an ACTIVE contact resolved through
+     * {@code authz.PortalContactDirectory}, combined with {@link
+     * PortalCaseAccess}'s explicit customer match -- both already enforced
+     * before this method is ever called. This is the first portal WRITE path
+     * in the codebase; a future one should reach the same conclusion
+     * deliberately, not copy this method without re-deriving it.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_UPLOAD)
+    @Transactional
+    public DocumentView uploadFromPortal(Case c, UUID actingContactId, CreateDocumentRequest request,
+                                         InputStream content, long sizeBytes, String declaredContentType) {
+        UUID actor = contextProvider.current().userId();
+        StoredContent stored = captureContent(request.category(), content, sizeBytes);
+
+        // No targeting field a portal caller could have supplied in the first
+        // place (PortalCreateDocumentRequest carries neither), and
+        // actingContactId -- never request.ownerContactId() -- is always the
+        // owner. See this method's own javadoc.
+        return persistNewDocument(c, actor, request, null, null, actingContactId, stored, sizeBytes);
+    }
+
+    /**
+     * The row-writing tail shared by {@link #upload} and {@link
+     * #uploadFromPortal} -- everything after case resolution/write-scope and
+     * id-resolution (which differ enough between the two callers that folding
+     * them in here would obscure rather than clarify), so the two write paths
+     * cannot silently drift apart on how a {@link Document} and its first
+     * {@link DocumentVersion} are actually constructed and persisted.
+     * {@code targetDepartmentId}/{@code targetContactLabel}/{@code
+     * ownerContactId} are passed in already resolved -- this method resolves
+     * nothing itself.
+     */
+    private DocumentView persistNewDocument(Case c, UUID uploadedBy, CreateDocumentRequest request,
+                                            UUID resolvedTargetDepartmentId, String targetContactLabel,
+                                            UUID resolvedOwnerContactId, StoredContent stored, long sizeBytes) {
         Document d = new Document();
         d.setId(Uuid7.generate());
         d.setTenantId(c.getTenantId());
@@ -307,12 +394,12 @@ public class DocumentService {
         d.setName(request.name());
         d.setCategory(request.category());
         d.setVisibilityTier(request.visibilityTier());
-        d.setTargetDepartmentId(orgUnits.resolveDepartment(request.targetDepartmentId()));
-        d.setTargetContactLabel(request.targetContactLabel());
-        d.setOwnerContactId(resolveOwnerContact(request.ownerContactId(), c));
+        d.setTargetDepartmentId(resolvedTargetDepartmentId);
+        d.setTargetContactLabel(targetContactLabel);
+        d.setOwnerContactId(resolvedOwnerContactId);
         d.setExpiresAt(request.expiresAt());
         d.setStatus(DocumentStatus.ACTIVE);
-        d.setUploadedBy(actor);
+        d.setUploadedBy(uploadedBy);
         // Reassigned, not discarded: Document's id is assigned in Java, not
         // database-generated, so Spring Data's save() merges rather than
         // persists -- merge() returns a DIFFERENT managed instance from the
@@ -326,7 +413,7 @@ public class DocumentService {
 
         DocumentVersion v = new DocumentVersion(Uuid7.generate(), c.getTenantId(), d.getId(), 1,
                 stored.storageKey(), sizeBytes, stored.contentType(), stored.sha256(),
-                ReviewStatus.PENDING, actor, Instant.now(clock));
+                ReviewStatus.PENDING, uploadedBy, Instant.now(clock));
         versions.saveAndFlush(v);
 
         d.setCurrentVersionId(v.getId());

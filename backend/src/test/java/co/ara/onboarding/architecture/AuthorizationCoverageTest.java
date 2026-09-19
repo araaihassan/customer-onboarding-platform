@@ -340,7 +340,19 @@ class AuthorizationCoverageTest {
             // on a caseId that method just created and fully controls -- the identical
             // shape task.TaskInstantiation's own entry above already documents, DOCUMENT
             // rather than TASK.
-            "co.ara.onboarding.document.DocumentInstantiation");
+            "co.ara.onboarding.document.DocumentInstantiation",
+            // Sub-project 4 Task 26: the customer.OrgUnitResolver shape, applied to
+            // Case for a portal actor. PortalPermissions grants document.upload/
+            // document.view at Scope.ALL and Case has no AudienceFilter registered,
+            // so resolving a caseId under either permission through AuthorizedQuery
+            // for a portal actor would resolve ANY case in the tenant -- there is no
+            // scope for AuthorizedQuery to check here in the first place. This class
+            // is the actual narrowing mechanism for this audience (a plain findById
+            // followed IMMEDIATELY by an explicit customerId comparison), not a
+            // bypass of one that already exists -- see its own javadoc. Named here
+            // rather than excluding DocumentService itself, which would
+            // blanket-exempt every OTHER finder call that large service makes.
+            "co.ara.onboarding.document.PortalCaseAccess");
 
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
@@ -497,7 +509,8 @@ class AuthorizationCoverageTest {
         assertThat(FINDER_RULE_EXCLUSIONS)
                 .contains("co.ara.onboarding.task.TaskInstantiation",
                           "co.ara.onboarding.task.TaskLifecycleAdapter",
-                          "co.ara.onboarding.document.DocumentInstantiation")
+                          "co.ara.onboarding.document.DocumentInstantiation",
+                          "co.ara.onboarding.document.PortalCaseAccess")
                 .doesNotContain("co.ara.onboarding.task.TaskDirectoryAdapter");
     }
 }
