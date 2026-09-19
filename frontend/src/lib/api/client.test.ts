@@ -127,4 +127,78 @@ describe("apiFetch", () => {
     await expect(apiFetch("/customers")).rejects.toThrow();
     expect(__getAccessToken()).toBeNull();
   });
+
+  /**
+   * Sub-project 4's own addition (Task 30): a document upload/version body is
+   * FormData, never JSON. Setting a Content-Type ourselves -- even
+   * "multipart/form-data" -- would strip the boundary parameter fetch adds
+   * automatically, which is what actually delimits each part; the request
+   * would then fail to parse server-side. Asserts absence rather than a
+   * specific value, since the correct behaviour is "not present at all",
+   * never "present with some particular string".
+   */
+  it("sends a FormData body with no Content-Type header at all", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(json({ ok: true }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const body = new FormData();
+    body.append("file", new Blob(["hello"]), "hello.txt");
+
+    await apiFetch("/documents", { method: "POST", body });
+
+    const firstCall = fetchSpy.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const headers = new Headers((firstCall![1] as RequestInit).headers);
+    expect(headers.has("Content-Type")).toBe(false);
+  });
+
+  /** A caller-supplied Content-Type must not survive either -- there is nothing sensible to override it to on a multipart body. */
+  it("strips a caller-supplied Content-Type from a FormData request", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(json({ ok: true }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const body = new FormData();
+    body.append("file", new Blob(["hello"]), "hello.txt");
+
+    await apiFetch("/documents", {
+      method: "POST",
+      body,
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+
+    const firstCall = fetchSpy.mock.calls[0];
+    expect(firstCall).toBeDefined();
+    const headers = new Headers((firstCall![1] as RequestInit).headers);
+    expect(headers.has("Content-Type")).toBe(false);
+  });
+
+  /**
+   * The refresh-and-retry loop must apply unchanged to a multipart call --
+   * the whole reason to extend apiFetch rather than have upload hooks call
+   * fetch directly, which would silently lose refresh-on-401 for every
+   * upload. Reuses the same refresh fixture as "refreshes once on 401 and
+   * retries the original request" above, adapted for a FormData body.
+   */
+  it("refreshes once on 401 and retries a multipart request, still with no Content-Type", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("", { status: 401 }))
+      .mockResolvedValueOnce(json({ accessToken: "fresh-token", expiresInSeconds: 900 }))
+      .mockResolvedValueOnce(json({ ok: true }));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const body = new FormData();
+    body.append("file", new Blob(["hello"]), "hello.txt");
+
+    await apiFetch("/documents", { method: "POST", body });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+    expect(__getAccessToken()).toBe("fresh-token");
+
+    const retryCall = fetchSpy.mock.calls[2];
+    expect(retryCall).toBeDefined();
+    const headers = new Headers((retryCall![1] as RequestInit).headers);
+    expect(headers.has("Content-Type")).toBe(false);
+    expect(headers.get("Authorization")).toBe("Bearer fresh-token");
+  });
 });

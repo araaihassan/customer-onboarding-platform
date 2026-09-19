@@ -77,12 +77,24 @@ async function refreshAccessToken(): Promise<boolean> {
  * branch and silently sign the user out.
  */
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  // A FormData body (document upload/version) must never carry an explicit
+  // Content-Type: the browser/fetch runtime sets one itself, including the
+  // multipart boundary parameter, and a caller- or default-supplied value
+  // strips that boundary and breaks the request server-side. This is why the
+  // check is on init.body's own type rather than on whether a caller already
+  // set a header -- there is nothing sensible a caller could override this to.
+  const isMultipart = init.body instanceof FormData;
+
   const send = () => {
     // Headers is normalised rather than spread: spreading a Headers instance
     // yields an empty object, so a caller passing one would silently lose its
     // headers — including Content-Type on a POST.
     const headers = new Headers(init.headers ?? {});
-    if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    if (isMultipart) {
+      headers.delete("Content-Type");
+    } else if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
     if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
 
     return fetch(`/api/t/${tenantSlug}${path}`, {

@@ -2095,7 +2095,7 @@ Unlike sub-project 3A, the design bundle **does** cover the operator screen: `SC
 
 ### Task 30: API hooks
 
-**Files:** `frontend/src/lib/api/documents.ts`, `documents.test.tsx`
+**Files:** `frontend/src/lib/api/documents.ts`, `documents.test.tsx`, `frontend/src/lib/api/client.ts`, `client.test.ts`
 **Interfaces:** Produces `documentKeys`, `useDocuments`, `useCaseDocuments`, `useDocument`, `useUploadDocument`, `useAddVersion`, `usePatchDocument`, `useRetireDocument`, `useShareDocument`, `useRevokeShare`, `useLinkDocument`, `useDocumentRequests`, `useCreateDocumentRequest`, `useWithdrawRequest`, `useFulfilRequest`, `useReviewVersion`.
 
 - [ ] **Step 1: Write the failing tests** — query-key invalidation is the part that actually breaks: uploading must invalidate both the case listing and the index; reviewing must invalidate the document *and* the pending queue.
@@ -2103,6 +2103,37 @@ Unlike sub-project 3A, the design bundle **does** cover the operator screen: `SC
 - [ ] **Step 3: Implement.** Re-export generated OpenAPI types under short names, the discipline `lib/api/tasks.ts` and `cases.ts` already follow. **Never hand-write an API type.** File upload needs `FormData`, so `apiFetch` may need a multipart path — extend it rather than bypassing it, or the refresh-cookie handling is lost.
 - [ ] **Step 4: Run `npx vitest run`, `npx tsc --noEmit`, `npm run lint`.**
 - [ ] **Step 5: Commit.**
+
+**Amendment, found executing this task:** `apiFetch` (`frontend/src/lib/api/client.ts`) was not in this
+task's own "Files" line, but Step 3's own text already anticipated needing it — a `FormData` body
+must never carry an explicit `Content-Type` (fetch sets one itself, including the multipart
+boundary; a caller- or default-supplied value strips that boundary and breaks the request
+server-side), and the refresh-on-401-and-retry loop must keep working for a multipart call
+unchanged, which is only true if the upload hooks go through `apiFetch` rather than calling `fetch`
+directly. `apiFetch` now detects `init.body instanceof FormData` and skips/deletes any
+`Content-Type` header in that case, letting no caller override it either. `client.test.ts` gained
+three cases: no `Content-Type` on a `FormData` body, a caller-supplied `Content-Type` stripped the
+same way, and the existing refresh-and-retry behaviour proven to still fire (and still carry no
+`Content-Type`) on the retried multipart request.
+
+**Real, pre-existing backend gap found executing this task, not fixed here (out of this task's own
+scope):** `useDocumentRequests(caseId)` is implemented to call `GET /cases/{caseId}/document-requests`,
+matching this task's own brief — but that endpoint does not exist. `DocumentRequestController`
+(`backend/src/main/java/co/ara/onboarding/document/DocumentRequestController.java`) maps only
+`POST /cases/{caseId}/document-requests` (create), `POST /document-requests/{id}/withdraw` and
+`POST /document-requests/{id}/fulfil`; it has no `@GetMapping` at all, and
+`DocumentRequestService` has no `list`/`forCase` method for a controller to call even if one were
+added. Confirmed by reading both files directly. Notably, Task 31 (the only later task in this
+plan naming a document-request hook) consumes `useCreateDocumentRequest` and `useReviewVersion`
+only — never `useDocumentRequests` — so nothing downstream in this plan actually renders a
+document-request list yet either. The hook is written to the case-scoped shape this task's brief
+specifies so a future backend task only has to add the missing endpoint, not also come back here
+to add the hook; `documents.test.tsx`'s own coverage of it exercises the hook's client-side
+behaviour against a mocked `fetch` only, which cannot detect a missing server route. A future task
+adding a document-requests list UI must add `GET /cases/{caseId}/document-requests` to
+`DocumentRequestController`/`DocumentRequestService` (mirroring `DocumentController.forCase`'s own
+shape: `@RequirePermission(DOCUMENT_REQUEST)`, resolved through `AuthorizedQuery`) before this hook
+can return anything against a live backend.
 
 ### Task 31: The `docs` table and its visibility cell
 
