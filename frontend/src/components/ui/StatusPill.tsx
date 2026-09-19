@@ -33,8 +33,16 @@ export function roleForStatus(status: string): StatusRole {
   return ROLE_BY_STATUS[status] ?? "neutral";
 }
 
-/** Machine values are shown as words, so the label is humanised rather than raw. */
-function humanise(status: string): string {
+/**
+ * Machine values are shown as words, so the label is humanised rather than raw.
+ *
+ * Exported (Task 31) so `documents/DocumentTable.tsx`'s Category column can reuse
+ * this exact transform for `DocumentView.category` instead of inventing a second,
+ * differently-cased one -- this is the only enum-humanising helper in the
+ * codebase (confirmed by grep before adding a second), so the established
+ * convention is sentence case ("Company registration"), not per-word title case.
+ */
+export function humanise(status: string): string {
   return status.charAt(0) + status.slice(1).toLowerCase().replace(/_/g, " ");
 }
 

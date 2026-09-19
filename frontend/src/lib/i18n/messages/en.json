@@ -520,5 +520,14 @@
   "plan.diff.changeKind.REMOVED": "Removed",
   "plan.diff.changeKind.DATE_CHANGED": "Moved",
   "plan.diff.changeKind.OWNER_CHANGED": "Owner changed",
-  "plan.diff.changeKind.UNCHANGED": "Unchanged"
+  "plan.diff.changeKind.UNCHANGED": "Unchanged",
+  "documents.table.document": "Document",
+  "documents.table.customer": "Customer",
+  "documents.table.category": "Category",
+  "documents.table.visibility": "Visibility",
+  "documents.table.empty.title": "No documents yet",
+  "documents.table.empty.description": "Documents uploaded to this tenant's cases will appear here.",
+  "documents.visibility.COMPANY_SHARED": "COMPANY-SHARED",
+  "documents.visibility.CONTACT_ONLY": "CONTACT ONLY",
+  "documents.visibility.SENSITIVE": "SENSITIVE"
 }
