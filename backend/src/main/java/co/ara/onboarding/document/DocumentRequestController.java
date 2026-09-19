@@ -32,9 +32,20 @@ import static org.springframework.http.HttpStatus.CREATED;
  * have left every {@code document-requests} HTTP endpoint permanently
  * unreachable had it gone unnoticed. Closed here, alongside the service layer
  * this task already builds, rather than left for a task that would never come
- * looking for it (neither Task 25's {@code fulfil} nor Task 27's {@code
- * review} touch this controller -- {@code review} lands on the EXISTING
- * {@link DocumentController} instead, per the plan's own ruling).
+ * looking for it.
+ *
+ * <p><b>Correction (Task 25):</b> this javadoc previously claimed "neither
+ * Task 25's {@code fulfil} nor Task 27's {@code review} touch this
+ * controller." That was wrong for {@code fulfil} -- neither design spec
+ * Section 8's own endpoint table nor Task 25's own brief names an HTTP
+ * surface for it, but Task 30's frontend hook list names {@code
+ * useFulfilRequest} as its own distinct hook and Task 36's e2e spec drives
+ * "request -&gt; fulfil -&gt; review -&gt; satisfy" as a real step in a live
+ * browser flow -- neither is possible without one. {@code fulfil} now has a
+ * real endpoint here (below), matching {@code withdraw}'s own sibling path
+ * shape exactly. {@code review} is unaffected by this correction and still
+ * lands on the EXISTING {@link DocumentController} instead, per the plan's
+ * own ruling.
  *
  * <p>This class deliberately needs no new exception mapping of its own: every
  * exception {@link DocumentRequestService} throws directly ({@link
@@ -91,5 +102,24 @@ public class DocumentRequestController {
     public DocumentRequestView withdraw(@PathVariable UUID id,
                                         @Valid @RequestBody WithdrawDocumentRequestRequest request) {
         return requests.withdraw(id, request.reason());
+    }
+
+    @PostMapping("/document-requests/{id}/fulfil")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Fulfilled -- status set to FULFILLED and "
+                    + "fulfilledDocumentId set; a linked requirement is satisfied immediately only when "
+                    + "requiresReview is false"),
+            @ApiResponse(responseCode = "400", description = "The document belongs to a different case than the request",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "The request is not open (already fulfilled or withdrawn)",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public DocumentRequestView fulfil(@PathVariable UUID id,
+                                      @Valid @RequestBody FulfilDocumentRequestRequest request) {
+        return requests.fulfil(id, request.documentId());
     }
 }

@@ -31,17 +31,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * Task 23 (design spec 4.5/5.2/5.3): the plan names {@code DocumentRequestService}
- * ("Files") but its own "Interfaces" line only ever specifies {@code create}
- * and {@code withdraw} -- {@code fulfil} is Task 25's own job, not built or
- * tested here.
+ * Task 23 (design spec 4.5/5.2/5.3): {@code create} and {@code withdraw}.
+ * Task 25 adds {@code fulfil} below -- resolving both {@code requestId}
+ * (under {@code document.request}) and {@code documentId} (under {@code
+ * document.view}, composed with the {@code document.request} write gate,
+ * the same shape {@link DocumentSharingService#resolveContact} already
+ * establishes composing {@code contact.view} with {@code document.share})
+ * before anything is written, satisfying the linked requirement -- through
+ * the existing gated {@code journey.RequirementService#satisfy} -- only
+ * when {@code requiresReview} is false.
  *
  * <p>Every id this class receives from a URL or a request body ({@code caseId},
- * {@code requestId}, {@code requestedOfContactId}) is resolved through
- * {@link co.ara.onboarding.authz.AuthorizedQuery} before anything is written --
- * the identical write-path invariant {@link DocumentSharingServiceTest}'s own
- * class javadoc already proves for {@code document.share}, exercised here for
- * {@code document.request} instead.
+ * {@code requestId}, {@code requestedOfContactId}, {@code documentId}) is
+ * resolved through {@link co.ara.onboarding.authz.AuthorizedQuery} before
+ * anything is written -- the identical write-path invariant {@link
+ * DocumentSharingServiceTest}'s own class javadoc already proves for {@code
+ * document.share}, exercised here for {@code document.request} instead.
  */
 class DocumentRequestServiceTest extends PostgresTestBase {
 
@@ -397,19 +402,349 @@ class DocumentRequestServiceTest extends PostgresTestBase {
                 .isInstanceOf(NoSuchElementException.class);
     }
 
+    /**
+     * Design spec 5.3: "the requirement satisfies only when a reviewer
+     * approves the version" is the {@code requiresReview == true} branch
+     * (below) -- this is the OTHER branch, where {@code requiresReview} is
+     * false and uploading (here, fulfilling with an existing document)
+     * satisfies the linked requirement immediately, through the existing
+     * gated {@code RequirementService.satisfy}, proven the same way {@link
+     * DocumentServiceTest#retiringReopensARequirementItSatisfied} proves a
+     * composed-permission call: the manager holds both {@code
+     * document.request} (fulfil's own gate) and {@code milestone.complete}
+     * (satisfy's own gate).
+     */
+    @Test
+    void fulfillingARequestWithRequiresReviewFalseSatisfiesTheRequirementImmediately() {
+        UUID tenant = fixture.createTenant("doc-req-fulfil-satisfy-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requirementId = new UUID[1];
+        var requestId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "fulfil-satisfy-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Fulfil Satisfy Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            requestId[0] = createRequestRow(tenant, caseId[0], requirementId[0], manager[0], false);
+            documentId[0] = createDocument(tenant, caseId[0], customerId, manager[0]);
+        });
+
+        var view = new DocumentRequestView[1];
+        fixture.runAsUser(tenant, manager[0], () -> view[0] = requests.fulfil(requestId[0], documentId[0]));
+
+        assertThat(view[0].status()).isEqualTo(DocumentRequestStatus.FULFILLED);
+        assertThat(view[0].fulfilledDocumentId()).isEqualTo(documentId[0]);
+
+        fixture.runAs(tenant, () -> {
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getStatus()).isEqualTo(RequirementStatus.SATISFIED);
+            assertThat(r.getSatisfiedRef()).isEqualTo(documentId[0]);
+            assertThat(r.getSatisfiedRefType()).isEqualTo(DocumentService.SATISFIED_REF_TYPE);
+        });
+    }
+
+    /**
+     * The last test's own doc comment names the seam this one proves: {@code
+     * satisfiedRef}/{@code satisfiedRefType} round-trip the fulfilling
+     * document's own id and {@code DocumentService.SATISFIED_REF_TYPE}
+     * exactly -- the seam {@code SatisfyRequest}'s own doc comment promised
+     * sub-projects 3-5 would use.
+     */
+    @Test
+    void theSatisfiedRefAndRefTypePointAtTheDocument() {
+        UUID tenant = fixture.createTenant("doc-req-fulfil-ref-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requirementId = new UUID[1];
+        var requestId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "fulfil-ref-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Fulfil Ref Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            requestId[0] = createRequestRow(tenant, caseId[0], requirementId[0], manager[0], false);
+            documentId[0] = createDocument(tenant, caseId[0], customerId, manager[0]);
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> requests.fulfil(requestId[0], documentId[0]));
+
+        fixture.runAs(tenant, () -> {
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getSatisfiedRef()).isEqualTo(documentId[0]);
+            assertThat(r.getSatisfiedRefType()).isEqualTo("document");
+        });
+    }
+
+    /**
+     * Design spec 5.3's other branch: when the linked request's own {@code
+     * requiresReview} is true, {@code fulfil} still moves the request itself
+     * to FULFILLED, but the requirement it is linked to stays exactly as it
+     * was -- untouched by {@code RequirementService.satisfy} entirely, which
+     * a future review-approval task (not this one) will call once a reviewer
+     * actually approves the version.
+     */
+    @Test
+    void fulfillingARequestWithRequiresReviewTrueDoesNotSatisfyYet() {
+        UUID tenant = fixture.createTenant("doc-req-fulfil-review-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requirementId = new UUID[1];
+        var requestId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "fulfil-review-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Fulfil Review Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            requestId[0] = createRequestRow(tenant, caseId[0], requirementId[0], manager[0], true);
+            documentId[0] = createDocument(tenant, caseId[0], customerId, manager[0]);
+        });
+
+        var view = new DocumentRequestView[1];
+        fixture.runAsUser(tenant, manager[0], () -> view[0] = requests.fulfil(requestId[0], documentId[0]));
+
+        assertThat(view[0].status()).isEqualTo(DocumentRequestStatus.FULFILLED);
+        assertThat(view[0].fulfilledDocumentId()).isEqualTo(documentId[0]);
+
+        fixture.runAs(tenant, () -> {
+            Requirement r = requirementRepository.findById(requirementId[0]).orElseThrow();
+            assertThat(r.getStatus()).isEqualTo(RequirementStatus.OPEN);
+            assertThat(r.getSatisfiedRef()).isNull();
+            assertThat(r.getSatisfiedRefType()).isNull();
+        });
+    }
+
+    /**
+     * An ad-hoc request ({@code requirementId == null}) has nothing to
+     * satisfy regardless of {@code requiresReview} -- {@code fulfil} only
+     * ever changes the request's own status in this case. Not one of this
+     * task's own four named tests, but a real branch its own logic needs to
+     * cover: {@code requirementId == null} must never reach {@code
+     * RequirementService.satisfy} at all.
+     */
+    @Test
+    void fulfillingAnAdHocRequestWithNoLinkedRequirementNeverCallsSatisfy() {
+        UUID tenant = fixture.createTenant("doc-req-fulfil-adhoc-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requestId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "fulfil-adhoc-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+
+            UUID customerId = fixture.createCustomer(tenant, "Fulfil Adhoc Co " + Uuid7.generate(), null, null, null);
+            Case c = journey.newCase(tenant);
+            caseId[0] = c.getId();
+            requestId[0] = createRequestRow(tenant, caseId[0], null, manager[0], false);
+            documentId[0] = createDocument(tenant, caseId[0], c.getCustomerId(), manager[0]);
+        });
+
+        var view = new DocumentRequestView[1];
+        fixture.runAsUser(tenant, manager[0], () -> view[0] = requests.fulfil(requestId[0], documentId[0]));
+
+        assertThat(view[0].status()).isEqualTo(DocumentRequestStatus.FULFILLED);
+        assertThat(view[0].fulfilledDocumentId()).isEqualTo(documentId[0]);
+        assertThat(view[0].requirementId()).isNull();
+    }
+
+    /**
+     * The mirror of {@code withdrawingAnAlreadyFulfilledRequestIsRefused}:
+     * a request already {@code WITHDRAWN} is likewise a terminal state, and
+     * fulfilling it is refused the same way -- {@link IllegalStateException}
+     * (409), never a silent no-op.
+     */
+    @Test
+    void fulfillingAWithdrawnRequestIsRefused() {
+        UUID tenant = fixture.createTenant("doc-req-fulfil-withdrawn-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requestId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "fulfil-withdrawn-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+
+            Case c = journey.newCase(tenant);
+            caseId[0] = c.getId();
+            requestId[0] = createRequestRow(tenant, caseId[0], null, manager[0], false);
+            documentId[0] = createDocument(tenant, caseId[0], c.getCustomerId(), manager[0]);
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> requests.withdraw(requestId[0], "No longer needed"));
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                requests.fulfil(requestId[0], documentId[0])))
+                .isInstanceOf(IllegalStateException.class);
+    }
+
+    /**
+     * The confused-deputy cross-reference guard for {@code fulfil}, the same
+     * shape {@link #aContactBelongingToADifferentCustomerThanTheCaseIsRefusedAsABadRequest}
+     * already proves for {@code create}: a document that genuinely exists
+     * and is genuinely visible to the actor, but whose own {@code caseId}
+     * does not match the request's, is refused as a 400 -- never conflated
+     * with the 404 an out-of-scope or nonexistent document id already gets.
+     * An exact {@code caseId} match only -- whether a document merely LINKED
+     * into the request's case should also count is a real, unresolved edge
+     * case, deliberately not solved here.
+     */
+    @Test
+    void fulfillingWithADocumentFromADifferentCaseIsRefusedAsABadRequest() {
+        UUID tenant = fixture.createTenant("doc-req-fulfil-mismatch-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var requestId = new UUID[1];
+        var otherDocumentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            manager[0] = fixture.createUser(tenant, "fulfil-mismatch-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+
+            Case c = journey.newCase(tenant);
+            requestId[0] = createRequestRow(tenant, c.getId(), null, manager[0], false);
+
+            Case otherCase = journey.newCase(tenant);
+            otherDocumentId[0] = createDocument(tenant, otherCase.getId(), otherCase.getCustomerId(), manager[0]);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, manager[0], () ->
+                requests.fulfil(requestId[0], otherDocumentId[0])))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * A cross-tenant (or otherwise nonexistent) {@code requestId} is a 404,
+     * the identical shape {@link #aCrossTenantRequestIdAnswers404NeverForbidden}
+     * already proves for {@code withdraw}.
+     */
+    @Test
+    void aCrossTenantRequestIdOnFulfilAnswers404NeverForbidden() {
+        UUID tenantA = fixture.createTenant("doc-req-fulfil-xt-a-" + Uuid7.generate());
+        var managerA = new UUID[1];
+        var requestId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenantA, () -> {
+            managerA[0] = fixture.createUser(tenantA, "fulfil-xt-a+" + Uuid7.generate() + "@example.com");
+            grant(managerA[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+            Case c = journey.newCase(tenantA);
+            requestId[0] = createRequestRow(tenantA, c.getId(), null, managerA[0], false);
+            documentId[0] = createDocument(tenantA, c.getId(), c.getCustomerId(), managerA[0]);
+        });
+
+        UUID tenantB = fixture.createTenant("doc-req-fulfil-xt-b-" + Uuid7.generate());
+        var managerB = new UUID[1];
+        fixture.runAs(tenantB, () -> {
+            managerB[0] = fixture.createUser(tenantB, "fulfil-xt-b+" + Uuid7.generate() + "@example.com");
+            grant(managerB[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenantB, managerB[0], () ->
+                requests.fulfil(requestId[0], documentId[0])))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    /**
+     * The identical 404 shape, for a cross-tenant (or otherwise nonexistent)
+     * {@code documentId} instead -- {@code requestId} resolves fine, but the
+     * document does not exist in this tenant at all, so {@code
+     * AuthorizedQuery.getById} refuses it before the cross-reference check
+     * (or anything else) ever runs.
+     */
+    @Test
+    void aCrossTenantDocumentIdOnFulfilAnswers404NeverForbidden() {
+        UUID tenantA = fixture.createTenant("doc-req-fulfil-xtd-a-" + Uuid7.generate());
+        var managerA = new UUID[1];
+        var requestId = new UUID[1];
+
+        fixture.runAs(tenantA, () -> {
+            managerA[0] = fixture.createUser(tenantA, "fulfil-xtd-a+" + Uuid7.generate() + "@example.com");
+            grant(managerA[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+            Case c = journey.newCase(tenantA);
+            requestId[0] = createRequestRow(tenantA, c.getId(), null, managerA[0], false);
+        });
+
+        UUID tenantB = fixture.createTenant("doc-req-fulfil-xtd-b-" + Uuid7.generate());
+        var managerB = new UUID[1];
+        var documentIdInB = new UUID[1];
+        fixture.runAs(tenantB, () -> {
+            managerB[0] = fixture.createUser(tenantB, "fulfil-xtd-b+" + Uuid7.generate() + "@example.com");
+            grant(managerB[0], Map.of(
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
+            Case c = journey.newCase(tenantB);
+            documentIdInB[0] = createDocument(tenantB, c.getId(), c.getCustomerId(), managerB[0]);
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenantA, managerA[0], () ->
+                requests.fulfil(requestId[0], documentIdInB[0])))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
     private void grant(UUID userId, Map<String, Scope> grants) {
         UUID role = roles.createRole("Fixture Role " + Uuid7.generate(), "", grants);
         roles.assignRole(userId, role);
     }
 
     private UUID createRequestRow(UUID tenant, UUID caseId, UUID requirementId, UUID requestedBy) {
+        return createRequestRow(tenant, caseId, requirementId, requestedBy, false);
+    }
+
+    private UUID createRequestRow(UUID tenant, UUID caseId, UUID requirementId, UUID requestedBy, boolean requiresReview) {
         DocumentRequest dr = new DocumentRequest();
         dr.setId(Uuid7.generate());
         dr.setTenantId(tenant);
         dr.setCaseId(caseId);
         dr.setRequirementId(requirementId);
         dr.setCategory(DocumentCategory.OTHER);
-        dr.setRequiresReview(false);
+        dr.setRequiresReview(requiresReview);
         dr.setStatus(DocumentRequestStatus.OPEN);
         dr.setRequestedBy(requestedBy);
         dr.setRequestedAt(Instant.now());

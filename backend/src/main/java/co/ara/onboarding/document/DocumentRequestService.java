@@ -8,6 +8,7 @@ import co.ara.onboarding.customer.CustomerContact;
 import co.ara.onboarding.customer.CustomerContactRepository;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
+import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.Stage;
@@ -27,38 +28,47 @@ import java.util.UUID;
  * is Task 24's own job and writes {@code document_request} rows of its own,
  * never through this class's {@link #create}.
  *
- * <p>{@code fulfil} does not exist yet (Task 25) -- this class only ever moves
- * a request OPEN -&gt; WITHDRAWN, never OPEN -&gt; FULFILLED.
+ * <p>Task 25 adds {@link #fulfil}, moving a request OPEN -&gt; FULFILLED
+ * (never a DELETE) and, when the request is linked to a requirement and does
+ * not require review, satisfying that requirement through the existing
+ * gated {@code journey.RequirementService#satisfy} -- see that method's own
+ * javadoc for the exact branching.
  *
  * <p>Every id this class receives from a URL or a request body -- {@code
- * caseId}, {@code requestId}, and {@code requestedOfContactId} itself -- is
- * resolved through {@link AuthorizedQuery} before anything is written, the
- * same write-path invariant {@code task.TaskService}'s and {@link
- * DocumentSharingService}'s own class javadocs name and CLAUDE.md states
- * outright.
+ * caseId}, {@code requestId}, {@code requestedOfContactId}, and (as of Task
+ * 25) {@code documentId} -- is resolved through {@link AuthorizedQuery}
+ * before anything is written, the same write-path invariant {@code
+ * task.TaskService}'s and {@link DocumentSharingService}'s own class
+ * javadocs name and CLAUDE.md states outright.
  */
 @Service
 public class DocumentRequestService {
 
     private final DocumentRequestRepository requests;
+    private final DocumentRepository documents;
     private final CaseRepository cases;
     private final StageRepository stages;
     private final CustomerContactRepository contacts;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final StageWriteScopeGuard writeScope;
+    private final RequirementService requirementService;
     private final Clock clock;
 
-    public DocumentRequestService(DocumentRequestRepository requests, CaseRepository cases, StageRepository stages,
+    public DocumentRequestService(DocumentRequestRepository requests, DocumentRepository documents,
+                                  CaseRepository cases, StageRepository stages,
                                   CustomerContactRepository contacts, AuthorizedQuery authorizedQuery,
-                                  AuthContextProvider contextProvider, StageWriteScopeGuard writeScope, Clock clock) {
+                                  AuthContextProvider contextProvider, StageWriteScopeGuard writeScope,
+                                  RequirementService requirementService, Clock clock) {
         this.requests = requests;
+        this.documents = documents;
         this.cases = cases;
         this.stages = stages;
         this.contacts = contacts;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.writeScope = writeScope;
+        this.requirementService = requirementService;
         this.clock = clock;
     }
 
@@ -159,6 +169,88 @@ public class DocumentRequestService {
             dr.setStatus(DocumentRequestStatus.WITHDRAWN);
             dr = requests.saveAndFlush(dr);
         }
+        return toView(dr);
+    }
+
+    /**
+     * Fulfils an open request with an existing document (Task 25; design
+     * spec 5.2/5.3). {@code documentId} is resolved through {@link
+     * AuthorizedQuery} under {@code document.view} -- composed with this
+     * method's own {@code document.request} write gate, the identical
+     * "resolve under a READ permission, then use it in a WRITE method" shape
+     * {@link DocumentSharingService#resolveContact} already establishes,
+     * here because fulfilling a request needs the ability to actually SEE
+     * the document being offered as fulfilment, not merely to write a
+     * request.
+     *
+     * <p>Refused with {@link IllegalArgumentException} (400) when the
+     * resolved document's own {@code caseId} does not match the resolved
+     * request's own -- the same confused-deputy cross-reference shape
+     * {@link #resolveContact} and {@link DocumentSharingService#link} already
+     * use, between two already-resolved records, never the acting actor's
+     * own scope. An exact match only: whether a document merely LINKED into
+     * the request's case (rather than being its home case, {@link
+     * DocumentSharingService#link}'s own cross-journey links) should also
+     * count is a real, unresolved edge case, deliberately not solved here.
+     *
+     * <p>Refused with {@link IllegalStateException} (409) when the request's
+     * own {@code status} is not {@link DocumentRequestStatus#OPEN} -- the
+     * mirror image of {@link #withdraw}'s own already-FULFILLED guard: here
+     * an already-{@code FULFILLED} or already-{@code WITHDRAWN} request is
+     * equally terminal.
+     *
+     * <p>{@code status}/{@code fulfilledDocumentId} are written
+     * unconditionally once past both guards above. Satisfying the linked
+     * requirement is NOT unconditional (design spec 5.3): only when {@code
+     * requirementId} is non-null AND {@code requiresReview} is false does
+     * this call {@code journey.RequirementService#satisfy} -- exactly once,
+     * as the very last step, and nothing else here locks, reconciles, or
+     * recomputes progress; {@code satisfy} already does all three under its
+     * own gate and {@code CaseRepository.lockById}'s row lock. When {@code
+     * requiresReview} is true, the request still moves to FULFILLED but the
+     * requirement stays exactly as it was -- a future review-approval step's
+     * own job to satisfy, not this method's. When {@code requirementId} is
+     * null (an ad-hoc request), there is nothing to satisfy regardless of
+     * {@code requiresReview}, and {@code satisfy} is never called.
+     *
+     * <p>No audit action is recorded here -- there is no {@code
+     * document.request_fulfilled}-shaped entry among Task 29's own future
+     * nine {@code document.*} audit actions; fulfilment's own audit trail is
+     * carried by whatever {@code document.uploaded}/{@code
+     * requirement.satisfied} already record.
+     *
+     * <p>{@link StageWriteScopeGuard} narrows on top, the same pattern
+     * {@link #create} and {@link #withdraw} already use.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_REQUEST)
+    @Transactional
+    public DocumentRequestView fulfil(UUID requestId, UUID documentId) {
+        DocumentRequest dr = authorizedQuery.getById(
+                requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST, requestId);
+        Document d = authorizedQuery.getById(
+                documents, Document.class, PermissionKeys.DOCUMENT_VIEW, documentId);
+
+        if (!d.getCaseId().equals(dr.getCaseId())) {
+            throw new IllegalArgumentException(
+                    "Document " + d.getId() + " belongs to a different case than document request " + dr.getId());
+        }
+
+        if (dr.getStatus() != DocumentRequestStatus.OPEN) {
+            throw new IllegalStateException(
+                    "Document request " + dr.getId() + " is not open and cannot be fulfilled");
+        }
+
+        Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_REQUEST, dr.getCaseId());
+        applyWriteScope(c);
+
+        dr.setStatus(DocumentRequestStatus.FULFILLED);
+        dr.setFulfilledDocumentId(d.getId());
+        dr = requests.saveAndFlush(dr);
+
+        if (dr.getRequirementId() != null && !dr.isRequiresReview()) {
+            requirementService.satisfy(dr.getRequirementId(), d.getId(), DocumentService.SATISFIED_REF_TYPE);
+        }
+
         return toView(dr);
     }
 

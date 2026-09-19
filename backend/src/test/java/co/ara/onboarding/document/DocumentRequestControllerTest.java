@@ -30,15 +30,22 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * carries the scope/write-path/never-satisfies proofs), plus the one thing
  * that genuinely needs a real HTTP round trip -- an out-of-scope id is a 404,
  * never a 403.
+ *
+ * <p>Task 25 adds {@code fulfil}'s own HTTP round trip -- this controller's
+ * own class javadoc previously (and wrongly) claimed neither Task 25's
+ * {@code fulfil} nor Task 27's {@code review} would ever touch it; corrected
+ * there and proven here.
  */
 class DocumentRequestControllerTest extends SecurityTestBase {
 
     @Autowired JourneyFixtures journey;
+    @Autowired DocumentRepository documentRepository;
 
     private String tenantSlug;
     private UUID tenant;
     private AppUser actor;
     private UUID caseId;
+    private UUID customerId;
 
     @BeforeEach
     void seedATenantWithAFullyGrantedActorAndACase() {
@@ -49,9 +56,12 @@ class DocumentRequestControllerTest extends SecurityTestBase {
 
         fixture.runAs(tenant, () -> {
             UUID role = roles.createRole("Request Controller Actor " + Uuid7.generate(), "", Map.of(
-                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL));
+                    PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
+                    PermissionKeys.DOCUMENT_VIEW, Scope.ALL));
             roles.assignRole(actor.getId(), role);
-            caseId = journey.newCase(tenant).getId();
+            var c = journey.newCase(tenant);
+            caseId = c.getId();
+            customerId = c.getCustomerId();
         });
     }
 
@@ -75,6 +85,46 @@ class DocumentRequestControllerTest extends SecurityTestBase {
                         .content("{\"reason\":\"Customer already sent it by email\"}"))
            .andExpect(status().isOk())
            .andExpect(jsonPath("$.status").value("WITHDRAWN"));
+    }
+
+    /**
+     * The HTTP round trip Task 25's own brief calls for, proving this
+     * controller's corrected javadoc: an ad-hoc request ({@code
+     * requirementId} null, so nothing to satisfy either way) is fulfilled
+     * with a real document's id, ending FULFILLED with {@code
+     * fulfilledDocumentId} set.
+     */
+    @Test
+    void fulfilRoundTripsThroughHttp() throws Exception {
+        MvcResult createResult = mvc.perform(as(post(base() + "/cases/" + caseId + "/document-requests"), actor)
+                        .contentType("application/json")
+                        .content("{\"category\":\"OTHER\",\"description\":\"Please supply the signed MSA\"}"))
+                .andExpect(status().isCreated())
+                .andReturn();
+        UUID requestId = UUID.fromString(
+                JsonPath.read(createResult.getResponse().getContentAsString(), "$.id"));
+
+        UUID documentId = Uuid7.generate();
+        fixture.runAs(tenant, () -> {
+            Document d = new Document();
+            d.setId(documentId);
+            d.setTenantId(tenant);
+            d.setCaseId(caseId);
+            d.setCustomerId(customerId);
+            d.setName("Signed MSA");
+            d.setCategory(DocumentCategory.OTHER);
+            d.setVisibilityTier(VisibilityTier.COMPANY_SHARED);
+            d.setStatus(DocumentStatus.ACTIVE);
+            d.setUploadedBy(actor.getId());
+            documentRepository.saveAndFlush(d);
+        });
+
+        mvc.perform(as(post(base() + "/document-requests/" + requestId + "/fulfil"), actor)
+                        .contentType("application/json")
+                        .content("{\"documentId\":\"" + documentId + "\"}"))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.status").value("FULFILLED"))
+           .andExpect(jsonPath("$.fulfilledDocumentId").value(documentId.toString()));
     }
 
     @Test
