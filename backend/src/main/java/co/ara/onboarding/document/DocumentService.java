@@ -30,6 +30,7 @@ import jakarta.persistence.criteria.Root;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -186,12 +187,104 @@ public class DocumentService {
      * {@link #forCase}. {@link #get} deliberately does NOT carry this filter
      * -- a retired document stays reachable by id (it is a business record,
      * never deleted, spec 7.1), just no longer listed.
+     *
+     * <p><b>Task 32:</b> {@code visibilityTier}, when supplied, narrows the
+     * result to that one tier -- ANDed onto {@link #notRetired()} the same
+     * compositional way {@link #expiring} already ANDs its own extra
+     * predicate on top ({@link #withTier}). {@code null} means "every tier",
+     * matching this method's own pre-existing contract for every caller that
+     * predates this parameter. This is also the filter context {@link
+     * #visibilitySummary} must be bounded to -- the `docs` screen's five
+     * scope-filter buttons (`SCREENS.md` §7) and its hidden-count line are
+     * two views of the SAME query, so they take the same parameter and must
+     * never drift apart on what "the current filter" means.
      */
     @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
     @Transactional(readOnly = true)
-    public Page<DocumentView> list(Pageable pageable) {
-        return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, notRetired(), pageable)
+    public Page<DocumentView> list(VisibilityTier visibilityTier, Pageable pageable) {
+        return authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW,
+                        withTier(notRetired(), visibilityTier), pageable)
                 .map(DocumentService::toView);
+    }
+
+    /**
+     * Task 32: the codebase's SECOND deliberate {@code AuthorizedQuery}
+     * bypass -- the first and, until now, only one is {@code
+     * journey.TimelineService} via {@code audit.AuditQuery}
+     * ({@code AuthorizationCoverageTest}'s own documented carve-out). Spec §9
+     * names this the "08 VISIBLE · 61 HIDDEN BY SCOPE" line on the `docs`
+     * screen: without it, a scoped view (a DEPARTMENT-scoped reader, say)
+     * that happens to see zero rows is visually indistinguishable from a
+     * tenant that genuinely has no documents at all -- CLAUDE.md's own
+     * `taskSummary` finding is the shape of leak this line must not repeat,
+     * so this is written as a bounded aggregate, not a repeat of that gap.
+     *
+     * <p><b>Why disclosing this ONE integer is safe even though {@code
+     * total} bypasses the scope+audience predicate entirely:</b> {@code
+     * total} is a bare {@code COUNT}, bounded to the exact SAME filter
+     * ({@code visibilityTier} plus {@link #notRetired()}) the caller already
+     * supplied and already sees the {@code visible} half of through the
+     * fully-authorized {@link #list} -- never a document's own id, name,
+     * category, target, or any other field. This is exactly the shape
+     * {@code AuthorizationCoverageTest}'s own comment already establishes as
+     * safe for {@code journey.TimelineService}'s carve-out ("narrowed to one
+     * resource id... never row content"): here the narrowing is "bounded to
+     * the caller's own filter context" rather than "one resource id", but the
+     * safety argument is the same one, carried into this codebase's second
+     * exception rather than copied wholesale -- a caller learns only THAT
+     * more matching documents exist somewhere in the tenant and roughly how
+     * many, never which ones, who uploaded them, or what they are about.
+     * Postgres RLS ({@code app.tenant_id}) still confines {@code total} to
+     * the current tenant regardless of this bypass -- the same safety net
+     * {@code journey.TimelineService}'s own carve-out relies on -- so this is
+     * a scope+audience bypass within one tenant, never a cross-tenant one.
+     *
+     * <p>{@code visible} deliberately uses {@code PageRequest.of(0, 1)}, NOT
+     * {@code Pageable.unpaged()}: {@link Page#getTotalElements()} always
+     * issues Spring Data's own backing {@code COUNT} query regardless of page
+     * size, so requesting a one-row page still gets the real total while
+     * fetching (and mapping to {@link DocumentView}) only one row of content
+     * nobody here needs -- {@code unpaged()} would instead materialise and
+     * fetch EVERY matching row purely to read its count.
+     *
+     * <p>{@code hidden} is clamped to never go negative ({@code Math.max(0,
+     * total - visible)}). Under Postgres READ COMMITTED, {@code visible} and
+     * {@code total} are two separate statements in the same transaction, so a
+     * concurrent write between them (a document uploaded or retired by
+     * someone else, mid-computation) can in principle let {@code total}
+     * observe a slightly different snapshot than {@code visible} did a moment
+     * earlier -- which could transiently push the raw difference to -1. This
+     * is a rare, self-correcting-on-refresh anomaly, never a security
+     * concern (both numbers still come from the same tenant, the same
+     * filter, and disclose nothing about individual rows either way) -- the
+     * clamp exists purely so the UI is never asked to render a nonsensical
+     * negative count.
+     *
+     * <p>Verified against {@code AuthorizationCoverageTest}'s finder-rule
+     * regex (binds on {@code findAll}/{@code findOne}/{@code findById}/
+     * {@code findBy*} by name): {@link DocumentRepository#count(Specification)}
+     * is named {@code count}, which that predicate does not match, so this
+     * call needed no new exclusion in that test -- confirmed by running it,
+     * not assumed.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
+    @Transactional(readOnly = true)
+    public DocumentVisibilitySummaryView visibilitySummary(VisibilityTier visibilityTier) {
+        Specification<Document> filter = withTier(notRetired(), visibilityTier);
+
+        long visible = authorizedQuery.findAll(documents, Document.class, PermissionKeys.DOCUMENT_VIEW,
+                        filter, PageRequest.of(0, 1))
+                .getTotalElements();
+
+        // Deliberate AuthorizedQuery bypass -- see this method's own javadoc
+        // above for the full safety argument. RLS still confines this to the
+        // current tenant; only the record-level scope+audience predicate is
+        // skipped, and only to produce a bare count bounded to the same
+        // filter the caller already supplied.
+        long total = documents.count(filter);
+
+        long hidden = Math.max(0, total - visible);
+        return new DocumentVisibilitySummaryView(visible, hidden);
     }
 
     /**
@@ -950,6 +1043,18 @@ public class DocumentService {
     /** RETIRED excluded from every listing -- {@link #list}/{@link #forCase}'s own javadoc. */
     private static Specification<Document> notRetired() {
         return (root, query, cb) -> cb.notEqual(root.get("status"), DocumentStatus.RETIRED);
+    }
+
+    /**
+     * ANDs an optional {@code visibilityTier} equality onto {@code base} --
+     * {@code null} leaves {@code base} untouched, matching {@link #list}'s
+     * pre-existing "no filter" contract. Shared by {@link #list} and
+     * {@link #visibilitySummary} so the two can never silently define "the
+     * current filter" differently from one another.
+     */
+    private static Specification<Document> withTier(Specification<Document> base, VisibilityTier visibilityTier) {
+        if (visibilityTier == null) return base;
+        return base.and((root, query, cb) -> cb.equal(root.get("visibilityTier"), visibilityTier));
     }
 
     /** An EXISTS subquery over document_case_link, live links into caseId only. */

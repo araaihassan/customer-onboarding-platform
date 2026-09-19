@@ -185,7 +185,7 @@ class DocumentServiceTest extends PostgresTestBase {
 
         AtomicReference<List<DocumentView>> listed = new AtomicReference<>();
         fixture.runAsUser(tenant, reader[0], () ->
-                listed.set(documents.list(Pageable.unpaged()).getContent()));
+                listed.set(documents.list(null, Pageable.unpaged()).getContent()));
         assertThat(listed.get()).extracting(DocumentView::id).containsExactly(ownDocumentId[0]);
 
         fixture.runAsUser(tenant, reader[0], () ->
@@ -1388,7 +1388,7 @@ class DocumentServiceTest extends PostgresTestBase {
         fixture.runAsUser(tenant, manager[0], () -> documents.retire(retiredDocId[0], "Wrong file uploaded"));
 
         fixture.runAsUser(tenant, manager[0], () -> {
-            assertThat(documents.list(Pageable.unpaged()).getContent())
+            assertThat(documents.list(null, Pageable.unpaged()).getContent())
                     .extracting(DocumentView::id).containsExactly(activeDocId[0]);
             assertThat(documents.forCase(caseId[0], Pageable.unpaged()).getContent())
                     .extracting(DocumentView::id).containsExactly(activeDocId[0]);

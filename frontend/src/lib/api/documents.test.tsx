@@ -12,6 +12,7 @@ import {
   useDocument,
   useDocumentRequests,
   useDocuments,
+  useDocumentVisibilitySummary,
   useFulfilRequest,
   useLinkDocument,
   usePatchDocument,
@@ -73,10 +74,83 @@ describe("useDocuments", () => {
     fetchMock.mockResolvedValue(reply({ content: [] }));
 
     const { Wrapper } = makeWrapper();
-    const { result } = renderHook(() => useDocuments(2), { wrapper: Wrapper });
+    const { result } = renderHook(() => useDocuments(undefined, 2), { wrapper: Wrapper });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(lastUrl()).toBe("/api/t/acme/documents?page=2&size=25");
+  });
+
+  it("Task 32: sends visibilityTier when supplied", async () => {
+    fetchMock.mockResolvedValue(reply({ content: [] }));
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDocuments("SENSITIVE"), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(lastUrl()).toBe("/api/t/acme/documents?page=0&size=25&visibilityTier=SENSITIVE");
+  });
+
+  it("Task 32: a different visibilityTier is its own cached query, not a stale one", async () => {
+    fetchMock.mockResolvedValue(reply({ content: [] }));
+    const { client, Wrapper } = makeWrapper();
+
+    const { result: all } = renderHook(() => useDocuments(), { wrapper: Wrapper });
+    await waitFor(() => expect(all.current.isSuccess).toBe(true));
+
+    const { result: sensitive } = renderHook(() => useDocuments("SENSITIVE"), { wrapper: Wrapper });
+    await waitFor(() => expect(sensitive.current.isSuccess).toBe(true));
+
+    // Two distinct queries were fetched -- not one cache entry reused for both.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(client.getQueryCache().getAll()).toHaveLength(2);
+  });
+});
+
+describe("useDocumentVisibilitySummary", () => {
+  it("reads the hidden-count endpoint with no filter by default", async () => {
+    fetchMock.mockResolvedValue(reply({ visible: 8, hidden: 61 }));
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDocumentVisibilitySummary(), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(lastUrl()).toBe("/api/t/acme/documents/visibility-summary");
+    expect(result.current.data).toEqual({ visible: 8, hidden: 61 });
+  });
+
+  it("Task 32: bounds the summary to the same visibilityTier filter useDocuments takes", async () => {
+    fetchMock.mockResolvedValue(reply({ visible: 2, hidden: 0 }));
+
+    const { Wrapper } = makeWrapper();
+    const { result } = renderHook(() => useDocumentVisibilitySummary("COMPANY_SHARED"), { wrapper: Wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(lastUrl()).toBe("/api/t/acme/documents/visibility-summary?visibilityTier=COMPANY_SHARED");
+  });
+
+  it("Task 32: uploading a document invalidates the hidden-count query, which then refetches", async () => {
+    fetchMock
+      .mockResolvedValueOnce(reply({ visible: 1, hidden: 5 }))
+      .mockResolvedValueOnce(reply({ id: "d-1", caseId: "c-1" }, 201))
+      .mockResolvedValue(reply({ visible: 2, hidden: 5 }));
+
+    const { Wrapper } = makeWrapper();
+    const { result: summary } = renderHook(() => useDocumentVisibilitySummary(), { wrapper: Wrapper });
+    await waitFor(() => expect(summary.current.isSuccess).toBe(true));
+    expect(summary.current.data).toEqual({ visible: 1, hidden: 5 });
+
+    const { result: upload } = renderHook(() => useUploadDocument(), { wrapper: Wrapper });
+    await upload.current.mutateAsync({
+      caseId: "c-1",
+      file: new File(["x"], "x.pdf"),
+      metadata: { name: "x.pdf", category: "OTHER", visibilityTier: "COMPANY_SHARED" },
+    });
+
+    // The invalidated query is active (mounted above), so it refetches
+    // automatically -- proving the invalidation actually reached this query,
+    // not merely that some invalidateQueries call was made somewhere.
+    await waitFor(() => expect(summary.current.data).toEqual({ visible: 2, hidden: 5 }));
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
 
@@ -153,6 +227,8 @@ describe("useUploadDocument", () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.forCase("c-1") });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.index() });
+    // Task 32: a new document changes both halves of the hidden-count line.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.visibilitySummary() });
   });
 });
 
@@ -211,6 +287,9 @@ describe("useRetireDocument", () => {
 
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.detail("d-1") });
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.forCase("c-1") });
+    // Task 32: a retired document drops out of both list() and visibilitySummary()'s shared notRetired() filter.
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.index() });
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: documentKeys.visibilitySummary() });
   });
 });
 

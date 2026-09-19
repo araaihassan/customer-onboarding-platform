@@ -529,5 +529,13 @@
   "documents.table.empty.description": "Documents uploaded to this tenant's cases will appear here.",
   "documents.visibility.COMPANY_SHARED": "COMPANY-SHARED",
   "documents.visibility.CONTACT_ONLY": "CONTACT ONLY",
-  "documents.visibility.SENSITIVE": "SENSITIVE"
+  "documents.visibility.SENSITIVE": "SENSITIVE",
+  "documents.filter.label": "Filter documents by scope",
+  "documents.filter.all": "All in scope",
+  "documents.filter.companyShared": "Company-shared",
+  "documents.filter.contactOnly": "Contact-only",
+  "documents.filter.sensitive": "Sensitive",
+  "documents.filter.openRequests": "Open requests",
+  "documents.filter.openRequests.disabledReason": "Not available yet: there is no endpoint to list open document requests across the tenant",
+  "documents.hiddenCount.line": "{visible} VISIBLE · {hidden} HIDDEN BY SCOPE"
 }

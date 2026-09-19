@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -89,8 +90,24 @@ public class DocumentController {
             @ApiResponse(responseCode = "403", description = FORBIDDEN,
                     content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
     })
-    public Page<DocumentView> list(Pageable pageable) {
-        return documents.list(pageable);
+    public Page<DocumentView> list(@RequestParam(required = false) VisibilityTier visibilityTier, Pageable pageable) {
+        return documents.list(visibilityTier, pageable);
+    }
+
+    /**
+     * Task 32: the `docs` screen's hidden-count line, bounded to the SAME
+     * optional {@code visibilityTier} filter {@link #list} takes -- see
+     * {@link DocumentService#visibilitySummary}'s own javadoc for why this is
+     * safe to disclose despite its deliberate {@code AuthorizedQuery} bypass.
+     */
+    @GetMapping("/documents/visibility-summary")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "visible = the caller's own list() count; hidden = a bounded, tenant-scoped aggregate (never row content) of what the same filter matches outside the caller's own scope"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public DocumentVisibilitySummaryView visibilitySummary(@RequestParam(required = false) VisibilityTier visibilityTier) {
+        return documents.visibilitySummary(visibilityTier);
     }
 
     @GetMapping("/cases/{caseId}/documents")

@@ -29,6 +29,9 @@ export type DocumentRequest = components["schemas"]["DocumentRequestView"];
 export type CreateDocumentRequestRequest = components["schemas"]["CreateDocumentRequestRequest"];
 export type DocumentRequestStatus = NonNullable<DocumentRequest["status"]>;
 
+/** Task 32: `DocumentService.visibilitySummary`'s response -- see `HiddenCountLine`'s own doc comment for the full safety argument behind disclosing `hidden` at all. */
+export type DocumentVisibilitySummary = components["schemas"]["DocumentVisibilitySummaryView"];
+
 export const DOCUMENTS_PAGE_SIZE = 25;
 
 export const documentKeys = {
@@ -38,6 +41,13 @@ export const documentKeys = {
   forCase: (caseId: string) => [...documentKeys.all, "case", caseId] as const,
   detail: (id: string) => [...documentKeys.all, "detail", id] as const,
   requestsForCase: (caseId: string) => [...documentKeys.all, "requests", "case", caseId] as const,
+  /**
+   * Task 32: the hidden-count line's own family root -- mirrors `index`'s own
+   * shape exactly, so invalidating `visibilitySummary()` alone (no tier)
+   * catches every tier's own query, the same prefix-matching TanStack Query
+   * already gives `index()` for `useDocuments`' page argument.
+   */
+  visibilitySummary: () => [...documentKeys.all, "visibility-summary"] as const,
   /**
    * The pending-review queue -- no read hook in this task's own scope reads
    * this key yet (there is no `GET` endpoint for it today; a real,
@@ -51,11 +61,46 @@ export const documentKeys = {
   pending: () => [...documentKeys.all, "pending"] as const,
 };
 
-/** Every document visible to the caller, tenant-wide, scope + audience filtered (DocumentController.list's own doc comment). */
-export function useDocuments(page = 0) {
+/**
+ * Every document visible to the caller, tenant-wide, scope + audience filtered
+ * (DocumentController.list's own doc comment). `visibilityTier` -- Task 32's
+ * own new query parameter -- narrows to one of the three real tiers; omitted,
+ * it matches every tier, the pre-existing contract. Included in the query key
+ * so filtering a different tier is its own cached query, never a stale one --
+ * the same `documentKeys.visibilitySummary` shape this task's own hidden-count
+ * hook below uses, deliberately: the two are two views of the SAME filtered
+ * query (`ScopeFilterRow`'s own doc comment), so a caller wiring them together
+ * passes the identical `visibilityTier` value to both.
+ */
+export function useDocuments(visibilityTier?: DocumentVisibilityTier, page = 0) {
   return useQuery({
-    queryKey: [...documentKeys.index(), page] as const,
-    queryFn: () => apiFetch<DocumentPage>(`/documents?page=${page}&size=${DOCUMENTS_PAGE_SIZE}`),
+    queryKey: [...documentKeys.index(), visibilityTier ?? "ALL", page] as const,
+    queryFn: () => {
+      const params = new URLSearchParams({ page: String(page), size: String(DOCUMENTS_PAGE_SIZE) });
+      if (visibilityTier) params.set("visibilityTier", visibilityTier);
+      return apiFetch<DocumentPage>(`/documents?${params.toString()}`);
+    },
+    placeholderData: (previous) => previous,
+  });
+}
+
+/**
+ * The `docs` screen's hidden-count line (`HiddenCountLine`) -- Task 32's
+ * second deliberate aggregate-disclosure exception. Bounded to the SAME
+ * optional `visibilityTier` filter `useDocuments` takes; see
+ * `DocumentService.visibilitySummary`'s own javadoc (backend) for the full
+ * safety argument behind why `hidden` is safe to disclose despite bypassing
+ * the record-level scope+audience predicate.
+ */
+export function useDocumentVisibilitySummary(visibilityTier?: DocumentVisibilityTier) {
+  return useQuery({
+    queryKey: [...documentKeys.visibilitySummary(), visibilityTier ?? "ALL"] as const,
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (visibilityTier) params.set("visibilityTier", visibilityTier);
+      const qs = params.toString();
+      return apiFetch<DocumentVisibilitySummary>(`/documents/visibility-summary${qs ? `?${qs}` : ""}`);
+    },
     placeholderData: (previous) => previous,
   });
 }
@@ -104,6 +149,10 @@ export function useUploadDocument() {
     onSuccess: (_created, { caseId }) => {
       void queryClient.invalidateQueries({ queryKey: documentKeys.forCase(caseId) });
       void queryClient.invalidateQueries({ queryKey: documentKeys.index() });
+      // A new document changes both halves of the hidden-count line -- the
+      // caller's own `visible` count and, since it also changes the
+      // RLS-bounded tenant total, `hidden` too.
+      void queryClient.invalidateQueries({ queryKey: documentKeys.visibilitySummary() });
     },
   });
 }
@@ -156,6 +205,10 @@ export function useRetireDocument() {
     onSuccess: (updated, { id }) => {
       void queryClient.invalidateQueries({ queryKey: documentKeys.detail(id) });
       if (updated.caseId) void queryClient.invalidateQueries({ queryKey: documentKeys.forCase(updated.caseId) });
+      // A retired document drops out of both list() and visibilitySummary()'s
+      // shared notRetired() filter -- see this file's own useUploadDocument comment.
+      void queryClient.invalidateQueries({ queryKey: documentKeys.index() });
+      void queryClient.invalidateQueries({ queryKey: documentKeys.visibilitySummary() });
     },
   });
 }

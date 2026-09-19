@@ -97,12 +97,12 @@ class DocumentSharingServiceTest extends PostgresTestBase {
         assertThat(view[0].principalId()).isEqualTo(sharedContactId[0]);
 
         fixture.runAsUser(tenant, sharedContactUserId[0], () ->
-                assertThat(documents.list(Pageable.unpaged()).getContent())
+                assertThat(documents.list(null, Pageable.unpaged()).getContent())
                         .as("the shared contact must see the SENSITIVE document")
                         .extracting(DocumentView::id).containsExactly(documentId[0]));
 
         fixture.runAsUser(tenant, otherContactUserId[0], () ->
-                assertThat(documents.list(Pageable.unpaged()).getContent())
+                assertThat(documents.list(null, Pageable.unpaged()).getContent())
                         .as("a different contact at the same customer, not named in the share, must not")
                         .isEmpty());
     }
@@ -137,7 +137,7 @@ class DocumentSharingServiceTest extends PostgresTestBase {
 
         // Sanity: visible BEFORE revocation -- otherwise "invisible after" is vacuous.
         fixture.runAsUser(tenant, contactUserId[0], () ->
-                assertThat(documents.list(Pageable.unpaged()).getContent())
+                assertThat(documents.list(null, Pageable.unpaged()).getContent())
                         .as("sanity check: visible before revocation")
                         .extracting(DocumentView::id).containsExactly(documentId[0]));
 
@@ -146,7 +146,7 @@ class DocumentSharingServiceTest extends PostgresTestBase {
         assertThat(revoked[0].revokedAt()).isNotNull();
 
         fixture.runAsUser(tenant, contactUserId[0], () ->
-                assertThat(documents.list(Pageable.unpaged()).getContent())
+                assertThat(documents.list(null, Pageable.unpaged()).getContent())
                         .as("invisible on the very next request after revocation, no caching")
                         .isEmpty());
 

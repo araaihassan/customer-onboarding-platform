@@ -131,6 +131,32 @@ class DocumentControllerTest extends SecurityTestBase {
            .andExpect(jsonPath("$.id").value(documentId.toString()));
     }
 
+    /**
+     * Task 32: the hidden-count line's own endpoint, reachable through real
+     * HTTP and bounded to the SAME optional {@code visibilityTier} query
+     * parameter {@code list} takes -- see {@link DocumentService
+     * #visibilitySummary}'s own javadoc for the full safety argument behind
+     * this method's deliberate {@code AuthorizedQuery} bypass. This is a
+     * thin wiring test (the scope+audience and bounded-aggregate correctness
+     * is proven at the service layer by {@code DocumentVisibilitySummaryTest}) --
+     * it exists to prove the controller reaches the right method and that the
+     * query parameter round-trips through real Spring MVC binding.
+     */
+    @Test
+    void visibilitySummaryReachesTheServiceAndHonoursTheVisibilityTierFilter() throws Exception {
+        upload("Summary Doc.pdf");
+
+        mvc.perform(as(get(base() + "/documents/visibility-summary"), actor))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.visible").value(1))
+           .andExpect(jsonPath("$.hidden").value(0));
+
+        mvc.perform(as(get(base() + "/documents/visibility-summary").param("visibilityTier", "SENSITIVE"), actor))
+           .andExpect(status().isOk())
+           .andExpect(jsonPath("$.visible").value(0))
+           .andExpect(jsonPath("$.hidden").value(0));
+    }
+
     @Test
     void patchRenamesAndRecategorisesThroughHttp() throws Exception {
         UUID documentId = upload("Original Name.pdf");

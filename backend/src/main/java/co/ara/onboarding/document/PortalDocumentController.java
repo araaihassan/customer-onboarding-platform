@@ -104,7 +104,10 @@ public class PortalDocumentController {
                     description = "Every document visible to the acting contact, per scoping.DocumentAudienceFilter's portal branch")
     })
     public Page<PortalDocumentView> list(Pageable pageable) {
-        return documents.list(pageable).map(PortalDocumentView::from);
+        // No tier filter on the portal listing -- spec §8 never routes a
+        // portal caller through the tier query parameter Task 32 added for
+        // the operator-facing `docs` screen.
+        return documents.list(null, pageable).map(PortalDocumentView::from);
     }
 
     @PostMapping(value = "/cases/{caseId}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
