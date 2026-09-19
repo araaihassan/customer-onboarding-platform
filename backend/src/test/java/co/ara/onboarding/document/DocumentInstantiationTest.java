@@ -14,6 +14,7 @@ import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
 import co.ara.onboarding.workflow.WorkflowService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
 import java.util.Map;
@@ -118,7 +119,9 @@ class DocumentInstantiationTest extends PostgresTestBase {
                 () -> openCaseWhoseFirstRequirementIsKindDocument(tenant, null, null));
 
         assertThatThrownBy(() -> fixture.runAs(tenant, () -> instantiation.instantiateForCase(caseId)))
-                .isInstanceOf(RuntimeException.class);
+                .as("document_request_requirement_uq must be what refuses the second row, " +
+                        "not some other failure reached first")
+                .isInstanceOf(DataIntegrityViolationException.class);
 
         fixture.runAs(tenant, () -> assertThat(documentRequests.findByCaseId(caseId)).hasSize(1));
     }
