@@ -483,18 +483,16 @@ process and deliberately parked rather than fixed or forgotten):
   fix needs to distinguish "force-completed, must stay sticky" from "naturally reopened, should
   revert" — real design work for its own task, not a fix-round patch risking sub-project 2's own
   guarded invariants.
-- **`RequirementDefinition.documentCategory` has no validation at authoring or at publish.**
-  `DocumentInstantiation` calls `DocumentCategory.valueOf(...)` on it, and — because a published
-  workflow version never mutates — a template published with an invalid value permanently bricks
-  case creation against that version, with no recovery path. Same class of defect as the
+- **`RequirementDefinition.documentCategory` still has no server-side validation at authoring or at
+  publish.** `DocumentInstantiation` calls `DocumentCategory.valueOf(...)` on it, and — because a
+  published workflow version never mutates — a template published with an invalid value permanently
+  bricks case creation against that version, with no recovery path. Same class of defect as the
   already-documented `dependsOnMilestoneKeys`/`branchRules` NPE-on-omission traps (Tests section,
   below), but more severe: those 500/400 per malformed request, this one dead-ends a template
-  forever. Reachable only through direct API authoring today — there is no builder UI for
-  DOCUMENT-kind requirements at all.
-- **The workflow builder's missing attribute/entry-condition gap (open since sub-project 2) gains a
-  third unauthorable field.** Task 36 threaded `requiresReview` through the raw `PUT` payload (it
-  had no field there at all before), but the builder UI still has no control for it, matching the
-  existing attribute/entry-condition gap exactly.
+  forever. The builder UI now only ever sends one of the real enum values (closed post-close-out,
+  below), which closes off the accidental path to a bad value — a direct API caller can still submit
+  an arbitrary string, and `RequirementRequest.documentCategory`/`WorkflowService.newRequirement`
+  still have no `@Pattern`/enum check of their own to refuse it before publish.
 - **Review is per-version; satisfaction is per-document.** Approving a stale, superseded version
   satisfies the requirement against bytes nobody will ever download again; rejecting a stale version
   after a newer one was already approved reopens a requirement actually satisfied by different,
@@ -554,6 +552,31 @@ process and deliberately parked rather than fixed or forgotten):
 All three of sub-project 3A's own open items above (TEAM-scoped user creation, the
 attribute/entry-condition builder gap, the audit-timeline-read carve-out) are likewise still open
 and untouched by this sub-project's own path.
+
+**Closed since sub-project 4's close-out, verified against the running system (2026-09-25):**
+three gaps found while manually reviewing the shipped feature against a real tenant, none part of
+Task 37's own ten-item list above but adjacent to two of its entries:
+
+- **The workflow builder can now set a DOCUMENT requirement's category and review flag.**
+  `MilestoneEditor.tsx`'s requirement editor shows a document-category select (the same
+  `DOCUMENT_CATEGORIES` list `UploadDialog` uses, now a shared export so the two cannot drift) and a
+  "Requires review" checkbox whenever a requirement's `kind` is `DOCUMENT`. Both fields already
+  round-tripped through the backend since Task 36's own fix; this closes the UI half specifically.
+  Narrows, but does not close, the `documentCategory` validation gap immediately above — a raw API
+  caller can still submit an arbitrary string; the builder can no longer accidentally produce one.
+- **The roadmap now shows which document satisfied a requirement, not just that one did.**
+  `RequirementRoadmapView` gained `satisfiedRef`/`satisfiedRefType` (already on `Requirement` itself,
+  never surfaced on this read) so `RequirementList`'s `DocumentChip` can fetch and link the actual
+  document, reusing the existing authenticated-download utility — previously a dead-end status pill
+  with no way to reach the record it referred to.
+- **The case workspace Documents tab now groups by stage and milestone** for any document traceable
+  to the DOCUMENT requirement it satisfied, with an "Other documents" bucket for ad-hoc uploads. A
+  case with nothing traceable (every case that predates this change) renders the identical flat,
+  unheaded list it always has — additive, not a behavior change for existing data.
+
+Verified: backend 831 tests (830 baseline + 1 new roundtrip proof for the roadmap field), 0
+failures; frontend 654 tests (644 baseline + 10 new), 0 failures; `tsc`/lint clean. Commit `12800b6`
+on `feat/documents` (PR #16, not yet merged).
 
 ### Tests
 
