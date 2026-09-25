@@ -106,9 +106,15 @@ class TenantProvisioningTest extends PostgresTestBase {
                     // completing the six-key document set, and widened all six to
                     // RECORD/ORG_SCOPES, seeding them beyond Administrator too
                     // (RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
-                    // is the guard that keeps this number honest).
+                    // is the guard that keeps this number honest). Sub-project 5
+                    // Task 5 added agreement.view, agreement.manage, agreement.review
+                    // and agreement.sign_record (51), all four RECORD/ORG_SCOPES from
+                    // the catalog's start (unlike document's ALL-only phase), seeding
+                    // them across the eligible templates immediately
+                    // (RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
+                    // keeps the count honest).
                     .as("Administrator must be seeded with its full template grant set")
-                    .hasSize(47);
+                    .hasSize(51);
         });
     }
 
