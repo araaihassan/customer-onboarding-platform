@@ -156,4 +156,19 @@ class ModuleBoundaryTest {
                 .because("task has no current relationship to document at all -- this rule exists "
                        + "preemptively, the same reasoning as noJourneyDependencyOnTask: a one-way "
                        + "import would still pass the plain no-cycles rule.");
+
+    @ArchTest
+    static final ArchRule noJourneyDependencyOnAgreement =
+            noClasses().that().resideInAPackage("..journey..")
+                .should().dependOnClassesThat().resideInAPackage("..agreement..")
+                .because("agreement depends on journey, never the reverse -- journey reaches it only "
+                       + "through the AgreementLifecycle port it declares (spec 3.2). A one-way import "
+                       + "would still pass the plain no-cycles rule.");
+
+    @ArchTest
+    static final ArchRule noDocumentDependencyOnAgreement =
+            noClasses().that().resideInAPackage("..document..")
+                .should().dependOnClassesThat().resideInAPackage("..agreement..")
+                .because("agreement consumes document through AgreementFiles; document names no agreement "
+                       + "type (spec 3.1). AgreementFiles uses only authz permission keys.");
 }
