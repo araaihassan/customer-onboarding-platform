@@ -40,6 +40,7 @@ public class PublishService {
     private final MilestoneDependencyRepository dependencies;
     private final AttributeDefinitionRepository attributeDefinitions;
     private final BranchRuleRepository branchRules;
+    private final RequirementDefinitionRepository requirementDefinitions;
     private final AuthorizedQuery authorizedQuery;
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
@@ -52,6 +53,7 @@ public class PublishService {
                           MilestoneDependencyRepository dependencies,
                           AttributeDefinitionRepository attributeDefinitions,
                           BranchRuleRepository branchRules,
+                          RequirementDefinitionRepository requirementDefinitions,
                           AuthorizedQuery authorizedQuery,
                           AuthContextProvider contextProvider,
                           AuditRecorder audit,
@@ -63,6 +65,7 @@ public class PublishService {
         this.dependencies = dependencies;
         this.attributeDefinitions = attributeDefinitions;
         this.branchRules = branchRules;
+        this.requirementDefinitions = requirementDefinitions;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
         this.audit = audit;
@@ -110,7 +113,7 @@ public class PublishService {
      * only ever reports one problem is also indistinguishable from one that implements
      * only one rule.
      *
-     * The five lists below are read via {@link #readByVersion}, not the repositories'
+     * The lists below are read via {@link #readByVersion}, not the repositories'
      * own {@code findByVersionId*} finders directly: workflow.manage is ALL-only today,
      * but AuthorizationCoverageTest.servicesDoNotCallRepositoryFindersDirectly binds to
      * every *Service in this package regardless, and a repository finder called
@@ -122,6 +125,8 @@ public class PublishService {
                 readByVersion(milestoneDefinitions, MilestoneDefinition.class, versionId, "ordinal");
         List<MilestoneDependency> deps = readByVersion(dependencies, MilestoneDependency.class, versionId, "id");
         List<BranchRule> rules = readByVersion(branchRules, BranchRule.class, versionId, "ordinal");
+        List<RequirementDefinition> requirements =
+                readByVersion(requirementDefinitions, RequirementDefinition.class, versionId, "ordinal");
         Set<String> declared = readByVersion(attributeDefinitions, AttributeDefinition.class, versionId, "ordinal")
                 .stream().map(AttributeDefinition::getKey).collect(toSet());
 
@@ -175,6 +180,22 @@ public class PublishService {
             if (otherKey >= selfKey) {
                 problems.add("Milestone " + self.getName() + " must depend on an earlier milestone, not "
                         + other.getName());
+            }
+        }
+        // Rule 6 (sub-project 5, spec section 4.1): a SIGNATURE requirement fixes its
+        // agreement's record mode and name; no other kind may carry either, or a stray
+        // value would sit frozen in a published version meaning nothing.
+        for (RequirementDefinition r : requirements) {
+            boolean agreementFields = r.getAgreementRecordMode() != null || r.getAgreementName() != null;
+            if (r.getKind() == RequirementKind.SIGNATURE) {
+                if (r.getAgreementRecordMode() == null) {
+                    problems.add("SIGNATURE requirement '" + r.getLabel() + "' needs an agreement record mode");
+                }
+                if (r.getAgreementName() == null || r.getAgreementName().isBlank()) {
+                    problems.add("SIGNATURE requirement '" + r.getLabel() + "' needs an agreement name");
+                }
+            } else if (agreementFields) {
+                problems.add("Requirement '" + r.getLabel() + "' carries agreement fields, which only a SIGNATURE requirement may");
             }
         }
         return problems;

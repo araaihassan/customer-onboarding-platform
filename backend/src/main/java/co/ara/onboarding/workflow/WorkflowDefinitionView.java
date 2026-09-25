@@ -62,7 +62,9 @@ public record WorkflowDefinitionView(
             boolean mandatory,
             String documentCategory,
             RelationshipType approverRelationship,
-            Boolean requiresReview) {}
+            Boolean requiresReview,
+            AgreementRecordMode agreementRecordMode,
+            String agreementName) {}
 
     public record BranchRuleView(
             UUID id,

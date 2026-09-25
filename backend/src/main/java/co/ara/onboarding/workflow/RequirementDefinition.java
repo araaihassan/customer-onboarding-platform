@@ -65,6 +65,18 @@ public class RequirementDefinition extends TenantScopedEntity {
     @Column(name = "requires_review")
     private Boolean requiresReview;
 
+    /**
+     * Sub-project 5, Task 2 (spec section 4.1). Fixed per SIGNATURE requirement --
+     * QA Q13's "template setting" -- and copied, never re-derived, into every
+     * agreement case creation instantiates from it. Null for every other kind.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "agreement_record_mode")
+    private AgreementRecordMode agreementRecordMode;
+
+    @Column(name = "agreement_name")
+    private String agreementName;
+
     public UUID getVersionId() { return versionId; }
     public void setVersionId(UUID versionId) { this.versionId = versionId; }
 
@@ -94,4 +106,10 @@ public class RequirementDefinition extends TenantScopedEntity {
 
     public Boolean getRequiresReview() { return requiresReview; }
     public void setRequiresReview(Boolean requiresReview) { this.requiresReview = requiresReview; }
+
+    public AgreementRecordMode getAgreementRecordMode() { return agreementRecordMode; }
+    public void setAgreementRecordMode(AgreementRecordMode agreementRecordMode) { this.agreementRecordMode = agreementRecordMode; }
+
+    public String getAgreementName() { return agreementName; }
+    public void setAgreementName(String agreementName) { this.agreementName = agreementName; }
 }

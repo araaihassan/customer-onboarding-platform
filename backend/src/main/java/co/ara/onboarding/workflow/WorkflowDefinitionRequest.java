@@ -66,7 +66,12 @@ public record WorkflowDefinitionRequest(
             // consumed (DocumentInstantiation.instantiateForCase's own
             // Boolean.TRUE.equals(...) check), matching RequirementDefinition.requiresReview's
             // own documented null-is-false column semantics.
-            Boolean requiresReview) {}
+            Boolean requiresReview,
+            // Sub-project 5, Task 2: only a SIGNATURE requirement may carry either --
+            // PublishService's Rule 6 refuses both a SIGNATURE missing one and a
+            // non-SIGNATURE requirement carrying either.
+            AgreementRecordMode agreementRecordMode,
+            String agreementName) {}
 
     public record BranchRuleRequest(
             ConditionRequest condition,

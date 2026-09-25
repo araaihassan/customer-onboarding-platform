@@ -592,6 +592,8 @@ public class WorkflowService {
         requirement.setApproverRelationship(
                 r.approverRelationship() == null ? null : r.approverRelationship().name());
         requirement.setRequiresReview(r.requiresReview());
+        requirement.setAgreementRecordMode(r.agreementRecordMode());
+        requirement.setAgreementName(r.agreementName());
         return requirement;
     }
 
@@ -761,7 +763,8 @@ public class WorkflowService {
         RelationshipType relationship = r.getApproverRelationship() == null
                 ? null : RelationshipType.valueOf(r.getApproverRelationship());
         return new RequirementView(r.getId(), r.getKind(), r.getLabel(), r.getWeight(), r.isMandatory(),
-                r.getDocumentCategory(), relationship, r.getRequiresReview());
+                r.getDocumentCategory(), relationship, r.getRequiresReview(),
+                r.getAgreementRecordMode(), r.getAgreementName());
     }
 
     private BranchRuleView toBranchRuleView(BranchRule b) {
@@ -814,7 +817,8 @@ public class WorkflowService {
 
     private RequirementRequest toRequirementRequest(RequirementView r) {
         return new RequirementRequest(r.kind(), r.label(), r.weight(), r.mandatory(),
-                r.documentCategory(), r.approverRelationship(), r.requiresReview());
+                r.documentCategory(), r.approverRelationship(), r.requiresReview(),
+                r.agreementRecordMode(), r.agreementName());
     }
 
     private BranchRuleRequest toBranchRuleRequest(BranchRuleView b) {

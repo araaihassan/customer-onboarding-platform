@@ -53,21 +53,26 @@ public final class WorkflowFixtures {
     }
 
     public static RequirementRequest manual(String label) {
-        return new RequirementRequest(RequirementKind.MANUAL, label, 1, true, null, null, null);
+        return new RequirementRequest(RequirementKind.MANUAL, label, 1, true, null, null, null, null, null);
     }
 
     public static RequirementRequest document(String label, String category) {
-        return new RequirementRequest(RequirementKind.DOCUMENT, label, 1, true, category, null, null);
+        return new RequirementRequest(RequirementKind.DOCUMENT, label, 1, true, category, null, null, null, null);
     }
 
     /** A requirement of kind DOCUMENT that also needs review before it satisfies. */
     public static RequirementRequest documentRequiringReview(String label, String category) {
-        return new RequirementRequest(RequirementKind.DOCUMENT, label, 1, true, category, null, true);
+        return new RequirementRequest(RequirementKind.DOCUMENT, label, 1, true, category, null, true, null, null);
     }
 
     /** A requirement of kind TASK -- Task 19's own instantiation seam. */
     public static RequirementRequest task(String label) {
-        return new RequirementRequest(RequirementKind.TASK, label, 1, true, null, null, null);
+        return new RequirementRequest(RequirementKind.TASK, label, 1, true, null, null, null, null, null);
+    }
+
+    /** A requirement of kind SIGNATURE -- sub-project 5's instantiation seam. */
+    public static RequirementRequest signature(String label, AgreementRecordMode mode, String agreementName) {
+        return new RequirementRequest(RequirementKind.SIGNATURE, label, 1, true, null, null, null, mode, agreementName);
     }
 
     /**
@@ -133,7 +138,8 @@ public final class WorkflowFixtures {
 
     private static RequirementRequest toRequirementRequest(RequirementView r) {
         return new RequirementRequest(r.kind(), r.label(), r.weight(), r.mandatory(),
-                r.documentCategory(), r.approverRelationship(), r.requiresReview());
+                r.documentCategory(), r.approverRelationship(), r.requiresReview(),
+                r.agreementRecordMode(), r.agreementName());
     }
 
     private static BranchRuleRequest toBranchRuleRequest(BranchRuleView b) {
