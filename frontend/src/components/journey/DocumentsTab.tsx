@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { FileTextIcon, LockIcon, UploadIcon } from "@/components/icons";
 import { UploadDialog } from "@/components/documents/UploadDialog";
 import { Button } from "@/components/ui/Button";
 import { StatusPill, humanise } from "@/components/ui/StatusPill";
 import { EmptyState, ErrorState, SkeletonRows } from "@/components/ui/States";
+import { useRoadmap, type Roadmap } from "@/lib/api/cases";
 import { downloadDocumentVersion, useCaseDocuments, type Document } from "@/lib/api/documents";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
@@ -30,16 +31,24 @@ import { t } from "@/lib/i18n";
  */
 export function DocumentsTab({ caseId }: { caseId: string }) {
   const documents = useCaseDocuments(caseId);
+  // The same roadmap query `JourneyPreview` (the Journey tab) already fetches
+  // -- react-query dedupes on `caseKeys.roadmap(caseId)`, so viewing Journey
+  // before Documents costs this tab nothing extra. Grouping is a pure bonus
+  // on top of the document list, never a precondition for it: a still-loading
+  // or failed roadmap fetch degrades to the flat, ungrouped list rather than
+  // blocking or erroring this tab (see `groupByMilestone`'s own default).
+  const roadmap = useRoadmap(caseId);
   const canUpload = useHasPermission("document.upload");
   const [uploading, setUploading] = useState(false);
+
+  const rows = useMemo(() => documents.data?.content ?? [], [documents.data]);
+  const groups = useMemo(() => groupByMilestone(rows, roadmap.data), [rows, roadmap.data]);
 
   if (documents.isLoading) return <SkeletonRows rows={4} height={56} />;
 
   if (documents.isError) {
     return <ErrorState message={t("common.error")} onRetry={() => void documents.refetch()} />;
   }
-
-  const rows = documents.data?.content ?? [];
 
   const uploadAction = canUpload ? (
     <Button type="button" variant="secondary" onClick={() => setUploading(true)}>
@@ -61,9 +70,30 @@ export function DocumentsTab({ caseId }: { caseId: string }) {
         <>
           {uploadAction && <div className="flex justify-end">{uploadAction}</div>}
 
-          <div className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
-            {rows.map((document) => (
-              <DocumentRow key={document.id} document={document} />
+          <div className="flex flex-col" style={{ gap: "var(--ob-space-16)" }}>
+            {groups.map((group) => (
+              <div key={group.key} className="flex flex-col" style={{ gap: "var(--ob-space-8)" }}>
+                {/* A single ungrouped section renders with no heading at all --
+                    identical to this tab's own pre-grouping shape, so a case
+                    with no document requirement ever satisfied (every case
+                    before this feature existed, and every ad-hoc-only case
+                    after it) looks exactly as it always has. */}
+                {group.heading && (
+                  <h5
+                    className="text-text-faint"
+                    style={{
+                      font: "500 var(--ob-type-mono-label-sm-size)/var(--ob-type-mono-label-sm-line) var(--ob-font-family-data)",
+                      textTransform: "uppercase",
+                      letterSpacing: "var(--ob-type-mono-label-sm-tracking)",
+                    }}
+                  >
+                    {group.heading}
+                  </h5>
+                )}
+                {group.documents.map((document) => (
+                  <DocumentRow key={document.id} document={document} />
+                ))}
+              </div>
             ))}
           </div>
         </>
@@ -72,6 +102,66 @@ export function DocumentsTab({ caseId }: { caseId: string }) {
       {uploading && <UploadDialog caseId={caseId} onClose={() => setUploading(false)} />}
     </div>
   );
+}
+
+interface DocumentGroup {
+  key: string;
+  /** `undefined` renders no heading at all -- the flat-list, pre-grouping shape. */
+  heading?: string;
+  documents: Document[];
+}
+
+/**
+ * Groups a case's documents by the milestone whose DOCUMENT-kind requirement
+ * they satisfied, in roadmap order (stage, then milestone). A document only
+ * ends up in a group when a real `Requirement.satisfiedRef` points at it --
+ * an ad-hoc upload, or one that fulfilled a request whose requirement still
+ * requires review, has no such reference and always lands in "Other
+ * documents". When NOTHING is traceable to a milestone (no roadmap data yet,
+ * or a case with only ad-hoc documents), this returns a single ungrouped
+ * section with `heading: undefined`, matching this tab's exact pre-grouping
+ * rendering -- grouping is additive, never a regression for the common case.
+ */
+function groupByMilestone(documents: Document[], roadmap: Roadmap | undefined): DocumentGroup[] {
+  const milestoneByDocumentId = new Map<string, { key: string; heading: string }>();
+
+  for (const stage of roadmap?.stages ?? []) {
+    for (const milestone of stage.milestones ?? []) {
+      for (const requirement of milestone.requirements ?? []) {
+        if (requirement.kind !== "DOCUMENT") continue;
+        if (requirement.satisfiedRefType !== "document" || !requirement.satisfiedRef) continue;
+        if (!milestone.id) continue;
+        milestoneByDocumentId.set(requirement.satisfiedRef, {
+          key: milestone.id,
+          heading: [stage.name, milestone.name].filter(Boolean).join(" · "),
+        });
+      }
+    }
+  }
+
+  if (milestoneByDocumentId.size === 0) {
+    return [{ key: "all", documents }];
+  }
+
+  const grouped = new Map<string, DocumentGroup>();
+  const ungrouped: Document[] = [];
+
+  for (const document of documents) {
+    const milestone = document.id ? milestoneByDocumentId.get(document.id) : undefined;
+    if (!milestone) {
+      ungrouped.push(document);
+      continue;
+    }
+    const group = grouped.get(milestone.key) ?? { key: milestone.key, heading: milestone.heading, documents: [] };
+    group.documents.push(document);
+    grouped.set(milestone.key, group);
+  }
+
+  const groups = Array.from(grouped.values());
+  if (ungrouped.length > 0) {
+    groups.push({ key: "ungrouped", heading: t("documents.tab.group.other"), documents: ungrouped });
+  }
+  return groups;
 }
 
 /**

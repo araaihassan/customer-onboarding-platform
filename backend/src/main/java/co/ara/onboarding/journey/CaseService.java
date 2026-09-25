@@ -340,7 +340,8 @@ public class CaseService {
                         .map(r -> {
                             var d = requirementDefById.get(r.getRequirementDefinitionId());
                             return new RequirementRoadmapView(r.getId(), d == null ? null : d.getLabel(),
-                                    d == null ? null : d.getKind(), d != null && d.isMandatory(), r.getStatus());
+                                    d == null ? null : d.getKind(), d != null && d.isMandatory(), r.getStatus(),
+                                    r.getSatisfiedRef(), r.getSatisfiedRefType());
                         })
                         .toList();
                 List<String> blockedBy = m.getStatus() != MilestoneStatus.BLOCKED ? List.of()

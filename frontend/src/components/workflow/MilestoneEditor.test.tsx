@@ -9,6 +9,15 @@ const oneMilestone: MilestoneRequest[] = [
   { key: "m1", name: "KYC Pack", estimatedDurationDays: 2, requirements: [{ kind: "MANUAL", label: "Collect ID", weight: 1, mandatory: true }] },
 ];
 
+const documentRequirementMilestone: MilestoneRequest[] = [
+  {
+    key: "m1",
+    name: "Document collection",
+    estimatedDurationDays: 2,
+    requirements: [{ kind: "DOCUMENT", label: "Tax certificate", weight: 1, mandatory: true }],
+  },
+];
+
 describe("MilestoneEditor", () => {
   it("renders each milestone's name and duration", () => {
     render(<MilestoneEditor milestones={oneMilestone} onChange={vi.fn()} />);
@@ -57,4 +66,43 @@ describe("MilestoneEditor", () => {
       }),
     ]);
   });
+
+  it("hides the document category select and requires-review checkbox for a non-DOCUMENT requirement", () => {
+    render(<MilestoneEditor milestones={oneMilestone} onChange={vi.fn()} />);
+    expect(screen.queryByLabelText("Document category")).toBeNull();
+    expect(screen.queryByRole("checkbox", { name: "Requires review" })).toBeNull();
+  });
+
+  it("shows the document category select and requires-review checkbox for a DOCUMENT requirement, defaulting to Other and unchecked", () => {
+    render(<MilestoneEditor milestones={documentRequirementMilestone} onChange={vi.fn()} />);
+    expect((screen.getByLabelText("Document category") as HTMLSelectElement).value).toBe("OTHER");
+    expect((screen.getByRole("checkbox", { name: "Requires review" }) as HTMLInputElement).checked).toBe(false);
+  });
+
+  it("changing the document category reaches onChange with documentCategory set", () => {
+    const onChange = vi.fn();
+    render(<MilestoneEditor milestones={documentRequirementMilestone} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Document category"), { target: { value: "TAX" } });
+
+    expect(onChange).toHaveBeenCalledWith([
+      expect.objectContaining({
+        requirements: [expect.objectContaining({ kind: "DOCUMENT", documentCategory: "TAX" })],
+      }),
+    ]);
+  });
+
+  it("toggling requires-review reaches onChange with requiresReview set", () => {
+    const onChange = vi.fn();
+    render(<MilestoneEditor milestones={documentRequirementMilestone} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Requires review" }));
+
+    expect(onChange).toHaveBeenCalledWith([
+      expect.objectContaining({
+        requirements: [expect.objectContaining({ kind: "DOCUMENT", requiresReview: true })],
+      }),
+    ]);
+  });
+
 });
