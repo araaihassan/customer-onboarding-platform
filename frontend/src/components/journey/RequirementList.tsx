@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ReviewAffordance } from "@/components/documents/ReviewDialog";
 import { UploadDialog } from "@/components/documents/UploadDialog";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
@@ -163,9 +164,18 @@ function DocumentChip({ caseId, requirement }: { caseId: string; requirement: Re
   const fulfil = useFulfilRequest();
 
   const matchingRequest = documentRequests.data?.content?.find((dr) => dr.requirementId === requirement.id);
+  const pendingReview = !hasSatisfyingDocument && matchingRequest?.status === "FULFILLED";
+  // The requirement stays OPEN while a review is pending (`fulfil`'s own
+  // `requiresReview` branching never calls `satisfy`), so `satisfiedRef` is
+  // still null here -- the only way to know WHICH document to review is the
+  // request's own `fulfilledDocumentId`, a second, independent fetch from
+  // the one above.
+  const pendingDocument = useDocument(pendingReview ? matchingRequest?.fulfilledDocumentId ?? "" : "");
+
+  const displayedDocument = hasSatisfyingDocument ? document.data : pendingReview ? pendingDocument.data : undefined;
 
   async function open() {
-    const doc = document.data;
+    const doc = displayedDocument;
     if (!doc?.id || !doc.currentVersionNumber) return;
     setDownloading(true);
     try {
@@ -192,14 +202,14 @@ function DocumentChip({ caseId, requirement }: { caseId: string; requirement: Re
         >
           {requirement.label}
         </span>
-        {document.data?.name && (
+        {displayedDocument?.name && (
           <p className="truncate text-text-subtle" style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}>
-            {document.data.name}
+            {displayedDocument.name}
           </p>
         )}
       </div>
 
-      {document.data?.id && document.data.currentVersionNumber && (
+      {displayedDocument?.id && displayedDocument.currentVersionNumber && (
         <Button type="button" variant="secondary" disabled={downloading} onClick={() => void open()}>
           {t("requirement.document.open")}
         </Button>
@@ -211,7 +221,11 @@ function DocumentChip({ caseId, requirement }: { caseId: string; requirement: Re
         </Button>
       )}
 
-      {!hasSatisfyingDocument && matchingRequest?.status === "FULFILLED" ? (
+      {pendingReview && pendingDocument.data?.id && pendingDocument.data.currentVersionNumber && (
+        <ReviewAffordance documentId={pendingDocument.data.id} versionNo={pendingDocument.data.currentVersionNumber} />
+      )}
+
+      {pendingReview ? (
         <StatusPill status={t("requirement.document.pendingReview")} role="warn" />
       ) : (
         <StatusPill

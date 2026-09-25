@@ -236,6 +236,90 @@ describe("RequirementList", () => {
     expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
   });
 
+  function mockPendingReview() {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/document-requests")) {
+        return Promise.resolve(
+          reply({
+            content: [
+              { id: "dr-1", requirementId: "r-2", status: "FULFILLED", category: "TAX", description: "Passport scan", fulfilledDocumentId: "doc-9" },
+            ],
+          }),
+        );
+      }
+      if (url.includes("/documents/doc-9")) {
+        return Promise.resolve(reply({ id: "doc-9", name: "Passport.pdf", currentVersionId: "v-1", currentVersionNumber: 1 }));
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+  }
+
+  it("shows a Review action for a pending-review document, when the user holds document.review", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.review": ["ALL"] };
+    mockPendingReview();
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review" })).not.toBeNull());
+    expect(screen.getByRole("button", { name: /open/i })).not.toBeNull();
+    expect(screen.getByText("Passport.pdf")).not.toBeNull();
+  });
+
+  it("hides the Review action without document.review", async () => {
+    mockPendingReview();
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByText("Pending review")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+  });
+
+  it("opens the review dialog for the correct document version when Review is clicked", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.review": ["ALL"] };
+    mockPendingReview();
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(screen.getByText("Review version 1")).not.toBeNull();
+  });
+
+  it("approving through the review dialog submits the decision for the pending document's own version", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.review": ["ALL"] };
+    const reviewCalls: unknown[] = [];
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/documents/doc-9/versions/1/review")) {
+        reviewCalls.push(init?.body);
+        return Promise.resolve(reply({ id: "v-1", documentId: "doc-9", versionNo: 1, reviewStatus: "APPROVED" }));
+      }
+      if (url.includes("/document-requests")) {
+        return Promise.resolve(
+          reply({
+            content: [
+              { id: "dr-1", requirementId: "r-2", status: "FULFILLED", category: "TAX", description: "Passport scan", fulfilledDocumentId: "doc-9" },
+            ],
+          }),
+        );
+      }
+      if (url.includes("/documents/doc-9")) {
+        return Promise.resolve(reply({ id: "doc-9", name: "Passport.pdf", currentVersionId: "v-1", currentVersionNumber: 1 }));
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.click(dialog.getByRole("button", { name: "Submit review" }));
+
+    await waitFor(() => expect(reviewCalls).toHaveLength(1));
+    expect(JSON.parse(reviewCalls[0] as string)).toEqual({ decision: "APPROVED", note: undefined });
+  });
+
   it("offers waive to someone holding requirement.waive", () => {
     renderList([open]);
     expect(screen.getByRole("button", { name: /waive/i })).not.toBeNull();

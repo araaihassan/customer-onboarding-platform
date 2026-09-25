@@ -13,16 +13,16 @@ import { t } from "@/lib/i18n";
 /**
  * A pending version's review decision (Task 34). Consumes `useReviewVersion`.
  *
- * **Ruling 3 (task-34-brief.md): no live entry point in this task.** No
- * screen in the codebase can yet answer "which version is pending review" --
- * `DocumentView` carries no review-status field at all (it lives on the more
- * granular `DocumentVersion`, returned only from specific mutations), and the
- * one backend method that could answer it (`DocumentReviewService.pending()`)
- * has no HTTP endpoint yet. This component is deliberately a clean,
- * prop-driven dialog (`documentId`/`versionNo`/`onClose`) with no page
- * mounting it -- exactly like `ScopeFilterRow`/`HiddenCountLine` (Task 32)
- * before their own callers existed. The future caller that gets real
- * pending-review data renders this directly; nothing here needs to change.
+ * **Ruling 3 (task-34-brief.md) closed:** `RequirementList.tsx`'s
+ * `DocumentChip` is now the live caller this doc comment once said didn't
+ * exist. It doesn't use `DocumentReviewService.pending()` (still no HTTP
+ * endpoint) -- it finds the specific pending document a different way,
+ * already knowing which requirement it cares about: the case's own
+ * `document_request` row (`requirementId` -> `fulfilledDocumentId`), fetched
+ * via the already-existing `GET /cases/{caseId}/document-requests`. A future
+ * cross-case pending-review queue screen (still unbuilt, still needs
+ * `pending()`'s own HTTP endpoint and `AudienceFilter`) would be a second,
+ * independent caller of this same dialog, not a replacement for this one.
  *
  * Rejecting requires a note (a client-side UX guard tighter than the
  * backend's own rule): `ReviewVersionRequest.note` is deliberately NOT
