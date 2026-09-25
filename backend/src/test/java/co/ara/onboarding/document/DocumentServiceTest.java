@@ -777,6 +777,40 @@ class DocumentServiceTest extends PostgresTestBase {
     }
 
     /**
+     * Final whole-branch review, Important 1: {@code addVersion} was the one
+     * portal-reachable write path missing this class's own {@code
+     * uploadRefusesAPortalActorEvenForTheirOwnCustomersCase}/{@code
+     * forCaseRefusesAPortalActorEvenForTheirOwnCustomersCase} guard -- see
+     * {@link DocumentService#addVersion}'s own javadoc for the accidental
+     * mask this closes. The document here is deliberately built COMPANY_SHARED
+     * at the portal contact's OWN customer, so it IS audience-visible to them
+     * -- the refusal under test is genuinely the new {@code UserType.PORTAL}
+     * check, not merely {@code DocumentAudienceFilter} already hiding a
+     * document this actor could never see in the first place.
+     */
+    @Test
+    void addVersionRefusesAPortalActorEvenForADocumentVisibleToThem() {
+        UUID tenant = fixture.createTenant("doc-addversion-portal-" + Uuid7.generate());
+        var portalUserId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Portal AddVersion Co " + Uuid7.generate(), null, null, null);
+            Case c = journey.newCaseForCustomer(tenant, customerId);
+            UUID uploader = fixture.createUser(tenant, "addversion-uploader+" + Uuid7.generate() + "@example.com");
+            documentId[0] = createDocument(tenant, c, uploader);
+            portalUserId[0] = fixture.createPortalUserForContact(
+                    tenant, customerId, "addversion-portal-contact+" + Uuid7.generate() + "@example.com");
+        });
+
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, portalUserId[0], () -> documents.addVersion(
+                documentId[0], new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf")))
+                .isInstanceOf(NoSuchElementException.class);
+
+        fixture.runAs(tenant, () -> assertThat(versionRepository.findByDocumentId(documentId[0])).isEmpty());
+    }
+
+    /**
      * Review round 1, Important #3: StageWriteScopeGuard's new Task 15
      * {@code check(Case, Stage)} overload had zero test coverage -- every
      * other test in this class uses {@code journey.newCase}, which never

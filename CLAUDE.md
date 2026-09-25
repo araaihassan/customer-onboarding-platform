@@ -536,6 +536,20 @@ process and deliberately parked rather than fixed or forgotten):
   2026-09-13 — see "What sub-project 4 inherits" below), not something this close-out re-opens, but
   worth restating here since both bear directly on anything that later makes portal upload
   production-facing.
+- **Two role templates hold a permanently inert `document.view` grant.** Sales Representative and
+  Business Partner (`authz/RoleTemplates.java`) both hold `document.view` at `Scope.ASSIGNED`, but
+  `scoping.DocumentDescriptor.assignedScope` resolves ASSIGNED as `uploaded_by = ctx.userId()`, and
+  neither template holds `document.upload` at all — so this grant can never match any row for either
+  role. A hand-built test role asserting `document.view@ASSIGNED` works will see nothing today; that
+  is the expected (if unfortunate) result of this specific grant combination, not a new bug to chase.
+- **A customer's own SENSITIVE-tier upload is invisible to everyone, including themselves, until an
+  internal staff member shares it.** Per the design's own portal visibility rules (SCREENS.md §17's
+  "Selected contacts only" maps to the `SENSITIVE` visibility tier), but this sub-project grants
+  portal actors no `document.share` permission at all — so a `SENSITIVE` document a customer uploads
+  themselves has no visibility path back to them or anyone else at their company until an internal
+  `document.share` holder explicitly shares it. This is Task 26's own design point 6, already
+  documented in a code comment there — this entry surfaces it at the level a future session actually
+  reads, since sub-project 7 (which owns the portal UI) will hit this first.
 
 All three of sub-project 3A's own open items above (TEAM-scoped user creation, the
 attribute/entry-condition builder gap, the audit-timeline-read carve-out) are likewise still open
@@ -601,6 +615,14 @@ to work elsewhere, not in `co.ara.onboarding` or the frontend:
   admin session against the ones for the failing one. A hand-built test role has to declare this
   dependency explicitly; the twelve seeded templates bundle it because a real Project-Manager-shaped
   role always holds both.
+- **The identical `workflow.view`-for-a-nested-`Stage`-lookup trap recurs for every `document`
+  write method that calls `applyWriteScope`.** `DocumentService.applyWriteScope` resolves the case's
+  current `Stage` under `workflow.view`, exactly like `CaseService`'s own view above — so `share`,
+  `link`, `request`, `fulfil`, `retire`, `upload`, `addVersion` and `patch` all 404 for a role holding
+  only the `document.*` permission that otherwise gates the call, unless it also holds `workflow.view`.
+  Independently rediscovered by four separate sub-project 4 tasks (19/20/22/23) and once more, live,
+  by Task 35's e2e run — a hand-built test role exercising any of these methods needs `workflow.view`
+  alongside whichever `document.*` permission actually gates the write.
 
 Also found and fixed as a real product bug, not a test artifact: **`MigrationTable` blanked out
 the entire table, ineligible rows included, whenever nothing remained eligible** — `eligible.length

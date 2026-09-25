@@ -70,6 +70,19 @@ public class AuthorizedQuery {
      * scope, never WHICH ones; widening this seam to return actual rows
      * would need its own, separately-argued justification, not an extension
      * of this one.
+     *
+     * <p><b>Precondition, stated here rather than only one file away in
+     * {@code AuthorizationPredicateBuilder#withAudience}'s own javadoc:</b>
+     * this method is safe only because {@code entityType} has a registered
+     * {@link AudienceFilter} -- true for {@link co.ara.onboarding.document.Document}
+     * today, the only caller this method has. On an entity type with no
+     * registered filter, the scope-union bypass has nothing left to narrow
+     * it, and this degrades to an unnarrowed, tenant-wide count for any
+     * holder of {@code permissionKey} at any scope -- not the bounded,
+     * audience-narrowed aggregate its own class-level javadoc describes. A
+     * future caller must confirm its entity type has a real
+     * {@link AudienceFilter} before reaching for this method, not just that
+     * it holds some grant of the given permission.
      */
     public <T> long countIgnoringScope(JpaSpecificationExecutor<T> repository, Class<T> entityType,
                                        String permissionKey, Specification<T> extra) {

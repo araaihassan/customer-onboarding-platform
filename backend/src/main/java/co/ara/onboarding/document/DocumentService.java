@@ -453,9 +453,13 @@ public class DocumentService {
      * portal actor -- a case with a null {@code currentStageId} (no guard at
      * all) would sail straight through. Refused explicitly here, before the
      * case lookup runs, rather than relying on that accident. {@code
-     * addVersion} does NOT need this guard: its {@code caseId} comes from an
-     * already-audience-filtered {@link Document}, never from the caller
-     * directly.
+     * addVersion} was originally believed not to need this guard, since its
+     * {@code caseId} comes from an already-audience-filtered {@link Document},
+     * never from the caller directly -- but the final whole-branch review
+     * found that reasoning addressed only WHICH document a portal actor could
+     * reach, never whether they should be allowed to add a version to it at
+     * all. {@code addVersion} now carries the identical guard, in the
+     * identical position, for the identical reason -- see its own javadoc.
      *
      * <p><b>Task 26 update:</b> the real portal upload path now exists --
      * {@link #uploadFromPortal}, reached through {@code
@@ -672,11 +676,26 @@ public class DocumentService {
      * because appending a version derives no state (spec §4.2). A new version
      * always starts {@code PENDING}, regardless of any earlier version's own
      * review outcome -- approving v1 says nothing about v2 (spec §5.1).
+     *
+     * <p><b>Final whole-branch review, Important 1:</b> refuses a PORTAL actor
+     * outright, exactly as {@link #upload} and {@link #forCase} already do --
+     * see {@link #upload}'s own javadoc for the fuller account of why an
+     * incidental mask isn't good enough. This method's own version of the
+     * mask was {@link #applyWriteScope}'s {@code WORKFLOW_VIEW}-gated
+     * {@link Stage} lookup, itself bypassed entirely by that same method's
+     * {@code if (c.getCurrentStageId() == null) return;} branch -- so a case
+     * with no current stage had nothing at all refusing a portal actor here
+     * before this fix. No live exploit existed (every real case has a pinned
+     * stage), but the guard belongs here on its own terms, not on an
+     * accident of a downstream method's control flow.
      */
     @RequirePermission(PermissionKeys.DOCUMENT_UPLOAD)
     @Transactional
     public DocumentVersionView addVersion(UUID documentId, InputStream content,
                                           long sizeBytes, String declaredContentType) {
+        if (contextProvider.current().userType() == UserType.PORTAL) {
+            throw new NoSuchElementException("Not found");
+        }
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_UPLOAD, documentId);
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_UPLOAD, d.getCaseId());
         applyWriteScope(c);
