@@ -133,7 +133,8 @@ selected per tenant by configuration, defaulting to `MANUAL`; only `MANUAL` exis
 
 ## 4. Data model
 
-One migration, `V24__agreement.sql`. Every new table has a non-null `tenant_id`, calls
+Two migrations, numbers decided at dispatch time (`V23` is highest as this is written): one adding
+§4.1's requirement-definition columns, one creating §4.2–4.6's tables. Every new table has a non-null `tenant_id`, calls
 `enable_tenant_rls` in the same migration, uses UUIDv7 keys, and has DELETE denied. All timestamps
 `timestamptz`.
 
@@ -187,7 +188,11 @@ review". `EXPIRED` is deliberately absent (§5.7).
 | `display_role` | e.g. "Customer signatory", "Provider signatory" |
 | `sort_order` | int |
 
-Editable only in `DRAFT` (replace-the-list semantics, §8). A `CONTACT` signatory must be an
+Editable only in `DRAFT` (replace-the-list semantics, §8). **The one table in this sub-project with
+`GRANT DELETE`** (amended while planning): replacing a draft's list deletes its signatory rows, and
+a signatory row is not a business record — the frozen copy a signature is proven against lives in
+`agreement_version.structured_snapshot`. The service deletes only signatories of a `DRAFT`
+agreement; the migration carries a comment saying why. A `CONTACT` signatory must be an
 `ACTIVE` contact of the agreement's own customer; an `INTERNAL` signatory must be an `ACTIVE` user
 resolvable through `AuthorizedQuery` under `user.view`. Unique `(agreement_id, contact_id)` and
 `(agreement_id, user_id)`.
@@ -387,13 +392,22 @@ the first service.
 | Template | Grants |
 |---|---|
 | Project Manager | `view`, `manage`, `sign_record` at TEAM |
-| Account Manager | `view`, `manage`, `sign_record` at TEAM |
+| Account Manager | `view`, `manage` at TEAM — **not** `sign_record`, see below |
 | Legal | `view`, `review` at ALL — "Reviews agreements", and the natural second pair of eyes |
-| Operations | `view`, `manage` at DEPARTMENT |
+| Operations | `view`, `manage`, `sign_record` at DEPARTMENT |
 | Finance, Compliance | `view` at ALL |
 | Sales Representative, Service Provider, Business Partner | `view` at ASSIGNED |
 | Technical, Support | `view` at TEAM |
 | Administrator | all four at ALL |
+
+**`sign_record` implies `milestone.complete`** (amended while planning, 2026-09-25). The last
+signature calls `RequirementService.satisfy`, which is itself gated `milestone.complete`. A template
+holding `sign_record` without `milestone.complete` at an equal-or-broader scope would have its final
+signature refused and rolled back — the whole agreement stuck one signature short. Account Manager
+holds no `milestone.complete`, so it does not get `sign_record`; Project Manager (TEAM), Operations
+(DEPARTMENT) and Administrator (ALL) all already hold `milestone.complete` at the matching scope. A
+derived guard in `RoleTemplateCoverageTest`'s neighbour enforces the implication for every template,
+and a hand-built role breaking it is refused atomically (no signature row written).
 
 `RoleTemplateCoverageTest` passes by construction — each multi-scope permission is held by a template
 other than Administrator. Narrowest-scope write tests run `manage` and `sign_record` at TEAM, and
@@ -476,6 +490,9 @@ All under `/api/t/{slug}/`.
 `PATCH` is used for fields to avoid the full-replace trap. `PUT …/signatories` is a genuine full
 replace; the detail view carries the same signatory fields its request accepts. The summary endpoint
 **does not** use `countIgnoringScope` — the lifecycle screen counts only what the reader could open.
+It uses a new `AuthorizedQuery.count`, composing `forPermission` exactly as `findAll` does
+(amended while planning). A draft's dates are cleared through `PatchAgreementRequest.clear`, a set
+of field names, because a `PATCH` null means "unchanged".
 Out-of-scope and cross-tenant ids are 404.
 
 ---
