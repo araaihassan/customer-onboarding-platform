@@ -341,6 +341,14 @@ class AuthorizationCoverageTest {
             // shape task.TaskInstantiation's own entry above already documents, DOCUMENT
             // rather than TASK.
             "co.ara.onboarding.document.DocumentInstantiation",
+            // Sub-project 5 Task 10: the identical DocumentInstantiation shape, SIGNATURE
+            // rather than DOCUMENT. AgreementInstantiation is called inside its own
+            // transaction by both CaseService.create (via AgreementLifecycleAdapter,
+            // on a caseId that method just created and fully controls) and
+            // MigrationService.migrateOne (on a case already authorized under
+            // CASE_MIGRATE before migrateOne is ever reached) -- there is no
+            // request-supplied id here for AuthorizedQuery to protect either way.
+            "co.ara.onboarding.agreement.AgreementInstantiation",
             // Sub-project 4 Task 26: the customer.OrgUnitResolver shape, applied to
             // Case for a portal actor. PortalPermissions grants document.upload/
             // document.view at Scope.ALL and Case has no AudienceFilter registered,
@@ -541,7 +549,8 @@ class AuthorizationCoverageTest {
                 .contains("co.ara.onboarding.task.TaskInstantiation",
                           "co.ara.onboarding.task.TaskLifecycleAdapter",
                           "co.ara.onboarding.document.DocumentInstantiation",
-                          "co.ara.onboarding.document.PortalCaseAccess")
+                          "co.ara.onboarding.document.PortalCaseAccess",
+                          "co.ara.onboarding.agreement.AgreementInstantiation")
                 .doesNotContain("co.ara.onboarding.task.TaskDirectoryAdapter");
     }
 }

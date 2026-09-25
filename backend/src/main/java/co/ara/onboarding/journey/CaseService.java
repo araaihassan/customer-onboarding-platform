@@ -97,6 +97,7 @@ public class CaseService {
     private final TaskDirectory taskDirectory;
     private final PlanRevisionRepository planRevisions;
     private final DocumentRequestLifecycle documentRequestLifecycle;
+    private final AgreementLifecycle agreementLifecycle;
 
     public CaseService(CaseRepository cases, CaseParticipantRepository participants,
                        MilestoneRepository milestones, RequirementRepository requirements,
@@ -112,7 +113,8 @@ public class CaseService {
                        AuditRecorder audit, CaseEngine engine,
                        BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle,
                        TaskDirectory taskDirectory, PlanRevisionRepository planRevisions,
-                       DocumentRequestLifecycle documentRequestLifecycle) {
+                       DocumentRequestLifecycle documentRequestLifecycle,
+                       AgreementLifecycle agreementLifecycle) {
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -139,6 +141,7 @@ public class CaseService {
         this.taskDirectory = taskDirectory;
         this.planRevisions = planRevisions;
         this.documentRequestLifecycle = documentRequestLifecycle;
+        this.agreementLifecycle = agreementLifecycle;
     }
 
     @RequirePermission(PermissionKeys.CASE_CREATE)
@@ -242,6 +245,9 @@ public class CaseService {
         // Same ordering, same reasoning, for the DOCUMENT half of the
         // requirement seam -- see DocumentInstantiation's own javadoc.
         documentRequestLifecycle.instantiateForCase(c.getId());
+        // SIGNATURE half of the same seam (sub-project 5, spec 3.2). Idempotent, because
+        // MigrationService calls it too.
+        agreementLifecycle.instantiateForCase(c.getId());
 
         // Runs while the case is still ACTIVE (see the comment on setStatus above),
         // so a customer-template case's first stage is entered for real here --

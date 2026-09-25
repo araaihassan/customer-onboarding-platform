@@ -65,6 +65,7 @@ public class MigrationService {
     private final CaseEngine engine;
     private final BusinessCalendar calendar;
     private final Clock clock;
+    private final AgreementLifecycle agreementLifecycle;
 
     public MigrationService(CaseRepository cases, MilestoneRepository milestones,
                             RequirementRepository requirements, CaseAttributeValueRepository attributeValues,
@@ -73,7 +74,7 @@ public class MigrationService {
                             RequirementDefinitionRepository requirementDefinitions,
                             AttributeDefinitionRepository attributeDefinitions,
                             AuthorizedQuery authorizedQuery, AuditRecorder audit, CaseEngine engine,
-                            BusinessCalendar calendar, Clock clock) {
+                            BusinessCalendar calendar, Clock clock, AgreementLifecycle agreementLifecycle) {
         this.cases = cases;
         this.milestones = milestones;
         this.requirements = requirements;
@@ -88,6 +89,7 @@ public class MigrationService {
         this.engine = engine;
         this.calendar = calendar;
         this.clock = clock;
+        this.agreementLifecycle = agreementLifecycle;
     }
 
     @RequirePermission(PermissionKeys.CASE_MIGRATE)
@@ -297,6 +299,16 @@ public class MigrationService {
                         c.setTargetCompletionDate(latestDueDate(all));
                     });
         }
+
+        // After the repin and its own milestone instantiation above, before this
+        // migration's own reconcile: any SIGNATURE requirement the target version
+        // adds (whether on a newly instantiated milestone or a remapped one) needs
+        // its DRAFT agreement the same way case creation does (spec 3.2).
+        // Idempotent -- a SIGNATURE requirement remapped onto an existing
+        // definition whose agreement is already live is skipped, not duplicated.
+        // Deliberately NOT extended to TaskLifecycle/DocumentRequestLifecycle here:
+        // spec 11.1 records that gap as out of scope for this sub-project.
+        agreementLifecycle.instantiateForCase(c.getId());
 
         engine.reconcile(c);
     }

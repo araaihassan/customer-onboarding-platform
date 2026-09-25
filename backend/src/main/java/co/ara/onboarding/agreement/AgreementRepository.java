@@ -5,10 +5,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.repository.query.Param;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface AgreementRepository extends JpaRepository<Agreement, UUID>, JpaSpecificationExecutor<Agreement> {
+
+    /**
+     * Test-only convenience, the identical shape
+     * {@code document.DocumentRequestRepository.findByCaseId} already has --
+     * unused in main, real reads of a case's agreements go through
+     * AuthorizedQuery/AgreementService once that exists.
+     */
+    List<Agreement> findByCaseId(UUID caseId);
 
     /**
      * Instantiation's existence check: the requirement's live agreement, if any.

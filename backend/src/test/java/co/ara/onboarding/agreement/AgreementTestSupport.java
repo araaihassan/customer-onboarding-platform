@@ -2,16 +2,25 @@ package co.ara.onboarding.agreement;
 
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
+import co.ara.onboarding.journey.CaseService;
+import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
 import co.ara.onboarding.journey.Milestone;
 import co.ara.onboarding.journey.Requirement;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.TenantFixture;
 import co.ara.onboarding.workflow.AgreementRecordMode;
+import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+
+import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
+import static co.ara.onboarding.workflow.WorkflowFixtures.signature;
+import static co.ara.onboarding.workflow.WorkflowFixtures.stage;
 
 /**
  * Agreement-row boilerplate for {@code AgreementSchemaTest} and every later task
@@ -24,15 +33,36 @@ public class AgreementTestSupport {
 
     private final AgreementRepository agreements;
     private final CaseRepository cases;
+    private final CaseService caseService;
     private final JourneyFixtures journey;
     private final TenantFixture tenantFixture;
 
     public AgreementTestSupport(AgreementRepository agreements, CaseRepository cases,
-                                 JourneyFixtures journey, TenantFixture tenantFixture) {
+                                 CaseService caseService, JourneyFixtures journey,
+                                 TenantFixture tenantFixture) {
         this.agreements = agreements;
         this.cases = cases;
+        this.caseService = caseService;
         this.journey = journey;
         this.tenantFixture = tenantFixture;
+    }
+
+    /**
+     * Builds a template with one stage/milestone/SIGNATURE requirement, publishes
+     * it, and opens a case against it -- the {@code
+     * DocumentInstantiationTest.openCaseWhoseFirstRequirementIsKindDocument} shape,
+     * for Task 10's {@code AgreementInstantiationTest}. Returns the caseId.
+     */
+    public UUID openCaseWithSignatureRequirement(UUID tenant, AgreementRecordMode mode) {
+        UUID versionId = journey.publish(new WorkflowDefinitionRequest(
+                List.of(stage("s1", "Stage One", List.of(
+                        milestone("m1", "Milestone One", 1, List.of(),
+                                List.of(signature("Sign the agreement", mode, "Fixture Agreement")))))),
+                List.of(), 0L));
+        UUID templateId = journey.templateOf(versionId);
+        UUID customerId = tenantFixture.createCustomer(tenant, "Acme " + Uuid7.generate(), null, null, null);
+        return caseService.create(new CreateCaseRequest(
+                customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     /**

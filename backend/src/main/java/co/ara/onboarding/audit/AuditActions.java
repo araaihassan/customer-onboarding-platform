@@ -291,6 +291,11 @@ public final class AuditActions {
     public static final AuditAction DOCUMENT_REQUEST_FULFILLED  = of("document.request_fulfilled", true);
     public static final AuditAction DOCUMENT_REVIEWED           = of("document.reviewed", true);
 
+    // Sub-project 5 (spec 5.9). Business records, timeline-visible -- the customer.* /
+    // contact.* side. timelineVisible is the internal Activity tab's flag; a future
+    // portal timeline must still hide pre-SENT agreement events (spec 11.3).
+    public static final AuditAction AGREEMENT_CREATED           = of("agreement.created", true);
+
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
         BY_KEY.put(key, a);
