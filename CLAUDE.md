@@ -90,6 +90,26 @@ Q24). On the frontend: the programme index and detail screens, clone/refresh fro
 screen, both plan approval gates and the held-journey banner, and the milestone visibility toggle
 in the builder.
 
+**Sub-project 4 delivered:** the `document` module — upload with content-hardening (a size ceiling,
+a sniffed-content MIME allowlist checked against the bytes actually uploaded rather than the
+caller's declared `Content-Type`, and a per-version SHA-256 digest), immutable append-only
+`document_version` rows, PATCH-based metadata/retarget, and retirement that revokes every live
+share and cross-journey link and reopens whatever requirement it satisfied. Q9's two-axis
+visibility (three tiers × department/contact-label targeting, explicit principal shares, explicit
+cross-journey links) is enforced server-side for internal and portal actors alike through a new
+opt-in `AudienceFilter` mechanism (below) — the first change to the authorization core since
+sub-project 1. Document requests close the `RequirementKind.DOCUMENT` seam sub-project 2 left
+empty: ad-hoc and requirement-instantiated (`DocumentInstantiation`, following `TaskInstantiation`'s
+precedent exactly), fulfilment, and review with approve/reject wired back to
+`journey.RequirementService.satisfy` and a new `.reopen`. Sub-project 4 also built the first portal
+**write** path in the codebase — document upload, narrowly self-defending inside the service layer
+rather than trusting its controller, and deliberately skipping `StageWriteScopeGuard` (a precedent
+for sub-project 5's signatures and sub-project 7's sponsor approvals — see "What sub-project 5
+inherits" below). On the frontend: the tenant-wide `docs` index screen (five scope filters, the
+visibility cell, and a documented, bounded aggregate-disclosure exception for its hidden-by-scope
+count — the codebase's second such exception after the audit timeline read), the case workspace
+Documents tab, and upload/request/review dialogs.
+
 **Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
 `docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
 Collaboration → **3A Programmes & Customer-Scoped Plans** → 4 Documents → **4A Meetings (needs 4)** →
@@ -372,45 +392,22 @@ already closed at sub-project 2's own close. `CustomerContactService.update`'s r
 reactivation branch restores access. And `CustomerContactController` (Task 9) documents 409 on
 both contact create and update, so `generated.ts` carries it for a client to narrow on.
 
-**Open at the close of sub-project 3:** TEAM-scoped user creation is untouched — `CreateUserRequest`
-still has no `teamIds` field, and it remains the one `user.manage` gap this sub-project did not
-attempt. The workflow builder's missing attribute/entry-condition UI and the audit-timeline-read
-carve-out precedent are both sub-project 2's own open items, outside this sub-project's path, and
-neither was touched by Phase 1's tasks. One item is
-new, found and left deferred by this sub-project's own Task 24 review, and broadened at the final
-whole-branch review once the actual size of the gap was clear:
-**There is no task-edit UI at all**, not just a missing assignee picker. `TaskDetail.tsx` renders
-`assigneeId` as a read-only field (`task.detail.assignee`) with no control to change it, and that
-is the narrowest part of the gap — `PUT /tasks/{taskId}` has no frontend hook at all (`tasks.ts`
-carries no `useUpdateTask`), so title, description, priority, due date and milestone are equally
-uneditable from the UI, not just the assignee. Confirmed independently three times — by Task 27's
-and Task 28's own implementer reports, and by Task 31's `tasks.spec.ts`, whose "a task assigned
-through the API (no picker exists in the UI) displays its assignee, not Unassigned" case had to
-seed the assignment through a direct API call because no UI path exists to do it.
+**Open at the close of sub-project 3, all four closed since — see below:** TEAM-scoped user
+creation is untouched — `CreateUserRequest` still has no `teamIds` field, and it remains the one
+`user.manage` gap this sub-project did not attempt. The workflow builder's missing
+attribute/entry-condition UI and the audit-timeline-read carve-out precedent are both sub-project
+2's own open items, outside this sub-project's path, and neither was touched by Phase 1's tasks.
 
-**Recorded at the final whole-branch review (2026-09-08), not fixed — real gaps, deliberately left
-for sub-project 4** rather than expanding this branch's scope after 32 individual task reviews plus
-this final pass:
-
-- **The roadmap's `taskSummary` field is never rendered anywhere in the frontend**, and is not
-  scope-filtered by `task.view`. `journey/MilestoneRoadmapView.java:18` carries it,
-  `TaskDirectoryAdapter.summaryFor` computes it over every task on the milestone regardless of the
-  reader's scope, and `generated.ts:1729` has the field — but `Roadmap.tsx`/`MilestoneRow.tsx`
-  never read it. An ASSIGNED-scoped reader (Sales Representative, Service Provider, Business
-  Partner) sees counts including tasks they cannot open — an aggregate-only leak inside a case they
-  can already read, not severe today, but worth fixing before this seam grows from a count into a
-  list. Either wire it into the roadmap UI or drop the field until something needs it.
-- **Design spec §8.2's "Do now, sorted by due date" was never implemented.**
-  `TaskService.myWork`/`forCase` (`task/TaskService.java:385-391,204-210`) both use
-  `Pageable.unpaged()` with no `Sort`, and `WorkColumn.tsx:97` maps in whatever order the query
-  returns — so the "My work" board's most important column has no meaningful ordering, and an
-  overdue item can sit below one due next month.
-- **Design spec §5.5 named seven audit actions; only five exist.** `task.assigned` has no
-  `AuditActions` constant and nothing records a reassignment — sub-project 6 is specified to
-  subscribe to this action, and nothing will ever fire it. `TaskService.create`'s ad-hoc path also
-  records no `task.created` at all — only `TaskInstantiation`'s requirement-instantiated path does
-  (`TaskInstantiation.java:99`). The plan itself documents this last gap at its own line 1568; this
-  is that finding carried forward into the file a future session actually reads.
+**Closed by sub-project 3A's own Phase 1, verified against the code (design spec §11.1 of
+`2026-09-12-documents-design.md` documents this explicitly — trust the code over any stale claim in
+this file, which is exactly why this paragraph replaces the four bullets it used to carry):** the
+task-edit UI gap (`TaskDetail.tsx`/`TaskEditDialog.tsx` now exist, wired to a real `useUpdateTask`),
+the roadmap's unrendered `taskSummary` field (now scope-filtered and rendered — see
+`MilestoneRow.tsx`), the unsorted "My work" board (`TaskService` now orders "do now" by due date),
+and the two missing `task.*` audit actions (`task.assigned` and ad-hoc `task.created` are both now
+recorded). None of these four was sub-project 4's own path either — confirmed here only because
+this sub-project's own design spec had to re-verify them before it could safely rely on `task` as a
+precedent module, and found this file itself had drifted behind the code.
 
 **Closed by sub-project 3A Task 2, verified against the code:** `AuthorizationCoverageTest`'s
 finder rule no longer binds on a `*Service`/`*Directory` name suffix alone. It is now a union of
@@ -471,6 +468,78 @@ build` since Task 32, invisible to every vitest run in between and caught only b
 blind spot (the ledger has earlier occurrences); running `tsc --noEmit`/`next lint` as part of each
 frontend task's own verification, rather than waiting for the eventual live e2e run, would catch it
 at the task that introduced it instead of several tasks later.
+
+**Open at the close of sub-project 4** (design spec §11.1's own cross-check, confirmed against the
+code at Task 37's close-out — real gaps, each individually ruled during this branch's own review
+process and deliberately parked rather than fixed or forgotten):
+
+- **A milestone's `status` can read `DONE` below 100% after a document retirement reopens a
+  requirement it satisfied.** `RequirementService.reopen` (Task 18, the new method retirement calls)
+  correctly reconciles `progressPercent` back down, but `CaseEngine.recomputeStatusesAndProgress`
+  treats `DONE` as sticky — the same stickiness force-complete relies on to survive its own
+  `reconcile` call — so the redundant `status` label goes stale while the authoritative number (Q24:
+  "one number for every audience") stays correct. Deliberately not fixed inside sub-project 4: the
+  plan's own global constraint forbids touching `CaseEngine` anywhere in this branch, and a correct
+  fix needs to distinguish "force-completed, must stay sticky" from "naturally reopened, should
+  revert" — real design work for its own task, not a fix-round patch risking sub-project 2's own
+  guarded invariants.
+- **`RequirementDefinition.documentCategory` has no validation at authoring or at publish.**
+  `DocumentInstantiation` calls `DocumentCategory.valueOf(...)` on it, and — because a published
+  workflow version never mutates — a template published with an invalid value permanently bricks
+  case creation against that version, with no recovery path. Same class of defect as the
+  already-documented `dependsOnMilestoneKeys`/`branchRules` NPE-on-omission traps (Tests section,
+  below), but more severe: those 500/400 per malformed request, this one dead-ends a template
+  forever. Reachable only through direct API authoring today — there is no builder UI for
+  DOCUMENT-kind requirements at all.
+- **The workflow builder's missing attribute/entry-condition gap (open since sub-project 2) gains a
+  third unauthorable field.** Task 36 threaded `requiresReview` through the raw `PUT` payload (it
+  had no field there at all before), but the builder UI still has no control for it, matching the
+  existing attribute/entry-condition gap exactly.
+- **Review is per-version; satisfaction is per-document.** Approving a stale, superseded version
+  satisfies the requirement against bytes nobody will ever download again; rejecting a stale version
+  after a newer one was already approved reopens a requirement actually satisfied by different,
+  current bytes. A genuine, underspecified product question (does satisfaction track "whichever
+  version was reviewed" or "only the current version"), not a bug with an obvious fix — no test
+  exercises either direction today.
+- **`DocumentReviewService.pending()` has no `AudienceFilter` for `DocumentVersion`, and no HTTP
+  path reaches it at all.** Only `Document.class` has a registered filter; if something ever calls
+  `pending()`, an ALL-scoped reviewer would see every pending version tenant-wide, SENSITIVE/targeted
+  ones included. Zero live exploitability today — `DocumentController` maps no endpoint to it.
+  Flagged for whichever future task builds the cross-case pending-review-queue screen the design
+  handoff names; that task needs both a controller endpoint and the audience filter before going
+  live, not just the endpoint.
+- **`GET /documents`/`GET /documents/{id}` still return the full internal `DocumentView` to a
+  portal actor who calls them directly**, unlike the two dedicated portal endpoints Task 26 built
+  (which return a narrower `PortalDocumentView`). Leaks opaque internal UUIDs
+  (`targetDepartmentId`, `targetContactLabel`, `uploadedBy`) — no names, no PII, no cross-tenant or
+  cross-customer data. Predates Task 26 (it is Task 14's own original code); properly closing it
+  means deciding whether every document read path should branch on actor type, a broader
+  architectural question than one task's fix-round scope. The `Sidebar.tsx` "Documents" nav item had
+  the identical actor-type blindness and was fixed at this same close-out (below) — this is its
+  still-open, API-level sibling.
+- **Account Manager — the plan's own first-named `document.request` holder — cannot actually fulfil
+  a requirement-linked document request.** Holds `DOCUMENT_REQUEST` at TEAM but no
+  `MILESTONE_COMPLETE` at any scope, and `fulfil`'s own `RequirementService.satisfy` call
+  independently gates on it, so the whole call fails for that role outside the ad-hoc case. Tracked
+  alongside `user.manage`/`customer.deactivate` in `RoleTemplateCoverageTest`'s
+  `ADMINISTRATOR_ONLY_PENDING_REVIEW`-shaped role-review backlog — a platform-wide permission
+  decision, not granted unilaterally inside this sub-project.
+- **`DocumentInstantiation`'s auto-created document requests never fire `document.requested`** —
+  only the ad-hoc `DocumentRequestService.create` path records it. Same severity class as
+  sub-project 3's already-accepted `task.created` ad-hoc-vs-instantiated asymmetry.
+- **The `docs` index screen's fifth scope-filter button, "Open requests," ships disabled.** There is
+  still no tenant-wide document-request listing endpoint (only the per-case
+  `GET /cases/{caseId}/document-requests` Task 36 added exists) — the button renders per the design
+  (every specified button must be visible) but inert, with its own code comment naming the missing
+  endpoint.
+- **Malware scanning and a per-tenant byte quota remain deliberately out** (spec §2.3/§7.6, resolved
+  2026-09-13 — see "What sub-project 4 inherits" below), not something this close-out re-opens, but
+  worth restating here since both bear directly on anything that later makes portal upload
+  production-facing.
+
+All three of sub-project 3A's own open items above (TEAM-scoped user creation, the
+attribute/entry-condition builder gap, the audit-timeline-read carve-out) are likewise still open
+and untouched by this sub-project's own path.
 
 ### Tests
 
@@ -545,16 +614,22 @@ prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a gr
 `org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
 cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
 
-`cd frontend && npx playwright test` is the end-to-end command: twelve specs — login, activation,
+`cd frontend && npx playwright test` is the end-to-end command: fourteen specs — login, activation,
 refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
 900px card-list fallback, the administration screens, accessibility in the light theme at four
 widths, workflow authoring through publish, a case lifecycle (branch skip, force-complete,
 completion at 100%), migration between versions, tasks (creation, checklist, comments, completion,
-"My work" board — `frontend/e2e/tasks.spec.ts`, added in Task 31), and, added by sub-project 3A:
+"My work" board — `frontend/e2e/tasks.spec.ts`, added in Task 31), added by sub-project 3A:
 `customer-plan.spec.ts` (clone a template, tailor it, publish, both plan approval gates, the
 held-journey release, satisfying the first requirement) and `programme.spec.ts` (the
 duration-weighted rollup across two journeys, and a participant seeing only the one journey they
-hold a real `CaseParticipant` row on — the scope-filter property, proven live).
+hold a real `CaseParticipant` row on — the scope-filter property, proven live), and, added by
+sub-project 4: `documents.spec.ts` (the tenant-wide `docs` index screen's visibility arc — a
+Legal-targeted document hidden from a Finance reader until an explicit share, the bounded
+hidden-by-scope count staying correct throughout) and `document-requests.spec.ts` (a DOCUMENT
+requirement authored with `requiresReview: true` auto-instantiates a request; fulfilling it does not
+yet satisfy the requirement; approving the review does, and the case workspace shows the milestone
+Done).
 
 **First live run against the frontend visual refactor, 2026-08-29** (sub-project 3 Task 1) — every
 spec had never actually been executed against this branch before; only read/reviewed. All nine
@@ -610,6 +685,30 @@ which is exactly the window the suite happened to run in. `MigrationTest` alread
 `LocalDate.now(clock)` pattern; both failing call sites were brought in line with it. No assertion
 was weakened. Full detail is in
 `.superpowers/sdd/2026-09-08-programmes-and-customer-plans/task-1-report.md`.
+
+**Sub-project 4 close-out, 2026-09-25** (Task 37) — all four suites (backend, vitest, `tsc`, and the
+full `npx playwright test`, per this sub-project's own added `tsc --noEmit`/`next lint` step) ran
+green in the same pass at the end of the branch: backend `cleanTest test` reported `BUILD
+SUCCESSFUL` (829 tests, 0 failures/errors/skipped, no OS-memory kill — unlike several individual
+tasks earlier in this branch's own ledger), `npx vitest run` reported 87 files / 644 tests all
+passing, `npx tsc --noEmit` and `npm run lint` were both clean (2 pre-existing, unrelated warnings),
+and the fourteen-spec `npx playwright test` passed in full (46 tests) against a scratch database —
+after one real, live regression was found and fixed. **`Sidebar.tsx`'s "Documents" nav item leaked
+into a PORTAL contact's own navigation.** `activation.spec.ts` (sub-project 1's own spec, untouched
+by this branch) pins "a PORTAL user's rail carries Dashboard and nothing else" — true until this
+sub-project gave every portal contact `document.view`/`document.upload` at `Scope.ALL`
+(`authz.PortalPermissions`, Task 3's ruling), the first and only permission key a portal actor now
+holds that any nav gate in `Sidebar.tsx` also checks. The component filtered strictly on the
+permission (`useHasPermission("document.view")`), with no regard for actor type, so a portal
+contact was sent a link to the tenant-wide `/documents` OPERATOR screen (no case picker, internal
+visibility-tier vocabulary) despite sub-project 4 building no portal UI at all (design spec §2.2).
+Fixed by also gating on `user?.userType !== "PORTAL"` (`Me.userType`, already generated from the
+OpenAPI schema, previously unread anywhere in the frontend), proven genuinely red-then-green with a
+new `Sidebar.test.tsx` case before the fix landed. No live disclosure risk today (the destination
+page has no upload affordance, and any document it lists is already narrowed by
+`DocumentAudienceFilter`'s own portal branch), but it is the frontend-navigation sibling of the
+already-recorded `GET /documents`/`GET /documents/{id}` actor-type blindness gap above — caught only
+because an unrelated, pre-existing spec happened to assert the portal rail's exact contents.
 
 API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
 during `:test`; `./gradlew openApiSpec` is the wrapper that produces it and says where it is. `npm run
@@ -744,6 +843,21 @@ correct response to one failing is to fix the code, never to weaken the guard.
 - **Every resource type registers a `ResourceAuthorizationDescriptor`.** `DescriptorRegistry.validate()`
   refuses to start the application otherwise — an unregistered type would reach scope resolution with
   no predicate to apply. Descriptors must fail closed: no department, no teams ⇒ `cb.disjunction()`.
+- **An entity type may register an opt-in `AudienceFilter`** (`authz.AudienceRegistry`, consumed by
+  `AuthorizationPredicateBuilder`), narrowing visibility *underneath* record-level scope — including
+  at `Scope.ALL`, which used to return an unconditional match. Added in sub-project 4
+  (`scoping.DocumentAudienceFilter`, still the only implementation): `forPermission`'s `ALL` branch
+  is no longer unconditional wherever a filter is registered for that entity type, and a future
+  entity needing the same "governed even at the tenant's widest scope" property registers its own
+  filter rather than special-casing `forPermission` again. A second, narrowly-scoped method exists
+  beside it, `AuthorizationPredicateBuilder.forPermissionIgnoringScope`/
+  `AuthorizedQuery.countIgnoringScope` — bypasses only the record-level scope union (never the
+  audience filter, and never a caller holding no grant at all) for exactly one caller,
+  `DocumentService.visibilitySummary`'s deliberately scope-unbounded tenant total, after a security
+  review found the first version of that method bypassing the audience filter too and leaking a
+  portal contact's own count across customers. Reach for `forPermissionIgnoringScope` only with the
+  same written, per-call-site safety argument this one carries — it is a bypass of one specific,
+  sanctioned shape, not a general escape hatch.
 - **`ASSIGNED` means a personal relationship** (`RelationshipType`); access mediated by a team the
   user belongs to is `TEAM`. Conflating them silently widens `ASSIGNED` to everything the user's
   teams can reach.
@@ -858,6 +972,67 @@ files, 553 tests) and the twelve-spec Playwright suite (44 tests, `customer-plan
 `programme.spec.ts` included) all ran green in the same pass, so none of the ten had regressed by
 the time the plan finished.
 
+**Sub-project 4's own ten** (design spec §10's cross-check; a change breaking one of these is a
+change to the design, not an implementation detail):
+
+- `journey` never imports a `document` type; the dependency is one-way and there is no port back.
+- Documents add no new caller of `CaseEngine.reconcile` — satisfaction goes through the existing
+  gated `RequirementService.satisfy`.
+- A retired document satisfies nothing: its shares and links are revoked and any requirement it
+  satisfied is reopened.
+- A withdrawn request never satisfies its requirement.
+- The audience filter binds `ALL` — an ALL-scoped `document.view` holder is refused a targeted
+  document's content; `document.manage` is the one permission the filter deliberately does not
+  narrow, and it grants metadata only, never bytes.
+- A portal actor's permission set is a code constant, never a `user_role` row.
+- Derived audience is never materialised — no table caches who may see a document.
+- Every byte transits the gate: no presigned URL, no direct blob access, on either adapter.
+- `document_version` rows are immutable and append-only; a new version never edits an old one.
+- Out-of-scope and cross-tenant ids are 404; `PATCH`/view types stay field-for-field aligned.
+
+Each was verified against the actual code at Task 37's close-out, not just asserted, several of
+them re-derived from scratch rather than trusted from an earlier task's own report: #1 by
+`ModuleBoundaryTest.noJourneyDependencyOnDocument`/`.noTaskDependencyOnDocument` (Task 9, proven red
+before the real rule existed) and by the port itself — `journey.DocumentRequestLifecycle` (one
+method, no `document` type anywhere in its signature) implemented by
+`document.DocumentRequestLifecycleAdapter`, the same inversion `TaskLifecycle` already established;
+#2 by `git log --oneline 342bdf2..HEAD -- backend/src/main/java/co/ara/onboarding/journey/CaseEngine.java`,
+which returns **zero commits** — not even a comment-only touch, a cleaner result than sub-project
+3A's own two-line javadoc hit at its equivalent check — and by confirming `document`'s four services
+(`DocumentService`, `DocumentSharingService`, `DocumentRequestService`, `DocumentReviewService`)
+call neither `CaseEngine` nor `CaseRepository.lockById` anywhere, only
+`journey.RequirementService.satisfy`/the new `.reopen`; #3 by `DocumentServiceTest`'s
+`retiringRevokesEveryLiveShare`/`.EveryCrossJourneyLink`/`.ReopensARequirementItSatisfied` (Task 18)
+plus the `DocumentStatus.RETIRED` guards later added to every other write path capable of
+re-satisfying a retired document's requirement once review found each one missing it in turn
+(`DocumentRequestService.fulfil`, Task 25; `DocumentReviewService.review`, Task 27;
+`DocumentSharingService.share`, Task 19); #4 by `DocumentRequestServiceTest`'s Task 23 test proving
+`withdraw` structurally imports neither `RequirementService` nor `CaseEngine`; #5 by
+`security.DocumentAudienceTest`'s pivotal ALL-scope test (Task 12) and, for the load-bearing fix,
+`DocumentControllerTest.aPortalContactHittingTheOperatorVisibilitySummaryRouteNeverSeesAnotherCustomersDocuments`
+(Task 32), which pins the exact regression a security review found live — an ALL-scoped portal
+actor's own aggregate count leaking another customer's documents — now closed by
+`AuthorizationPredicateBuilder.forPermissionIgnoringScope`; `document.manage`'s carve-out is
+`DocumentAudienceFilter`'s own explicit early return, confirmed never reached by the download path
+(`DocumentController`'s content endpoint resolves under `DOCUMENT_VIEW` only); #6 by
+`authz.PortalPermissions` (a static `Map`-returning method, not a database row) and
+`security.PortalAuthorityTest`'s exact-set assertion; #7 by reading `V23__document.sql` in full — no
+table stores a resolved viewer list, only the source facts (`tier`, targeting, shares, links)
+`DocumentAudienceFilter` recomputes at query time; #8 by `LocalFsBlobStore`/`S3BlobStore` (Tasks 4-5)
+and `DocumentController`'s download endpoint (`ResponseEntity<InputStreamResource>`, Task 22), and a
+grep for "presigned"/`PutObjectRequest`-style pre-signed-URL construction anywhere in `document`
+(none); #9 by `V23__document.sql`'s `document_version_immutable_trg` trigger and
+`DocumentSchemaTest.updatingAnImmutableVersionColumnIsRejected`/`.theReviewOutcomeOfAVersionRemainsUpdatable`
+(Task 8), proving both halves — content frozen, review outcome deliberately not; #10 by
+`document.DocumentIsolationTest` (Task 21's three tests, plus the roughly dozen already-scattered
+per-method cross-tenant tests across `DocumentServiceTest`/`DocumentSharingServiceTest`/
+`DocumentRequestServiceTest`) and by reflecting over `PatchDocumentRequest`'s four fields (`name`,
+`category`, `targetDepartmentId`, `targetContactLabel`), all four present on `DocumentView`.
+Re-verified at sub-project 4's close (2026-09-25): the full backend suite (829 tests), vitest (87
+files, 644 tests) and the fourteen-spec Playwright suite (`documents.spec.ts` and
+`document-requests.spec.ts` included) all ran green in the same pass, so none of the ten had
+regressed by the time the plan finished.
+
 ---
 
 ## Where the guards live
@@ -889,6 +1064,16 @@ the time the plan finished.
   be submitted), and `journey.PlanRevisionTest`/`.PlanHoldTest`/`.PlanSnapshotImmutabilityTest`
   (gate 2: a customer-template case created `ON_HOLD` and released only by its first schedule
   approval; the snapshot a revision decides against never changes underneath the decision).
+  Sub-project 4's own negatives: `document.DocumentIsolationTest` (cross-tenant, a short
+  representative file in `task.TaskIsolationTest`'s/`programme.ProgrammeIsolationTest`'s own shape,
+  not a duplicate of the per-method tests already scattered across `DocumentServiceTest`/
+  `DocumentSharingServiceTest`/`DocumentRequestServiceTest`), `security.DocumentAudienceTest` and
+  `security.PortalAuthorityTest` (the two audience-filter halves — an ALL-scoped internal reader and
+  a portal contact each refused a targeted document, both hand-traced clause-by-clause at opus-level
+  review with no scope-widening bug found), and `DocumentControllerTest`'s
+  `aPortalContactHittingTheOperatorVisibilitySummaryRouteNeverSeesAnotherCustomersDocuments` (the
+  `forPermissionIgnoringScope` regression test, pinning the one live cross-customer disclosure this
+  branch's own security review found and closed).
 
 **These are not to be weakened to make a change pass.** They exist precisely to fail when something
 is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
@@ -1040,6 +1225,33 @@ plan's intentions for it:**
   operational/billing concern with its own backfill question for tenants that already exist;
   revisit if multi-tenant storage cost becomes a real problem or the product decides to bill by
   usage). Full ruling and reasoning: spec §2.3/§7.6.
+
+## What sub-project 5 inherits
+
+- **Every write path capable of touching `Requirement.satisfiedRef` needs a `RETIRED`-shaped guard
+  as a matter of course, not rediscovered each time.** Three consecutive Phase 5 tasks in this
+  sub-project each shipped without one and were caught by review before merge: `retire`/`link`
+  themselves (Tasks 18/20), `DocumentRequestService.fulfil` (Task 25), and
+  `DocumentReviewService.review`'s APPROVE branch (Task 27) — the identical "a requirement satisfied
+  by reference to a document/record nobody can ever act on again" shape every time. A `SIGNATURE`
+  kind's own satisfaction path should carry this check from its very first draft.
+- **`document_version.sha256`** is exactly the "provable version identity" sub-project 5's own
+  spec already names needing — a per-version content digest, computed alongside the upload stream,
+  no new schema required to cite it from an agreement's signature record.
+- **The portal-write precedent** (`document.PortalCaseAccess`, `DocumentService.uploadFromPortal`,
+  Task 26): resolve a foreign case with a plain, deliberately-`AuthorizedQuery`-bypassing lookup
+  (there is no meaningful scope to check for a portal actor against an entity with no
+  `AudienceFilter`) followed by an explicit customer-id comparison; skip `StageWriteScopeGuard`
+  entirely and document why (a stage's `write_scope` governs internal collaboration, not a
+  customer's own action on their own case); and make the write path **self-defending** —
+  re-verify the acting contact and the case/customer match *inside* the gated method itself, not
+  only in its controller. That last point was a real, opus-level review finding on this branch (a
+  portal upload that trusted its controller's own checks) — a future portal write path (a sponsor's
+  approval, a customer's signature) should not repeat the gap it took a fix round to close here.
+- **The `AudienceFilter`/`AuthorizationPredicateBuilder` seam** (above) is reusable by any future
+  entity type needing governance beneath `Scope.ALL`. A `SIGNATURE`-kind record targeted the same
+  way a document is registers its own filter, the way `DocumentAudienceFilter` does, rather than
+  reopening `AuthorizationPredicateBuilder` itself.
 
 ## Plan deviations
 
