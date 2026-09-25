@@ -7,23 +7,9 @@ import { Field } from "@/components/ui/Field";
 import { humanise } from "@/components/ui/StatusPill";
 import { parseProblemDetail } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
-import { useUploadDocument, type DocumentCategory, type DocumentVisibilityTier } from "@/lib/api/documents";
+import { DOCUMENT_CATEGORIES as CATEGORIES, useUploadDocument, type Document, type DocumentCategory, type DocumentVisibilityTier } from "@/lib/api/documents";
 import { t } from "@/lib/i18n";
 import { VisibilityAside } from "./VisibilityAside";
-
-/** Mirrors `document_category_ck` (backend `DocumentCategory.java`) exactly -- a new category is a migration there, and this list moves with it. */
-const CATEGORIES: DocumentCategory[] = [
-  "CONTRACT",
-  "AGREEMENT",
-  "NDA",
-  "COMPANY_REGISTRATION",
-  "TAX",
-  "KYC",
-  "TECHNICAL",
-  "CERTIFICATE",
-  "INVOICE",
-  "OTHER",
-];
 
 /** Mirrors `document_tier_ck` (backend `VisibilityTier.java`) exactly -- the brief's own Step 1 test asserts the select offers precisely these three, in this order. */
 const TIERS: DocumentVisibilityTier[] = ["COMPANY_SHARED", "CONTACT_ONLY", "SENSITIVE"];
@@ -56,15 +42,36 @@ const SELECT_STYLE = {
  * select, with the CURRENTLY SELECTED tier as its emphasised row -- see that
  * component's own doc comment for why this, not a page-level rail slot, is
  * where `SCREENS.md` §7's "How visibility works" belongs.
+ *
+ * `defaultName`/`defaultCategory`/`onUploaded` exist for `DocumentChip`
+ * (`RequirementList.tsx`): uploading to satisfy a specific open document
+ * request pre-fills the name/category the request itself already carries
+ * (its own `description`/`category`, not a guess), and `onUploaded` lets the
+ * caller chain a `fulfil` call onto the newly created document once the
+ * upload mutation actually succeeds -- the Documents tab's own plain
+ * `UploadDialog caseId={caseId}` call site needs neither and gets the
+ * pre-existing defaults (blank name, `OTHER`, no callback).
  */
-export function UploadDialog({ caseId, onClose }: { caseId: string; onClose: () => void }) {
+export function UploadDialog({
+  caseId,
+  onClose,
+  onUploaded,
+  defaultName = "",
+  defaultCategory = "OTHER",
+}: {
+  caseId: string;
+  onClose: () => void;
+  onUploaded?: (document: Document) => void;
+  defaultName?: string;
+  defaultCategory?: DocumentCategory;
+}) {
   const uploadDocument = useUploadDocument();
   const categoryId = useId();
   const visibilityId = useId();
   const fileId = useId();
 
-  const [name, setName] = useState("");
-  const [category, setCategory] = useState<DocumentCategory>("OTHER");
+  const [name, setName] = useState(defaultName);
+  const [category, setCategory] = useState<DocumentCategory>(defaultCategory);
   const [visibilityTier, setVisibilityTier] = useState<DocumentVisibilityTier>("COMPANY_SHARED");
   const [file, setFile] = useState<File>();
   const [nameError, setNameError] = useState<string>();
@@ -81,7 +88,12 @@ export function UploadDialog({ caseId, onClose }: { caseId: string; onClose: () 
 
     uploadDocument.mutate(
       { caseId, file, metadata: { name: trimmedName, category, visibilityTier } },
-      { onSuccess: onClose },
+      {
+        onSuccess: (created) => {
+          onUploaded?.(created);
+          onClose();
+        },
+      },
     );
   }
 

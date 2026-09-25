@@ -17,6 +17,26 @@ export type DocumentCategory = NonNullable<Document["category"]>;
 export type DocumentStatus = NonNullable<Document["status"]>;
 export type DocumentVisibilityTier = NonNullable<Document["visibilityTier"]>;
 
+/**
+ * Mirrors `document_category_ck` (backend `DocumentCategory.java`) exactly --
+ * a new category is a migration there, and this list moves with it. Shared
+ * between `UploadDialog` and `MilestoneEditor` (the workflow builder's own
+ * `documentCategory` field for a DOCUMENT-kind requirement) so the two never
+ * drift apart the way two independently-typed literal arrays could.
+ */
+export const DOCUMENT_CATEGORIES: DocumentCategory[] = [
+  "CONTRACT",
+  "AGREEMENT",
+  "NDA",
+  "COMPANY_REGISTRATION",
+  "TAX",
+  "KYC",
+  "TECHNICAL",
+  "CERTIFICATE",
+  "INVOICE",
+  "OTHER",
+];
+
 /** The `metadata` part of an upload's multipart body -- DocumentController.upload's own @RequestPart type. */
 export type CreateDocumentMetadata = components["schemas"]["CreateDocumentRequest"];
 export type PatchDocumentRequest = components["schemas"]["PatchDocumentRequest"];

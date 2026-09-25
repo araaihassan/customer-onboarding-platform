@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import type { RequirementRoadmap } from "@/lib/api/cases";
@@ -8,6 +8,16 @@ import { RequirementList } from "./RequirementList";
 
 let permissions: Record<string, string[]> = {};
 vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions }) }));
+
+// `vi.mock` factories are hoisted above every other statement, including a
+// plain `const` -- `vi.hoisted` is what makes a value the factory closes
+// over survive that hoist, matching `DocumentsTab.test.tsx`'s own precedent
+// for mocking `downloadDocumentVersion` without losing the shared instance.
+const { downloadDocumentVersion } = vi.hoisted(() => ({ downloadDocumentVersion: vi.fn() }));
+vi.mock("@/lib/api/documents", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/documents")>();
+  return { ...actual, downloadDocumentVersion };
+});
 
 afterEach(cleanup);
 
@@ -31,6 +41,15 @@ function makeWrapper() {
 
 const open: RequirementRoadmap = { id: "r-1", label: "Collect ID", kind: "MANUAL", mandatory: true, status: "OPEN" };
 const document: RequirementRoadmap = { id: "r-2", label: "Passport scan", kind: "DOCUMENT", mandatory: true, status: "OPEN" };
+const satisfiedByDocument: RequirementRoadmap = {
+  id: "r-3",
+  label: "Tax certificate",
+  kind: "DOCUMENT",
+  mandatory: true,
+  status: "SATISFIED",
+  satisfiedRef: "doc-1",
+  satisfiedRefType: "document",
+};
 
 function renderList(requirements: RequirementRoadmap[]) {
   return render(<RequirementList caseId="c-1" milestoneId="m-1" requirements={requirements} />, {
@@ -45,6 +64,7 @@ beforeEach(() => {
   global.fetch = fetchMock as unknown as typeof fetch;
   setTenantSlug("acme");
   __setAccessToken("token");
+  downloadDocumentVersion.mockReset();
 });
 
 describe("RequirementList", () => {
@@ -86,10 +106,218 @@ describe("RequirementList", () => {
     expect(screen.getByText("Passport scan")).not.toBeNull();
   });
 
+  it("does not fetch or show a document link for a DOCUMENT requirement with no satisfiedRef yet", () => {
+    renderList([document]);
+    expect(screen.queryByRole("button", { name: /open/i })).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("/documents/"), expect.anything());
+  });
+
+  it("fetches and links the document that satisfied a DOCUMENT requirement", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/documents/doc-1")) {
+        return Promise.resolve(
+          reply({ id: "doc-1", name: "Tax Certificate 2026.pdf", currentVersionId: "v-1", currentVersionNumber: 1 }),
+        );
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+
+    renderList([satisfiedByDocument]);
+
+    await waitFor(() => expect(screen.getByText("Tax Certificate 2026.pdf")).not.toBeNull());
+    expect(screen.getByRole("button", { name: /open/i })).not.toBeNull();
+  });
+
+  it("downloads the linked document's current version when Open is clicked", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/documents/doc-1")) {
+        return Promise.resolve(
+          reply({ id: "doc-1", name: "Tax Certificate 2026.pdf", currentVersionId: "v-1", currentVersionNumber: 1 }),
+        );
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+
+    renderList([satisfiedByDocument]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: /open/i })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: /open/i }));
+
+    await waitFor(() =>
+      expect(downloadDocumentVersion).toHaveBeenCalledWith("doc-1", 1, "Tax Certificate 2026.pdf"),
+    );
+  });
+
   it("hides waive without requirement.waive", () => {
     permissions = { "milestone.complete": ["ALL"] };
     renderList([open]);
     expect(screen.queryByRole("button", { name: /waive/i })).toBeNull();
+  });
+
+  it("shows an Upload button for an open DOCUMENT requirement with a matching open document request, when the user holds document.upload", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.upload": ["ALL"] };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/document-requests")) {
+        return Promise.resolve(
+          reply({ content: [{ id: "dr-1", requirementId: "r-2", status: "OPEN", category: "TAX", description: "Passport scan" }] }),
+        );
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Upload" })).not.toBeNull());
+  });
+
+  it("hides the Upload button without document.upload even with a matching open request", async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/document-requests")) {
+        return Promise.resolve(
+          reply({ content: [{ id: "dr-1", requirementId: "r-2", status: "OPEN", category: "TAX", description: "Passport scan" }] }),
+        );
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+
+    renderList([document]);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+  });
+
+  it("uploading through the chip's dialog fulfils the matching document request with the new document's id", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.upload": ["ALL"] };
+    const fulfilCalls: unknown[] = [];
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/document-requests/dr-1/fulfil")) {
+        fulfilCalls.push(init?.body);
+        return Promise.resolve(reply({ id: "dr-1", caseId: "c-1", status: "FULFILLED" }));
+      }
+      if (url.includes("/document-requests")) {
+        return Promise.resolve(
+          reply({ content: [{ id: "dr-1", requirementId: "r-2", status: "OPEN", category: "TAX", description: "Passport scan" }] }),
+        );
+      }
+      if (url.endsWith("/documents") && init?.method === "POST") {
+        return Promise.resolve(reply({ id: "doc-9", name: "Passport scan" }, 201));
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Upload" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+
+    const dialog = within(screen.getByRole("dialog"));
+    const file = new File(["bytes"], "passport.pdf", { type: "application/pdf" });
+    fireEvent.change(dialog.getByLabelText(/file/i), { target: { files: [file] } });
+    fireEvent.click(dialog.getByRole("button", { name: "Upload" }));
+
+    await waitFor(() => expect(fulfilCalls).toHaveLength(1));
+    expect(JSON.parse(fulfilCalls[0] as string)).toEqual({ documentId: "doc-9" });
+  });
+
+  it("shows Pending review, not Upload, once the matching request is fulfilled but the requirement is still open", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.upload": ["ALL"] };
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/document-requests")) {
+        return Promise.resolve(
+          reply({ content: [{ id: "dr-1", requirementId: "r-2", status: "FULFILLED", category: "TAX", description: "Passport scan" }] }),
+        );
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByText("Pending review")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Upload" })).toBeNull();
+  });
+
+  function mockPendingReview() {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/document-requests")) {
+        return Promise.resolve(
+          reply({
+            content: [
+              { id: "dr-1", requirementId: "r-2", status: "FULFILLED", category: "TAX", description: "Passport scan", fulfilledDocumentId: "doc-9" },
+            ],
+          }),
+        );
+      }
+      if (url.includes("/documents/doc-9")) {
+        return Promise.resolve(reply({ id: "doc-9", name: "Passport.pdf", currentVersionId: "v-1", currentVersionNumber: 1 }));
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+  }
+
+  it("shows a Review action for a pending-review document, when the user holds document.review", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.review": ["ALL"] };
+    mockPendingReview();
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review" })).not.toBeNull());
+    expect(screen.getByRole("button", { name: /open/i })).not.toBeNull();
+    expect(screen.getByText("Passport.pdf")).not.toBeNull();
+  });
+
+  it("hides the Review action without document.review", async () => {
+    mockPendingReview();
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByText("Pending review")).not.toBeNull());
+    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+  });
+
+  it("opens the review dialog for the correct document version when Review is clicked", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.review": ["ALL"] };
+    mockPendingReview();
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+
+    expect(screen.getByText("Review version 1")).not.toBeNull();
+  });
+
+  it("approving through the review dialog submits the decision for the pending document's own version", async () => {
+    permissions = { "milestone.complete": ["ALL"], "requirement.waive": ["ALL"], "document.review": ["ALL"] };
+    const reviewCalls: unknown[] = [];
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/documents/doc-9/versions/1/review")) {
+        reviewCalls.push(init?.body);
+        return Promise.resolve(reply({ id: "v-1", documentId: "doc-9", versionNo: 1, reviewStatus: "APPROVED" }));
+      }
+      if (url.includes("/document-requests")) {
+        return Promise.resolve(
+          reply({
+            content: [
+              { id: "dr-1", requirementId: "r-2", status: "FULFILLED", category: "TAX", description: "Passport scan", fulfilledDocumentId: "doc-9" },
+            ],
+          }),
+        );
+      }
+      if (url.includes("/documents/doc-9")) {
+        return Promise.resolve(reply({ id: "doc-9", name: "Passport.pdf", currentVersionId: "v-1", currentVersionNumber: 1 }));
+      }
+      return Promise.resolve(reply({ id: "r-1", status: "SATISFIED" }));
+    });
+
+    renderList([document]);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Review" })).not.toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+
+    const dialog = within(screen.getByRole("dialog"));
+    fireEvent.click(dialog.getByRole("button", { name: "Submit review" }));
+
+    await waitFor(() => expect(reviewCalls).toHaveLength(1));
+    expect(JSON.parse(reviewCalls[0] as string)).toEqual({ decision: "APPROVED", note: undefined });
   });
 
   it("offers waive to someone holding requirement.waive", () => {

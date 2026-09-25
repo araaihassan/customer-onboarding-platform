@@ -4,7 +4,9 @@ import { useId } from "react";
 import { PlusIcon, XIcon } from "@/components/icons";
 import { Field } from "@/components/ui/Field";
 import { Switch } from "@/components/ui/Switch";
+import { DOCUMENT_CATEGORIES, type DocumentCategory } from "@/lib/api/documents";
 import type { MilestoneRequest, RequirementRequest } from "@/lib/api/workflows";
+import { humanise } from "@/components/ui/StatusPill";
 import { newDraftKey } from "./draftState";
 import { t } from "@/lib/i18n";
 
@@ -176,6 +178,13 @@ function RequirementList({
             }}
           />
 
+          {requirement.kind === "DOCUMENT" && (
+            <DocumentRequirementFields
+              requirement={requirement}
+              onChange={(patch) => update(index, patch)}
+            />
+          )}
+
           <MandatoryToggle
             checked={requirement.mandatory ?? true}
             onChange={(checked) => update(index, { mandatory: checked })}
@@ -203,6 +212,67 @@ function RequirementList({
         {t("workflow.requirement.add")}
       </button>
     </div>
+  );
+}
+
+/**
+ * The two DOCUMENT-kind-only fields (`documentCategory`/`requiresReview`) --
+ * both round-trip through `RequirementRequest` end to end already (backend
+ * fix at the sub-project 4 close-out), but had no builder UI at all until
+ * now; a workflow authored purely through this screen previously always got
+ * `documentCategory: null` (silently defaulted to `OTHER` by
+ * `DocumentInstantiation.resolveCategory`) and `requiresReview: false`
+ * (fulfilling with any document satisfied the requirement immediately, with
+ * no review step). Only rendered for `kind === "DOCUMENT"`, per this file's
+ * own call site.
+ */
+function DocumentRequirementFields({
+  requirement,
+  onChange,
+}: {
+  requirement: RequirementRequest;
+  onChange: (patch: Partial<RequirementRequest>) => void;
+}) {
+  const categoryId = useId();
+  const reviewId = useId();
+
+  return (
+    <>
+      <label className="sr-only" htmlFor={categoryId}>
+        {t("workflow.requirement.documentCategory")}
+      </label>
+      <select
+        id={categoryId}
+        value={requirement.documentCategory ?? "OTHER"}
+        onChange={(e) => onChange({ documentCategory: e.target.value as DocumentCategory })}
+        style={{
+          height: "var(--ob-control-height-sm)",
+          borderRadius: "var(--ob-radius-7)",
+          border: "1px solid var(--ob-line)",
+          background: "var(--ob-surface)",
+          font: "11px/1.4 var(--ob-font-family-ui)",
+        }}
+      >
+        {DOCUMENT_CATEGORIES.map((category) => (
+          <option key={category} value={category}>
+            {humanise(category)}
+          </option>
+        ))}
+      </select>
+
+      <label className="inline-flex items-center" style={{ gap: "var(--ob-space-5)" }}>
+        <input
+          id={reviewId}
+          type="checkbox"
+          checked={requirement.requiresReview ?? false}
+          onChange={(e) => onChange({ requiresReview: e.target.checked })}
+          style={{ width: 14, height: 14 }}
+        />
+        <span className="text-text-muted" style={{ font: "10.5px/1.4 var(--ob-font-family-ui)" }}>
+          {t("workflow.requirement.requiresReview")}
+        </span>
+      </label>
+    </>
   );
 }
 

@@ -1375,6 +1375,57 @@ class DocumentServiceTest extends PostgresTestBase {
     }
 
     /**
+     * The roadmap read is the ONLY thing the frontend ever fetches to render
+     * a milestone's requirements (`journey.CaseService.roadmap`) -- so
+     * `RequirementRoadmapView`'s own `satisfiedRef`/`satisfiedRefType` must
+     * round-trip through it, not just through {@link Requirement} itself
+     * (already covered above) or {@link CaseRequirementView} (a different
+     * read this test does not exercise). Proves both directions: present
+     * after satisfy, null again after the document is retired and the
+     * requirement reopens -- the same fixture shape as
+     * {@code retiringReopensARequirementItSatisfied} immediately above,
+     * reused rather than re-derived.
+     */
+    @Test
+    void theRoadmapExposesWhichDocumentSatisfiedARequirement() {
+        UUID tenant = fixture.createTenant("doc-roadmap-satisfiedref-" + Uuid7.generate());
+        var manager = new UUID[1];
+        var caseId = new UUID[1];
+        var requirementId = new UUID[1];
+        var documentId = new UUID[1];
+
+        fixture.runAs(tenant, () -> {
+            UUID customerId = fixture.createCustomer(tenant, "Roadmap SatisfiedRef Co " + Uuid7.generate(), null, null, null);
+            UUID versionId = journey.publishedThreeStageWorkflow();
+            caseId[0] = cases.create(new CreateCaseRequest(
+                    customerId, journey.templateOf(versionId), "Fixture Case " + Uuid7.generate(), Map.of())).id();
+            requirementId[0] = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0).id();
+
+            manager[0] = fixture.createUser(tenant, "roadmap-satisfiedref-manager+" + Uuid7.generate() + "@example.com");
+            grant(manager[0], Map.of(
+                    PermissionKeys.DOCUMENT_MANAGE, Scope.ALL,
+                    PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                    PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+            documentId[0] = createDocument(tenant, caseId[0], customerId, manager[0], null);
+
+            requirements.satisfy(requirementId[0], documentId[0], DocumentService.SATISFIED_REF_TYPE);
+
+            var requirement = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0);
+            assertThat(requirement.satisfiedRef()).isEqualTo(documentId[0]);
+            assertThat(requirement.satisfiedRefType()).isEqualTo(DocumentService.SATISFIED_REF_TYPE);
+        });
+
+        fixture.runAsUser(tenant, manager[0], () -> documents.retire(documentId[0], "Wrong file uploaded"));
+
+        fixture.runAs(tenant, () -> {
+            var requirement = cases.roadmap(caseId[0]).stages().get(0).milestones().get(0).requirements().get(0);
+            assertThat(requirement.satisfiedRef()).isNull();
+            assertThat(requirement.satisfiedRefType()).isNull();
+        });
+    }
+
+    /**
      * Task 18, design spec 5.5 point 4: bytes are never deleted -- there is
      * no {@code BlobStore.delete} to call in the first place (spec 7.1).
      * Proven by successfully re-reading the exact same content after
