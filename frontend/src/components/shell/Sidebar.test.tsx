@@ -18,6 +18,8 @@ import "@testing-library/jest-dom/vitest";
  */
 let pathname = "/t/acme/dashboard";
 let permissions: Record<string, string[]> = {};
+/** undefined by default -- matches every existing INTERNAL-actor-shaped test below. */
+let userType: "INTERNAL" | "PORTAL" | undefined;
 
 /**
  * jsdom has no real `matchMedia` implementation at all (calling it throws),
@@ -37,7 +39,9 @@ function stubMatchMedia() {
 
 vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
 
-vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions }) }));
+vi.mock("@/lib/auth/useAuth", () => ({
+  useAuth: () => ({ permissions, user: userType ? { userType } : null }),
+}));
 
 vi.mock("next/link", () => ({
   default: ({
@@ -60,6 +64,7 @@ function linkNamed(name: RegExp) {
 beforeEach(() => {
   pathname = "/t/acme/dashboard";
   permissions = {};
+  userType = undefined;
   mediaMatches = true;
   stubMatchMedia();
 });
@@ -138,6 +143,17 @@ describe("Sidebar", () => {
     permissions = { "document.view": ["ASSIGNED"] };
     render(<Sidebar slug="acme" />);
     expect(linkNamed(/documents/i)?.getAttribute("href")).toBe("/t/acme/documents");
+  });
+
+  it("omits Documents for a PORTAL actor even though document.view is held (authz.PortalPermissions, at ALL)", () => {
+    // Regression: e2e/activation.spec.ts pins "a PORTAL user's rail carries
+    // Dashboard and nothing else" -- this is the exact grant shape
+    // (document.view@ALL) sub-project 4 gave every portal contact for the
+    // future portal document API, not this tenant-wide operator screen.
+    permissions = { "document.view": ["ALL"] };
+    userType = "PORTAL";
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/documents/i)).toBeNull();
   });
 
   it("omits Administration without role.view or user.view", () => {
