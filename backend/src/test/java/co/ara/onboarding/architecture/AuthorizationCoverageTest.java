@@ -387,7 +387,12 @@ class AuthorizationCoverageTest {
                                           // this rule covers it automatically, with no
                                           // exclusion needed, exactly as this rule's own
                                           // javadoc promises.
-                                          "co.ara.onboarding.document..")
+                                          "co.ara.onboarding.document..",
+                                          // Sub-project 5 Task 11: AgreementService is the
+                                          // first *Service in this module -- added in the same
+                                          // commit that introduces it, same reasoning as
+                                          // document.. above.
+                                          "co.ara.onboarding.agreement..")
                 // Union, not replace: a covered-package *Service/*Directory class that
                 // reaches a finder on a repository it does NOT hold as a field (passed
                 // as a parameter, obtained from another object, etc.) would be

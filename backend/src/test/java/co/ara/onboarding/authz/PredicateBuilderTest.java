@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class PredicateBuilderTest extends PostgresTestBase {
 
     @Autowired AuthorizationPredicateBuilder predicates;
+    @Autowired AuthorizedQuery authorizedQuery;
     @Autowired CustomerRepository customers;
     @Autowired RoleService roles;
     @Autowired TenantFixture fixture;
@@ -87,6 +88,38 @@ class PredicateBuilderTest extends PostgresTestBase {
         fixture.runAsUser(tenant, user.get(), () -> {
             var spec = predicates.forPermission(PermissionKeys.CUSTOMER_VIEW, Customer.class);
             assertThat(customers.findAll(spec)).hasSize(2);
+        });
+    }
+
+    /**
+     * Sub-project 5 Task 11: {@code AuthorizedQuery.count} must compose {@code
+     * forPermission} exactly like {@code findAll} -- a scope-narrowed number, never
+     * the tenant-wide one {@code countIgnoringScope} would produce. Same fixture
+     * shape as {@link #assignedScopeSeesPersonallyOwnedRecordOutsideOwnTeam}, but a
+     * TEAM grant over a customer owned by a team the actor is NOT in.
+     */
+    @Test
+    void countAppliesScopeExactlyLikeFindAll() {
+        UUID tenant = fixture.createTenant("count-scope");
+        var user = new AtomicReference<UUID>();
+
+        fixture.runAs(tenant, () -> {
+            user.set(fixture.createUser(tenant, "counter@example.com"));
+            UUID myTeam = fixture.createTeam(tenant, "My Team");
+            UUID otherTeam = fixture.createTeam(tenant, "Other Team");
+            fixture.addToTeam(tenant, user.get(), myTeam);
+
+            fixture.createCustomer(tenant, "Mine", null, null, myTeam);
+            fixture.createCustomer(tenant, "Not Mine", null, null, otherTeam);
+
+            UUID role = roles.createRole("Team Only", "",
+                    Map.of(PermissionKeys.CUSTOMER_VIEW, Scope.TEAM));
+            roles.assignRole(user.get(), role);
+        });
+
+        fixture.runAsUser(tenant, user.get(), () -> {
+            long count = authorizedQuery.count(customers, Customer.class, PermissionKeys.CUSTOMER_VIEW, null);
+            assertThat(count).isEqualTo(1L);
         });
     }
 
