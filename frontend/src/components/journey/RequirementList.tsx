@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import { UploadDialog } from "@/components/documents/UploadDialog";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { Field } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ApiError } from "@/lib/api/client";
 import { parseProblemDetail, useSatisfy, useWaive, type RequirementRoadmap } from "@/lib/api/cases";
-import { downloadDocumentVersion, useDocument } from "@/lib/api/documents";
+import { downloadDocumentVersion, useDocument, useDocumentRequests, useFulfilRequest, type Document } from "@/lib/api/documents";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
@@ -71,7 +72,7 @@ export function RequirementList({
 
       {requirements.map((requirement) => {
         if (requirement.kind === "DOCUMENT") {
-          return <DocumentChip key={requirement.id} requirement={requirement} />;
+          return <DocumentChip key={requirement.id} caseId={caseId} requirement={requirement} />;
         }
 
         const settled = requirement.status !== "OPEN" || locallySatisfied.has(requirement.id!);
@@ -134,11 +135,34 @@ export function RequirementList({
  * chip's own `kind === "DOCUMENT"` guard at the call site ever produces); a
  * future satisfier type (a task, an agreement) would need its own branch
  * here rather than assuming this shape.
+ *
+ * The upload/fulfil action below closes the gap that left this chip
+ * read-only: `DocumentInstantiation` already creates an OPEN
+ * `document_request` for every DOCUMENT requirement the moment a case opens
+ * (`GET /cases/{caseId}/document-requests`, Task 36), but nothing anywhere
+ * in the frontend ever called `fulfil` on it. Uploading here reuses the same
+ * `UploadDialog` the Documents tab already has, pre-filled from the matching
+ * request's own `category`/`description` (real data, not a guess), and
+ * chains `useFulfilRequest` onto its `onUploaded` callback the instant the
+ * new document exists. When `requiresReview` is true, `fulfil` moves the
+ * request to FULFILLED but deliberately leaves the requirement OPEN
+ * (`DocumentRequestService.fulfil`'s own documented branching) -- rendered
+ * here as "Pending review" rather than silently looking like nothing
+ * happened, since the alternative (still just an OPEN chip with no
+ * indication a file was ever submitted) is worse than a chip that cannot
+ * yet be re-uploaded to.
  */
-function DocumentChip({ requirement }: { requirement: RequirementRoadmap }) {
+function DocumentChip({ caseId, requirement }: { caseId: string; requirement: RequirementRoadmap }) {
   const hasSatisfyingDocument = requirement.satisfiedRefType === "document" && Boolean(requirement.satisfiedRef);
   const document = useDocument(hasSatisfyingDocument ? requirement.satisfiedRef! : "");
   const [downloading, setDownloading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  const canUpload = useHasPermission("document.upload");
+  const documentRequests = useDocumentRequests(caseId);
+  const fulfil = useFulfilRequest();
+
+  const matchingRequest = documentRequests.data?.content?.find((dr) => dr.requirementId === requirement.id);
 
   async function open() {
     const doc = document.data;
@@ -149,6 +173,11 @@ function DocumentChip({ requirement }: { requirement: RequirementRoadmap }) {
     } finally {
       setDownloading(false);
     }
+  }
+
+  function onUploaded(created: Document) {
+    if (!matchingRequest?.id || !created.id) return;
+    fulfil.mutate({ id: matchingRequest.id, documentId: created.id });
   }
 
   return (
@@ -176,10 +205,30 @@ function DocumentChip({ requirement }: { requirement: RequirementRoadmap }) {
         </Button>
       )}
 
-      <StatusPill
-        status={requirement.status === "OPEN" ? t("requirement.status.OPEN") : t(`requirement.status.${requirement.status}`)}
-        role={requirement.status === "OPEN" ? "neutral" : "ok"}
-      />
+      {!hasSatisfyingDocument && matchingRequest?.status === "OPEN" && canUpload && (
+        <Button type="button" variant="secondary" onClick={() => setUploading(true)}>
+          {t("requirement.document.upload")}
+        </Button>
+      )}
+
+      {!hasSatisfyingDocument && matchingRequest?.status === "FULFILLED" ? (
+        <StatusPill status={t("requirement.document.pendingReview")} role="warn" />
+      ) : (
+        <StatusPill
+          status={requirement.status === "OPEN" ? t("requirement.status.OPEN") : t(`requirement.status.${requirement.status}`)}
+          role={requirement.status === "OPEN" ? "neutral" : "ok"}
+        />
+      )}
+
+      {uploading && (
+        <UploadDialog
+          caseId={caseId}
+          onClose={() => setUploading(false)}
+          onUploaded={onUploaded}
+          defaultName={matchingRequest?.description ?? ""}
+          defaultCategory={matchingRequest?.category ?? "OTHER"}
+        />
+      )}
     </div>
   );
 }
