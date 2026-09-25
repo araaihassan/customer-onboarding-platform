@@ -66,6 +66,20 @@ function mockDocuments(content: unknown[]) {
   fetchMock.mockImplementation(() => Promise.resolve(reply({ content, totalElements: content.length })));
 }
 
+/**
+ * Routes by URL rather than the blanket `mockDocuments` shape -- needed only
+ * for the grouping tests below, which must give the `/roadmap` fetch a real
+ * `{stages}` shape (not the document-list shape every other test's blanket
+ * mock happens to return, which `groupByMilestone` correctly treats as "no
+ * roadmap data" and falls back to the flat list).
+ */
+function mockDocumentsAndRoadmap(content: unknown[], stages: unknown[]) {
+  fetchMock.mockImplementation((url: string) => {
+    if (url.includes("/roadmap")) return Promise.resolve(reply({ stages }));
+    return Promise.resolve(reply({ content, totalElements: content.length }));
+  });
+}
+
 beforeEach(() => {
   permissions = { "document.upload": ["ALL"] };
   fetchMock.mockReset();
@@ -146,5 +160,61 @@ describe("DocumentsTab", () => {
     fireEvent.click(screen.getByRole("button", { name: /upload document/i }));
 
     expect(screen.getByRole("dialog")).not.toBeNull();
+  });
+
+  it("renders one flat, unheaded list when no document is traceable to a milestone (this tab's own pre-grouping shape)", async () => {
+    mockDocumentsAndRoadmap([sharedDoc], []);
+    renderTab();
+
+    await waitFor(() => expect(screen.getByText("Master Services Agreement")).not.toBeNull());
+    expect(screen.queryByRole("heading")).toBeNull();
+  });
+
+  it("groups a document under the stage/milestone whose requirement it satisfied", async () => {
+    mockDocumentsAndRoadmap(
+      [sharedDoc],
+      [
+        {
+          name: "Document collection",
+          milestones: [
+            {
+              id: "m-1",
+              name: "Tax certificate",
+              requirements: [
+                { id: "r-1", kind: "DOCUMENT", satisfiedRef: "doc-1", satisfiedRefType: "document", status: "SATISFIED" },
+              ],
+            },
+          ],
+        },
+      ],
+    );
+    renderTab();
+
+    await waitFor(() => expect(screen.getByText("Document collection · Tax certificate")).not.toBeNull());
+    expect(screen.getByText("Master Services Agreement")).not.toBeNull();
+  });
+
+  it("puts a document with no satisfying requirement under \"Other documents\" once at least one other group exists", async () => {
+    mockDocumentsAndRoadmap(
+      [sharedDoc, sensitiveDoc],
+      [
+        {
+          name: "Document collection",
+          milestones: [
+            {
+              id: "m-1",
+              name: "Master agreement",
+              requirements: [
+                { id: "r-1", kind: "DOCUMENT", satisfiedRef: "doc-1", satisfiedRefType: "document", status: "SATISFIED" },
+              ],
+            },
+          ],
+        },
+      ],
+    );
+    renderTab();
+
+    await waitFor(() => expect(screen.getByText("Other documents")).not.toBeNull());
+    expect(screen.getByText("Tax certificate")).not.toBeNull();
   });
 });

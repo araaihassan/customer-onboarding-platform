@@ -7,6 +7,7 @@ import { Field } from "@/components/ui/Field";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ApiError } from "@/lib/api/client";
 import { parseProblemDetail, useSatisfy, useWaive, type RequirementRoadmap } from "@/lib/api/cases";
+import { downloadDocumentVersion, useDocument } from "@/lib/api/documents";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
@@ -125,15 +126,56 @@ export function RequirementList({
   );
 }
 
+/**
+ * `satisfiedRef`/`satisfiedRefType` were added to `RequirementRoadmapView`
+ * specifically so this chip could stop being a dead-end status label and
+ * link to whatever actually satisfied the requirement -- for now, only
+ * `satisfiedRefType === "document"` is rendered as a link (the one kind this
+ * chip's own `kind === "DOCUMENT"` guard at the call site ever produces); a
+ * future satisfier type (a task, an agreement) would need its own branch
+ * here rather than assuming this shape.
+ */
 function DocumentChip({ requirement }: { requirement: RequirementRoadmap }) {
+  const hasSatisfyingDocument = requirement.satisfiedRefType === "document" && Boolean(requirement.satisfiedRef);
+  const document = useDocument(hasSatisfyingDocument ? requirement.satisfiedRef! : "");
+  const [downloading, setDownloading] = useState(false);
+
+  async function open() {
+    const doc = document.data;
+    if (!doc?.id || !doc.currentVersionNumber) return;
+    setDownloading(true);
+    try {
+      await downloadDocumentVersion(doc.id, doc.currentVersionNumber, doc.name ?? doc.id);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <div
       className="flex items-center justify-between bg-surface border border-line"
-      style={{ padding: "var(--ob-space-8) var(--ob-space-11)", borderRadius: "var(--ob-radius-5)" }}
+      style={{ padding: "var(--ob-space-8) var(--ob-space-11)", borderRadius: "var(--ob-radius-5)", gap: "var(--ob-space-8)" }}
     >
-      <span className="text-ink" style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}>
-        {requirement.label}
-      </span>
+      <div className="min-w-0 flex-1">
+        <span
+          className="text-ink truncate"
+          style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
+        >
+          {requirement.label}
+        </span>
+        {document.data?.name && (
+          <p className="truncate text-text-subtle" style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}>
+            {document.data.name}
+          </p>
+        )}
+      </div>
+
+      {document.data?.id && document.data.currentVersionNumber && (
+        <Button type="button" variant="secondary" disabled={downloading} onClick={() => void open()}>
+          {t("requirement.document.open")}
+        </Button>
+      )}
+
       <StatusPill
         status={requirement.status === "OPEN" ? t("requirement.status.OPEN") : t(`requirement.status.${requirement.status}`)}
         role={requirement.status === "OPEN" ? "neutral" : "ok"}

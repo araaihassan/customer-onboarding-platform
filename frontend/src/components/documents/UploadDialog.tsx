@@ -7,23 +7,9 @@ import { Field } from "@/components/ui/Field";
 import { humanise } from "@/components/ui/StatusPill";
 import { parseProblemDetail } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
-import { useUploadDocument, type DocumentCategory, type DocumentVisibilityTier } from "@/lib/api/documents";
+import { DOCUMENT_CATEGORIES as CATEGORIES, useUploadDocument, type DocumentCategory, type DocumentVisibilityTier } from "@/lib/api/documents";
 import { t } from "@/lib/i18n";
 import { VisibilityAside } from "./VisibilityAside";
-
-/** Mirrors `document_category_ck` (backend `DocumentCategory.java`) exactly -- a new category is a migration there, and this list moves with it. */
-const CATEGORIES: DocumentCategory[] = [
-  "CONTRACT",
-  "AGREEMENT",
-  "NDA",
-  "COMPANY_REGISTRATION",
-  "TAX",
-  "KYC",
-  "TECHNICAL",
-  "CERTIFICATE",
-  "INVOICE",
-  "OTHER",
-];
 
 /** Mirrors `document_tier_ck` (backend `VisibilityTier.java`) exactly -- the brief's own Step 1 test asserts the select offers precisely these three, in this order. */
 const TIERS: DocumentVisibilityTier[] = ["COMPANY_SHARED", "CONTACT_ONLY", "SENSITIVE"];

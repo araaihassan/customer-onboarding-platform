@@ -2541,21 +2541,21 @@ export interface components {
             sort?: string[];
         };
         PagePortalDocumentView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["PortalDocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         PageableObject: {
@@ -2563,16 +2563,16 @@ export interface components {
             offset?: number;
             sort?: components["schemas"]["SortObject"];
             /** Format: int32 */
-            pageNumber?: number;
-            /** Format: int32 */
             pageSize?: number;
+            /** Format: int32 */
+            pageNumber?: number;
             paged?: boolean;
             unpaged?: boolean;
         };
         SortObject: {
             empty?: boolean;
-            sorted?: boolean;
             unsorted?: boolean;
+            sorted?: boolean;
         };
         Me: {
             /** Format: uuid */
@@ -2589,21 +2589,21 @@ export interface components {
             };
         };
         PageDocumentView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         DocumentVisibilitySummaryView: {
@@ -2613,21 +2613,21 @@ export interface components {
             hidden?: number;
         };
         PageCustomerView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         AuditEventView: {
@@ -2646,21 +2646,21 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -2689,6 +2689,9 @@ export interface components {
             mandatory?: boolean;
             /** @enum {string} */
             status?: "OPEN" | "SATISFIED" | "WAIVED";
+            /** Format: uuid */
+            satisfiedRef?: string;
+            satisfiedRefType?: string;
         };
         RoadmapView: {
             stages?: components["schemas"]["StageRoadmapView"][];
@@ -2735,21 +2738,21 @@ export interface components {
             rows?: components["schemas"]["PlanRevisionDiffRowView"][];
         };
         PageDocumentRequestView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentRequestView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         CandidateView: {
@@ -2771,21 +2774,21 @@ export interface components {
             candidates?: components["schemas"]["CandidateView"][];
         };
         PageUserView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
             first?: boolean;
             last?: boolean;
             pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         TeamMemberView: {
