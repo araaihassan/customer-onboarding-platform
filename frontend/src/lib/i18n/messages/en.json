@@ -380,6 +380,8 @@
   "requirement.status.SATISFIED": "Satisfied",
   "requirement.status.WAIVED": "Waived",
   "requirement.document.open": "Open",
+  "requirement.document.upload": "Upload",
+  "requirement.document.pendingReview": "Pending review",
   "approval.pendingTitle": "Pending approval",
   "approval.note": "Decision note (optional)",
   "approval.approve": "Approve",
