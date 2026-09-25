@@ -140,6 +140,72 @@ public class RequirementService {
         return toView(r);
     }
 
+    /**
+     * The mirror of {@link #satisfy}, for when the record that satisfied a
+     * requirement stops being trustworthy -- today's only caller is
+     * {@code document.DocumentService.retire} (design spec 5.5), reopening
+     * whatever a retired document had satisfied. This is the mirror image of
+     * sub-project 3's task-cancellation rule, not a contradiction of it: a
+     * task is cancelled BEFORE it satisfies, so cancellation is prevented
+     * from satisfying at all, but a document is realistically retired AFTER
+     * it satisfied -- the wrong file was uploaded -- so retirement must undo
+     * a satisfaction that already happened. Leaving the requirement green
+     * behind a retired document would be a silent false positive.
+     *
+     * Gated the SAME permission {@link #satisfy} itself carries
+     * ({@code MILESTONE_COMPLETE}), deliberately not a new one -- it composes
+     * with {@code document.manage} rather than bypassing it, exactly the
+     * precedent {@code task.TaskService.changeStatus}'s own javadoc already
+     * states for completing a requirement-linked task requiring BOTH
+     * {@code task.complete} and {@code milestone.complete}. A
+     * {@code document.manage} holder retiring a document that satisfied a
+     * requirement must, by the same logic, also hold {@code milestone.complete}
+     * to actually reopen it -- there is no bypass and no new padding
+     * permission invented for this.
+     *
+     * Processes every {@link Requirement} row {@link RequirementRepository#satisfiedBy}
+     * finds for ref/refType (there can in principle be more than one, though
+     * today's only caller ever supplies a single document's id), skipping any
+     * that is not currently SATISFIED (idempotent, the same shape
+     * {@link #satisfy}/{@link #waive} already use) -- and, like both of
+     * those, never mutates the row the raw finder returned directly: each
+     * match is re-resolved through {@link AuthorizedQuery} under
+     * {@code MILESTONE_COMPLETE} first, so DEPARTMENT/TEAM/ASSIGNED scope
+     * still narrows exactly as it does for a direct call to {@link #satisfy}.
+     */
+    @RequirePermission(PermissionKeys.MILESTONE_COMPLETE)
+    @Transactional
+    public void reopen(UUID ref, String refType) {
+        for (Requirement candidate : requirements.satisfiedBy(ref, refType)) {
+            Requirement r = authorizedQuery.getById(
+                    requirements, Requirement.class, PermissionKeys.MILESTONE_COMPLETE, candidate.getId());
+            if (r.getStatus() != RequirementStatus.SATISFIED) continue;   // idempotent
+
+            Case c = engine.lockAndLoad(r.getCaseId());          // lock BEFORE the write
+            if (c.getStatus() == CaseStatus.ON_HOLD) throw new CaseOnHoldException(c.getId());
+
+            Milestone m = authorizedQuery.getById(
+                    milestones, Milestone.class, PermissionKeys.MILESTONE_COMPLETE, r.getMilestoneId());
+            writeScope.check(c, m, stageOf(m));
+
+            r.setStatus(RequirementStatus.OPEN);
+            r.setSatisfiedAt(null);
+            r.setSatisfiedBy(null);
+            r.setSatisfiedRef(null);
+            r.setSatisfiedRefType(null);
+            requirements.save(r);
+
+            // Cause before effects, same as satisfy/waive: reconcile may move
+            // this requirement's milestone (and the case) out of DONE, and
+            // those events must not precede the reopening that caused them.
+            audit.record(AuditActions.REQUIREMENT_REOPENED, "onboarding_case", c.getId(),
+                    "Reopened " + labelOf(r),
+                    Map.of("requirementId", r.getId().toString(), "milestoneId", m.getId().toString()));
+
+            engine.reconcile(c);
+        }
+    }
+
     /** The Stage a milestone belongs to, via its definition -- both ALL-only WORKFLOW_VIEW reads. */
     private Stage stageOf(Milestone m) {
         MilestoneDefinition definition = authorizedQuery.getById(milestoneDefinitions,

@@ -49,4 +49,45 @@ public class AuthorizedQuery {
         return repository.findOne(authorized.and(byId))
                 .orElseThrow(() -> new NoSuchElementException("Not found"));
     }
+
+    /**
+     * Task 32 fix round 1: the sanctioned home for the codebase's second
+     * deliberate authorization bypass -- deliberately living HERE, not loose
+     * inside a domain service, so the one class every reviewer already checks
+     * for "does this skip AuthorizedQuery" is also where a caller finds the
+     * one method that partially does. Bypasses only the SCOPE union
+     * (DEPARTMENT/TEAM/ASSIGNED) via {@link
+     * AuthorizationPredicateBuilder#forPermissionIgnoringScope} -- the
+     * AUDIENCE filter still applies, exactly as {@link #findAll}/{@link
+     * #getById}'s own {@code forPermission} call carries it. See that
+     * method's own javadoc for why the audience half must never be skipped
+     * too (a portal contact's cross-customer disclosure, found and fixed in
+     * review round 1 of this same task).
+     *
+     * <p>Returns a bare {@code long}, never rows -- there is deliberately no
+     * {@code findAllIgnoringScope}. A caller of THIS method learns only HOW
+     * MANY audience-visible records exist beyond their own record-level
+     * scope, never WHICH ones; widening this seam to return actual rows
+     * would need its own, separately-argued justification, not an extension
+     * of this one.
+     *
+     * <p><b>Precondition, stated here rather than only one file away in
+     * {@code AuthorizationPredicateBuilder#withAudience}'s own javadoc:</b>
+     * this method is safe only because {@code entityType} has a registered
+     * {@link AudienceFilter} -- true for {@link co.ara.onboarding.document.Document}
+     * today, the only caller this method has. On an entity type with no
+     * registered filter, the scope-union bypass has nothing left to narrow
+     * it, and this degrades to an unnarrowed, tenant-wide count for any
+     * holder of {@code permissionKey} at any scope -- not the bounded,
+     * audience-narrowed aggregate its own class-level javadoc describes. A
+     * future caller must confirm its entity type has a real
+     * {@link AudienceFilter} before reaching for this method, not just that
+     * it holds some grant of the given permission.
+     */
+    public <T> long countIgnoringScope(JpaSpecificationExecutor<T> repository, Class<T> entityType,
+                                       String permissionKey, Specification<T> extra) {
+        Specification<T> authorized = predicates.forPermissionIgnoringScope(permissionKey, entityType);
+        Specification<T> combined = (extra == null) ? authorized : authorized.and(extra);
+        return repository.count(combined);
+    }
 }

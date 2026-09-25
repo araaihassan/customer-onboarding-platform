@@ -44,4 +44,24 @@ public class StageWriteScopeGuard {
         };
         if (!allowed) throw new WriteScopeException(stage.getName(), stage.getWriteScope());
     }
+
+    /**
+     * Overload for a caller with no Milestone of its own (Task 15: {@code document}
+     * attaches only to a {@code Case}, never to a milestone -- there is no
+     * per-milestone ownership to check OWNER_ONLY against). Still subtractive
+     * only: OWNER_ONLY narrows against the CASE's own ownerUserId alone, rather
+     * than widening to "any milestone owner on the case" the way a missing
+     * Milestone might otherwise tempt.
+     */
+    public void check(Case c, Stage stage) {
+        AuthContext ctx = contextProvider.current();
+        boolean allowed = switch (stage.getWriteScope()) {
+            case ANY        -> true;
+            case OWNER_ONLY -> ctx.userId().equals(c.getOwnerUserId());
+            case TEAM       -> c.getOwningTeamId() != null && ctx.teamIds().contains(c.getOwningTeamId());
+            case DEPARTMENT -> c.getOwningDepartmentId() != null
+                             && c.getOwningDepartmentId().equals(ctx.departmentId());
+        };
+        if (!allowed) throw new WriteScopeException(stage.getName(), stage.getWriteScope());
+    }
 }

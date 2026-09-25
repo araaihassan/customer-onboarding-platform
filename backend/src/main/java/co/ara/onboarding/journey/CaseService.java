@@ -96,6 +96,7 @@ public class CaseService {
     private final TaskLifecycle taskLifecycle;
     private final TaskDirectory taskDirectory;
     private final PlanRevisionRepository planRevisions;
+    private final DocumentRequestLifecycle documentRequestLifecycle;
 
     public CaseService(CaseRepository cases, CaseParticipantRepository participants,
                        MilestoneRepository milestones, RequirementRepository requirements,
@@ -110,7 +111,8 @@ public class CaseService {
                        AuthContextProvider contextProvider,
                        AuditRecorder audit, CaseEngine engine,
                        BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle,
-                       TaskDirectory taskDirectory, PlanRevisionRepository planRevisions) {
+                       TaskDirectory taskDirectory, PlanRevisionRepository planRevisions,
+                       DocumentRequestLifecycle documentRequestLifecycle) {
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -136,6 +138,7 @@ public class CaseService {
         this.taskLifecycle = taskLifecycle;
         this.taskDirectory = taskDirectory;
         this.planRevisions = planRevisions;
+        this.documentRequestLifecycle = documentRequestLifecycle;
     }
 
     @RequirePermission(PermissionKeys.CASE_CREATE)
@@ -236,6 +239,9 @@ public class CaseService {
         // itself is recorded as created (cause before effect), and any future
         // task.created audit entry must not precede case.created either.
         taskLifecycle.instantiateForCase(c.getId());
+        // Same ordering, same reasoning, for the DOCUMENT half of the
+        // requirement seam -- see DocumentInstantiation's own javadoc.
+        documentRequestLifecycle.instantiateForCase(c.getId());
 
         // Runs while the case is still ACTIVE (see the comment on setStatus above),
         // so a customer-template case's first stage is entered for real here --

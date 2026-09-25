@@ -334,7 +334,25 @@ class AuthorizationCoverageTest {
             // :130-132,184; RequirementService.java:82,120) authorizes the case id
             // through AuthorizedQuery before ever calling lockAndLoad, but nothing
             // stops a future caller from passing an unauthorized id straight to it.
-            "co.ara.onboarding.journey.CaseEngine");
+            "co.ara.onboarding.journey.CaseEngine",
+            // Sub-project 4 Task 24: DocumentInstantiation is called inside
+            // CaseService.create's own transaction (via DocumentRequestLifecycleAdapter),
+            // on a caseId that method just created and fully controls -- the identical
+            // shape task.TaskInstantiation's own entry above already documents, DOCUMENT
+            // rather than TASK.
+            "co.ara.onboarding.document.DocumentInstantiation",
+            // Sub-project 4 Task 26: the customer.OrgUnitResolver shape, applied to
+            // Case for a portal actor. PortalPermissions grants document.upload/
+            // document.view at Scope.ALL and Case has no AudienceFilter registered,
+            // so resolving a caseId under either permission through AuthorizedQuery
+            // for a portal actor would resolve ANY case in the tenant -- there is no
+            // scope for AuthorizedQuery to check here in the first place. This class
+            // is the actual narrowing mechanism for this audience (a plain findById
+            // followed IMMEDIATELY by an explicit customerId comparison), not a
+            // bypass of one that already exists -- see its own javadoc. Named here
+            // rather than excluding DocumentService itself, which would
+            // blanket-exempt every OTHER finder call that large service makes.
+            "co.ara.onboarding.document.PortalCaseAccess");
 
     @ArchTest
     static final ArchRule servicesDoNotCallRepositoryFindersDirectly =
@@ -353,7 +371,15 @@ class AuthorizationCoverageTest {
                                           // customerId resolution is exactly this shape --
                                           // added before ProgrammeService itself was written,
                                           // not retrofitted, same as task.. above.
-                                          "co.ara.onboarding.programme..")
+                                          "co.ara.onboarding.programme..",
+                                          // Sub-project 4 Task 14: DocumentService is the
+                                          // first *Service in this module. Added in the same
+                                          // commit that introduces it, before any finder call
+                                          // exists to catch -- the injection-shaped half of
+                                          // this rule covers it automatically, with no
+                                          // exclusion needed, exactly as this rule's own
+                                          // javadoc promises.
+                                          "co.ara.onboarding.document..")
                 // Union, not replace: a covered-package *Service/*Directory class that
                 // reaches a finder on a repository it does NOT hold as a field (passed
                 // as a parameter, obtained from another object, etc.) would be
@@ -382,6 +408,96 @@ class AuthorizationCoverageTest {
                 // dodge a suffix match.
                 .and(not(haveFullyQualifiedNameIn(FINDER_RULE_EXCLUSIONS)))
                 .should().callMethodWhere(
+                        // This predicate binds on NAME alone -- findAll/findOne/findById/
+                        // findBy* -- which is exactly why a repository method spelled
+                        // differently never reaches it, exemption or not. Six deliberate,
+                        // reviewed instances of that today, recorded HERE (beside the
+                        // predicate a reviewer of THIS guard actually reads) rather than
+                        // only in each repository's own file:
+                        //   - document.DocumentVersionRepository.maxVersionNo(documentId) is
+                        //     safe unconditionally: it returns an aggregate int, not a scoped
+                        //     entity, so there is no row for it to leak regardless of who
+                        //     calls it or with what id.
+                        //   - document.DocumentVersionRepository.versionAt(documentId,
+                        //     versionNo) is NOT unconditionally safe the same way -- it
+                        //     returns a real DocumentVersion, a scoped entity, and unlike
+                        //     maxVersionNo the only thing stopping it from matching this
+                        //     predicate is its name not starting with "findBy". It is safe
+                        //     today only because its one caller,
+                        //     document.DocumentContentService.open, calls it exclusively
+                        //     with a documentId already resolved through AuthorizedQuery
+                        //     under document.view moments earlier in the same method -- the
+                        //     same "fed only a pre-authorized id" shape FINDER_RULE_EXCLUSIONS
+                        //     already documents for journey.CaseEngine's own finder calls.
+                        //   - journey.RequirementRepository.satisfiedBy(ref, refType), added
+                        //     by Task 18: discovery only. journey.RequirementService.reopen
+                        //     re-resolves every match through AuthorizedQuery before mutating
+                        //     anything, and document.DocumentService.retire calls it directly
+                        //     first (fed only a document id already resolved through
+                        //     AuthorizedQuery under document.manage moments earlier in the
+                        //     same method) purely to decide WHETHER to call the gated reopen
+                        //     at all.
+                        //   - document.DocumentShareRepository.liveSharesOf(documentId), added
+                        //     by Task 18 for the retire() cascade and given a second caller by
+                        //     Task 19: document.DocumentService.retire (fed only a document id
+                        //     already resolved through AuthorizedQuery under document.manage
+                        //     moments earlier in the same method, to revoke every LIVE share)
+                        //     and document.DocumentSharingService.share (fed only a document id
+                        //     already resolved through AuthorizedQuery under document.share
+                        //     moments earlier in the same method, as an idempotency pre-check
+                        //     before inserting a new one) -- both callers feed it only a
+                        //     pre-authorized id, the same "fed only a pre-authorized id" shape
+                        //     as the rest of this list.
+                        //   - document.DocumentCaseLinkRepository.liveLinksOf(documentId), added
+                        //     by Task 18 for the retire() cascade and given two more callers by
+                        //     Task 20: document.DocumentService.retire (fed only a document id
+                        //     already resolved through AuthorizedQuery under document.manage
+                        //     moments earlier in the same method, then used to revoke every LIVE
+                        //     row keyed off that one already-authorized document) and
+                        //     document.DocumentSharingService.link/unlink (both fed only a
+                        //     document id already resolved through AuthorizedQuery under
+                        //     document.share moments earlier in the same method -- link as an
+                        //     idempotency pre-check before inserting a new one, unlink to find
+                        //     the live link between the pair before re-resolving its own id
+                        //     through AuthorizedQuery) -- every caller feeds it only a
+                        //     pre-authorized id, the same "fed only a pre-authorized id" shape
+                        //     as the rest of this list.
+                        //   - document.DocumentRepository.count(Specification), reached ONLY
+                        //     through the new authz.AuthorizedQuery.countIgnoringScope (Task
+                        //     32 fix round 1, called from
+                        //     document.DocumentService.visibilitySummary's `total` half, the
+                        //     "08 VISIBLE · 61 HIDDEN BY SCOPE" hidden-count line). This one is
+                        //     NOT "fed only a pre-authorized id" like the five above, and is
+                        //     materially more sensitive: it is a deliberate, standing bypass of
+                        //     the SCOPE half of record-level authorization (the
+                        //     DEPARTMENT/TEAM/ASSIGNED union), for every caller, every time --
+                        //     not a one-off id fed in after an earlier resolution. What keeps it
+                        //     safe is that the AUDIENCE filter (scoping.DocumentAudienceFilter)
+                        //     still applies on top -- forPermissionIgnoringScope ANDs it in
+                        //     exactly like forPermission does -- so a portal contact's own
+                        //     atMyCustomer boundary and an internal actor's own
+                        //     department/contact targeting both still narrow this count; only
+                        //     the SCOPE union is skipped, and the only thing ever disclosed is a
+                        //     bare integer bounded to the caller's own already-visible filter,
+                        //     never a row. Review round 1 of this exact task found the FIRST
+                        //     version of visibilitySummary bypassed BOTH halves (a direct
+                        //     documents.count(filter) call with no AuthorizedQuery involvement
+                        //     at all), which let a portal contact of one customer read a count
+                        //     that included another customer's documents in the same tenant --
+                        //     see DocumentService.visibilitySummary's own javadoc for the full
+                        //     incident and fix. Doubly not caught by the predicate below: count
+                        //     is not findAll/findOne/findById/findBy*-named, AND it is now
+                        //     reached from authz.AuthorizedQuery itself, a package this rule's
+                        //     own sibling (servicesDoNotCallRepositoryFindersDirectly, above)
+                        //     deliberately never covers ("authz is deliberately NOT included") --
+                        //     recorded here anyway because this comment block's whole purpose is
+                        //     to be the COMPLETE list a reviewer checks, not a rule's own blind
+                        //     spot.
+                        //     None of these six is added to FINDER_RULE_EXCLUSIONS: that list
+                        //     blanket-exempts every finder call a listed CLASS makes, present
+                        //     and future, which is too wide a grant for a safety argument that
+                        //     applies to this one METHOD's one caller -- a comment here is the
+                        //     right shape, not a rule change.
                         (target(name("findAll"))
                          .or(target(name("findOne")))
                          .or(target(name("findById")))
@@ -415,10 +531,17 @@ class AuthorizationCoverageTest {
         // the rule silently fails to see. TaskDirectoryAdapter is deliberately NOT
         // asserted here any more (sub-project 3A Task 5): it no longer calls a
         // finder outside AuthorizedQuery, so it carries no exclusion at all --
-        // see FINDER_RULE_EXCLUSIONS' own comment for why.
+        // see FINDER_RULE_EXCLUSIONS' own comment for why. DocumentInstantiation
+        // (sub-project 4 Task 24) is the same shape as TaskInstantiation.
+        // DocumentRequestLifecycleAdapter is deliberately NOT asserted here, same
+        // reasoning as TaskDirectoryAdapter's own omission: it injects no
+        // repository of its own (only DocumentInstantiation), so it never matches
+        // injectsARepository() and needs no exclusion at all.
         assertThat(FINDER_RULE_EXCLUSIONS)
                 .contains("co.ara.onboarding.task.TaskInstantiation",
-                          "co.ara.onboarding.task.TaskLifecycleAdapter")
+                          "co.ara.onboarding.task.TaskLifecycleAdapter",
+                          "co.ara.onboarding.document.DocumentInstantiation",
+                          "co.ara.onboarding.document.PortalCaseAccess")
                 .doesNotContain("co.ara.onboarding.task.TaskDirectoryAdapter");
     }
 }

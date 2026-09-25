@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { CaseHeader } from "./CaseHeader";
 import type { Case } from "@/lib/api/cases";
 import type { Customer } from "@/lib/api/customers";
@@ -27,13 +27,13 @@ const customer: Customer = {
 
 describe("CaseHeader", () => {
   it("composes case facts with the customer name from the existing customer query", () => {
-    render(<CaseHeader caseData={caseData} customer={customer} />);
+    render(<CaseHeader caseData={caseData} customer={customer} onRequestDocument={vi.fn()} />);
     expect(screen.getByText("Acme Corp")).not.toBeNull();
     expect(screen.getByText("Legal Review")).not.toBeNull();
   });
 
   it("renders machine values in mono and human text in Archivo", () => {
-    render(<CaseHeader caseData={caseData} customer={customer} />);
+    render(<CaseHeader caseData={caseData} customer={customer} onRequestDocument={vi.fn()} />);
 
     const stageValue = screen.getByText("Legal Review");
     expect(stageValue.style.fontFamily || stageValue.style.font).not.toContain("var(--ob-font-family-data)");
@@ -43,14 +43,29 @@ describe("CaseHeader", () => {
   });
 
   it("shows the frozen version as 'workflow v4 (frozen)'", () => {
-    render(<CaseHeader caseData={caseData} customer={customer} />);
+    render(<CaseHeader caseData={caseData} customer={customer} onRequestDocument={vi.fn()} />);
     expect(screen.getByText(/workflow v4 \(frozen\)/)).not.toBeNull();
   });
 
   it("reflows the five fact columns to two rows below 1280px", () => {
-    render(<CaseHeader caseData={caseData} customer={customer} />);
+    render(<CaseHeader caseData={caseData} customer={customer} onRequestDocument={vi.fn()} />);
     const grid = screen.getByTestId("case-fact-grid");
     expect(grid.className).toContain("grid-cols-3");
     expect(grid.className).toContain("xl:grid-cols-5");
+  });
+
+  /**
+   * Task 34, Ruling 2: the primary `Request document` action from
+   * `SCREENS.md` §3 -- no `Message customer` button, deliberately (there is
+   * no messaging feature anywhere in this sub-project's scope).
+   */
+  it("offers a primary Request document action that calls onRequestDocument", () => {
+    const onRequestDocument = vi.fn();
+    render(<CaseHeader caseData={caseData} customer={customer} onRequestDocument={onRequestDocument} />);
+
+    expect(screen.queryByRole("button", { name: "Message customer" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Request document" }));
+    expect(onRequestDocument).toHaveBeenCalled();
   });
 });

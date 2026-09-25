@@ -112,6 +112,30 @@ public final class PermissionCatalog {
         // CaseAttributeValueDescriptor exist ahead of validate() ever requiring them.
         add(PLAN_ISSUE,              "plan",      "onboarding_case", "Issue a schedule revision for a journey", RECORD);
         add(PLAN_APPROVE_SCHEDULE,   "plan",      "onboarding_case", "Record the customer's decision on a schedule revision", RECORD);
+        // Task 3 (sub-project 4) catalogued these four ALL-only with a null
+        // resourceType -- the same shape as WORKFLOW_VIEW/WORKFLOW_MANAGE and
+        // PLAN_APPROVE_SHAPE above -- because no document entity existed yet for
+        // DEPARTMENT/TEAM/ASSIGNED to resolve against. Task 8 added the document
+        // module and its migration; Task 10 added the five scoping descriptors
+        // (DocumentDescriptor covers resourceType "document" itself --
+        // DocumentVersionDescriptor/DocumentShareDescriptor/DocumentCaseLinkDescriptor/
+        // DocumentRequestDescriptor exist only for AuthorizedQuery's entity-type
+        // dispatch on the other four document entities, not because any permission
+        // is catalogued against their resource types -- design spec 6.2's own
+        // permission table keys every one of the six below to resourceType
+        // "document"). Task 11 (this task) is what actually widens document.view/
+        // document.upload to RECORD and document.manage/document.review to
+        // ORG_SCOPES, adds document.share/document.request (also ORG_SCOPES,
+        // completing the six-key set PermissionKeys now declares), and reseeds
+        // role templates beyond Administrator -- RoleTemplateCoverageTest only
+        // flags a permission catalogued at more than one scope, so these six
+        // stayed invisible to it (like WORKFLOW_VIEW still is) until this widening.
+        add(DOCUMENT_VIEW,           "document",  "document",        "View documents",                 RECORD);
+        add(DOCUMENT_UPLOAD,         "document",  "document",        "Upload a document or a new version", RECORD);
+        add(DOCUMENT_MANAGE,         "document",  "document",        "Retarget or retire a document's metadata", ORG_SCOPES);
+        add(DOCUMENT_REVIEW,         "document",  "document",        "Approve or reject a reviewable document", ORG_SCOPES);
+        add(DOCUMENT_SHARE,          "document",  "document",        "Share a document with a portal contact or link it to another case", ORG_SCOPES);
+        add(DOCUMENT_REQUEST,        "document",  "document",        "Request a document from a customer contact", ORG_SCOPES);
     }
 
     /**

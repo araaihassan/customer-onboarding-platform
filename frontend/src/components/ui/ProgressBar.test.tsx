@@ -81,7 +81,7 @@ describe("ProgressBar", () => {
     ["case-hero", "7px", "var(--ob-radius-4)"],
     ["portal-sidebar", "5px", "var(--ob-radius-4)"],
     ["portal-card", "6px", "var(--ob-radius-4)"],
-  ] as const)("context=%s sets the documented track height", (context, height) => {
+  ] as const)("context=%s sets the documented track height", (context, height, _radius) => {
     render(<ProgressBar value={50} label="Progress" context={context} />);
     expect(screen.getByRole("progressbar").style.height).toBe(height);
   });

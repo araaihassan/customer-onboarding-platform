@@ -43,3 +43,40 @@ app:
   platform-admin:
     email: ${APP_PLATFORM_ADMIN_EMAIL:}
     password: ${APP_PLATFORM_ADMIN_PASSWORD:}
+  # app.storage.kind picks the BlobStore adapter (StorageConfig) and deliberately
+  # ships with NO default here, on the default profile -- the same shape as
+  # JWT_SECRET/DB_APP_PASSWORD above: a production deployment must choose "local"
+  # or "s3" explicitly, rather than silently falling back to a filesystem that a
+  # container recycles on restart. The dev/test profile document below opts both
+  # into "local", since neither runs against real object storage.
+
+---
+# dev and test only: select the local filesystem adapter and a root under the
+# build directory. Unlike JWT_SECRET/DB_APP_PASSWORD, app.storage.local.root is
+# not a secret -- a storage key's opacity, not the path's secrecy, is what keeps
+# a blob safe (BlobStore's own javadoc) -- so a committed relative default is
+# fine here, and this document never applies to the default (production) profile.
+spring:
+  config:
+    activate:
+      on-profile: dev,test
+app:
+  storage:
+    kind: local
+    local:
+      root: ${STORAGE_LOCAL_ROOT:./build/data/blobs}
+    # Task 7's hardening ruling (spec §2.3/§7.6): the declared-size ceiling every
+    # upload is checked against before any stream is touched. No base-profile
+    # default, the same shape as kind/local.root above -- 25 MiB is a reasonable
+    # dev/test bound; a production deployment sets its own via the env var.
+    #
+    # Task 22 review Finding 1: this is also the servlet container's OWN
+    # multipart ceiling, not just DocumentService's application-level check --
+    # platform.storage.StorageConfig#multipartConfigElement binds
+    # spring.servlet.multipart.max-file-size/max-request-size straight to this
+    # same value (there is deliberately no separate spring.servlet.multipart.*
+    # entry anywhere in this file), so the two cannot drift apart the way they
+    # did before that bean existed (an unconfigured Boot default of 1 MiB/10 MiB
+    # sat in front of this property and 500'd, unmapped, on anything this
+    # property alone would have accepted).
+    max-upload-bytes: ${STORAGE_MAX_UPLOAD_BYTES:26214400}

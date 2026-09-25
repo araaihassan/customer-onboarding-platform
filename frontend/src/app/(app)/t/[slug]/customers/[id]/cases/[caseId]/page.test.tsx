@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setTenantSlug } from "@/lib/api/client";
 import type { Case } from "@/lib/api/cases";
@@ -133,6 +133,16 @@ describe("CaseWorkspacePage", () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole("button", { name: "Resume" })).not.toBeNull());
     expect(screen.queryByRole("button", { name: "Put on hold" })).toBeNull();
+  });
+
+  /** Task 34, Ruling 2: the header's primary action opens `RequestDocumentDialog`. */
+  it("opens the request-document dialog from the header's primary action", async () => {
+    renderPage();
+    await waitFor(() => expect(screen.getByText("Northwind Foods")).not.toBeNull());
+
+    fireEvent.click(screen.getByRole("button", { name: "Request document" }));
+
+    expect(screen.getByRole("dialog")).not.toBeNull();
   });
 
   it("renders the roadmap's milestone rows on the journey tab", async () => {

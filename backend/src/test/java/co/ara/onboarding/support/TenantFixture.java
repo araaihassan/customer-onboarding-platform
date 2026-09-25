@@ -261,6 +261,75 @@ public class TenantFixture {
         return contacts.saveAndFlush(c).getId();
     }
 
+    /**
+     * A PORTAL app_user linked to a fresh ACTIVE customer_contact for the given
+     * customer -- unlike {@link #createPortalUser}, whose user has no linked
+     * contact at all, and {@link #createContact}, whose contact has no linked
+     * user yet. Exercises PortalPermissions/PortalContactDirectory, which need
+     * both halves present and ACTIVE. Binds its own tenant context via
+     * {@link #runUnauthenticated}; the caller does not need its own runAs.
+     * Returns the app_user id, since PortalAuthorityTest authenticates as it
+     * directly through {@link #runAsUser}.
+     */
+    public UUID createPortalUserForContact(UUID tenantId, UUID customerId, String email) {
+        return createPortalUserForContact(tenantId, customerId, email, false);
+    }
+
+    /**
+     * Same as {@link #createPortalUserForContact(UUID, UUID, String)}, but lets
+     * the caller set primaryContact -- the signal
+     * scoping.CustomerPortalContactDirectory currently reads as "is this contact
+     * the customer's sponsor" (see that class's own javadoc). Exercises
+     * PortalPermissions.forSponsor(), which the plain 3-arg overload never
+     * reaches since a freshly created CustomerContact defaults primaryContact to
+     * false.
+     */
+    public UUID createPortalUserForContact(UUID tenantId, UUID customerId, String email,
+                                           boolean primaryContact) {
+        var created = new AtomicReference<UUID>();
+        runUnauthenticated(tenantId, () -> {
+            AppUser u = new AppUser();
+            u.setId(Uuid7.generate());
+            u.setTenantId(tenantId);
+            u.setEmail(email);
+            u.setFullName(email);
+            u.setPasswordHash(passwords.encode("portal-password"));
+            u.setUserType(UserType.PORTAL);
+            u.setStatus(UserStatus.ACTIVE);
+            AppUser savedUser = users.saveAndFlush(u);
+
+            CustomerContact c = new CustomerContact();
+            c.setId(Uuid7.generate());
+            c.setTenantId(tenantId);
+            c.setCustomerId(customerId);
+            c.setUserId(savedUser.getId());
+            c.setFullName(email);
+            c.setEmail(email);
+            c.setPrimaryContact(primaryContact);
+            c.setStatus(ContactStatus.ACTIVE);
+            contacts.saveAndFlush(c);
+
+            created.set(savedUser.getId());
+        });
+        return created.get();
+    }
+
+    /**
+     * Sets the contact linked to this user's status to INACTIVE directly,
+     * bypassing CustomerContactService's own retirement flow (which additionally
+     * deactivates the linked app_user -- a separate mechanism this fixture does
+     * not exercise). Proves AuthorizationService's own contact-status check
+     * independently of that service-level side effect. Binds its own tenant
+     * context via {@link #runUnauthenticated}.
+     */
+    public void retireContactFor(UUID tenantId, UUID contactUserId) {
+        runUnauthenticated(tenantId, () -> {
+            CustomerContact c = contacts.findByUserId(contactUserId).orElseThrow();
+            c.setStatus(ContactStatus.INACTIVE);
+            contacts.saveAndFlush(c);
+        });
+    }
+
     /** Issues an activation invitation through the gated service. Inside {@link #runAs}. */
     public String issueInvitation(UUID contactId) {
         return invitations.issue(contactId);
@@ -304,6 +373,18 @@ public class TenantFixture {
      */
     public void runAs(UUID tenantId, Runnable action) {
         runAsUser(tenantId, administratorFor(tenantId), action);
+    }
+
+    /**
+     * Same privileged setup shape as {@link #runAs}, but for a Supplier whose
+     * result the caller needs back -- creating a customer and capturing its id
+     * in one call, for instance, rather than a Runnable plus an AtomicReference
+     * the caller has to declare itself.
+     */
+    public <T> T runAsReturning(UUID tenantId, java.util.function.Supplier<T> action) {
+        var result = new AtomicReference<T>();
+        runAs(tenantId, () -> result.set(action.get()));
+        return result.get();
     }
 
     /**
@@ -354,6 +435,28 @@ public class TenantFixture {
         return created.get();
     }
 
+    /**
+     * Same as {@link #createAdminUser}, but returns the id directly for tests
+     * that only need it to authenticate as, not the entity.
+     */
+    public UUID createAdministrator(UUID tenantId, String email) {
+        return createAdminUser(tenantId, email).getId();
+    }
+
+    /**
+     * The tenant's full-authority role id -- the same role {@link #createAdminUser}
+     * and {@link #administratorFor} assign -- exposed for tests that need to name
+     * it back, such as asserting a role assignment onto it is refused. Binds its
+     * own tenant context via {@link #runUnauthenticated}: fullAuthorityRoleFor may
+     * need to INSERT a fresh role, which is RLS-protected like every other write
+     * here.
+     */
+    public UUID administratorRoleId(UUID tenantId) {
+        var roleId = new AtomicReference<UUID>();
+        runUnauthenticated(tenantId, () -> roleId.set(fullAuthorityRoleFor(tenantId)));
+        return roleId.get();
+    }
+
     /** A PORTAL user, for proving the portal cannot reach internal surfaces. */
     public AppUser createPortalUser(UUID tenantId, String email) {
         var created = new AtomicReference<AppUser>();
@@ -380,6 +483,40 @@ public class TenantFixture {
         admin.setFullName(email);
         admin.setEnabled(true);
         platformAdmins.saveAndFlush(admin);
+    }
+
+    /**
+     * Grants a single permission at ALL scope to an existing user, through a
+     * fresh role created for exactly that one grant. Unlike
+     * {@link #administratorFor}'s superuser role, this role carries nothing else,
+     * so a test proving audience narrowing isn't accidentally passing because the
+     * actor also holds some other permission at a wider scope.
+     *
+     * Binds its own tenant context via {@link #runUnauthenticated}, the same
+     * shape {@link #createAdminUser} and {@link #createPlatformAdmin} use — the
+     * caller does not need to wrap this in {@link #runAs} itself.
+     */
+    public void grantAtAllScope(UUID tenantId, UUID userId, String permissionKey) {
+        runUnauthenticated(tenantId, () -> {
+            Role role = new Role();
+            role.setId(Uuid7.generate());
+            role.setTenantId(tenantId);
+            role.setName("Fixture Grant " + permissionKey + " " + role.getId());
+            role.setDescription("Test fixture only");
+            role.setSystemTemplate(false);
+            role.setEnabled(true);
+
+            RoleGrant grant = new RoleGrant();
+            grant.setId(Uuid7.generate());
+            grant.setTenantId(tenantId);
+            grant.setRole(role);
+            grant.setPermissionKey(permissionKey);
+            grant.setScope(Scope.ALL);
+            role.getGrants().add(grant);
+
+            UUID roleId = roleRepository.saveAndFlush(role).getId();
+            userRoleRepository.saveAndFlush(new UserRole(tenantId, userId, roleId));
+        });
     }
 
     /**

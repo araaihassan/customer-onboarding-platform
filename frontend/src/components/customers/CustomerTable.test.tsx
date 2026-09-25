@@ -64,7 +64,7 @@ describe("CustomerTable", () => {
     // Scoped to the table's header rowgroup specifically -- the body
     // rowgroup's own rows now also carry `role="row"`, so an unscoped
     // `getByRole("row")` would be ambiguous.
-    const headerRowgroup = within(tableWrapper(container)).getAllByRole("rowgroup")[0];
+    const headerRowgroup = within(tableWrapper(container)).getAllByRole("rowgroup")[0]!;
     const headerRow = within(headerRowgroup).getByRole("row");
     const headers = Array.from(headerRow.children).map((el) => el.textContent);
     expect(headers).toEqual(["Customer", "Status", "Legal name", "Industry", "Country"]);

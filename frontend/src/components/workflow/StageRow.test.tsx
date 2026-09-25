@@ -154,7 +154,7 @@ describe("StageRow", () => {
         estimatedDurationDays: 2,
         dependsOnMilestoneKeys: [],
         requirements: [
-          { kind: "MANUAL", label: "Do it", weight: 1, mandatory: true, documentCategory: null, approverRelationship: null },
+          { kind: "MANUAL", label: "Do it", weight: 1, mandatory: true, documentCategory: undefined, approverRelationship: undefined },
         ],
       },
       {

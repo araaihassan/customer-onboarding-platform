@@ -1,6 +1,12 @@
 package co.ara.onboarding.journey;
 
 import co.ara.onboarding.audit.AuditEventView;
+import co.ara.onboarding.document.CreateDocumentRequest;
+import co.ara.onboarding.document.DocumentCategory;
+import co.ara.onboarding.document.DocumentRequestRepository;
+import co.ara.onboarding.document.DocumentRequestService;
+import co.ara.onboarding.document.DocumentService;
+import co.ara.onboarding.document.VisibilityTier;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
@@ -21,11 +27,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Pageable;
 
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static co.ara.onboarding.workflow.WorkflowFixtures.document;
 import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
 import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
 import static co.ara.onboarding.workflow.WorkflowFixtures.stage;
@@ -63,6 +72,14 @@ class CauseBeforeEffectTest extends PostgresTestBase {
     @Autowired PublishService publishService;
     @Autowired CustomerTemplateService customerTemplates;
     @Autowired WorkflowVersionRepository versionRepository;
+    @Autowired DocumentService documents;
+    @Autowired DocumentRequestService documentRequestService;
+    @Autowired DocumentRequestRepository documentRequests;
+
+    /** A minimal, real PDF magic prefix -- the identical fixture DocumentServiceTest already uses. */
+    private static final byte[] PDF_BYTES =
+            "%PDF-1.4\n%âãÏÓ\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n"
+                    .getBytes(StandardCharsets.ISO_8859_1);
 
     @Test
     void creatingACaseIsRecordedBeforeTheStageEntryAndMilestonesItCauses() {
@@ -186,6 +203,64 @@ class CauseBeforeEffectTest extends PostgresTestBase {
             assertThat(chronological(caseId))
                     .containsSubsequence("plan.revision_decided", "case.resumed");
         });
+    }
+
+    /**
+     * Sub-project 4 Task 29: the document.* family's own causal chain,
+     * chained onto the existing satisfy->reconcile ordering exactly the way
+     * completingATaskIsRecordedBeforeTheRequirementItSatisfies chains
+     * TaskService.changeStatus onto it above -- upload a document, then
+     * fulfil the DOCUMENT-kind requirement's own auto-instantiated (Task 24)
+     * document_request with it, which (requiresReview defaulting to false,
+     * DocumentInstantiationTest's own confirmed default) calls the existing
+     * gated RequirementService.satisfy exactly once, completing the
+     * milestone. document.request_fulfilled and document.requested are
+     * deliberately not asserted on here -- only the three actions this
+     * test's own name is about.
+     */
+    @Test
+    void uploadingADocumentIsRecordedBeforeTheRequirementItSatisfies() {
+        UUID tenant = fixture.createTenant("cbe-document-upload");
+        fixture.runAs(tenant, () -> {
+            UUID caseId = openCaseWithADocumentRequirement(tenant);
+            UUID requestId = documentRequests.findByCaseId(caseId).get(0).getId();
+
+            UUID documentId = documents.upload(caseId,
+                    new CreateDocumentRequest("Provide NDA", DocumentCategory.NDA,
+                            VisibilityTier.COMPANY_SHARED, null, null, null, null),
+                    new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf").id();
+
+            documentRequestService.fulfil(requestId, documentId);
+
+            assertThat(chronological(caseId))
+                    .containsSubsequence("document.uploaded", "requirement.satisfied", "milestone.completed");
+        });
+    }
+
+    /**
+     * A single stage/milestone whose one requirement is kind DOCUMENT,
+     * published and opened -- the identical shape openCaseWithATaskRequirement
+     * below already establishes for TASK, and DocumentInstantiationTest's own
+     * openCaseWhoseFirstRequirementIsKindDocument for DOCUMENT specifically;
+     * duplicated here in miniature (no requiresReview override needed, since
+     * this test wants the default-false path) rather than shared, the same
+     * choice openHeldCaseOnApprovedCustomerTemplate's own javadoc explains for
+     * this class.
+     */
+    private UUID openCaseWithADocumentRequirement(UUID tenant) {
+        WorkflowDefinitionRequest request = new WorkflowDefinitionRequest(
+                List.of(stage("s1", "Stage One", List.of(
+                        milestone("m1", "Milestone One", 1, List.of(),
+                                List.of(document("Provide NDA", "NDA")))))),
+                List.of(), 0L);
+        UUID templateId = workflows.createTemplate("Fixture Document " + Uuid7.generate(), "").id();
+        UUID versionId = workflows.createDraft(templateId);
+        workflows.replaceDraft(versionId, request);
+        publishService.publish(versionId);
+
+        UUID customerId = fixture.createCustomer(tenant, "Acme", null, null, null);
+        return cases.create(new CreateCaseRequest(
+                customerId, templateId, "Fixture Case " + Uuid7.generate(), Map.of())).id();
     }
 
     /**

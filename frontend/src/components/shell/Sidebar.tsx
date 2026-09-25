@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
-import { ClipboardCheckIcon, LayersIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
+import { ClipboardCheckIcon, FolderIcon, LayersIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
 import type { IconProps } from "@/components/icons";
+import { useAuth } from "@/lib/auth/useAuth";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
@@ -23,6 +24,18 @@ import { t } from "@/lib/i18n";
  *
  * Hiding an entry the user has no permission for is a courtesy, not a control --
  * see useHasPermission. Every one of these routes enforces server-side.
+ *
+ * `document.view`/`document.upload` are the only permission keys a PORTAL actor
+ * ever holds (`authz.PortalPermissions`, at `Scope.ALL`) -- every other gate below
+ * is, in practice, INTERNAL-only today, since no seeded role template's grants
+ * ever reach a portal contact. The Documents entry alone needs an explicit
+ * `userType !== "PORTAL"` guard on top of `canViewDocuments`: sub-project 4 built
+ * no portal UI at all (design spec §2.2) and `/documents` is the tenant-wide
+ * OPERATOR screen (no case picker, internal-routing vocabulary), not something a
+ * customer contact should ever be sent to. Found live by e2e/activation.spec.ts,
+ * which pins "a PORTAL user's rail carries Dashboard and nothing else" -- that
+ * assertion silently broke the moment `document.view` became portal-held,
+ * because this component filtered on the permission alone.
  */
 type NavItem = {
   label: string;
@@ -75,11 +88,16 @@ export function Sidebar({
 }) {
   const pathname = usePathname();
   const isDesktop = useIsDesktopViewport();
+  const { user } = useAuth();
 
   // Fixed hook order: every check runs on every render, and the results are
   // filtered afterwards. Calling these inside a filter would be a hooks violation.
   const canViewCustomers = useHasPermission("customer.view");
   const canViewProgrammes = useHasPermission("programme.view");
+  // Portal contacts hold document.view/upload at ALL (authz.PortalPermissions) for
+  // the future portal document API, not for this tenant-wide OPERATOR screen --
+  // see this file's own doc comment above.
+  const canViewDocuments = useHasPermission("document.view") && user?.userType !== "PORTAL";
   const canViewUsers = useHasPermission("user.view");
   const canViewRoles = useHasPermission("role.view");
   const canViewWork = useHasPermission("task.view");
@@ -117,6 +135,15 @@ export function Sidebar({
       href: `/t/${slug}/programmes`,
       section: `/t/${slug}/programmes`,
       Icon: LayersIcon,
+    });
+  }
+
+  if (canViewDocuments) {
+    items.push({
+      label: t("nav.documents"),
+      href: `/t/${slug}/documents`,
+      section: `/t/${slug}/documents`,
+      Icon: FolderIcon,
     });
   }
 

@@ -61,7 +61,8 @@ public record WorkflowDefinitionView(
             int weight,
             boolean mandatory,
             String documentCategory,
-            RelationshipType approverRelationship) {}
+            RelationshipType approverRelationship,
+            Boolean requiresReview) {}
 
     public record BranchRuleView(
             UUID id,

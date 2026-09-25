@@ -1,4 +1,5 @@
 import { Avatar } from "@/components/ui/Avatar";
+import { Button } from "@/components/ui/Button";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { shortId } from "@/lib/api/customers";
 import type { Case } from "@/lib/api/cases";
@@ -15,14 +16,31 @@ import { t } from "@/lib/i18n";
  * separate from the five fact columns below rather than folded in as a
  * sixth -- the design draws it larger and on its own, and it is the one
  * number every reader wants first.
+ *
+ * `onRequestDocument` (Task 34) opens `RequestDocumentDialog` -- `SCREENS.md`
+ * §3's header row names two actions, `Message customer` (secondary) and
+ * `Request document` (primary), but only the second is built here: there is
+ * no messaging feature anywhere in this sub-project's scope, and a button
+ * with nothing behind it is worse than no button at all (task-34-brief.md's
+ * own Ruling 2). The open/closed dialog state is lifted to the parent page,
+ * the same "local boolean owned by the workspace, not the header" shape
+ * `page.tsx` already uses for `HoldDialog`/`holding`.
  */
-export function CaseHeader({ caseData, customer }: { caseData: Case; customer: Customer }) {
+export function CaseHeader({
+  caseData,
+  customer,
+  onRequestDocument,
+}: {
+  caseData: Case;
+  customer: Customer;
+  onRequestDocument: () => void;
+}) {
   return (
     <div
       className="bg-surface border border-line"
       style={{ borderRadius: "var(--ob-card-radius)", padding: "var(--ob-space-20)" }}
     >
-      <div className="flex items-start" style={{ gap: "var(--ob-space-16)" }}>
+      <div className="flex items-start flex-wrap" style={{ gap: "var(--ob-space-16)" }}>
         <Avatar name={customer.displayName ?? ""} kind="company" size={46} />
 
         <div className="flex-1 min-w-0">
@@ -74,6 +92,10 @@ export function CaseHeader({ caseData, customer }: { caseData: Case; customer: C
               style={{ width: `${caseData.progressPercent ?? 0}%`, background: "var(--ob-ok-fg)" }}
             />
           </div>
+
+          <Button type="button" onClick={onRequestDocument} style={{ marginTop: "var(--ob-space-4)" }}>
+            {t("case.header.requestDocument")}
+          </Button>
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 package co.ara.onboarding.authz;
 
+import co.ara.onboarding.platform.UserType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.RequestScope;
@@ -25,17 +26,40 @@ public class AuthorizationService {
 
     private final JdbcTemplate jdbc;
     private final AuthContextProvider contextProvider;
+    private final PortalContactDirectory contacts;
     private EffectivePermissions memo;
 
-    public AuthorizationService(JdbcTemplate jdbc, AuthContextProvider contextProvider) {
+    public AuthorizationService(JdbcTemplate jdbc, AuthContextProvider contextProvider,
+                                PortalContactDirectory contacts) {
         this.jdbc = jdbc;
         this.contextProvider = contextProvider;
+        this.contacts = contacts;
     }
 
     public EffectivePermissions effectivePermissions() {
         if (memo != null) return memo;
 
-        UUID userId = contextProvider.principal().userId();
+        AuthContext actor = contextProvider.current();
+
+        // A PORTAL actor holds no roles by construction (RoleService.assignRole
+        // refuses one outright), so the role join below would simply return no
+        // rows and the actor would read nothing. Their authority is derived from
+        // the contact record instead, in code -- see PortalPermissions for why
+        // this is deliberately not role-shaped.
+        //
+        // Both status checks PortalContactDirectory performs matter: the
+        // app_user check mirrors the u.status = 'ACTIVE' join below, and the
+        // contact check is what makes retirement take effect on the very next
+        // request, not when an access token eventually expires.
+        if (actor.userType() == UserType.PORTAL) {
+            memo = contacts.findActiveContactForUser(actor.userId())
+                    .map(c -> EffectivePermissions.of(
+                            c.isSponsor() ? PortalPermissions.forSponsor() : PortalPermissions.forContact()))
+                    .orElseGet(EffectivePermissions::none);
+            return memo;
+        }
+
+        UUID userId = actor.userId();
         Map<String, Set<Scope>> byPermission = new HashMap<>();
 
         // r.enabled = true is part of the join, not a post-filter: a disabled role

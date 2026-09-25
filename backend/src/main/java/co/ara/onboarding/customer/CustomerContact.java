@@ -47,6 +47,18 @@ public class CustomerContact extends TenantScopedEntity {
     @Column(nullable = false)
     private ContactStatus status;
 
+    /**
+     * QA Q9's amendment: free-text audience targeting ("Finance", "Legal", "IT"),
+     * set by internal staff -- a different axis from primaryContact/sponsor. The
+     * column itself was added by document's own V23 migration (sub-project 4,
+     * Task 8), alongside document.target_contact_label; this field was missing
+     * from the entity until Task 13 needed to read it through
+     * PortalContactDirectory/DocumentAudienceFilter. Nullable: an unlabelled
+     * contact matches no label target, per that filter's own byLabel predicate.
+     */
+    @Column
+    private String label;
+
     public UUID getCustomerId() { return customerId; }
     public void setCustomerId(UUID customerId) { this.customerId = customerId; }
 
@@ -70,4 +82,7 @@ public class CustomerContact extends TenantScopedEntity {
 
     public ContactStatus getStatus() { return status; }
     public void setStatus(ContactStatus status) { this.status = status; }
+
+    public String getLabel() { return label; }
+    public void setLabel(String label) { this.label = label; }
 }

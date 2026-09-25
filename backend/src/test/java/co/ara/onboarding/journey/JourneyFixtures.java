@@ -95,7 +95,23 @@ public class JourneyFixtures {
     public Case newCase(UUID tenant, UUID ownerUserId, UUID departmentId, UUID teamId) {
         UUID customerId = tenantFixture.createCustomer(
                 tenant, "Case Customer " + Uuid7.generate(), null, null, null);
+        return newCaseForCustomer(tenant, customerId, ownerUserId, departmentId, teamId);
+    }
 
+    /**
+     * Sub-project 4 Task 26: a validly-pinned case for a PRE-EXISTING customer,
+     * for portal tests that need the case's own {@code customerId} to match a
+     * specific already-created contact's customer -- {@link #newCase} always
+     * creates its own fresh customer internally, which cannot be made to line
+     * up with one. No ownership columns set; use the four-argument overload
+     * below to set them too.
+     */
+    public Case newCaseForCustomer(UUID tenant, UUID customerId) {
+        return newCaseForCustomer(tenant, customerId, null, null, null);
+    }
+
+    /** As {@link #newCaseForCustomer(UUID, UUID)}, with explicit ownership columns. */
+    public Case newCaseForCustomer(UUID tenant, UUID customerId, UUID ownerUserId, UUID departmentId, UUID teamId) {
         WorkflowTemplate t = new WorkflowTemplate();
         t.setId(Uuid7.generate());
         t.setTenantId(tenant);

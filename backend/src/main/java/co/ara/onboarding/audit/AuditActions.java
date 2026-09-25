@@ -99,6 +99,12 @@ public final class AuditActions {
     // exactly what Task 15's stage/completion events already are.
     public static final AuditAction REQUIREMENT_SATISFIED      = of("requirement.satisfied", true);
     public static final AuditAction REQUIREMENT_WAIVED         = of("requirement.waived", true);
+    // Sub-project 4 Task 18 (design spec 5.5): timeline-visible for the same
+    // reason its two siblings above are -- a requirement reopening because the
+    // document that satisfied it was retired is exactly the progress narrative
+    // the customer's own Activity Timeline exists to show, the mirror image of
+    // satisfying or waiving it in the first place.
+    public static final AuditAction REQUIREMENT_REOPENED       = of("requirement.reopened", true);
     public static final AuditAction MILESTONE_COMPLETED        = of("milestone.completed", true);
     // Timeline-visible for the same reason case.stage_entered is: who let the case
     // leave a gated stage is exactly the progress narrative the customer's own
@@ -210,6 +216,80 @@ public final class AuditActions {
     // made -- and recorded BEFORE CaseService.resume is ever called on the case's
     // first approval, per CauseBeforeEffectTest's rule.
     public static final AuditAction PLAN_REVISION_DECIDED = of("plan.revision_decided", true);
+
+    // Sub-project 4 Task 17 (design spec Sec 6.4): compliance-only, not
+    // timeline-visible, unlike most document.* actions (documents are
+    // ordinarily business records -- see Task 29's own reasoning for the
+    // rest of the family). Retargeting is an access-control change --
+    // moving which department/label can even see a document -- closer to
+    // the compliance-only role.* family than to a business-record edit,
+    // the same distinction CLAUDE.md draws for user.* vs customer.*. Task
+    // 29 adds the other eight document.* actions; this is the one constant
+    // Task 17 itself needed (its own PATCH implementation records it) and
+    // must not be re-declared there.
+    public static final AuditAction DOCUMENT_RETARGETED = of("document.retargeted", false);
+
+    // Task 29: the rest of the document.* family. Every one of these is
+    // recorded against resourceType "onboarding_case" with the owning
+    // CASE's own id -- never "document"/documentId -- deliberately
+    // DIFFERENT from DOCUMENT_RETARGETED's own resourceType above. This is
+    // not an inconsistency: journey.TimelineService.forCase (what the
+    // Activity Timeline actually reads) resolves audit.AuditQuery.
+    // findForResource by an EXACT (resourceType, resourceId) match against
+    // the CASE the viewer already opened, exactly as task.TaskService/
+    // TaskInstantiation already record TASK_CREATED/TASK_STATUS_CHANGED/
+    // TASK_ASSIGNED against "onboarding_case" even though the entity that
+    // changed is a task, not the case -- and as journey.RequirementService
+    // itself already does for REQUIREMENT_SATISFIED/WAIVED/REOPENED just
+    // above. A document.* action marked timeline-visible below but
+    // recorded against "document" would be timeline-visible in name only:
+    // it would never surface on ANY case's Activity Timeline, since
+    // findForResource has no way to search by a different entity's id.
+    // Confirmed empirically, not just reasoned about: CauseBeforeEffectTest's
+    // own new assertion below reads the case's timeline through
+    // TimelineService.forCase and fails unless document.uploaded is
+    // recorded this way. DOCUMENT_RETARGETED predates this finding and is
+    // untouched (Task 17, already shipped) -- it is also NOT timeline-visible,
+    // so its own resourceType choice has no equivalent visibility
+    // consequence for it.
+    //
+    // Timeline-visible for the same reason customer.*/contact.*/task.* are:
+    // uploading, versioning, retiring, sharing, linking, requesting and
+    // reviewing a document are all ordinary business-record activity on a
+    // case, exactly the progress narrative the Activity Timeline exists to
+    // show.
+    public static final AuditAction DOCUMENT_UPLOADED           = of("document.uploaded", true);
+    public static final AuditAction DOCUMENT_VERSION_ADDED      = of("document.version_added", true);
+    public static final AuditAction DOCUMENT_RETIRED            = of("document.retired", true);
+    public static final AuditAction DOCUMENT_SHARED             = of("document.shared", true);
+    // Compliance-only, matching DOCUMENT_RETARGETED's own reasoning exactly:
+    // ending a share is an access-control change, not a business-record
+    // edit -- the same distinction CLAUDE.md draws between user.* and
+    // customer.*. Recorded against "document"/documentId (DOCUMENT_RETARGETED's
+    // own resourceType), not "onboarding_case" -- there is no functional
+    // requirement pulling it onto the case timeline the way the
+    // timeline-visible actions above have, and keeping it off that timeline
+    // matches its own compliance-only intent.
+    public static final AuditAction DOCUMENT_SHARE_REVOKED      = of("document.share_revoked", false);
+    public static final AuditAction DOCUMENT_LINKED             = of("document.linked", true);
+    // Not in Task 29's brief by name -- added here because DocumentSharingService.unlink
+    // ends a DocumentCaseLink, the identical "access ends" shape DOCUMENT_SHARE_REVOKED
+    // already has its own action for; leaving it silent would be the same
+    // asymmetry CLAUDE.md's "retirement gets its own action" note warns
+    // against. Compliance-only and resourceType "document"/documentId, the
+    // same reasoning and shape as DOCUMENT_SHARE_REVOKED immediately above.
+    public static final AuditAction DOCUMENT_UNLINKED           = of("document.unlinked", false);
+    public static final AuditAction DOCUMENT_REQUESTED          = of("document.requested", true);
+    public static final AuditAction DOCUMENT_REQUEST_WITHDRAWN  = of("document.request_withdrawn", true);
+    // Not in Task 29's brief by name either -- DocumentRequestService.fulfil's
+    // OPEN -> FULFILLED transition had no action anywhere in the original
+    // nine-key list, even though DocumentRequestService's own javadoc (added
+    // at Task 25) flagged exactly this gap and asked this task to resolve
+    // it. Timeline-visible for the same reason DOCUMENT_REQUESTED/
+    // DOCUMENT_REQUEST_WITHDRAWN are: fulfilling a request is the customer's
+    // own side of the document story, not internal administration.
+    public static final AuditAction DOCUMENT_REQUEST_FULFILLED  = of("document.request_fulfilled", true);
+    public static final AuditAction DOCUMENT_REVIEWED           = of("document.reviewed", true);
 
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);

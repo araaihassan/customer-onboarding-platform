@@ -4,10 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { CommentThread } from "@/components/comment/CommentThread";
+import { RequestDocumentDialog } from "@/components/documents/RequestDocumentDialog";
 import { ArrowRightIcon, WorkflowIcon } from "@/components/icons";
 import { AwaitingApprovalBanner } from "@/components/journey/AwaitingApprovalBanner";
 import { CaseHeader } from "@/components/journey/CaseHeader";
 import { CaseSwitcher } from "@/components/journey/CaseSwitcher";
+import { DocumentsTab } from "@/components/journey/DocumentsTab";
 import { HoldDialog } from "@/components/journey/HoldDialog";
 import { PlanTab, type PlanPreviewMilestone } from "@/components/journey/PlanTab";
 import { Roadmap } from "@/components/journey/Roadmap";
@@ -27,10 +29,10 @@ import { t } from "@/lib/i18n";
 
 /**
  * The journey workspace (uispecs README §5): header card with the switcher
- * beneath its meta line, then the tab strip. Only the Journey tab has real
- * content yet -- Tasks/Documents/Agreements and a proper Timeline arrive with
- * the sub-projects that build those features; a missing tab would read as a
- * missing feature, so each renders an honest placeholder instead of being
+ * beneath its meta line, then the tab strip. Journey, Tasks and (Task 33)
+ * Documents all have real content now; Agreements still arrives with the
+ * sub-project that builds it -- a missing tab would read as a missing
+ * feature, so it still renders an honest placeholder instead of being
  * hidden.
  */
 export default function CaseWorkspacePage() {
@@ -45,6 +47,7 @@ export default function CaseWorkspacePage() {
   const resume = useResume();
   const canHold = useHasPermission("case.hold");
   const [holding, setHolding] = useState(false);
+  const [requestingDocument, setRequestingDocument] = useState(false);
 
   // Q21/Q22/Q23: the Plan tab and the held-case banner both only apply to a
   // case pinned to a customer-owned template's version -- neither CaseView
@@ -111,7 +114,11 @@ export default function CaseWorkspacePage() {
     <section className="flex flex-col" style={{ gap: "var(--ob-space-16)" }}>
       <BackLink slug={slug} customerId={customerId} />
 
-      <CaseHeader caseData={caseQuery.data} customer={customer.data} />
+      <CaseHeader
+        caseData={caseQuery.data}
+        customer={customer.data}
+        onRequestDocument={() => setRequestingDocument(true)}
+      />
 
       {showAwaitingApproval && (
         <AwaitingApprovalBanner
@@ -137,7 +144,7 @@ export default function CaseWorkspacePage() {
           <div role="tabpanel" id={panelId(tab)} aria-labelledby={`tab-${tab}`}>
             {tab === "journey" && <JourneyPreview caseId={caseId} />}
             {tab === "tasks" && <TasksTab caseId={caseId} />}
-            {tab === "documents" && <EmptyState title={t("case.tabs.documents.empty")} />}
+            {tab === "documents" && <DocumentsTab caseId={caseId} />}
             {tab === "agreements" && <EmptyState title={t("case.tabs.agreements.empty")} />}
             {tab === "plan" && isCustomerTemplate && <PlanTab caseId={caseId} milestones={planMilestones} />}
             {tab === "timeline" && <TimelineTab caseId={caseId} />}
@@ -185,6 +192,9 @@ export default function CaseWorkspacePage() {
       </div>
 
       {holding && <HoldDialog caseId={caseId} onClose={() => setHolding(false)} />}
+      {requestingDocument && (
+        <RequestDocumentDialog caseId={caseId} onClose={() => setRequestingDocument(false)} />
+      )}
     </section>
   );
 }
