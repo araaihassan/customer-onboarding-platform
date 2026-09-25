@@ -76,4 +76,29 @@ public class AgreementTestSupport {
         a.setUpdatedAt(now);
         return agreements.saveAndFlush(a);
     }
+
+    /**
+     * A fresh milestone/requirement on an already-instantiated case, with an
+     * agreement row landed directly in {@code status} -- for
+     * {@code AgreementScopingTest} and {@code AgreementAudienceFilterTest} (Task
+     * 6), which only need a row in a given state to assert visibility against, not
+     * a row that arrived there through the real lifecycle. Bypasses
+     * {@code AgreementService} entirely, the same "build the row directly" shape
+     * {@code DocumentAudienceTest}/{@code PortalVisibilityTest} use for
+     * {@code Document}.
+     */
+    public Agreement agreementRowInStatus(UUID tenant, UUID caseId, AgreementStatus status) {
+        Case c = cases.findById(caseId).orElseThrow();
+        Milestone m = journey.newMilestone(tenant, c);
+        Requirement r = journey.newRequirement(tenant, c, m);
+        Agreement a = draftAgreementRowFor(tenant, caseId, r.getId());
+        a.setStatus(status);
+        if (status == AgreementStatus.SIGNED) {
+            a.setSignedAt(Instant.now());
+        }
+        if (status == AgreementStatus.CANCELLED) {
+            a.setCancelReason("Fixture cancellation");
+        }
+        return agreements.saveAndFlush(a);
+    }
 }

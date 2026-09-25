@@ -41,6 +41,10 @@ class PortalAuthorityTest extends PostgresTestBase {
      * anywhere in this plan, so at ALL scope a portal contact of one customer
      * could reach another customer's case, programme or schedule-approval
      * decision. See PortalPermissions' own javadoc for the full finding.
+     *
+     * agreement.view joined the constant set at Task 6 (sub-project 5) -- safe for
+     * the identical reason document.view/document.upload are, because
+     * scoping.AgreementAudienceFilter narrows it in the same commit.
      */
     @Test
     void aPortalActorResolvesExactlyTheExpectedConstantSet() {
@@ -53,9 +57,11 @@ class PortalAuthorityTest extends PostgresTestBase {
             var effective = authorization.effectivePermissions();
 
             assertThat(effective.byPermission().keySet())
-                    .containsExactlyInAnyOrder(PermissionKeys.DOCUMENT_VIEW, PermissionKeys.DOCUMENT_UPLOAD);
+                    .containsExactlyInAnyOrder(PermissionKeys.DOCUMENT_VIEW, PermissionKeys.DOCUMENT_UPLOAD,
+                            PermissionKeys.AGREEMENT_VIEW);
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_VIEW)).containsExactly(Scope.ALL);
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_UPLOAD)).containsExactly(Scope.ALL);
+            assertThat(effective.scopesFor(PermissionKeys.AGREEMENT_VIEW)).containsExactly(Scope.ALL);
 
             // Never granted -- no narrowing mechanism exists for any of these three.
             assertThat(effective.scopesFor(PermissionKeys.CASE_VIEW)).isEmpty();
@@ -65,6 +71,9 @@ class PortalAuthorityTest extends PostgresTestBase {
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_REVIEW)).isEmpty();
             assertThat(effective.scopesFor(PermissionKeys.USER_MANAGE)).isEmpty();
             assertThat(effective.scopesFor(PermissionKeys.ROLE_MANAGE)).isEmpty();
+            assertThat(effective.scopesFor(PermissionKeys.AGREEMENT_MANAGE)).isEmpty();
+            assertThat(effective.scopesFor(PermissionKeys.AGREEMENT_REVIEW)).isEmpty();
+            assertThat(effective.scopesFor(PermissionKeys.AGREEMENT_SIGN_RECORD)).isEmpty();
         });
     }
 
@@ -90,9 +99,11 @@ class PortalAuthorityTest extends PostgresTestBase {
             var effective = authorization.effectivePermissions();
 
             assertThat(effective.byPermission().keySet())
-                    .containsExactlyInAnyOrder(PermissionKeys.DOCUMENT_VIEW, PermissionKeys.DOCUMENT_UPLOAD);
+                    .containsExactlyInAnyOrder(PermissionKeys.DOCUMENT_VIEW, PermissionKeys.DOCUMENT_UPLOAD,
+                            PermissionKeys.AGREEMENT_VIEW);
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_VIEW)).containsExactly(Scope.ALL);
             assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_UPLOAD)).containsExactly(Scope.ALL);
+            assertThat(effective.scopesFor(PermissionKeys.AGREEMENT_VIEW)).containsExactly(Scope.ALL);
 
             assertThat(effective.scopesFor(PermissionKeys.CASE_VIEW)).isEmpty();
             assertThat(effective.scopesFor(PermissionKeys.PROGRAMME_VIEW)).isEmpty();

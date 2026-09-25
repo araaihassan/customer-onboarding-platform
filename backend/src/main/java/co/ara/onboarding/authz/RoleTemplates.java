@@ -36,11 +36,14 @@ public final class RoleTemplates {
         // hold case.view at" pattern every template below follows. No
         // DOCUMENT_UPLOAD -- a Sales Representative does not deliver, so nothing
         // in the design spec's own seeding table (6.2) grants it here.
+        // AGREEMENT_VIEW at ASSIGNED (Task 5, sub-project 5 spec 6.3): matches this
+        // template's own CASE_VIEW scope, the same "read at the scope you already
+        // hold case.view at" pattern every template's document grants already follow.
         new RoleTemplate("Sales Representative", "Owns prospects and new customers", Map.ofEntries(
             entry(CUSTOMER_VIEW, ASSIGNED), entry(CUSTOMER_CREATE, ALL), entry(CUSTOMER_EDIT, ASSIGNED),
             entry(CONTACT_VIEW, ASSIGNED), entry(CONTACT_MANAGE, ASSIGNED), entry(INVITATION_SEND, ASSIGNED),
             entry(WORKFLOW_VIEW, ALL), entry(CASE_VIEW, ASSIGNED), entry(CASE_CREATE, ALL), entry(TASK_VIEW, ASSIGNED),
-            entry(DOCUMENT_VIEW, ASSIGNED))),
+            entry(DOCUMENT_VIEW, ASSIGNED), entry(AGREEMENT_VIEW, ASSIGNED))),
 
         // Map.ofEntries, not Map.of: twelve grants crosses Map.of's ten-pair ceiling.
         // PLAN_APPROVE_SCHEDULE at DEPARTMENT (Task 23, sub-project 3A gate 2): the
@@ -52,6 +55,16 @@ public final class RoleTemplates {
         // the relationship owner reads, uploads, retargets, shares and requests
         // documents on the cases their team runs. No DOCUMENT_REVIEW: design spec
         // 6.2's own seeding table reserves that to Legal/Finance/Compliance only.
+        // AGREEMENT_VIEW/AGREEMENT_MANAGE both at TEAM (Task 5, sub-project 5 spec
+        // 6.3): matches this template's own CASE_VIEW/CASE_EDIT scope -- the
+        // relationship owner drafts, submits, sends and cancels agreements on the
+        // cases their team runs. Deliberately NO agreement.sign_record: this
+        // template holds no milestone.complete at any scope, and
+        // sign_record implies milestone.complete at an equal-or-broader scope
+        // (spec 6.3 amendment) -- the last signature calls
+        // RequirementService.satisfy, itself gated milestone.complete, so granting
+        // sign_record here would have every final signature refused and rolled
+        // back. SignRecordImpliesMilestoneCompleteTest enforces this derivably.
         new RoleTemplate("Account Manager", "Owns ongoing customer relationships", Map.ofEntries(
             entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
             entry(CONTACT_MANAGE, TEAM), entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM),
@@ -59,7 +72,8 @@ public final class RoleTemplates {
             entry(TASK_VIEW, TEAM), entry(COMMENT_CREATE, TEAM),
             entry(PLAN_APPROVE_SCHEDULE, DEPARTMENT),
             entry(DOCUMENT_VIEW, TEAM), entry(DOCUMENT_UPLOAD, TEAM), entry(DOCUMENT_MANAGE, TEAM),
-            entry(DOCUMENT_SHARE, TEAM), entry(DOCUMENT_REQUEST, TEAM))),
+            entry(DOCUMENT_SHARE, TEAM), entry(DOCUMENT_REQUEST, TEAM),
+            entry(AGREEMENT_VIEW, TEAM), entry(AGREEMENT_MANAGE, TEAM))),
 
         // Map.ofEntries, not Map.of: twenty grants crosses Map.of's ten-pair ceiling.
         // TASK_MANAGE at TEAM (sub-project 3A Phase 1 Task 8): this template already
@@ -89,6 +103,10 @@ public final class RoleTemplates {
         // scope every other grant here already sits at. No DOCUMENT_REVIEW, for
         // the same reason Account Manager has none -- design spec 6.2 reserves
         // it to Legal/Finance/Compliance.
+        // AGREEMENT_VIEW/AGREEMENT_MANAGE/AGREEMENT_SIGN_RECORD all at TEAM (Task 5,
+        // sub-project 5 spec 6.3): this template already holds MILESTONE_COMPLETE
+        // at TEAM, so sign_record's implied prerequisite is satisfied at the same
+        // scope -- SignRecordImpliesMilestoneCompleteTest's own "not vacuous" case.
         new RoleTemplate("Project Manager", "Coordinates onboarding delivery", Map.ofEntries(
             entry(CUSTOMER_VIEW, TEAM), entry(CUSTOMER_EDIT, TEAM), entry(CONTACT_VIEW, TEAM),
             entry(INVITATION_SEND, TEAM), entry(USER_VIEW, TEAM), entry(AUDIT_VIEW, TEAM),
@@ -102,7 +120,8 @@ public final class RoleTemplates {
             entry(PLAN_ISSUE, TEAM),
             entry(PROGRAMME_VIEW, TEAM), entry(PROGRAMME_MANAGE, TEAM),
             entry(DOCUMENT_VIEW, TEAM), entry(DOCUMENT_UPLOAD, TEAM), entry(DOCUMENT_MANAGE, TEAM),
-            entry(DOCUMENT_SHARE, TEAM), entry(DOCUMENT_REQUEST, TEAM))),
+            entry(DOCUMENT_SHARE, TEAM), entry(DOCUMENT_REQUEST, TEAM),
+            entry(AGREEMENT_VIEW, TEAM), entry(AGREEMENT_MANAGE, TEAM), entry(AGREEMENT_SIGN_RECORD, TEAM))),
 
         // TASK_COMPLETE joins MILESTONE_COMPLETE at the same ASSIGNED scope (spec
         // 5.2); no COMMENT_CREATE, for the same reason Sales Representative has
@@ -111,20 +130,26 @@ public final class RoleTemplates {
         // 4): design spec 6.2's own seeding table is the one place an external
         // delivery role gets upload, matching the personal, uploaded-by-mediated
         // ASSIGNED shape DocumentDescriptor resolves.
+        // AGREEMENT_VIEW at ASSIGNED (Task 5, sub-project 5 spec 6.3): matches this
+        // template's own CASE_VIEW scope. Still fits Map.of's ten-pair ceiling
+        // exactly (10 pairs).
         new RoleTemplate("Service Provider", "Delivers technical services", Map.of(
             CUSTOMER_VIEW, ASSIGNED, CONTACT_VIEW, ASSIGNED, WORKFLOW_VIEW, ALL,
             CASE_VIEW, ASSIGNED, MILESTONE_COMPLETE, ASSIGNED,
             TASK_VIEW, ASSIGNED, TASK_COMPLETE, ASSIGNED,
-            DOCUMENT_VIEW, ASSIGNED, DOCUMENT_UPLOAD, ASSIGNED)),
+            DOCUMENT_VIEW, ASSIGNED, DOCUMENT_UPLOAD, ASSIGNED,
+            AGREEMENT_VIEW, ASSIGNED)),
 
         // DOCUMENT_VIEW at ASSIGNED (Task 11, sub-project 4): matches this
         // template's own CASE_VIEW scope. No DOCUMENT_UPLOAD -- unlike Service
         // Provider, design spec 6.2's seeding table does not grant it here.
+        // AGREEMENT_VIEW at ASSIGNED (Task 5, sub-project 5 spec 6.3): matches this
+        // template's own CASE_VIEW scope.
         new RoleTemplate("Business Partner", "External delivery partner", Map.of(
             CUSTOMER_VIEW, ASSIGNED, CONTACT_VIEW, ASSIGNED, WORKFLOW_VIEW, ALL,
             CASE_VIEW, ASSIGNED, MILESTONE_COMPLETE, ASSIGNED,
             TASK_VIEW, ASSIGNED, TASK_COMPLETE, ASSIGNED,
-            DOCUMENT_VIEW, ASSIGNED)),
+            DOCUMENT_VIEW, ASSIGNED, AGREEMENT_VIEW, ASSIGNED)),
 
         // Map.ofEntries, not Map.of: twelve grants crosses Map.of's ten-pair ceiling.
         // APPROVAL_DECIDE at DEPARTMENT (sub-project 3A Phase 1 Task 8): the
@@ -142,7 +167,13 @@ public final class RoleTemplates {
             entry(APPROVAL_DECIDE, DEPARTMENT),
             entry(TASK_VIEW, DEPARTMENT), entry(TASK_COMPLETE, DEPARTMENT), entry(COMMENT_CREATE, DEPARTMENT),
             entry(DOCUMENT_VIEW, DEPARTMENT), entry(DOCUMENT_UPLOAD, DEPARTMENT),
-            entry(DOCUMENT_MANAGE, DEPARTMENT), entry(DOCUMENT_REQUEST, DEPARTMENT))),
+            entry(DOCUMENT_MANAGE, DEPARTMENT), entry(DOCUMENT_REQUEST, DEPARTMENT),
+            // AGREEMENT_VIEW/AGREEMENT_MANAGE/AGREEMENT_SIGN_RECORD all at
+            // DEPARTMENT (Task 5, sub-project 5 spec 6.3): matches this template's
+            // own CASE_VIEW/CASE_EDIT scope; sign_record's implied
+            // milestone.complete prerequisite is already held at DEPARTMENT above.
+            entry(AGREEMENT_VIEW, DEPARTMENT), entry(AGREEMENT_MANAGE, DEPARTMENT),
+            entry(AGREEMENT_SIGN_RECORD, DEPARTMENT))),
 
         // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
         // DOCUMENT_VIEW and DOCUMENT_REVIEW both at ALL (Task 11, sub-project 4):
@@ -152,24 +183,39 @@ public final class RoleTemplates {
             entry(CUSTOMER_VIEW, ALL), entry(CONTACT_VIEW, ALL), entry(AUDIT_VIEW, ALL), entry(WORKFLOW_VIEW, ALL),
             entry(CASE_VIEW, ALL), entry(MILESTONE_COMPLETE, ALL),
             entry(TASK_VIEW, ALL), entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL),
-            entry(DOCUMENT_VIEW, ALL), entry(DOCUMENT_REVIEW, ALL))),
+            entry(DOCUMENT_VIEW, ALL), entry(DOCUMENT_REVIEW, ALL),
+            // AGREEMENT_VIEW/AGREEMENT_REVIEW both at ALL (Task 5, sub-project 5
+            // spec 6.3): "Reviews agreements" -- Legal is named by role
+            // description, the natural second pair of eyes on a submitted version.
+            entry(AGREEMENT_VIEW, ALL), entry(AGREEMENT_REVIEW, ALL))),
 
         // DOCUMENT_VIEW and DOCUMENT_REVIEW both at ALL (Task 11, sub-project 4):
         // same reasoning as Legal above -- Q9 names Finance too.
-        new RoleTemplate("Finance", "Handles billing and financial verification", Map.of(
-            CUSTOMER_VIEW, ALL, CONTACT_VIEW, ALL, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, ALL, MILESTONE_COMPLETE, ALL,
-            TASK_VIEW, ALL, TASK_COMPLETE, ALL, COMMENT_CREATE, ALL,
-            DOCUMENT_VIEW, ALL, DOCUMENT_REVIEW, ALL)),
+        // Map.ofEntries, not Map.of (Task 5, sub-project 5): the ten Task-11 pairs
+        // already sat exactly at Map.of's ten-pair ceiling, so adding
+        // AGREEMENT_VIEW below crosses it -- converted rather than left broken.
+        // AGREEMENT_VIEW at ALL (spec 6.3): "Finance, Compliance | view at ALL".
+        new RoleTemplate("Finance", "Handles billing and financial verification", Map.ofEntries(
+            entry(CUSTOMER_VIEW, ALL), entry(CONTACT_VIEW, ALL), entry(WORKFLOW_VIEW, ALL),
+            entry(CASE_VIEW, ALL), entry(MILESTONE_COMPLETE, ALL),
+            entry(TASK_VIEW, ALL), entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL),
+            entry(DOCUMENT_VIEW, ALL), entry(DOCUMENT_REVIEW, ALL),
+            entry(AGREEMENT_VIEW, ALL))),
 
         // DOCUMENT_VIEW and DOCUMENT_UPLOAD both at TEAM (Task 11, sub-project 4):
         // matches this template's own CASE_VIEW scope. No DOCUMENT_REVIEW --
         // design spec 6.2 reserves that to Legal/Finance/Compliance, not Technical.
-        new RoleTemplate("Technical", "Performs technical setup and testing", Map.of(
-            CUSTOMER_VIEW, TEAM, CONTACT_VIEW, TEAM, WORKFLOW_VIEW, ALL,
-            CASE_VIEW, TEAM, MILESTONE_COMPLETE, TEAM,
-            TASK_VIEW, TEAM, TASK_COMPLETE, TEAM, COMMENT_CREATE, TEAM,
-            DOCUMENT_VIEW, TEAM, DOCUMENT_UPLOAD, TEAM)),
+        // Map.ofEntries, not Map.of (Task 5, sub-project 5): the ten Task-11 pairs
+        // already sat exactly at Map.of's ten-pair ceiling, so adding
+        // AGREEMENT_VIEW below crosses it -- converted rather than left broken.
+        // AGREEMENT_VIEW at TEAM (spec 6.3): "Technical, Support | view at TEAM",
+        // matching this template's own CASE_VIEW scope.
+        new RoleTemplate("Technical", "Performs technical setup and testing", Map.ofEntries(
+            entry(CUSTOMER_VIEW, TEAM), entry(CONTACT_VIEW, TEAM), entry(WORKFLOW_VIEW, ALL),
+            entry(CASE_VIEW, TEAM), entry(MILESTONE_COMPLETE, TEAM),
+            entry(TASK_VIEW, TEAM), entry(TASK_COMPLETE, TEAM), entry(COMMENT_CREATE, TEAM),
+            entry(DOCUMENT_VIEW, TEAM), entry(DOCUMENT_UPLOAD, TEAM),
+            entry(AGREEMENT_VIEW, TEAM))),
 
         // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
         // DOCUMENT_VIEW and DOCUMENT_REVIEW both at ALL (Task 11, sub-project 4):
@@ -178,16 +224,22 @@ public final class RoleTemplates {
             entry(CUSTOMER_VIEW, ALL), entry(CONTACT_VIEW, ALL), entry(AUDIT_VIEW, ALL), entry(WORKFLOW_VIEW, ALL),
             entry(CASE_VIEW, ALL), entry(MILESTONE_COMPLETE, ALL),
             entry(TASK_VIEW, ALL), entry(TASK_COMPLETE, ALL), entry(COMMENT_CREATE, ALL),
-            entry(DOCUMENT_VIEW, ALL), entry(DOCUMENT_REVIEW, ALL))),
+            entry(DOCUMENT_VIEW, ALL), entry(DOCUMENT_REVIEW, ALL),
+            // AGREEMENT_VIEW at ALL (Task 5, sub-project 5 spec 6.3): "Finance,
+            // Compliance | view at ALL".
+            entry(AGREEMENT_VIEW, ALL))),
 
         // DOCUMENT_VIEW at TEAM (Task 11, sub-project 4): matches this template's
         // own CASE_VIEW scope. No upload/manage/review/share/request -- design
         // spec 6.2's seeding table does not grant Support any of the other five.
+        // AGREEMENT_VIEW at TEAM (Task 5, sub-project 5 spec 6.3): "Technical,
+        // Support | view at TEAM", matching this template's own CASE_VIEW scope.
+        // Still fits Map.of's ten-pair ceiling exactly (10 pairs).
         new RoleTemplate("Support", "Assists customers post-activation", Map.of(
             CUSTOMER_VIEW, TEAM, CONTACT_VIEW, TEAM, WORKFLOW_VIEW, ALL,
             CASE_VIEW, TEAM, MILESTONE_COMPLETE, TEAM,
             TASK_VIEW, TEAM, TASK_COMPLETE, TEAM, COMMENT_CREATE, TEAM,
-            DOCUMENT_VIEW, TEAM)),
+            DOCUMENT_VIEW, TEAM, AGREEMENT_VIEW, TEAM)),
 
         // Map.ofEntries, not Map.of: this covers the whole 31-permission catalog, and
         // Map.of has no overload beyond 10 key-value pairs.
@@ -252,7 +304,15 @@ public final class RoleTemplates {
             // requires Administrator to cover the whole catalog.
             entry(DOCUMENT_VIEW, ALL), entry(DOCUMENT_UPLOAD, ALL),
             entry(DOCUMENT_MANAGE, ALL), entry(DOCUMENT_REVIEW, ALL),
-            entry(DOCUMENT_SHARE, ALL), entry(DOCUMENT_REQUEST, ALL)))
+            entry(DOCUMENT_SHARE, ALL), entry(DOCUMENT_REQUEST, ALL),
+            // Agreements (Task 5, sub-project 5): all four at ALL, seeded here
+            // purely because RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
+            // requires Administrator to cover the whole catalog -- Legal/Operations/
+            // Project Manager/Account Manager/Finance/Compliance/Technical/Support/
+            // Sales Representative/Service Provider/Business Partner above are what
+            // actually close RoleTemplateCoverageTest for these four keys.
+            entry(AGREEMENT_VIEW, ALL), entry(AGREEMENT_MANAGE, ALL),
+            entry(AGREEMENT_REVIEW, ALL), entry(AGREEMENT_SIGN_RECORD, ALL)))
     );
 
     private RoleTemplates() {}
