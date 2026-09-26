@@ -1,5 +1,7 @@
 package co.ara.onboarding.agreement;
 
+import co.ara.onboarding.audit.AuditActions;
+import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
@@ -26,6 +28,7 @@ import java.io.InputStream;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.HashSet;
@@ -72,13 +75,15 @@ public class AgreementService {
     private final AuthContextProvider contextProvider;
     private final AgreementFiles agreementFiles;
     private final Clock clock;
+    private final AuditRecorder audit;
 
     public AgreementService(AgreementRepository agreements, AgreementSignatoryRepository signatories,
                             AgreementVersionRepository versions, AgreementVersionReviewRepository versionReviews,
                             AgreementSignatureRepository signatures, CustomerRepository customers,
                             CustomerContactRepository contacts, AppUserRepository users,
                             AuthorizedQuery authorizedQuery, AgreementWrites writes,
-                            AuthContextProvider contextProvider, AgreementFiles agreementFiles, Clock clock) {
+                            AuthContextProvider contextProvider, AgreementFiles agreementFiles, Clock clock,
+                            AuditRecorder audit) {
         this.agreements = agreements;
         this.signatories = signatories;
         this.versions = versions;
@@ -92,6 +97,7 @@ public class AgreementService {
         this.contextProvider = contextProvider;
         this.agreementFiles = agreementFiles;
         this.clock = clock;
+        this.audit = audit;
     }
 
     /**
@@ -364,6 +370,92 @@ public class AgreementService {
         a.setUpdatedAt(Instant.now(clock));
         agreements.saveAndFlush(a);
         return get(id);
+    }
+
+    /**
+     * Freezes the current draft into an immutable, hashed {@link AgreementVersion} and
+     * moves the agreement to UNDER_REVIEW (Task 13; spec sections 4.4.1/5.3). Every
+     * submission-readiness rule is collected into one list before anything is written,
+     * so a caller sees every problem at once rather than fixing them one 400 at a time:
+     *
+     * <ul>
+     *   <li>at least one signatory (Review Focus 5);</li>
+     *   <li>every CONTACT signatory's contact still ACTIVE, every INTERNAL signatory's
+     *       user still ACTIVE -- a signatory can be added and then retired/deactivated
+     *       without ever touching this agreement again, so this is re-checked at submit,
+     *       not just at {@link #replaceSignatories} time (Review Focus 5);</li>
+     *   <li>a record mode that {@link co.ara.onboarding.workflow.AgreementRecordMode#includesFile()}
+     *       has a file;</li>
+     *   <li>a record mode other than FILE_BACKED has an effective date (FILE_BACKED's own
+     *       file carries its own dates; the other two modes need one to derive expiry/renewal
+     *       against);</li>
+     *   <li>an expiry date, when present, is after the effective date.</li>
+     * </ul>
+     *
+     * <p>The frozen snapshot and its {@code contentSha256} are computed the same way for
+     * every later version too -- {@link AgreementContentHasher} is the one place that
+     * happens, over an {@link AgreementSnapshot} of the agreement's own fields and its
+     * current signatory list, plus the current file's own digest when the mode carries one.
+     * {@code submittedBy} is the actor who ran THIS call; {@code lastEditedBy} is copied
+     * from the agreement's own field, which may well be a different person -- the two are
+     * deliberately never conflated.
+     */
+    @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
+    @Transactional
+    public AgreementDetailView submit(UUID id, long lockVersion) {
+        Agreement a = writes.loadForWrite(id, PermissionKeys.AGREEMENT_MANAGE, lockVersion,
+                EnumSet.of(AgreementStatus.DRAFT));
+        List<AgreementSignatory> parties = signatories.ofAgreement(a.getId());
+
+        List<String> problems = new ArrayList<>();
+        if (parties.isEmpty()) problems.add("an agreement needs at least one signatory");
+        for (AgreementSignatory s : parties) {
+            if (s.getKind() == SignatoryKind.CONTACT
+                    && signatories.contactStatusOf(s.getContactId()) != ContactStatus.ACTIVE) {
+                problems.add("signatory '" + s.getDisplayRole() + "' is a contact who is no longer active");
+            }
+            if (s.getKind() == SignatoryKind.INTERNAL
+                    && signatories.userStatusOf(s.getUserId()) != UserStatus.ACTIVE) {
+                problems.add("signatory '" + s.getDisplayRole() + "' is a user who is no longer active");
+            }
+        }
+        if (a.getRecordMode().includesFile() && a.getDocumentId() == null) problems.add("this record mode needs a file");
+        if (a.getRecordMode() != AgreementRecordMode.FILE_BACKED && a.getEffectiveDate() == null) {
+            problems.add("an effective date is required");
+        }
+        if (a.getEffectiveDate() != null && a.getExpiresAt() != null && !a.getExpiresAt().isAfter(a.getEffectiveDate())) {
+            problems.add("the expiry date must be after the effective date");
+        }
+        if (!problems.isEmpty()) throw new IllegalArgumentException("Cannot submit: " + String.join("; ", problems));
+
+        OwnedFile file = a.getRecordMode().includesFile() ? agreementFiles.currentVersion(a.getDocumentId()) : null;
+        AgreementSnapshot snapshot = snapshotOf(a, parties);
+        String contentSha = AgreementContentHasher.contentSha256(snapshot, file == null ? null : file.sha256());
+        UUID actor = contextProvider.current().userId();
+        Instant now = Instant.now(clock);
+
+        AgreementVersion v = new AgreementVersion(Uuid7.generate(), a.getTenantId(), a.getId(),
+                versions.maxVersionNumber(a.getId()) + 1, a.getRecordMode(), actor, now, a.getLastEditedBy(),
+                AgreementContentHasher.canonicalJson(snapshot),
+                file == null ? null : file.documentVersionId(), file == null ? null : file.sha256(), contentSha);
+        versions.saveAndFlush(v);
+
+        a.setStatus(AgreementStatus.UNDER_REVIEW);
+        a.setUpdatedAt(now);
+        agreements.saveAndFlush(a);
+
+        audit.record(AuditActions.AGREEMENT_SUBMITTED, "onboarding_case", a.getCaseId(),
+                "Submitted " + a.getName() + " v" + v.getVersionNumber() + " for review",
+                Map.of("agreementId", a.getId().toString(), "versionNumber", Integer.toString(v.getVersionNumber()),
+                       "contentSha256", contentSha));
+        return get(a.getId());
+    }
+
+    private static AgreementSnapshot snapshotOf(Agreement a, List<AgreementSignatory> parties) {
+        return new AgreementSnapshot(a.getName(), a.getRecordMode(), a.getEffectiveDate(), a.getExpiresAt(),
+                a.getRenewalDate(), a.getNoticePeriodDays(),
+                parties.stream().map(s -> new AgreementSnapshot.SignatorySnapshot(s.getId(), s.getKind(),
+                        s.getContactId(), s.getUserId(), s.getDisplayRole(), s.getSortOrder())).toList());
     }
 
     /** Spec 8: the lifecycle summary tile. Six independently scope-respecting counts, none of them a page. */

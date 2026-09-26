@@ -51,10 +51,12 @@ public class AgreementFiles {
     private final StageWriteScopeGuard writeScope;
     private final AuthContextProvider contextProvider;
     private final DocumentContentWriter writer;
+    private final DocumentVersionRepository versions;
 
     public AgreementFiles(DocumentRepository documents, CaseRepository cases, StageRepository stages,
                           AuthorizedQuery authorizedQuery, StageWriteScopeGuard writeScope,
-                          AuthContextProvider contextProvider, DocumentContentWriter writer) {
+                          AuthContextProvider contextProvider, DocumentContentWriter writer,
+                          DocumentVersionRepository versions) {
         this.documents = documents;
         this.cases = cases;
         this.stages = stages;
@@ -62,6 +64,7 @@ public class AgreementFiles {
         this.writeScope = writeScope;
         this.contextProvider = contextProvider;
         this.writer = writer;
+        this.versions = versions;
     }
 
     /**
@@ -113,6 +116,21 @@ public class AgreementFiles {
         Document d = ownedDocument(documentId, PermissionKeys.AGREEMENT_MANAGE);
         d.setVisibilityTier(tier);
         documents.saveAndFlush(d);
+    }
+
+    /**
+     * The current (highest-numbered) version of an agreement's own document, for
+     * {@code AgreementService.submit} to freeze onto its new {@code AgreementVersion}
+     * row -- gated on {@code agreement.manage} like every other write here, since
+     * submit is itself a draft-editing write until the moment it flips status.
+     */
+    @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
+    public OwnedFile currentVersion(UUID documentId) {
+        Document d = ownedDocument(documentId, PermissionKeys.AGREEMENT_MANAGE);
+        int versionNo = versions.maxVersionNo(d.getId());
+        DocumentVersion v = versions.versionAt(d.getId(), versionNo)
+                .orElseThrow(() -> new NoSuchElementException("Not found"));
+        return new OwnedFile(d.getId(), v.getId(), v.getVersionNo(), v.getSha256());
     }
 
     private OwnedFile append(UUID documentId, String permission, InputStream content, long sizeBytes) {

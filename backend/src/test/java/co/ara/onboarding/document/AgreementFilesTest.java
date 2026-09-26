@@ -283,6 +283,47 @@ class AgreementFilesTest extends PostgresTestBase {
     }
 
     @Test
+    void currentVersionReturnsTheLatestVersionAndItsSha256() throws Exception {
+        UUID tenant = fixture.createTenant("agr-files-current-version-" + Uuid7.generate());
+        var actor = new UUID[1];
+        var caseId = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = journey.newCase(tenant).getId();
+            actor[0] = fixture.createUser(tenant, "agr-current+" + Uuid7.generate() + "@example.com");
+            grant(actor[0], Map.of(PermissionKeys.AGREEMENT_MANAGE, Scope.ALL));
+        });
+
+        AtomicReference<OwnedFile> created = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () -> created.set(agreementFiles.createOwnedDocument(
+                caseId[0], "Agreement", new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length)));
+
+        String expectedSha256 = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256").digest(PDF_BYTES));
+
+        AtomicReference<OwnedFile> current = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () ->
+                current.set(agreementFiles.currentVersion(created.get().documentId())));
+
+        assertThat(current.get().documentId()).isEqualTo(created.get().documentId());
+        assertThat(current.get().documentVersionId()).isEqualTo(created.get().documentVersionId());
+        assertThat(current.get().versionNumber()).isEqualTo(1);
+        assertThat(current.get().sha256()).isEqualTo(expectedSha256);
+
+        // A second version -- currentVersion must now report version 2, not the first.
+        AtomicReference<OwnedFile> versioned = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () -> versioned.set(agreementFiles.addDraftVersion(
+                created.get().documentId(), new ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length)));
+
+        AtomicReference<OwnedFile> currentAfter = new AtomicReference<>();
+        fixture.runAsUser(tenant, actor[0], () ->
+                currentAfter.set(agreementFiles.currentVersion(created.get().documentId())));
+
+        assertThat(currentAfter.get().versionNumber()).isEqualTo(2);
+        assertThat(currentAfter.get().documentVersionId()).isEqualTo(versioned.get().documentVersionId());
+        assertThat(currentAfter.get().sha256()).isEqualTo(expectedSha256);
+    }
+
+    @Test
     void addCountersignedVersionNeedsSignRecordNotManage() {
         UUID tenant = fixture.createTenant("agr-files-sign-record-" + Uuid7.generate());
         var manager = new UUID[1];
