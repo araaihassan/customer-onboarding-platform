@@ -1,23 +1,34 @@
 package co.ara.onboarding.agreement;
 
+import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.customer.ContactStatus;
 import co.ara.onboarding.customer.Customer;
 import co.ara.onboarding.customer.CustomerContact;
 import co.ara.onboarding.customer.CustomerContactRepository;
 import co.ara.onboarding.customer.CustomerRepository;
+import co.ara.onboarding.document.AgreementFiles;
+import co.ara.onboarding.document.OwnedFile;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
+import co.ara.onboarding.identity.UserStatus;
+import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.workflow.AgreementRecordMode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.InputStream;
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Comparator;
+import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -28,8 +39,9 @@ import java.util.stream.Stream;
 
 /**
  * Read paths, the derived {@link AgreementDisplayStatus} and the lifecycle
- * summary (spec sections 5.7, 8). No write method lives here yet -- Task 12
- * onward add submit/review/send/sign/cancel to this same class.
+ * summary (spec sections 5.7, 8), plus the draft-editing writes Task 12 adds:
+ * {@link #patch}, {@link #replaceSignatories}, {@link #uploadDraftFile}. Later
+ * tasks add submit/review/send/sign/cancel to this same class.
  *
  * <p>Display names -- a signatory's contact or user name, and an agreement's
  * customer name -- are resolved best-effort through {@link AuthorizedQuery}
@@ -56,13 +68,17 @@ public class AgreementService {
     private final CustomerContactRepository contacts;
     private final AppUserRepository users;
     private final AuthorizedQuery authorizedQuery;
+    private final AgreementWrites writes;
+    private final AuthContextProvider contextProvider;
+    private final AgreementFiles agreementFiles;
     private final Clock clock;
 
     public AgreementService(AgreementRepository agreements, AgreementSignatoryRepository signatories,
                             AgreementVersionRepository versions, AgreementVersionReviewRepository versionReviews,
                             AgreementSignatureRepository signatures, CustomerRepository customers,
                             CustomerContactRepository contacts, AppUserRepository users,
-                            AuthorizedQuery authorizedQuery, Clock clock) {
+                            AuthorizedQuery authorizedQuery, AgreementWrites writes,
+                            AuthContextProvider contextProvider, AgreementFiles agreementFiles, Clock clock) {
         this.agreements = agreements;
         this.signatories = signatories;
         this.versions = versions;
@@ -72,6 +88,9 @@ public class AgreementService {
         this.contacts = contacts;
         this.users = users;
         this.authorizedQuery = authorizedQuery;
+        this.writes = writes;
+        this.contextProvider = contextProvider;
+        this.agreementFiles = agreementFiles;
         this.clock = clock;
     }
 
@@ -144,6 +163,207 @@ public class AgreementService {
         List<AgreementSignatureView> signatureViews = signatureRows.stream().map(this::toSignatureView).toList();
 
         return new AgreementDetailView(toView(a), signatoryViews, versionViews, signatureViews);
+    }
+
+    /**
+     * A DRAFT-only partial update of an agreement's own fields (Task 12; spec sections
+     * 5.2/5.4). Every field is optional and, when supplied, overwrites the current value;
+     * a field named in {@code clear} is set back to {@code null} instead -- {@code
+     * PatchAgreementRequest}'s own javadoc names why dates specifically need this, unlike
+     * {@code document.PatchDocumentRequest}'s plain "absent means unchanged" contract. A
+     * field both supplied (non-null) and named in {@code clear} is refused as a 400
+     * ({@link IllegalArgumentException}) before anything is written.
+     *
+     * <p>{@link AgreementWrites#loadForWrite} does the rest of the prologue: resolves
+     * {@code id} through {@code AuthorizedQuery} under {@code agreement.manage}, refuses a
+     * stale {@code lockVersion} as a 409, refuses any status but DRAFT as a 409, and
+     * narrows on top with the SIGNATURE requirement's own stage write scope.
+     *
+     * <p>No audit action is recorded here -- {@code agreement.submitted} records the
+     * frozen result of however many drafts edits led up to it; a draft edit itself is not
+     * itself a business event worth its own row (the same reasoning {@code
+     * document.DocumentContentWriter}'s own draft-version path gives for uploads before
+     * submission).
+     */
+    @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
+    @Transactional
+    public AgreementDetailView patch(UUID id, PatchAgreementRequest request) {
+        Agreement a = writes.loadForWrite(id, PermissionKeys.AGREEMENT_MANAGE, request.lockVersion(),
+                EnumSet.of(AgreementStatus.DRAFT));
+
+        Set<ClearableAgreementField> clear = request.clear() == null ? Set.of() : request.clear();
+        if (request.effectiveDate() != null && clear.contains(ClearableAgreementField.EFFECTIVE_DATE)) {
+            throw new IllegalArgumentException("effectiveDate cannot be both supplied and cleared");
+        }
+        if (request.expiresAt() != null && clear.contains(ClearableAgreementField.EXPIRES_AT)) {
+            throw new IllegalArgumentException("expiresAt cannot be both supplied and cleared");
+        }
+        if (request.renewalDate() != null && clear.contains(ClearableAgreementField.RENEWAL_DATE)) {
+            throw new IllegalArgumentException("renewalDate cannot be both supplied and cleared");
+        }
+        if (request.noticePeriodDays() != null && clear.contains(ClearableAgreementField.NOTICE_PERIOD_DAYS)) {
+            throw new IllegalArgumentException("noticePeriodDays cannot be both supplied and cleared");
+        }
+
+        if (request.name() != null) a.setName(request.name());
+        if (request.effectiveDate() != null) a.setEffectiveDate(request.effectiveDate());
+        if (request.expiresAt() != null) a.setExpiresAt(request.expiresAt());
+        if (request.renewalDate() != null) a.setRenewalDate(request.renewalDate());
+        if (request.noticePeriodDays() != null) a.setNoticePeriodDays(request.noticePeriodDays());
+
+        if (clear.contains(ClearableAgreementField.EFFECTIVE_DATE)) a.setEffectiveDate(null);
+        if (clear.contains(ClearableAgreementField.EXPIRES_AT)) a.setExpiresAt(null);
+        if (clear.contains(ClearableAgreementField.RENEWAL_DATE)) a.setRenewalDate(null);
+        if (clear.contains(ClearableAgreementField.NOTICE_PERIOD_DAYS)) a.setNoticePeriodDays(null);
+
+        a.setLastEditedBy(contextProvider.current().userId());
+        a.setUpdatedAt(Instant.now(clock));
+        agreements.saveAndFlush(a);
+        return get(id);
+    }
+
+    /**
+     * Replaces a DRAFT agreement's whole signatory list, in order (Task 12; spec section
+     * 4.3/5.2). Every id in the request -- {@code contactId}/{@code userId} on each row
+     * -- is resolved before anything is written: duplicate {@code contactId}s or {@code
+     * userId}s across the list, and a row whose {@code kind} disagrees with which id it
+     * carries, are refused as a 400 up front, never surfaced as a raw database constraint
+     * violation. Only once every row resolves does this clear the agreement's existing
+     * signatories and insert the new list, {@code sortOrder} taken from list position.
+     *
+     * <p>A {@code CONTACT} row must resolve through {@code contact.view} to a contact
+     * belonging to the SAME customer as the agreement -- a contact that exists and is
+     * visible but belongs to a different customer is refused as a 404 ({@link
+     * NoSuchElementException}), deliberately NOT the 400 {@code
+     * document.DocumentRequestService#resolveContact} gives an equivalent cross-customer
+     * mismatch: a party of another customer is simply not a valid party here, the same
+     * "not found" a genuinely out-of-scope or nonexistent contact already gets. Only once
+     * the customer match is confirmed is the contact's own {@code status} checked -- a
+     * retired (INACTIVE) contact of the RIGHT customer is refused as a 400 ({@link
+     * IllegalArgumentException}), a state check on a record already known to belong here,
+     * not a cross-reference between two records.
+     *
+     * <p>An {@code INTERNAL} row must resolve through {@code user.view} to an ACTIVE
+     * {@code AppUser} -- an out-of-scope or nonexistent user is the usual 404; a resolved
+     * but non-ACTIVE one is a 400.
+     */
+    @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
+    @Transactional
+    public AgreementDetailView replaceSignatories(UUID id, ReplaceSignatoriesRequest request) {
+        Agreement a = writes.loadForWrite(id, PermissionKeys.AGREEMENT_MANAGE, request.lockVersion(),
+                EnumSet.of(AgreementStatus.DRAFT));
+
+        Set<UUID> seenContactIds = new HashSet<>();
+        Set<UUID> seenUserIds = new HashSet<>();
+        for (SignatoryRequest s : request.signatories()) {
+            switch (s.kind()) {
+                case CONTACT -> {
+                    if (s.contactId() == null || s.userId() != null) {
+                        throw new IllegalArgumentException(
+                                "A CONTACT signatory must carry a contactId and no userId");
+                    }
+                    if (!seenContactIds.add(s.contactId())) {
+                        throw new IllegalArgumentException(
+                                "Contact " + s.contactId() + " is named as a signatory more than once");
+                    }
+                }
+                case INTERNAL -> {
+                    if (s.userId() == null || s.contactId() != null) {
+                        throw new IllegalArgumentException(
+                                "An INTERNAL signatory must carry a userId and no contactId");
+                    }
+                    if (!seenUserIds.add(s.userId())) {
+                        throw new IllegalArgumentException(
+                                "User " + s.userId() + " is named as a signatory more than once");
+                    }
+                }
+            }
+        }
+
+        List<AgreementSignatory> resolved = request.signatories().stream()
+                .map(s -> resolveSignatory(s, a))
+                .toList();
+
+        signatories.clearFor(a.getId());
+        int sortOrder = 0;
+        for (AgreementSignatory s : resolved) {
+            s.setSortOrder(sortOrder++);
+            signatories.saveAndFlush(s);
+        }
+
+        a.setLastEditedBy(contextProvider.current().userId());
+        a.setUpdatedAt(Instant.now(clock));
+        agreements.saveAndFlush(a);
+        return get(id);
+    }
+
+    private AgreementSignatory resolveSignatory(SignatoryRequest s, Agreement a) {
+        AgreementSignatory row = new AgreementSignatory();
+        row.setId(Uuid7.generate());
+        row.setTenantId(a.getTenantId());
+        row.setAgreementId(a.getId());
+        row.setKind(s.kind());
+        row.setDisplayRole(s.displayRole());
+
+        switch (s.kind()) {
+            case CONTACT -> {
+                CustomerContact contact = authorizedQuery.getById(
+                        contacts, CustomerContact.class, PermissionKeys.CONTACT_VIEW, s.contactId());
+                if (!contact.getCustomerId().equals(a.getCustomerId())) {
+                    throw new NoSuchElementException("Not found");
+                }
+                if (contact.getStatus() != ContactStatus.ACTIVE) {
+                    throw new IllegalArgumentException(
+                            "Contact " + contact.getId() + " is retired and cannot be a signatory");
+                }
+                row.setContactId(contact.getId());
+            }
+            case INTERNAL -> {
+                AppUser user = authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, s.userId());
+                if (user.getStatus() != UserStatus.ACTIVE) {
+                    throw new IllegalArgumentException(
+                            "User " + user.getId() + " is not active and cannot be a signatory");
+                }
+                row.setUserId(user.getId());
+            }
+        }
+        return row;
+    }
+
+    /**
+     * Adds the agreement's first draft file, or a further revision of it (Task 12; spec
+     * sections 4.4/5.2). The first upload creates the owned SENSITIVE document ({@link
+     * AgreementFiles#createOwnedDocument}) and stores its id; every later upload appends a
+     * version to that same document ({@link AgreementFiles#addDraftVersion}). Whichever
+     * version is current when the agreement is later submitted is the one Task 13's submit
+     * freezes -- this method itself does no freezing.
+     *
+     * <p>Refused as a 409 ({@link IllegalStateException}) on a {@code STRUCTURED_ONLY}
+     * agreement -- that record mode has no file at all (spec 4.1); {@code
+     * AgreementRecordMode#includesFile} names the same distinction.
+     */
+    @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
+    @Transactional
+    public AgreementDetailView uploadDraftFile(UUID id, long lockVersion, InputStream content, long sizeBytes) {
+        Agreement a = writes.loadForWrite(id, PermissionKeys.AGREEMENT_MANAGE, lockVersion,
+                EnumSet.of(AgreementStatus.DRAFT));
+
+        if (a.getRecordMode() == AgreementRecordMode.STRUCTURED_ONLY) {
+            throw new IllegalStateException(
+                    "Agreement " + id + " is STRUCTURED_ONLY and cannot take a file");
+        }
+
+        if (a.getDocumentId() == null) {
+            OwnedFile f = agreementFiles.createOwnedDocument(a.getCaseId(), a.getName(), content, sizeBytes);
+            a.setDocumentId(f.documentId());
+        } else {
+            agreementFiles.addDraftVersion(a.getDocumentId(), content, sizeBytes);
+        }
+
+        a.setLastEditedBy(contextProvider.current().userId());
+        a.setUpdatedAt(Instant.now(clock));
+        agreements.saveAndFlush(a);
+        return get(id);
     }
 
     /** Spec 8: the lifecycle summary tile. Six independently scope-respecting counts, none of them a page. */
