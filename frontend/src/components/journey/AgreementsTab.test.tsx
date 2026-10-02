@@ -13,6 +13,8 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(search),
 }));
 
+vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions: { "agreement.manage": ["ALL"] } }) }));
+
 afterEach(cleanup);
 
 const fetchMock = vi.fn();
@@ -127,11 +129,11 @@ describe("AgreementsTab", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /try again/i })).not.toBeNull());
   });
 
-  it("Open sets ?agreement={id} and the detail slot appears when the param is present", async () => {
+  it("Open sets ?agreement={id} and the detail panel appears when the param is present", async () => {
     fetchMock.mockResolvedValue(reply([signed]));
     const first = renderTab();
     await waitFor(() => expect(screen.getByText("Master Services Agreement")).not.toBeNull());
-    expect(screen.queryByTestId("agreement-detail-slot")).toBeNull();
+    expect(screen.queryByRole("region", { name: "Agreement detail" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
     expect(replace).toHaveBeenCalledWith(expect.stringContaining("agreement=a-1"));
     expect(replace).toHaveBeenCalledWith(expect.stringContaining("tab=agreements"));
@@ -139,7 +141,24 @@ describe("AgreementsTab", () => {
     cleanup();
 
     search = "tab=agreements&agreement=a-1";
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(url.endsWith("/agreements/a-1") ? reply({ agreement: signed, signatories: [], versions: [], signatures: [] }) : reply([signed])),
+    );
     renderTab();
-    await waitFor(() => expect(screen.getByTestId("agreement-detail-slot").getAttribute("data-agreement-id")).toBe("a-1"));
+    const panel = await screen.findByRole("region", { name: "Agreement detail" });
+    expect(panel.getAttribute("data-agreement-id")).toBe("a-1");
+    await waitFor(() => expect(within(panel).getByRole("heading", { name: "Master Services Agreement" })).not.toBeNull());
+  });
+
+  it("closing the detail panel removes ?agreement= from the URL", async () => {
+    search = "tab=agreements&agreement=a-1";
+    fetchMock.mockImplementation((url: string) =>
+      Promise.resolve(url.endsWith("/agreements/a-1") ? reply({ agreement: signed, signatories: [], versions: [], signatures: [] }) : reply([signed])),
+    );
+    renderTab();
+    fireEvent.click(await screen.findByRole("button", { name: "Close agreement detail" }));
+    const target = replace.mock.calls[0]![0] as string;
+    expect(target).toContain("tab=agreements");
+    expect(target).not.toContain("agreement=a-1");
   });
 });

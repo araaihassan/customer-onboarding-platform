@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FileSignatureIcon } from "@/components/icons";
+import { AgreementDetailPanel } from "@/components/agreements/AgreementDetailPanel";
 import { AgreementRow } from "@/components/agreements/AgreementRow";
 import { EmptyState, ErrorState, SkeletonRows } from "@/components/ui/States";
 import { useCaseAgreements } from "@/lib/api/agreements";
@@ -11,7 +12,7 @@ import { t } from "@/lib/i18n";
 /**
  * The case workspace's Agreements tab (Task 24): live agreements as rows, cancelled ones collapsed
  * under "Replaced (n)". A cancelled agreement's successor draft is a separate, live row. `?agreement={id}`
- * (also the roadmap chip's deep link) marks the detail slot that Task 25 fills. `now` is injectable so
+ * (also the roadmap chip's deep link) mounts the detail panel. `now` is injectable so
  * the "Expires in Nd" cue is testable.
  */
 export function AgreementsTab({ caseId, now }: { caseId: string; now?: Date }) {
@@ -30,6 +31,13 @@ export function AgreementsTab({ caseId, now }: { caseId: string; now?: Date }) {
     const next = new URLSearchParams(params.toString());
     next.set("tab", "agreements");
     next.set("agreement", id);
+    router.replace(`${pathname}?${next.toString()}`);
+  }
+
+  function close() {
+    const next = new URLSearchParams(params.toString());
+    next.delete("agreement");
+    next.set("tab", "agreements");
     router.replace(`${pathname}?${next.toString()}`);
   }
 
@@ -67,10 +75,7 @@ export function AgreementsTab({ caseId, now }: { caseId: string; now?: Date }) {
         </details>
       )}
 
-      {openId && (
-        // Placeholder: Task 25 renders the agreement detail panel here.
-        <div data-testid="agreement-detail-slot" data-agreement-id={openId} aria-label={t("agreements.tab.detailSlot")} />
-      )}
+      {openId && <AgreementDetailPanel key={openId} id={openId} onClose={close} />}
     </div>
   );
 }
