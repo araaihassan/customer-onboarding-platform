@@ -110,10 +110,43 @@ visibility cell, and a documented, bounded aggregate-disclosure exception for it
 count — the codebase's second such exception after the audit timeline read), the case workspace
 Documents tab, and upload/request/review dialogs.
 
+**Sub-project 5 delivered:** the `agreement` module — a customer's contract tracked as a record in
+one of three modes (`FILE_BACKED`, `STRUCTURED_PLUS_FILE`, `STRUCTURED_ONLY`, `workflow.AgreementRecordMode`)
+with immutable, content-hashed versions. Every version goes through a mandatory four-eyes review,
+enforced in the service: the submitter, the reviewer and the last editor must be three different
+people. Approval moves the agreement to `APPROVED`; `send` goes through the `SignatureProvider`
+interface, whose only implementation is `ManualSignatureProvider`; staff then record each signature
+by hand, each citing the **sent** version's content sha256; the last one satisfies the `SIGNATURE`
+requirement through `journey.RequirementService.satisfy`. Cancel-and-replace is the only way to
+change a sent agreement. `EXPIRED` is derived on read, never stored. Each `SIGNATURE` requirement
+auto-instantiates one agreement at case creation and after a migration, through the
+`journey.AgreementLifecycle` port (`agreement.AgreementLifecycleAdapter`, the `TaskLifecycle`
+precedent). The `document.AgreementFiles` facade is the only way `agreement` touches a file: the
+owned document is created `SENSITIVE` and retiered `COMPANY_SHARED` at send. The final whole-branch
+review added three fixes, all in the code: the operator agreement reads (`AgreementService.list/
+forCase/get/summary`) 404 a portal actor, who reads through `/portal/agreements` and
+`/portal/agreements/{id}` (`PortalAgreementService`) instead; `document.agreement_owned`
+(`V26__agreement_owned_document.sql`) makes the file writable only through its agreement — the
+general document API's `addVersion`/`patch`/`retire`/`share`/`link` refuse it with a 409
+(`DocumentService.refuseAgreementOwned`); and `document.portal_min_version_no` (same migration)
+hides every version before the sent one from a portal actor. `scoping.AgreementAudienceFilter` is
+the second `AudienceFilter` (after `DocumentAudienceFilter`): a portal actor sees only their own
+customer's agreements, from `SENT` onward. Roles (`authz/RoleTemplates.java`): Account Manager holds
+`agreement.view`/`manage` at TEAM and **no** `sign_record` (recording a signature calls `satisfy`,
+which needs `milestone.complete`, which that template lacks); Project Manager adds `sign_record` at
+TEAM; Operations holds all three at DEPARTMENT; Legal holds `view` and `review` at ALL; Finance and
+Compliance `view` at ALL; Technical and Support `view` at TEAM; Sales Representative, Service Provider
+and Business Partner `view` at ASSIGNED; Administrator all four at ALL. Frontend: the `SIGNATURE`
+requirement's record mode and agreement name in the builder (with a roadmap chip linking the
+agreement), the case workspace Agreements tab (`AgreementsTab.tsx`: detail panel, draft editing,
+lifecycle actions, a visible note instead of a missing review button when the viewer submitted or last edited the version), and the tenant-wide `agreements`
+screen with its sidebar entry. **No portal UI** — the portal endpoints exist and are tested, the
+screen is sub-project 7's.
+
 **Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
 `docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
 Collaboration → **3A Programmes & Customer-Scoped Plans** → 4 Documents → **4A Meetings (needs 4)** →
-5 Agreements (needs 4) → 6 Notifications, SLA & Escalation (2, 3) → 7 Customer Portal (2, 4, 5, 3A) →
+5 Agreements (needs 4; delivered) → 6 Notifications, SLA & Escalation (2, 3) → 7 Customer Portal (2, 4, 5, 3A) →
 8 Dashboards & Real-time (2–6, 3A) → 9 Reporting & Analytics (2–6) → 10 Packaging & Deploy.
 Sub-projects 2–9 each add one module in the shape of sub-project 1's Tasks
 20–21: entity with `tenant_id`, migration calling `enable_tenant_rls`, a
@@ -578,6 +611,42 @@ Verified: backend 831 tests (830 baseline + 1 new roundtrip proof for the roadma
 failures; frontend 654 tests (644 baseline + 10 new), 0 failures; `tsc`/lint clean. Commit `12800b6`
 on `feat/documents` (PR #16, not yet merged).
 
+**Open at the close of sub-project 5** (spec §11.1's cross-check plus what the final whole-branch
+review parked; real gaps, none fixed here):
+
+- **`MigrationService` calls no lifecycle port for `DOCUMENT`/`TASK` requirements a migration
+  introduces** (spec §11.1) — they get no request/task. Sub-project 5 closed the equivalent for
+  `SIGNATURE` only, via `AgreementLifecycle`.
+- **The generic `POST .../requirements/{rid}/satisfy` has no kind check.** A `SIGNATURE` requirement
+  (and, pre-existing, `TASK`/`DOCUMENT`) can be checked off ref-less by any `milestone.complete` holder,
+  bypassing four-eyes review and signing entirely.
+- **`DocumentRequestService.fulfil` and `DocumentReviewService.review` still accept an
+  agreement-owned document**, so the agreement's file can satisfy or reopen an unrelated `DOCUMENT`
+  requirement (no bytes or visibility change, no portal reach). Fix: one `refuseAgreementOwned` call
+  in each plus a 409 test each.
+- **`MigrationService` leaves a live agreement on a `SIGNATURE` requirement the migration drops or
+  changes the kind of.**
+- **A held case rolls back the final signature entirely** — `RequirementService.satisfy` throws
+  `CaseOnHoldException` on an `ON_HOLD` case, which aborts the signature insert in the same transaction.
+- **`lockVersion` is a primitive `long` on the agreement write bodies** (`LockVersionRequest`,
+  `CancelAgreementRequest`, `RecordSignatureRequest`, `ReviewAgreementRequest`, `PatchAgreementRequest`,
+  `ReplaceSignatoriesRequest`): omitted binds to 0, so
+  a non-UI caller silently passes on a never-edited (v0) agreement. Fix is `@NotNull Long`, which
+  ripples into the generated TS types.
+- **`AgreementView` has no `sentAt`/`ownerName`**, so the `agreements` screen shows no "sent D Mon"
+  and a blank owner beyond the first 25 users — a ruled, accepted deviation from SCREENS §8.
+- **A portal actor can still read `DocumentView.currentVersionNumber` via `GET /documents/{id}`**
+  (the existing actor-type gap above), and `DocumentView` lacks `agreementOwned`, so the docs index
+  offers edit/retire/share on an agreement's file and then 409s.
+- **`V26`'s backfill `UPDATE`s rely on the Flyway owner bypassing `FORCE ROW LEVEL SECURITY`** (as
+  `V15` does); no test runs them against existing agreement rows.
+- **Dead or test-only code:** `Scope.atLeastAsBroad`, and `AgreementRepository.findByCaseId` (used
+  only by `CauseBeforeEffectTest`).
+- **The real OpenSign integration is still deferred** — see "What sub-project 5 inherits".
+
+TEAM-scoped user creation, the builder's attribute/entry-condition UI and the audit-timeline read
+carve-out are all still open and untouched by this sub-project's path.
+
 ### Tests
 
 ```bash
@@ -754,6 +823,26 @@ page has no upload affordance, and any document it lists is already narrowed by
 `DocumentAudienceFilter`'s own portal branch), but it is the frontend-navigation sibling of the
 already-recorded `GET /documents`/`GET /documents/{id}` actor-type blindness gap above — caught only
 because an unrelated, pre-existing spec happened to assert the portal rail's exact contents.
+
+**Sub-project 5 close-out, 2026-10-02** (Task 29) — all four suites ran green: backend `cleanTest
+test` reported 1005 tests, 0 failures/errors/skipped at the pre-fix verification pass, and the
+eight packages the final fix wave touched re-ran green afterwards (agreement 149, document 174,
+security 83, architecture 20, journey 154, scoping 26, workflow 64, authz 47); `npx vitest run`
+reported 99 files / 765 tests; `npx tsc --noEmit` was clean; lint reported 0 errors (the same 2
+pre-existing warnings); and `npx playwright test` passed 50 of 50, `agreements.spec.ts`'s 4 tests
+included. **Environment note:** on this 8 GB machine a single monolithic `cleanTest test` is
+OS-killed for low memory before any class finishes; run it per package, `.\gradlew.bat cleanTest test
+--max-workers=1 --tests "co.ara.onboarding.<package>.*"`, and read each group's totals from
+`build/test-results/test/*.xml`. On this host the `onboarding-db` container is also mapped to port
+5434 (5432 is a different native Postgres), and the e2e scratch database must be created by hand
+before `DB_URL=jdbc:postgresql://localhost:5434/<scratch>` is used. **The final whole-branch review
+found three Important defects every per-task review had passed** — portal actors could read the
+full operator `AgreementDetailView` (reviewer, decision, reason, `recordedBy`), the agreement's file
+was writable through the general document API (swap bytes after approval, defeating four-eyes), and
+the portal could download every pre-sent draft version — all fixed (see "delivered"). Per-task
+reviews checked each task against its own brief; the cross-module write paths (the general
+document API) and cross-actor reads (a portal actor on operator routes) were visible only
+whole-branch, so run a whole-branch security review before closing a sub-project.
 
 API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
 during `:test`; `./gradlew openApiSpec` is the wrapper that produces it and says where it is. `npm run
@@ -1078,6 +1167,52 @@ files, 644 tests) and the fourteen-spec Playwright suite (`documents.spec.ts` an
 `document-requests.spec.ts` included) all ran green in the same pass, so none of the ten had
 regressed by the time the plan finished.
 
+**Sub-project 5's own ten** (design spec §10's cross-check; a change breaking one of these is a
+change to the design, not an implementation detail):
+
+- `journey` and `document` never import an `agreement` type; both dependencies are one-way, and
+  `journey` reaches agreements only through `AgreementLifecycle`.
+- Agreements add no new caller of `CaseEngine.reconcile` — satisfaction goes through the existing
+  gated `RequirementService.satisfy`.
+- A cancelled agreement never satisfies or waives its requirement.
+- At most one live (non-`CANCELLED`) agreement exists per requirement — a partial unique index.
+- `agreement_version`, `agreement_version_review` and `agreement_signature` are append-only at the
+  database layer, the same `GRANT SELECT, INSERT` shape as `audit_event`.
+- Every signature cites the sent version's `content_sha256`, copied at record time.
+- Four-eyes review is enforced server-side: the submitter and the version's last editor can never
+  approve it.
+- A portal actor sees only their own customer's agreements, from `SENT` onward, and the file only
+  while the agreement is live and only from the sent version onward.
+- `EXPIRED` is derived on read and never stored.
+- Out-of-scope and cross-tenant ids are 404; the `PATCH`/`PUT` request types stay field-for-field
+  aligned with their views.
+
+Each was verified against the actual code at Task 29's close-out, the review-found ones by tests
+proven red before the fix: #1 by `ModuleBoundaryTest.noJourneyDependencyOnAgreement` and
+`.noDocumentDependencyOnAgreement`; #2 by a grep of `agreement`'s main sources for
+`CaseEngine`/`reconcile` (comments only) and `git log` on `CaseEngine.java` across the branch (no
+commit); #3 by `AgreementCancelTest.cancelNeverSatisfiesOrWaivesTheRequirement`; #4 by
+`AgreementSchemaTest.aSecondLiveAgreementForTheSameRequirementIsRejected`; #5 by `V25__agreement.sql`'s
+grants and `AgreementSchemaTest.agreementVersionRefusesUpdateAndDeleteAsTheApplicationRole`,
+`.agreementVersionReviewRefusesUpdateAndDeleteAsTheApplicationRole` and
+`.agreementSignatureRefusesUpdateAndDeleteAsTheApplicationRole` (`agreement` itself is
+`SELECT, INSERT, UPDATE`, and `agreement_signatory` carries an explicit `GRANT DELETE` for DRAFT list
+replacement); #6 by `AgreementSignatureTest.eachSignatureCitesTheSentVersionAndCopiesItsContentHash`;
+#7 by `AgreementReviewTest.theSubmitterCannotApproveTheirOwnVersion` and
+`.theLastEditorCannotApproveEvenIfSomeoneElseSubmitted`; #8 by `scoping.AgreementAudienceFilterTest`,
+`AgreementPortalTest.theAgreementFileIsNotDownloadableBeforeSend`,
+`.theAgreementFileStopsBeingDownloadableWhenASentAgreementIsCancelled` and, from the final review,
+`AgreementOwnedFileTest.aPortalContactOpensOnlyTheSentVersionOnward` plus
+`AgreementControllerTest.operatorReadEndpointsAreA404ForAPortalContact`; #9 by `V25__agreement.sql`
+never listing `EXPIRED` as a stored status and
+`AgreementReadTest.theStoredStatusStaysSignedWhenItReadsExpired`; #10 by `AgreementIsolationTest`
+(cross-tenant reads, every write, and a foreign signatory contact/user id) and, for the alignment
+half, `SignatoryRequestViewAlignmentTest` (added by the final fix wave, proven red by renaming a view
+field). Re-verified at sub-project 5's close (2026-10-02): the full backend suite (1005 tests, run
+in serial package groups), vitest (99 files, 765 tests) and the Playwright suite (50 of 50,
+`agreements.spec.ts` included) all ran green, and the eight backend packages the final fix wave
+touched re-ran green after it, so none of the ten had regressed by the time the plan finished.
+
 ---
 
 ## Where the guards live
@@ -1119,6 +1254,21 @@ regressed by the time the plan finished.
   `aPortalContactHittingTheOperatorVisibilitySummaryRouteNeverSeesAnotherCustomersDocuments` (the
   `forPermissionIgnoringScope` regression test, pinning the one live cross-customer disclosure this
   branch's own security review found and closed).
+
+Sub-project 5's own negatives: `agreement.AgreementIsolationTest` (cross-tenant),
+`AgreementScopeTest` (a TEAM holder cannot read or write another team's agreement; ASSIGNED,
+DEPARTMENT and TEAM readers see only their own), `AgreementWriteScopeTest` (manage, review and
+sign-record are each refused inside an `OWNER_ONLY` stage, the case owner still succeeds),
+`AgreementIdEscalationTest` (a foreign customer's contact, an out-of-scope user, another agreement's
+signatory or version number are 404, not accepted), `AgreementPortalTest` (a portal contact sees only
+their own customer's agreements from `SENT` onward, and the file only while live),
+`AgreementOwnedFileTest` (the final review's regressions: every general document write on an
+agreement's file is refused with a 409 while the agreement's own flow still works, and a portal
+actor cannot open a pre-sent version), `AgreementControllerTest.operatorReadEndpointsAreA404ForAPortalContact`,
+`scoping.AgreementScopingTest` and `scoping.AgreementAudienceFilterTest` (the descriptor's
+DEPARTMENT/TEAM/ASSIGNED predicates; the audience filter's pre-`SENT`, cross-customer and cancelled
+refusals), and `journey.CauseBeforeEffectTest.signingAnAgreementIsRecordedBeforeTheRequirementItSatisfies`
+(the signature is recorded before the `satisfy` it triggers).
 
 **These are not to be weakened to make a change pass.** They exist precisely to fail when something
 is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
@@ -1278,8 +1428,9 @@ plan's intentions for it:**
   sub-project each shipped without one and were caught by review before merge: `retire`/`link`
   themselves (Tasks 18/20), `DocumentRequestService.fulfil` (Task 25), and
   `DocumentReviewService.review`'s APPROVE branch (Task 27) — the identical "a requirement satisfied
-  by reference to a document/record nobody can ever act on again" shape every time. A `SIGNATURE`
-  kind's own satisfaction path should carry this check from its very first draft.
+  by reference to a document/record nobody can ever act on again" shape every time. The agreement
+  paths carry it: `AgreementFiles` refuses a `RETIRED` file on `currentVersion`, `append` and a sharing
+  `retier`. Any new kind's satisfaction path should do the same from its very first draft.
 - **`document_version.sha256`** is exactly the "provable version identity" sub-project 5's own
   spec already names needing — a per-version content digest, computed alongside the upload stream,
   no new schema required to cite it from an agreement's signature record.
