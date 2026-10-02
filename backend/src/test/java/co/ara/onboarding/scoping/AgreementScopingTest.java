@@ -55,7 +55,7 @@ class AgreementScopingTest extends PostgresTestBase {
 
     @Test
     void aTeamScopedViewerSeesAgreementsOnTheirTeamsCasesOnly() {
-        UUID tenant = fixture.createTenant("agr-scope-team");
+        UUID tenant = fixture.createTenant("agr-scope-team-" + Uuid7.generate());
         fixture.runAs(tenant, () -> {
             UUID actor = fixture.createUser(tenant, "team@agr-scope-team.example");
             UUID team = fixture.createTeam(tenant, "Onboarding Team");
@@ -82,7 +82,7 @@ class AgreementScopingTest extends PostgresTestBase {
 
     @Test
     void aDepartmentScopedViewerSeesAgreementsOnTheirDepartmentsCasesOnly() {
-        UUID tenant = fixture.createTenant("agr-scope-dept");
+        UUID tenant = fixture.createTenant("agr-scope-dept-" + Uuid7.generate());
         fixture.runAs(tenant, () -> {
             UUID actor = fixture.createUser(tenant, "dept@agr-scope-dept.example");
             UUID department = fixture.createDepartment(tenant, "Onboarding");
@@ -110,7 +110,7 @@ class AgreementScopingTest extends PostgresTestBase {
 
     @Test
     void anAssignedViewerSeesOnlyCasesTheyPersonallyParticipateIn() {
-        UUID tenant = fixture.createTenant("agr-scope-assigned");
+        UUID tenant = fixture.createTenant("agr-scope-assigned-" + Uuid7.generate());
         fixture.runAs(tenant, () -> {
             UUID actor = fixture.createUser(tenant, "assigned@agr-scope-assigned.example");
 
@@ -137,7 +137,7 @@ class AgreementScopingTest extends PostgresTestBase {
     /** Fail closed: no department, no teams, no participation means no rows at any of the three scopes. */
     @Test
     void aViewerWithNoDepartmentAndNoTeamSeesNothingAtThoseScopes() {
-        UUID tenant = fixture.createTenant("agr-scope-nothing");
+        UUID tenant = fixture.createTenant("agr-scope-nothing-" + Uuid7.generate());
         fixture.runAs(tenant, () -> {
             UUID actor = fixture.createUser(tenant, "nobody@agr-scope-nothing.example");
             UUID department = fixture.createDepartment(tenant, "Somebody Else's Department");
@@ -163,7 +163,7 @@ class AgreementScopingTest extends PostgresTestBase {
      */
     @Test
     void childRowsFollowTheirAgreementsCase() {
-        UUID tenant = fixture.createTenant("agr-scope-children");
+        UUID tenant = fixture.createTenant("agr-scope-children-" + Uuid7.generate());
         var actor = new java.util.concurrent.atomic.AtomicReference<UUID>();
         var inScopeSignatoryId = new java.util.concurrent.atomic.AtomicReference<UUID>();
         var outOfScopeSignatoryId = new java.util.concurrent.atomic.AtomicReference<UUID>();
