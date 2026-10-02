@@ -70,7 +70,7 @@ public abstract class PostgresTestBase {
     // bypassing connection-details beans) and the app datasource via
     // spring.datasource.* (which works here only because no competing
     // JdbcConnectionDetails bean exists).
-    static final PostgreSQLContainer<?> POSTGRES =
+    protected static final PostgreSQLContainer<?> POSTGRES =
             new PostgreSQLContainer<>("postgres:16-alpine");
 
     static { POSTGRES.start(); }
