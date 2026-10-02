@@ -6,6 +6,8 @@ import { __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import type { RequirementRoadmap } from "@/lib/api/cases";
 import { RequirementList } from "./RequirementList";
 
+vi.mock("next/navigation", () => ({ useParams: () => ({ slug: "acme", id: "cust-1" }) }));
+
 let permissions: Record<string, string[]> = {};
 vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions }) }));
 
@@ -49,6 +51,17 @@ const satisfiedByDocument: RequirementRoadmap = {
   status: "SATISFIED",
   satisfiedRef: "doc-1",
   satisfiedRefType: "document",
+};
+
+const signature: RequirementRoadmap = { id: "r-9", label: "Sign MSA", kind: "SIGNATURE", mandatory: true, status: "OPEN" };
+const signed: RequirementRoadmap = {
+  id: "r-10",
+  label: "Sign NDA",
+  kind: "SIGNATURE",
+  mandatory: true,
+  status: "SATISFIED",
+  satisfiedRef: "agr-7",
+  satisfiedRefType: "AGREEMENT",
 };
 
 function renderList(requirements: RequirementRoadmap[]) {
@@ -323,5 +336,30 @@ describe("RequirementList", () => {
   it("offers waive to someone holding requirement.waive", () => {
     renderList([open]);
     expect(screen.getByRole("button", { name: /waive/i })).not.toBeNull();
+  });
+
+  it("renders a SIGNATURE requirement as a chip linking to the Agreements tab", () => {
+    renderList([signature]);
+    expect(screen.getByText("Sign MSA")).not.toBeNull();
+    expect(screen.getByText("Open")).not.toBeNull();
+    const link = screen.getByRole("link", { name: "Open agreement" });
+    expect(link.getAttribute("href")).toBe("/t/acme/customers/cust-1/cases/c-1?tab=agreements");
+  });
+
+  it("links a satisfied SIGNATURE requirement to the agreement that satisfied it", () => {
+    renderList([signed]);
+    expect(screen.getByText("Satisfied")).not.toBeNull();
+    const link = screen.getByRole("link", { name: "Open agreement" });
+    expect(link.getAttribute("href")).toBe("/t/acme/customers/cust-1/cases/c-1?tab=agreements&agreement=agr-7");
+  });
+
+  it("never renders a checkbox for a SIGNATURE requirement", () => {
+    renderList([signature, open]);
+    // The MANUAL requirement in the same render keeps its checkbox, so this
+    // cannot pass merely because checkboxes stopped rendering altogether.
+    const boxes = screen.getAllByRole("checkbox");
+    expect(boxes).toHaveLength(1);
+    expect(screen.getByText("Collect ID").closest("label")?.contains(boxes[0]!)).toBe(true);
+    expect(screen.getByText("Sign MSA").closest("label")).toBeNull();
   });
 });

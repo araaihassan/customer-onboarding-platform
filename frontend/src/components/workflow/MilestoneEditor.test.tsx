@@ -18,6 +18,17 @@ const documentRequirementMilestone: MilestoneRequest[] = [
   },
 ];
 
+const signatureMilestone: MilestoneRequest[] = [
+  {
+    key: "m1",
+    name: "Contracting",
+    estimatedDurationDays: 2,
+    requirements: [
+      { kind: "SIGNATURE", label: "Sign MSA", weight: 1, mandatory: true, agreementRecordMode: "FILE_BACKED", agreementName: "MSA" },
+    ],
+  },
+];
+
 describe("MilestoneEditor", () => {
   it("renders each milestone's name and duration", () => {
     render(<MilestoneEditor milestones={oneMilestone} onChange={vi.fn()} />);
@@ -105,4 +116,55 @@ describe("MilestoneEditor", () => {
     ]);
   });
 
+  it("offers SIGNATURE as a requirement kind", () => {
+    render(<MilestoneEditor milestones={oneMilestone} onChange={vi.fn()} />);
+    const kind = screen.getByLabelText("Requirement kind") as HTMLSelectElement;
+    expect(Array.from(kind.options).map((o) => o.value)).toContain("SIGNATURE");
+  });
+
+  it("shows record-mode and agreement-name fields only for a SIGNATURE requirement", () => {
+    const { unmount } = render(<MilestoneEditor milestones={oneMilestone} onChange={vi.fn()} />);
+    expect(screen.queryByLabelText("Agreement record mode")).toBeNull();
+    expect(screen.queryByLabelText("Agreement name")).toBeNull();
+    unmount();
+
+    render(<MilestoneEditor milestones={signatureMilestone} onChange={vi.fn()} />);
+    const mode = screen.getByLabelText("Agreement record mode") as HTMLSelectElement;
+    expect(mode.value).toBe("FILE_BACKED");
+    expect(Array.from(mode.options).map((o) => o.textContent)).toEqual([
+      "File-backed",
+      "Structured + file",
+      "Structured record only",
+    ]);
+    expect((screen.getByLabelText("Agreement name") as HTMLInputElement).value).toBe("MSA");
+  });
+
+  it("writes agreementRecordMode and agreementName into the requirement patch", () => {
+    const onChange = vi.fn();
+    render(<MilestoneEditor milestones={signatureMilestone} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Agreement record mode"), { target: { value: "STRUCTURED_ONLY" } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ requirements: [expect.objectContaining({ kind: "SIGNATURE", agreementRecordMode: "STRUCTURED_ONLY" })] }),
+    ]);
+
+    fireEvent.change(screen.getByLabelText("Agreement name"), { target: { value: "Master agreement" } });
+    expect(onChange).toHaveBeenLastCalledWith([
+      expect.objectContaining({ requirements: [expect.objectContaining({ kind: "SIGNATURE", agreementName: "Master agreement" })] }),
+    ]);
+  });
+
+  it("clears the agreement fields when the kind changes away from SIGNATURE", () => {
+    const onChange = vi.fn();
+    render(<MilestoneEditor milestones={signatureMilestone} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Requirement kind"), { target: { value: "MANUAL" } });
+
+    const patched = onChange.mock.calls[0]![0][0].requirements[0];
+    expect(patched.kind).toBe("MANUAL");
+    expect("agreementRecordMode" in patched).toBe(true);
+    expect("agreementName" in patched).toBe(true);
+    expect(patched.agreementRecordMode).toBeUndefined();
+    expect(patched.agreementName).toBeUndefined();
+  });
 });

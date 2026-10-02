@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useState } from "react";
 import { ReviewAffordance } from "@/components/documents/ReviewDialog";
 import { UploadDialog } from "@/components/documents/UploadDialog";
@@ -74,6 +76,10 @@ export function RequirementList({
       {requirements.map((requirement) => {
         if (requirement.kind === "DOCUMENT") {
           return <DocumentChip key={requirement.id} caseId={caseId} requirement={requirement} />;
+        }
+
+        if (requirement.kind === "SIGNATURE") {
+          return <SignatureChip key={requirement.id} caseId={caseId} requirement={requirement} />;
         }
 
         const settled = requirement.status !== "OPEN" || locallySatisfied.has(requirement.id!);
@@ -243,6 +249,45 @@ function DocumentChip({ caseId, requirement }: { caseId: string; requirement: Re
           defaultCategory={matchingRequest?.category ?? "OTHER"}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * A SIGNATURE requirement is satisfied only by signing, so it never gets a
+ * checkbox. The chip links into the case's Agreements tab: straight to the
+ * agreement that satisfied it when `satisfiedRefType` is "AGREEMENT", else to
+ * the tab itself, where the live agreement is found.
+ */
+function SignatureChip({ caseId, requirement }: { caseId: string; requirement: RequirementRoadmap }) {
+  const params = useParams<{ slug: string; id: string }>();
+  const agreementId = requirement.satisfiedRefType === "AGREEMENT" ? requirement.satisfiedRef : undefined;
+  const href =
+    `/t/${params?.slug}/customers/${params?.id}/cases/${caseId}?tab=agreements` +
+    (agreementId ? `&agreement=${encodeURIComponent(agreementId)}` : "");
+
+  return (
+    <div
+      className="flex items-center justify-between bg-surface border border-line"
+      style={{ padding: "var(--ob-space-8) var(--ob-space-11)", borderRadius: "var(--ob-radius-5)", gap: "var(--ob-space-8)" }}
+    >
+      <span
+        className="min-w-0 flex-1 truncate text-ink"
+        style={{ font: "var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
+      >
+        {requirement.label}
+      </span>
+      <Link
+        href={href}
+        className="text-text-muted underline"
+        style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
+      >
+        {t("requirement.signature.open")}
+      </Link>
+      <StatusPill
+        status={t(`requirement.status.${requirement.status}`)}
+        role={requirement.status === "OPEN" ? "neutral" : "ok"}
+      />
     </div>
   );
 }
