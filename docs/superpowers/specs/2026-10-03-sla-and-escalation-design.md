@@ -81,6 +81,60 @@ What exists today, verified against the code at `e70b83e`:
     a dev/test-only endpoint that runs the sweep on demand, since waiting five minutes per assertion
     is not a usable e2e loop (§10.3).
 
+### 1.2 Amendments from plan research (2026-10-03)
+
+Found while mapping exact signatures for the implementation plan. Where this section and a later one
+disagree, **this section wins**; the later sections are left as approved so the reasoning stays
+readable.
+
+1. **A fifth stage-change path.** `MilestoneService.reopen` rewinds `currentStageId` directly, without
+   `enterStage` (and un-completes a `COMPLETED` case). It makes the same `stageExited`/`stageEntered`
+   port calls when the stage actually changes or the case was completed. Invariant 2 becomes: *stage
+   clock calls are made only where `currentStageId` changes — `CaseEngine.enterStage`/
+   `advanceIfExitable` and `MilestoneService.reopen` — and nothing adds a caller of `reconcile`.*
+   `MigrationService` also sets `currentStageId` directly, but by stage *name* within the same visit,
+   so it keeps the open clock (§3.2's ruling holds).
+2. **The scheduler is its own slice, `co.ara.onboarding.scheduling`**, not `platform.scheduling`: it
+   orchestrates `tenancy` (`TenantContext`, `TenantConnectionCustomizer`) and `authz` (the system
+   principal), and `platform` may name neither — the reason `provisioning` exists.
+3. **The system actor needs a request scope and a principal.** `AuthorizationService` and
+   `RequestAuditContext` are `@RequestScope`, and `AuthContextProvider.current()` resolves an
+   `app_user` row. So: a new `authz.SystemPrincipal(UUID tenantId)` — a distinct principal type no JWT
+   can produce; `platform.UserType` gains `SYSTEM` (never persisted); `AuthContextProvider.current()`
+   returns `AuthContext(tenantId, SystemPrincipal.SYSTEM_USER_ID, SYSTEM, null, Set.of())` for it;
+   `AuthorizationService.effectivePermissions()` returns `SystemPermissions.forJobs()` for it; and
+   `TenantJobRunner` installs a fresh in-memory `RequestAttributes` per tenant so request-scoped beans
+   resolve. `RequestAuditContext` already defaults to `ActorType.SYSTEM`.
+4. **The job lock is transaction-level and per tenant**: `pg_try_advisory_xact_lock(hashtext(job),
+   hashtext(tenantId))` inside each tenant's transaction, not a session lock — a session lock on a
+   pooled connection cannot be reliably released on the connection that took it.
+5. **Dev endpoints are `@Profile("dev")` only.** The backend suite runs under `test`, Playwright's
+   backend under `dev`; the "absent outside dev" test therefore runs in the ordinary suite. Under
+   `dev`, `PlatformBeansConfig` registers an `OffsetClock` as the `clock` bean.
+6. **There is no cases list.** No `GET /cases` endpoint and no screen 2 exist; cases are reached per
+   customer. The cases-list SLA column, the `sla=` filter and the "SLA at risk · N" saved filter are
+   **dropped from this sub-project** and carried forward to whichever sub-project builds screen 2.
+7. **Departments have no update endpoint.** This sub-project adds `PUT /admin/departments/{id}`
+   (`name`, `description`, `headUserId`), gated `department.manage`; `DepartmentView` gains
+   `headUserId`. The head picker lives on the existing `admin/org` page.
+8. **Owners are columns, not participants.** `Case.ownerUserId` and `Milestone.ownerUserId` exist.
+   The late person for a milestone is `milestone.ownerUserId`, else `case.ownerUserId`; for a clock,
+   `case.ownerUserId`.
+9. **`escalate_after_overdue_days` is `CHECK (>= 1)`**, and *overdue days* is precisely
+   `calendar.businessDaysBetween(dueDate, today)` (working days in `[dueDate, today)`) with
+   `today > dueDate`. With the default 1, a task due Thursday escalates on Friday.
+10. **Recipients come from `identity.ReportingLineDirectory`**, which reads `app_user`,
+    `department` and `user_role`/`role` with `JdbcTemplate` under the bound tenant's RLS — the
+    `IdentityActorDirectory` precedent — returning `Recipient(userId, email, fullName)`.
+11. **Positional constructors stay compiling.** `StageRequest`, `CreateUserRequest`,
+    `UpdateUserRequest` and `DepartmentRequest` gain their new component plus a secondary
+    constructor at the old arity, so the ~31 positional test call sites need no edit.
+12. **Reassign a case owner** uses the existing full-replace `PUT /cases/{id}`; the frontend gains
+    `useUpdateCase` and sends the current `CaseView`'s fields with only `ownerUserId` changed.
+13. **The calendar maths is a pure class**, `platform.CalendarRules(ZoneId, Set<DayOfWeek>,
+    Set<LocalDate>)`, unit-tested directly; `tenancy.TenantBusinessCalendar` loads a tenant's rules
+    (cached per transaction through `TransactionSynchronizationManager`) and delegates to it.
+
 ## 2. Scope
 
 ### 2.1 In
@@ -543,7 +597,8 @@ Breached with its note, and Remind customer increment a request's count.
 ## 11. Invariant cross-check — sub-project 6's own ten
 
 1. Every clock change happens in the same transaction as the business change that caused it.
-2. Stage clock calls are made only from inside `CaseEngine.reconcile`; no new caller of `reconcile`.
+2. Stage clock calls are made only where `currentStageId` changes (`CaseEngine`, `MilestoneService.reopen`
+   — §1.2.1); no new caller of `reconcile`.
 3. `journey` and `document` never import an `sla` type.
 4. Elapsed time is always derived, never stored.
 5. An escalation fires at most once per subject and due date, enforced by the database.
