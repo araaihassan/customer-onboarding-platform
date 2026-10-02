@@ -29,8 +29,10 @@ import java.util.UUID;
 @Service
 public class OrgStructureService {
 
-    public record DepartmentRequest(String name, String description) {}
-    public record DepartmentView(UUID id, String name, String description) {}
+    public record DepartmentRequest(String name, String description, UUID headUserId) {
+        public DepartmentRequest(String name, String description) { this(name, description, null); }
+    }
+    public record DepartmentView(UUID id, String name, String description, UUID headUserId) {}
 
     public record TeamRequest(String name, String description, UUID departmentId) {}
     public record TeamView(UUID id, String name, String description, UUID departmentId) {}
@@ -62,7 +64,7 @@ public class OrgStructureService {
     public List<DepartmentView> listDepartments() {
         return authorizedQuery.findAll(departments, Department.class,
                         PermissionKeys.DEPARTMENT_MANAGE, ALL_DEPARTMENTS, Pageable.unpaged())
-                .map(d -> new DepartmentView(d.getId(), d.getName(), d.getDescription()))
+                .map(OrgStructureService::toView)
                 .getContent();
     }
 
@@ -74,11 +76,40 @@ public class OrgStructureService {
         d.setTenantId(TenantContext.getRequired());
         d.setName(request.name());
         d.setDescription(request.description());
+        d.setHeadUserId(resolveHead(request.headUserId()));
         departments.save(d);
 
         audit.record(AuditActions.DEPARTMENT_CREATED, "department", d.getId(),
                 "Created department " + d.getName(), Map.of());
-        return new DepartmentView(d.getId(), d.getName(), d.getDescription());
+        return toView(d);
+    }
+
+    @RequirePermission(PermissionKeys.DEPARTMENT_MANAGE)
+    @Transactional
+    public DepartmentView updateDepartment(UUID id, DepartmentRequest request) {
+        Department d = authorizedQuery.getById(departments, Department.class,
+                PermissionKeys.DEPARTMENT_MANAGE, id);
+        UUID before = d.getHeadUserId();
+        d.setName(request.name());
+        d.setDescription(request.description());
+        d.setHeadUserId(resolveHead(request.headUserId()));
+        d = departments.save(d);
+        if (!java.util.Objects.equals(before, d.getHeadUserId())) {
+            audit.record(AuditActions.DEPARTMENT_HEAD_CHANGED, "department", d.getId(),
+                    "Department head changed", java.util.Collections.singletonMap("headUserId",
+                            d.getHeadUserId() == null ? null : d.getHeadUserId().toString()));
+        }
+        return toView(d);
+    }
+
+    /** A headUserId from a request body is a foreign id: resolve it before writing. */
+    private UUID resolveHead(UUID headUserId) {
+        return headUserId == null ? null
+                : authorizedQuery.getById(users, AppUser.class, PermissionKeys.USER_VIEW, headUserId).getId();
+    }
+
+    private static DepartmentView toView(Department d) {
+        return new DepartmentView(d.getId(), d.getName(), d.getDescription(), d.getHeadUserId());
     }
 
     @RequirePermission(PermissionKeys.TEAM_MANAGE)

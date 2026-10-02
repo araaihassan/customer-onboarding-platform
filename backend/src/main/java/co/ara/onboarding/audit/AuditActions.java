@@ -39,6 +39,9 @@ public final class AuditActions {
     public static final AuditAction USER_ROLE_UNASSIGNED      = of("user.role_unassigned", false);
     public static final AuditAction TEAM_MEMBER_ADDED         = of("team.member_added", false);
     public static final AuditAction TEAM_MEMBER_REMOVED       = of("team.member_removed", false);
+    // Identity reporting lines (sub-project 6). Compliance-only, like every other user.* action.
+    public static final AuditAction USER_MANAGER_CHANGED    = of("user.manager_changed", false);
+    public static final AuditAction DEPARTMENT_HEAD_CHANGED = of("department.head_changed", false);
     public static final AuditAction DEPARTMENT_CREATED        = of("department.created", false);
     public static final AuditAction TEAM_CREATED              = of("team.created", false);
     public static final AuditAction ROLE_CREATED              = of("role.created", false);

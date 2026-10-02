@@ -24,8 +24,15 @@ import java.util.UUID;
 @Service
 public class UserAdminService {
 
-    public record CreateUserRequest(String email, String fullName, UUID departmentId) {}
-    public record UpdateUserRequest(String fullName, UUID departmentId) {}
+    public record CreateUserRequest(String email, String fullName, UUID departmentId, UUID managerId) {
+        /** Spec 1.2.11: the pre-sub-project-6 arity, so existing callers compile unchanged. */
+        public CreateUserRequest(String email, String fullName, UUID departmentId) {
+            this(email, fullName, departmentId, null);
+        }
+    }
+    public record UpdateUserRequest(String fullName, UUID departmentId, UUID managerId) {
+        public UpdateUserRequest(String fullName, UUID departmentId) { this(fullName, departmentId, null); }
+    }
     /**
      * roleIds is read-only and deliberately absent from UpdateUserRequest: role
      * assignment goes through the dedicated POST/DELETE endpoints, which are gated
@@ -33,7 +40,7 @@ public class UserAdminService {
      * field would silently strip every role the user holds.
      */
     public record UserView(UUID id, String email, String fullName, UserType userType,
-                           UserStatus status, UUID departmentId, Set<UUID> teamIds,
+                           UserStatus status, UUID departmentId, UUID managerId, Set<UUID> teamIds,
                            Set<UUID> roleIds) {}
 
     private final AppUserRepository repository;
@@ -110,6 +117,7 @@ public class UserAdminService {
         user.setUserType(UserType.INTERNAL);
         user.setStatus(UserStatus.INVITED);
         user.setDepartmentId(request.departmentId());
+        user.setManagerId(resolveManager(request.managerId(), user.getId()));
         repository.saveAndFlush(user);
         requireWithinManageScope(user.getId());
 
@@ -136,11 +144,20 @@ public class UserAdminService {
                 PermissionKeys.USER_MANAGE, id);
         user.setFullName(request.fullName());
         user.setDepartmentId(request.departmentId());
+        UUID managerBefore = user.getManagerId();
+        // Full replace: a null managerId clears the manager.
+        user.setManagerId(resolveManager(request.managerId(), user.getId()));
         AppUser saved = repository.saveAndFlush(user);
         requireWithinManageScope(saved.getId());
 
         audit.record(AuditActions.USER_UPDATED, "app_user", saved.getId(),
                 "Updated user " + saved.getEmail(), Map.of());
+        if (!java.util.Objects.equals(managerBefore, saved.getManagerId())) {
+            audit.record(AuditActions.USER_MANAGER_CHANGED, "app_user", saved.getId(),
+                    "Manager changed for " + saved.getEmail(),
+                    java.util.Collections.singletonMap("managerId",
+                            saved.getManagerId() == null ? null : saved.getManagerId().toString()));
+        }
         return toView(saved);
     }
 
@@ -236,6 +253,15 @@ public class UserAdminService {
         authorizedQuery.getById(repository, AppUser.class, PermissionKeys.USER_MANAGE, userId);
     }
 
+    /** A managerId from a request body is a foreign id: resolve it under the actor's own scope first. */
+    private UUID resolveManager(UUID managerId, UUID subjectUserId) {
+        if (managerId == null) return null;
+        if (managerId.equals(subjectUserId)) {
+            throw new IllegalArgumentException("A user cannot be their own manager");
+        }
+        return authorizedQuery.getById(repository, AppUser.class, PermissionKeys.USER_VIEW, managerId).getId();
+    }
+
     /** Looks the assignments up for one user; the list path passes them in instead. */
     private UserView toView(AppUser u) {
         return toView(u, assignments.roleIdsByUser(List.of(u.getId()))
@@ -244,6 +270,6 @@ public class UserAdminService {
 
     private UserView toView(AppUser u, Set<UUID> roleIds) {
         return new UserView(u.getId(), u.getEmail(), u.getFullName(), u.getUserType(),
-                u.getStatus(), u.getDepartmentId(), Set.copyOf(u.getTeamIds()), roleIds);
+                u.getStatus(), u.getDepartmentId(), u.getManagerId(), Set.copyOf(u.getTeamIds()), roleIds);
     }
 }
