@@ -7,12 +7,14 @@ import type { Tenant } from "./support/tenant";
 /**
  * Sub-project 5, Task 28: the agreement lifecycle, live, through the real UI.
  *
- * Roles. The seeded Project Manager template deliberately holds no
- * `agreement.sign_record`, and Account Manager lacks the rest of what the flow needs, so the
- * "manager" half (draft, submit, send, record, cancel) is the tenant Administrator, who holds the
- * whole catalogue. The reviewer is a real user holding the seeded **Legal** role template
- * (`agreement.review` at ALL, plus `workflow.view`, `case.view`, `customer.view`), so the four-eyes
- * step is a genuinely different person from the submitter and last editor.
+ * Roles. The "manager" half (draft, submit, send, record, cancel) is a real user holding the seeded
+ * **Project Manager** template -- `agreement.view`/`agreement.manage`/`agreement.sign_record` all at TEAM
+ * (with `milestone.complete` at TEAM and `workflow.view` at ALL) -- so the narrowest-scope write path is
+ * exercised live. TEAM scope is real: the customer is owned by a team, every case copies that owning team,
+ * and the PM (plus the Legal user, so the PM's team-scoped user list can offer them as a signatory) is a
+ * member of it. The reviewer is a different real user holding the seeded **Legal** template
+ * (`agreement.review` at ALL, plus `workflow.view`, `case.view`, `customer.view`), so the four-eyes step
+ * is a genuinely different person from the submitter and last editor.
  *
  * Seed payload: every field that NPEs or misbinds when omitted is spelled out (CLAUDE.md "Live-running
  * the three new specs"), and `lockVersion` is taken from the create response, never assumed.
@@ -26,9 +28,11 @@ let tenant: Tenant;
 let customerId: string;
 let templateId: string;
 let legalEmail: string;
+let pmEmail: string;
 
 const CONTACT_NAME = "Carol Contact";
 const LEGAL_NAME = "Lena Legal";
+const PM_NAME = "Pat Manager";
 const AGREEMENT_NAME = "Master Services Agreement";
 
 // A minimal but real PDF header: the upload path sniffs the bytes, never the declared type.
@@ -43,7 +47,15 @@ test.beforeAll(async ({ playwright }) => {
   tenant = await provisionTenant(request, "agr");
   const admin = await Api.as(request, tenant.slug, tenant.adminEmail);
 
-  customerId = (await admin.createCustomer("Orbit Freight")).id;
+  const { id: teamId } = await admin.post<{ id: string }>("/admin/teams", { name: "Delivery", description: "" }, 201);
+  // Owned by the team, so every case opened against it carries owningTeamId = this team (CaseService copies it).
+  customerId = (
+    await admin.post<{ id: string }>(
+      "/customers",
+      { displayName: "Orbit Freight", legalName: "Orbit Freight Ltd", industry: "Software", country: "GB", owningTeamId: teamId },
+      201,
+    )
+  ).id;
   await admin.createContact(customerId, CONTACT_NAME, `carol@${tenant.slug}.test`);
 
   const { id } = await admin.createWorkflowTemplate("Contracting");
@@ -89,6 +101,16 @@ test.beforeAll(async ({ playwright }) => {
   expect(legalRole, "the seeded Legal role template").toBeTruthy();
   await admin.assignRole(legalId, legalRole!.id);
   await activate(request, tenant.slug, await readEmailToken(legalEmail), PASSWORD);
+
+  // A real, team-scoped Project Manager from the seeded template.
+  pmEmail = `pm@${tenant.slug}.test`;
+  const { id: pmId } = await admin.createUser(pmEmail, PM_NAME);
+  const pmRole = roles.find((r) => r.name === "Project Manager");
+  expect(pmRole, "the seeded Project Manager role template").toBeTruthy();
+  await admin.assignRole(pmId, pmRole!.id);
+  await activate(request, tenant.slug, await readEmailToken(pmEmail), PASSWORD);
+  await admin.post(`/admin/teams/${teamId}/members`, { userId: pmId }, 204);
+  await admin.post(`/admin/teams/${teamId}/members`, { userId: legalId }, 204);
 
   await request.dispose();
 });
@@ -154,16 +176,16 @@ test("the full arc: draft, submit, four-eyes approval, send, two recorded signat
 }) => {
   const caseId = await openCase(request, "Orbit MSA");
 
-  await signIn(page, tenant.slug, tenant.adminEmail);
+  await signIn(page, tenant.slug, pmEmail);
   await openAgreement(page, caseId);
   const agreementId = (await detailRegion(page).getAttribute("data-agreement-id"))!;
   await prepareDraft(page);
   await submitForReview(page);
 
-  // Four-eyes: the submitter sees Approve, but disabled, with the reason.
+  // A Project Manager holds no agreement.review, so Approve is not offered to the submitter at all
+  // (the disabled-with-reason state needs a submitter who also holds review: see the four-eyes test below).
   const region = detailRegion(page);
-  await expect(region.getByRole("button", { name: "Approve" })).toBeDisabled();
-  await expect(region.getByText("You submitted this version, so someone else must review it")).toBeVisible();
+  await expect(region.getByRole("button", { name: "Approve" })).toHaveCount(0);
 
   // A different person -- a real Legal user -- approves.
   const legalContext = await browser.newContext({ baseURL: BASE_URL });
@@ -216,7 +238,7 @@ test("cancel and replace: a successor draft appears, the old row is under Replac
 }) => {
   const caseId = await openCase(request, "Orbit MSA (replaced)");
 
-  await signIn(page, tenant.slug, tenant.adminEmail);
+  await signIn(page, tenant.slug, pmEmail);
   await openAgreement(page, caseId);
   await prepareDraft(page);
   await submitForReview(page);
@@ -241,6 +263,24 @@ test("cancel and replace: a successor draft appears, the old row is under Replac
   await expect(row.getByText("Active", { exact: true })).toBeVisible();
   await row.getByRole("button", { name: /Contract/ }).click();
   await expect(row.getByText("Open", { exact: true })).toBeVisible();
+});
+
+test("four-eyes: a submitter who also holds agreement.review sees Approve disabled, with the reason", async ({
+  page,
+  request,
+}) => {
+  const caseId = await openCase(request, "Orbit MSA (four-eyes)");
+
+  // The Administrator holds agreement.manage AND agreement.review, the one shape where the UI shows the rule.
+  await signIn(page, tenant.slug, tenant.adminEmail);
+  await openAgreement(page, caseId);
+  await prepareDraft(page);
+  await submitForReview(page);
+
+  const region = detailRegion(page);
+  await expect(region.getByRole("button", { name: "Approve" })).toBeDisabled();
+  await expect(region.getByRole("button", { name: "Reject" })).toBeDisabled();
+  await expect(region.getByText("You submitted this version, so someone else must review it")).toBeVisible();
 });
 
 test("the lifecycle screen counts what the first two tests left behind", async ({ page }) => {
