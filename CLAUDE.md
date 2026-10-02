@@ -274,8 +274,12 @@ deliberately leaves `status` alone, so the login still returns 401. There is no 
 the seven-day TTL expires; a tenant provisioned and forgotten for a week needs manual intervention
 still — sub-project 2 did not add one, and no later sub-project has this in scope either.
 
-Also operational: `audit_event` is partitioned by month and `V5` creates only `2026_08`, `2026_09`
-and a DEFAULT partition. The job that rolls partitions forward arrives in sub-project 6.
+Also operational: `audit_event` is partitioned by month. `V5` created only `2026_08`, `2026_09` and
+a DEFAULT partition, so October 2026's rows landed in DEFAULT until `V27` moved them out and created
+`2026_10` through `2027_12` via `create_audit_event_partition(month)` — the one function that creates
+*and hardens* a partition (no `onboarding_app` grant, forced RLS); never create one by hand without
+it. The job that rolls partitions forward arrives in sub-project 6 and calls that function;
+`AuditPartitionCoverageTest` goes red three months before `V27`'s headroom runs out if it hasn't.
 
 **Seed a workflow and open a case** — nothing in the product creates either for you; both are curl
 away once a tenant's administrator is activated. **Tenant endpoints are JWT bearer-only, not HTTP
