@@ -1297,6 +1297,14 @@ plan's intentions for it:**
   entity type needing governance beneath `Scope.ALL`. A `SIGNATURE`-kind record targeted the same
   way a document is registers its own filter, the way `DocumentAudienceFilter` does, rather than
   reopening `AuthorizationPredicateBuilder` itself.
+- **The real OpenSign integration is NOT implemented — deliberately deferred (decided 2026-09-25,
+  sub-project 5 brainstorming), to be handled later by the user.** Sub-project 5 ships only the
+  `SignatureProvider` interface and one implementation, `ManualSignatureProvider`: `send` is a no-op,
+  staff record each signature by hand, and `agreement.provider_envelope_id` is always null. Nothing
+  creates an OpenSign envelope, receives its webhooks or pulls back a signed PDF, and the lifecycle
+  screen's eyebrow says `MANUAL SIGNING`, not the design's `OPENSIGN CONNECTED`. The adapter is a
+  drop-in behind that interface (spec `2026-09-25-agreements-design.md` §3.4) — do not assume it
+  exists, and do not start it unprompted.
 
 ## Plan deviations
 
