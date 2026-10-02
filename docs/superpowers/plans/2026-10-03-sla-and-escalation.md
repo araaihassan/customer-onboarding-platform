@@ -61,7 +61,8 @@ backend/src/main/resources/db/migration/
   V29__reporting_lines.sql              Task 3  — app_user.manager_id, department.head_user_id
   V30__stage_pauses_on_customer.sql     Task 4  — stage.pauses_on_customer
   V31__sla.sql                          Task 5  — sla_clock, sla_pause, escalation, notification, reminder cols
-  V32__audit_partition_maintenance.sql  Task 17 — ensure_audit_event_partitions (SECURITY DEFINER)
+  V32__app_user_type_check.sql          Task 8  - CHECK (user_type IN ('INTERNAL','PORTAL'))
+  V33__audit_partition_maintenance.sql  Task 17 — ensure_audit_event_partitions (SECURITY DEFINER)
 
 backend/src/main/java/co/ara/onboarding/
   platform/  CalendarRules (2, +startOfDay 10), BusinessCalendar (2, 10), WeekdayBusinessCalendar DELETED (2),
@@ -2945,7 +2946,7 @@ class EscalationMailer {
 Spec §3.4, §6.4, invariant 8.
 
 **Files:**
-- Create: `backend/src/main/resources/db/migration/V32__audit_partition_maintenance.sql`
+- Create: `backend/src/main/resources/db/migration/V33__audit_partition_maintenance.sql`
 - Create: `backend/src/main/java/co/ara/onboarding/scheduling/SchedulingConfig.java`, `SlaSweepJob.java`, `AuditPartitionJob.java`
 - Modify: `backend/src/main/resources/application.yml`
 - Test: `backend/src/test/java/co/ara/onboarding/audit/AuditPartitionJobTest.java`, `backend/src/test/java/co/ara/onboarding/scheduling/SchedulingConfigTest.java`, `SlaSweepJobTest.java`
@@ -2963,7 +2964,7 @@ Spec §3.4, §6.4, invariant 8.
   `SlaSweepJobTest.runAllSweepsEveryActiveTenantAndEmails` — two tenants each with an overdue task ⇒ after `runAll()`, an escalation and an emailed notification in each.
 
 - [ ] **Step 2: Run — fail.**
-- [ ] **Step 3: Migration `V32__audit_partition_maintenance.sql`.**
+- [ ] **Step 3: Migration `V33__audit_partition_maintenance.sql`.**
 
 ```sql
 -- Sub-project 6, spec §6.4, invariant 8. The roll-forward job runs as onboarding_app, which holds

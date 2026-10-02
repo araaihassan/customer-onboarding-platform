@@ -21,6 +21,8 @@ class SystemActorTest extends PostgresTestBase {
     @Autowired TenantFixture fixture;
     @Autowired AuthorizationService authorization;
     @Autowired AuthContextProvider contexts;
+    @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
+    @Autowired PortalContactDirectory contacts;
 
     @AfterEach void clear() {
         SecurityContextHolder.clearContext();
@@ -68,9 +70,37 @@ class SystemActorTest extends PostgresTestBase {
 
     @Test
     void aSystemPrincipalIsNotAnAuthenticatedPrincipalSoNoUserLookupCanResolveIt() {
-        UUID tenant = fixture.createTenant("sys-nolookup");
+        UUID tenant = UUID.randomUUID();
         SecurityContextHolder.getContext().setAuthentication(SystemPrincipal.authentication(tenant));
         org.junit.jupiter.api.Assertions.assertThrows(
                 org.springframework.security.access.AccessDeniedException.class, () -> contexts.principal());
+    }
+
+    @Test
+    void theDatabaseRefusesAUserRowTypedSystem() {
+        UUID tenant = fixture.createTenant("sys-check");
+        UUID[] holder = new UUID[1];
+        fixture.runUnauthenticated(tenant, () -> holder[0] = fixture.createUser(tenant, "u@sys-check.test"));
+        UUID user = holder[0];
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                ownerJdbc().update("UPDATE app_user SET user_type = 'SYSTEM' WHERE id = ?", user))
+                .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void aRequestBorneIdentityWhoseUserRowReportsSystemResolvesNoAuthority() {
+        UUID tenant = UUID.randomUUID();
+        ActorDirectory lyingDirectory = id -> java.util.Optional.of(new AuthContext(
+                tenant, id, UserType.SYSTEM, null, java.util.Set.of()));
+        var provider = new AuthContextProvider(lyingDirectory);
+        var service = new AuthorizationService(jdbc, provider, contacts);
+        RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(new MockHttpServletRequest()));
+        SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        new AuthenticatedPrincipal(tenant, UUID.randomUUID()), null, java.util.List.of()));
+        fixture.runUnauthenticated(tenant, () ->
+                org.junit.jupiter.api.Assertions.assertThrows(
+                        org.springframework.security.access.AccessDeniedException.class,
+                        service::effectivePermissions));
     }
 }

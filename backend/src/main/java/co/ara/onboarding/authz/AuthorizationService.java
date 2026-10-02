@@ -1,6 +1,7 @@
 package co.ara.onboarding.authz;
 
 import co.ara.onboarding.platform.UserType;
+import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.annotation.RequestScope;
@@ -41,6 +42,16 @@ public class AuthorizationService {
 
         AuthContext actor = contextProvider.current();
 
+        // The scheduler's actor: a code constant, never a role row (invariant 7), decided by the
+        // Authentication's principal type and not by any stored user_type, and only while the
+        // thread is bound to the tenant the principal was minted for.
+        if (contextProvider.isSystem()) {
+            memo = actor.tenantId().equals(TenantContext.getOrNull())
+                    ? EffectivePermissions.of(SystemPermissions.forJobs())
+                    : EffectivePermissions.none();
+            return memo;
+        }
+
         // A PORTAL actor holds no roles by construction (RoleService.assignRole
         // refuses one outright), so the role join below would simply return no
         // rows and the actor would read nothing. Their authority is derived from
@@ -51,15 +62,6 @@ public class AuthorizationService {
         // app_user check mirrors the u.status = 'ACTIVE' join below, and the
         // contact check is what makes retirement take effect on the very next
         // request, not when an access token eventually expires.
-        // The scheduler's actor: a code constant, never a role row (invariant 7), and only
-        // while the thread is bound to the tenant the principal was minted for.
-        if (actor.userType() == UserType.SYSTEM) {
-            memo = actor.tenantId().equals(co.ara.onboarding.tenancy.TenantContext.getOrNull())
-                    ? EffectivePermissions.of(SystemPermissions.forJobs())
-                    : EffectivePermissions.none();
-            return memo;
-        }
-
         if (actor.userType() == UserType.PORTAL) {
             memo = contacts.findActiveContactForUser(actor.userId())
                     .map(c -> EffectivePermissions.of(
