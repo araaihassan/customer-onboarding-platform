@@ -1,5 +1,19 @@
 package co.ara.onboarding.journey;
 
+import co.ara.onboarding.agreement.AgreementDetailView;
+import co.ara.onboarding.agreement.AgreementRepository;
+import co.ara.onboarding.agreement.AgreementReviewService;
+import co.ara.onboarding.agreement.AgreementService;
+import co.ara.onboarding.agreement.AgreementSignatoryView;
+import co.ara.onboarding.agreement.AgreementSignatureService;
+import co.ara.onboarding.agreement.AgreementTestSupport;
+import co.ara.onboarding.agreement.PatchAgreementRequest;
+import co.ara.onboarding.agreement.RecordSignatureRequest;
+import co.ara.onboarding.agreement.ReplaceSignatoriesRequest;
+import co.ara.onboarding.agreement.ReviewAgreementRequest;
+import co.ara.onboarding.agreement.ReviewDecision;
+import co.ara.onboarding.agreement.SignatoryKind;
+import co.ara.onboarding.agreement.SignatoryRequest;
 import co.ara.onboarding.audit.AuditEventView;
 import co.ara.onboarding.document.CreateDocumentRequest;
 import co.ara.onboarding.document.DocumentCategory;
@@ -14,6 +28,7 @@ import co.ara.onboarding.task.TaskRepository;
 import co.ara.onboarding.task.TaskService;
 import co.ara.onboarding.task.TaskStatus;
 import co.ara.onboarding.task.TaskStatusRequest;
+import co.ara.onboarding.workflow.AgreementRecordMode;
 import co.ara.onboarding.workflow.CloneTemplateRequest;
 import co.ara.onboarding.workflow.CustomerTemplateService;
 import co.ara.onboarding.workflow.DecidePlanRequest;
@@ -30,6 +45,7 @@ import org.springframework.data.domain.Pageable;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -75,6 +91,11 @@ class CauseBeforeEffectTest extends PostgresTestBase {
     @Autowired DocumentService documents;
     @Autowired DocumentRequestService documentRequestService;
     @Autowired DocumentRequestRepository documentRequests;
+    @Autowired AgreementTestSupport agreementSupport;
+    @Autowired AgreementService agreementService;
+    @Autowired AgreementReviewService agreementReviewService;
+    @Autowired AgreementSignatureService agreementSignatureService;
+    @Autowired AgreementRepository agreementRepository;
 
     /** A minimal, real PDF magic prefix -- the identical fixture DocumentServiceTest already uses. */
     private static final byte[] PDF_BYTES =
@@ -235,6 +256,60 @@ class CauseBeforeEffectTest extends PostgresTestBase {
             assertThat(chronological(caseId))
                     .containsSubsequence("document.uploaded", "requirement.satisfied", "milestone.completed");
         });
+    }
+
+    /**
+     * Sub-project 5 Task 18: the agreement.* family's causal chain.
+     * AgreementSignatureService.record writes agreement.signed BEFORE calling
+     * the gated RequirementService.satisfy, which records requirement.satisfied
+     * ahead of the reconcile that completes the milestone. The agreement is
+     * driven through the real lifecycle (patch, signatories, submit, review by
+     * a second user, send, record) on a STRUCTURED_ONLY SIGNATURE requirement
+     * with one internal signatory, so no file is involved.
+     */
+    @Test
+    void signingAnAgreementIsRecordedBeforeTheRequirementItSatisfies() {
+        UUID tenant = fixture.createTenant("cbe-agreement-signed");
+        UUID editor = fixture.createAdministrator(tenant, "editor+" + Uuid7.generate() + "@example.com");
+        UUID submitter = fixture.createAdministrator(tenant, "submitter+" + Uuid7.generate() + "@example.com");
+        UUID reviewer = fixture.createAdministrator(tenant, "reviewer+" + Uuid7.generate() + "@example.com");
+        UUID recorder = fixture.createAdministrator(tenant, "recorder+" + Uuid7.generate() + "@example.com");
+
+        var caseId = new UUID[1];
+        var agreementId = new UUID[1];
+        var lockVersion = new long[1];
+        var signer = new UUID[1];
+        fixture.runAs(tenant, () -> {
+            caseId[0] = agreementSupport.openCaseWithSignatureRequirement(tenant, AgreementRecordMode.STRUCTURED_ONLY);
+            var a = agreementRepository.findByCaseId(caseId[0]).get(0);
+            agreementId[0] = a.getId();
+            lockVersion[0] = a.getLockVersion();
+            signer[0] = fixture.createUser(tenant, "signer+" + Uuid7.generate() + "@example.com");
+        });
+
+        var latest = new AgreementDetailView[1];
+        fixture.runAsUser(tenant, editor, () -> latest[0] = agreementService.replaceSignatories(agreementId[0],
+                new ReplaceSignatoriesRequest(List.of(
+                        new SignatoryRequest(SignatoryKind.INTERNAL, null, signer[0], "Signer")), lockVersion[0])));
+        fixture.runAsUser(tenant, editor, () -> latest[0] = agreementService.patch(agreementId[0],
+                new PatchAgreementRequest(null, LocalDate.of(2026, 10, 1), null, null, null, null,
+                        latest[0].agreement().lockVersion())));
+        fixture.runAsUser(tenant, submitter, () -> latest[0] = agreementService.submit(
+                agreementId[0], latest[0].agreement().lockVersion()));
+        fixture.runAsUser(tenant, reviewer, () -> latest[0] = agreementReviewService.review(
+                agreementId[0], latest[0].versions().get(0).versionNumber(),
+                new ReviewAgreementRequest(ReviewDecision.APPROVE, null, latest[0].agreement().lockVersion())));
+        fixture.runAsUser(tenant, submitter, () -> latest[0] = agreementService.send(
+                agreementId[0], latest[0].agreement().lockVersion()));
+        UUID signatoryId = latest[0].signatories().stream().map(AgreementSignatoryView::id).findFirst().orElseThrow();
+
+        fixture.runAsUser(tenant, recorder, () -> agreementSignatureService.record(agreementId[0],
+                new RecordSignatureRequest(signatoryId, LocalDate.now(clock), "Wet ink, scanned",
+                        latest[0].agreement().lockVersion()), null, 0));
+
+        fixture.runAs(tenant, () -> assertThat(chronological(caseId[0]))
+                .containsSubsequence("case.created", "agreement.created")
+                .containsSubsequence("agreement.signed", "requirement.satisfied", "milestone.completed"));
     }
 
     /**
