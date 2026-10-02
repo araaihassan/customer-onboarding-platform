@@ -68,6 +68,9 @@ public record CalendarRules(ZoneId zone, Set<DayOfWeek> workingDays, Set<LocalDa
 
     public LocalDate localDate(Instant instant) { return LocalDate.ofInstant(instant, zone); }
 
+    /** Midnight at the start of {@code d} in this calendar's zone. */
+    public Instant startOfDay(LocalDate d) { return d.atStartOfDay(zone).toInstant(); }
+
     private LocalDate nextBusinessDay(LocalDate d) {
         LocalDate cursor = d;
         while (!isBusinessDay(cursor)) cursor = cursor.plusDays(1);

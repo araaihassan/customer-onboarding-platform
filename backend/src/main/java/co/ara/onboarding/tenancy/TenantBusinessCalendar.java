@@ -37,6 +37,7 @@ public class TenantBusinessCalendar implements BusinessCalendar {
     @Override public double businessDuration(Instant from, Instant to) { return rules().rules().businessDuration(from, to); }
     @Override public LocalDate today() { return rules().rules().today(clock); }
     @Override public LocalDate localDate(Instant instant) { return rules().rules().localDate(instant); }
+    @Override public Instant startOfDay(LocalDate d) { return rules().rules().startOfDay(d); }
     @Override public String name() { return rules().name(); }
 
     private record Loaded(CalendarRules rules, String name) {}

@@ -102,4 +102,10 @@ class CalendarRulesTest {
         Clock clock = Clock.fixed(Instant.parse("2026-10-02T12:00:00Z"), ZoneOffset.UTC);
         assertThat(rules.today(clock)).isEqualTo(LocalDate.of(2026, 10, 3));
     }
+
+    @Test
+    void startOfDayIsMidnightInTheZone() {
+        var rules = new CalendarRules(ZoneId.of("Pacific/Auckland"), MON_FRI, Set.of());
+        assertThat(rules.startOfDay(LocalDate.of(2026, 10, 3))).isEqualTo(Instant.parse("2026-10-02T11:00:00Z"));
+    }
 }

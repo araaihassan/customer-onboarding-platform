@@ -17,6 +17,8 @@ public interface BusinessCalendar {
     LocalDate today();
     /** The tenant-zone date of an instant. */
     LocalDate localDate(Instant instant);
+    /** Midnight at the start of a tenant-zone date. */
+    Instant startOfDay(LocalDate d);
     /** The calendar's display name, e.g. for the war room eyebrow. */
     String name();
 }
