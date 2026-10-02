@@ -9,6 +9,7 @@ import { useReplaceSignatories, type Agreement, type AgreementSignatory, type Si
 import { useContacts } from "@/lib/api/customers";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
+import { useDebounced } from "@/lib/useDebounced";
 
 type Kind = "CONTACT" | "INTERNAL";
 
@@ -69,9 +70,13 @@ export function SignatoryEditor({
   const [kind, setKind] = useState<Kind>(canViewContacts ? "CONTACT" : "INTERNAL");
   const [personId, setPersonId] = useState("");
   const [role, setRole] = useState("");
+  // /admin/users pages at 25 and has no status filter, so a name search is the only way to reach
+  // an internal user beyond page one.
+  const [userSearch, setUserSearch] = useState("");
+  const search = useDebounced(userSearch, 250);
 
   const contacts = useContacts(agreement.customerId ?? "", editable && canViewContacts);
-  const users = useUsers("", 0, editable && canViewUsers && kind === "INTERNAL");
+  const users = useUsers(search, 0, editable && canViewUsers && kind === "INTERNAL");
 
   if (!editable) {
     if (rows.length === 0) return <p className="text-text-subtle" style={{ fontSize: "12.5px" }}>{t("agreements.signatories.empty")}</p>;
@@ -150,11 +155,14 @@ export function SignatoryEditor({
 
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "var(--ob-space-8)", alignItems: "end" }}>
         {kinds.length > 1 && (
-          <SelectField label={t("agreements.signatories.kind")} value={kind} onChange={(v) => { setKind(v as Kind); setPersonId(""); }}>
+          <SelectField label={t("agreements.signatories.kind")} value={kind} onChange={(v) => { setKind(v as Kind); setPersonId(""); setUserSearch(""); }}>
             {kinds.map((k) => (
               <option key={k} value={k}>{t(`agreements.signatories.kind.${k}`)}</option>
             ))}
           </SelectField>
+        )}
+        {kind === "INTERNAL" && (
+          <Field label={t("agreements.signatories.search")} type="search" value={userSearch} onChange={(e) => setUserSearch(e.target.value)} />
         )}
         <SelectField label={t("agreements.signatories.person")} value={personId} onChange={setPersonId}>
           <option value="">{t("agreements.signatories.pick")}</option>

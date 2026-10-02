@@ -416,6 +416,7 @@
   "agreements.signatories.kind.CONTACT": "Customer contact",
   "agreements.signatories.kind.INTERNAL": "Internal user",
   "agreements.signatories.person": "Person",
+  "agreements.signatories.search": "Search people",
   "agreements.signatories.pick": "Choose…",
   "agreements.signatories.role": "Role on this agreement",
   "agreements.signatories.add": "Add signatory",

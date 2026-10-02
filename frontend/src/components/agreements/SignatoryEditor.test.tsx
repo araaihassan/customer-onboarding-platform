@@ -50,6 +50,9 @@ beforeEach(() => {
         ]),
       );
     }
+    if (url.includes("/admin/users") && url.includes("search=zed")) {
+      return Promise.resolve(reply({ content: [{ id: "u-9", fullName: "Zed Hidden", userType: "INTERNAL", status: "ACTIVE" }] }));
+    }
     if (url.includes("/admin/users")) {
       return Promise.resolve(
         reply({
@@ -118,6 +121,16 @@ describe("SignatoryEditor", () => {
     fireEvent.change(screen.getByLabelText("Signatory type"), { target: { value: "INTERNAL" } });
     await waitFor(() => expect(screen.getByRole("option", { name: "Lena Park" })).not.toBeNull());
     expect(screen.queryByRole("option", { name: "Gone User" })).toBeNull();
+  });
+
+  it("searching internal users queries the server so users beyond page one can be found", async () => {
+    renderEditor(true, []);
+    fireEvent.change(screen.getByLabelText("Signatory type"), { target: { value: "INTERNAL" } });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Lena Park" })).not.toBeNull());
+    expect(screen.queryByRole("option", { name: "Zed Hidden" })).toBeNull();
+    fireEvent.change(screen.getByLabelText("Search people"), { target: { value: "zed" } });
+    await waitFor(() => expect(screen.getByRole("option", { name: "Zed Hidden" })).not.toBeNull());
+    expect(fetchMock.mock.calls.some(([u]) => (u as string).includes("/admin/users?search=zed"))).toBe(true);
   });
 
   it("hides the internal-signatory option without user.view, and never fetches users", async () => {
