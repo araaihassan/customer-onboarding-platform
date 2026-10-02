@@ -13,6 +13,7 @@ class ReportingLinesTest extends PostgresTestBase {
     @Autowired TenantFixture fixture;
     @Autowired UserAdminService users;
     @Autowired OrgStructureService org;
+    @Autowired co.ara.onboarding.authz.RoleService roles;
 
     @Test
     void aUserCanBeGivenAManagerAndTheViewCarriesIt() {
@@ -84,6 +85,73 @@ class ReportingLinesTest extends PostgresTestBase {
         assertThatThrownBy(() -> fixture.runAsUser(mine, admin.getId(), () ->
                 org.createDepartment(new OrgStructureService.DepartmentRequest("D", "d", foreign))))
                 .isInstanceOf(NoSuchElementException.class);
+    }
+
+    // Narrowest-scope writes: user.manage / user.view at DEPARTMENT. department.manage is
+    // ALL-only in the catalog, so resolveHead has no narrower scope to exercise.
+    private UUID[] narrowWorld(UUID tenant) {
+        return fixture.runAsReturning(tenant, () -> {
+            UUID deptA = fixture.createDepartment(tenant, "A");
+            UUID deptB = fixture.createDepartment(tenant, "B");
+            UUID lead = fixture.createUserInDepartment(tenant, "lead@narrow.test", deptA);
+            UUID peer = fixture.createUserInDepartment(tenant, "peer@narrow.test", deptA);
+            UUID report = fixture.createUserInDepartment(tenant, "report@narrow.test", deptA);
+            UUID outsider = fixture.createUserInDepartment(tenant, "out@narrow.test", deptB);
+            UUID role = roles.createRole("Ops Lead", "", java.util.Map.of(
+                    co.ara.onboarding.authz.PermissionKeys.USER_VIEW, co.ara.onboarding.authz.Scope.DEPARTMENT,
+                    co.ara.onboarding.authz.PermissionKeys.USER_MANAGE, co.ara.onboarding.authz.Scope.DEPARTMENT));
+            roles.assignRole(lead, role);
+            return new UUID[] {deptA, lead, peer, report, outsider};
+        });
+    }
+
+    @Test
+    void aDepartmentScopedActorCannotNameAManagerOutsideTheirScope() {
+        UUID tenant = fixture.createTenant("rl-narrow-out");
+        UUID[] w = narrowWorld(tenant);
+        assertThatThrownBy(() -> fixture.runAsUser(tenant, w[1], () ->
+                users.update(w[3], new UserAdminService.UpdateUserRequest("R", w[0], w[4]))))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    void aDepartmentScopedActorCanSetAnInScopeManager() {
+        UUID tenant = fixture.createTenant("rl-narrow-in");
+        UUID[] w = narrowWorld(tenant);
+        fixture.runAsUser(tenant, w[1], () ->
+                assertThat(users.update(w[3], new UserAdminService.UpdateUserRequest("R", w[0], w[2])).managerId())
+                        .isEqualTo(w[2]));
+    }
+
+    private int auditCount(String action, UUID resourceId) {
+        return ownerJdbc().queryForObject(
+                "SELECT count(*) FROM audit_event WHERE action = ? AND resource_id = ?",
+                Integer.class, action, resourceId);
+    }
+
+    @Test
+    void managerAndHeadChangesAreAuditedOnlyWhenTheyChange() {
+        UUID tenant = fixture.createTenant("rl-audit");
+        var admin = fixture.createAdminUser(tenant, "admin@audit.test");
+        UUID boss = fixture.runAsReturning(tenant, () -> fixture.createUser(tenant, "boss@audit.test"));
+        UUID report = fixture.runAsReturning(tenant, () -> fixture.createUser(tenant, "r@audit.test"));
+        UUID[] dept = new UUID[1];
+        fixture.runAsUser(tenant, admin.getId(), () -> {
+            users.update(report, new UserAdminService.UpdateUserRequest("R", null, boss));
+            users.update(report, new UserAdminService.UpdateUserRequest("R2", null, boss)); // unchanged
+            dept[0] = org.createDepartment(new OrgStructureService.DepartmentRequest("D", "d")).id();
+            org.updateDepartment(dept[0], new OrgStructureService.DepartmentRequest("D", "d", boss));
+            org.updateDepartment(dept[0], new OrgStructureService.DepartmentRequest("D2", "d", boss)); // unchanged
+        });
+        assertThat(auditCount("user.manager_changed", report)).isEqualTo(1);
+        assertThat(auditCount("department.head_changed", dept[0])).isEqualTo(1);
+        // Clearing writes a null in the payload map; it must record, not throw.
+        fixture.runAsUser(tenant, admin.getId(), () -> {
+            users.update(report, new UserAdminService.UpdateUserRequest("R", null, null));
+            org.updateDepartment(dept[0], new OrgStructureService.DepartmentRequest("D", "d", null));
+        });
+        assertThat(auditCount("user.manager_changed", report)).isEqualTo(2);
+        assertThat(auditCount("department.head_changed", dept[0])).isEqualTo(2);
     }
 
     @Test
