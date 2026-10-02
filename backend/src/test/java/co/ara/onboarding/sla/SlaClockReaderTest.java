@@ -154,4 +154,88 @@ class SlaClockReaderTest {
         assertThat(new SlaClockReader(calendar(Clock.fixed(later, ZoneOffset.UTC), nz))
                 .view(c, List.of(), later, SlaPolicy.defaults(), null).dueToday()).isFalse();
     }
+
+    @Test
+    void aPausedClockDueTodayIsDueToday() {
+        // Started Mon 09:00, paused since Mon 21:00 (0.5 elapsed, frozen); target 1 -> 0.5 left; Tue 06:00
+        // leaves 0.75 of Tuesday. Spec 5 rule 4: paused clocks are not excluded.
+        Instant now = Instant.parse("2026-10-06T06:00:00Z");
+        var pauses = List.of(pause(PauseReason.CASE_HOLD, "2026-10-05T21:00:00Z", null));
+        var v = reader(now).view(clock(1, true), pauses, now, SlaPolicy.defaults(), null);
+        assertThat(v.state()).isEqualTo(SlaClockState.PAUSED);
+        assertThat(v.dueToday()).isTrue();
+    }
+
+    @Test
+    void aBreachedClockIsNeverDueToday() {
+        Instant now = Instant.parse("2026-10-07T09:00:00Z");
+        assertThat(reader(now).view(clock(2, true), List.of(), now, SlaPolicy.defaults(), null).dueToday()).isFalse();
+    }
+
+    @Test
+    void aucklandClockDueLaterTodayIsDueToday() {
+        var nz = new CalendarRules(ZoneId.of("Pacific/Auckland"), EnumSet.range(DayOfWeek.MONDAY, DayOfWeek.FRIDAY), java.util.Set.of());
+        SlaClock c = clock(1, true);
+        c.setStartedAt(Instant.parse("2026-10-05T23:00:00Z")); // Tue 12:00 NZ
+        Instant now = Instant.parse("2026-10-06T21:00:00Z");   // Wed 10:00 NZ: 22h elapsed, 2h remaining, 14h left in the day
+        var v = new SlaClockReader(calendar(Clock.fixed(now, ZoneOffset.UTC), nz))
+                .view(c, List.of(), now, SlaPolicy.defaults(), null);
+        assertThat(v.dueToday()).isTrue();
+    }
+
+    @Test
+    void atRiskWhileStillPaused() {
+        Instant now = Instant.parse("2026-10-06T06:00:00Z");
+        var pauses = List.of(pause(PauseReason.CASE_HOLD, "2026-10-05T21:00:00Z", null));
+        assertThat(reader(now).view(clock(1, true), pauses, now, SlaPolicy.defaults(), null).atRisk()).isTrue();
+    }
+
+    @Test
+    void aPauseStartingBeforeTheClockIsClipped() {
+        Instant now = Instant.parse("2026-10-06T09:00:00Z");
+        var pauses = List.of(pause(PauseReason.CASE_HOLD, "2026-10-04T09:00:00Z", "2026-10-05T21:00:00Z"));
+        assertThat(reader(now).paused(clock(3, true), pauses, now)).isCloseTo(0.5, within(1e-9));
+    }
+
+    @Test
+    void aPauseEntirelyAfterStopIsDropped() {
+        SlaClock c = clock(3, true);
+        c.setStoppedAt(Instant.parse("2026-10-06T09:00:00Z"));
+        c.setOutcome(SlaClockOutcome.MET);
+        Instant now = Instant.parse("2026-10-09T09:00:00Z");
+        var pauses = List.of(pause(PauseReason.CASE_HOLD, "2026-10-07T09:00:00Z", null));
+        var v = reader(now).view(c, pauses, now, SlaPolicy.defaults(), null);
+        assertThat(v.pausedDays()).isCloseTo(0.0, within(1e-9));
+        assertThat(v.elapsedDays()).isCloseTo(1.0, within(1e-9));
+        assertThat(v.pauseReason()).isNull();
+    }
+
+    @Test
+    void aNestedPauseCountsOnce() {
+        Instant now = Instant.parse("2026-10-07T09:00:00Z");
+        var pauses = List.of(
+                pause(PauseReason.CASE_HOLD, "2026-10-05T12:00:00Z", "2026-10-06T12:00:00Z"),
+                pause(PauseReason.OPEN_DOCUMENT_REQUEST, "2026-10-05T18:00:00Z", "2026-10-06T06:00:00Z"));
+        assertThat(reader(now).paused(clock(5, true), pauses, now)).isCloseTo(1.0, within(1e-9));
+    }
+
+    @Test
+    void exactlyAtTargetIsBreachedEvenWithNonRoundMilliseconds() {
+        SlaClock c = clock(3, true);
+        Instant start = Instant.parse("2026-10-05T09:17:23.137Z");
+        c.setStartedAt(start);
+        Instant now = Instant.parse("2026-10-08T09:17:23.137Z"); // exactly 3 business days later
+        var v = reader(now).view(c, List.of(), now, SlaPolicy.defaults(), null);
+        assertThat(v.state()).isEqualTo(SlaClockState.BREACHED);
+        assertThat(v.remainingDays()).isEqualTo(0.0);
+    }
+
+    @Test
+    void anOpenDocumentRequestPauseIsIgnoredWhenTheClockIsNotPauseEligible() {
+        Instant now = Instant.parse("2026-10-06T09:00:00Z");
+        var pauses = List.of(pause(PauseReason.OPEN_DOCUMENT_REQUEST, "2026-10-05T21:00:00Z", null));
+        var v = reader(now).view(clock(3, false), pauses, now, SlaPolicy.defaults(), null);
+        assertThat(v.state()).isEqualTo(SlaClockState.RUNNING);
+        assertThat(v.pausedDays()).isCloseTo(0.0, within(1e-9));
+    }
 }

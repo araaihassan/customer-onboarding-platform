@@ -15,14 +15,25 @@ public class SlaClockReader {
 
     private final BusinessCalendar calendar;
 
+    /** Absorbs ms/dayLength rounding so exactly-at-target reads as at target. */
+    private static final double EPS = 1e-9;
+
     public SlaClockReader(BusinessCalendar calendar) { this.calendar = calendar; }
 
+    /** An OPEN_DOCUMENT_REQUEST pause only counts on a pause-eligible clock. */
+    private static List<SlaPause> effective(SlaClock clock, List<SlaPause> pauses) {
+        if (clock.isPauseEligible()) return pauses;
+        return pauses.stream().filter(p -> p.getReason() != PauseReason.OPEN_DOCUMENT_REQUEST).toList();
+    }
+
     public double elapsed(SlaClock clock, List<SlaPause> pauses, Instant now) {
+        pauses = effective(clock, pauses);
         Instant end = end(clock, now);
         return Math.max(0, calendar.businessDuration(clock.getStartedAt(), end) - paused(clock, pauses, now));
     }
 
     public double paused(SlaClock clock, List<SlaPause> pauses, Instant now) {
+        pauses = effective(clock, pauses);
         Instant end = end(clock, now);
         double total = 0;
         for (Instant[] interval : union(pauses, clock.getStartedAt(), end)) {
@@ -33,9 +44,11 @@ public class SlaClockReader {
 
     public SlaClockView view(SlaClock clock, List<SlaPause> pauses, Instant now, SlaPolicy policy,
                              SlaClockView.EscalatedTo escalatedTo) {
+        pauses = effective(clock, pauses);
         double elapsed = elapsed(clock, pauses, now);
         double paused = paused(clock, pauses, now);
-        double remaining = Math.max(0, clock.getTargetDays() - elapsed);
+        double rawRemaining = clock.getTargetDays() - elapsed;
+        double remaining = rawRemaining <= EPS ? 0 : rawRemaining;
         Optional<SlaPause> open = clock.getStoppedAt() == null
                 ? pauses.stream().filter(p -> p.getEndedAt() == null).min(Comparator.comparing(SlaPause::getStartedAt))
                 : Optional.empty();
@@ -43,7 +56,7 @@ public class SlaClockReader {
         SlaClockState state;
         if (clock.getStoppedAt() != null) {
             state = clock.getOutcome() == SlaClockOutcome.BREACHED ? SlaClockState.BREACHED : SlaClockState.MET;
-        } else if (clock.getBreachedAt() != null || elapsed >= clock.getTargetDays()) {
+        } else if (clock.getBreachedAt() != null || remaining == 0) {
             state = SlaClockState.BREACHED;
         } else if (open.isPresent()) {
             state = SlaClockState.PAUSED;
@@ -52,8 +65,9 @@ public class SlaClockReader {
         }
 
         boolean live = clock.getStoppedAt() == null && state != SlaClockState.BREACHED;
-        boolean atRisk = live && remaining <= policy.atRiskDays();
-        boolean dueToday = state == SlaClockState.RUNNING && remaining <= calendar.businessDuration(now,
+        boolean atRisk = live && remaining <= policy.atRiskDays() + EPS;
+        // Spec 5 rule 4: running or paused (not stopped, not breached) and due before tenant midnight.
+        boolean dueToday = live && remaining <= EPS + calendar.businessDuration(now,
                 calendar.startOfDay(calendar.localDate(now).plusDays(1)));
 
         return new SlaClockView(clock.getId(), clock.getCaseId(), clock.getStageId(), clock.getTargetDays(),
