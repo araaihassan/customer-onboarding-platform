@@ -543,6 +543,11 @@ public class WorkflowService {
 
     // ---- entity construction ----------------------------------------------------
 
+    /** The one place a null pausesOnCustomer becomes true (spec 8). */
+    static boolean pausesOnCustomer(StageRequest s) {
+        return s.pausesOnCustomer() == null || s.pausesOnCustomer();
+    }
+
     private Stage newStage(WorkflowVersion version, StageRequest s, int ordinal) {
         Stage stage = new Stage();
         stage.setId(Uuid7.generate());
@@ -554,6 +559,7 @@ public class WorkflowService {
         stage.setRequiresApproval(s.requiresApproval());
         stage.setAutoAdvance(s.autoAdvance());
         stage.setPortalVisible(s.portalVisible());
+        stage.setPausesOnCustomer(pausesOnCustomer(s));
         stage.setSlaDays(s.slaDays());
         stage.setWriteScope(s.writeScope() == null ? WriteScope.ANY : s.writeScope());
         stage.setNotificationTemplateKey(s.notificationTemplateKey());
@@ -747,7 +753,7 @@ public class WorkflowService {
                 s.isRequiresApproval(), s.isAutoAdvance(), s.isPortalVisible(), s.getSlaDays(),
                 s.getWriteScope(), s.getNotificationTemplateKey(), toConditionView(s.getEntryCondition()),
                 s.getFallbackNextStageId() == null ? null : s.getFallbackNextStageId().toString(),
-                s.getFallbackNextStageId(), milestoneViews, ruleViews);
+                s.getFallbackNextStageId(), milestoneViews, ruleViews, s.isPausesOnCustomer());
     }
 
     private MilestoneView toMilestoneView(MilestoneDefinition m, List<RequirementDefinition> requirements,
@@ -805,7 +811,8 @@ public class WorkflowService {
                 s.notificationTemplateKey(), toConditionRequest(s.entryCondition()),
                 s.fallbackNextStageKey(),
                 s.milestones().stream().map(this::toMilestoneRequest).toList(),
-                s.branchRules().stream().map(this::toBranchRuleRequest).toList());
+                s.branchRules().stream().map(this::toBranchRuleRequest).toList(),
+                s.pausesOnCustomer());
     }
 
     private MilestoneRequest toMilestoneRequest(MilestoneView m) {
