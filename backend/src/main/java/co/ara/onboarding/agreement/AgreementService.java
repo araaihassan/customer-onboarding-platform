@@ -13,6 +13,7 @@ import co.ara.onboarding.customer.CustomerContactRepository;
 import co.ara.onboarding.customer.CustomerRepository;
 import co.ara.onboarding.document.AgreementFiles;
 import co.ara.onboarding.document.OwnedFile;
+import co.ara.onboarding.document.VisibilityTier;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.identity.UserStatus;
@@ -74,6 +75,7 @@ public class AgreementService {
     private final AgreementWrites writes;
     private final AuthContextProvider contextProvider;
     private final AgreementFiles agreementFiles;
+    private final List<SignatureProvider> signatureProviders;
     private final Clock clock;
     private final AuditRecorder audit;
 
@@ -82,7 +84,8 @@ public class AgreementService {
                             AgreementSignatureRepository signatures, CustomerRepository customers,
                             CustomerContactRepository contacts, AppUserRepository users,
                             AuthorizedQuery authorizedQuery, AgreementWrites writes,
-                            AuthContextProvider contextProvider, AgreementFiles agreementFiles, Clock clock,
+                            AuthContextProvider contextProvider, AgreementFiles agreementFiles,
+                            List<SignatureProvider> signatureProviders, Clock clock,
                             AuditRecorder audit) {
         this.agreements = agreements;
         this.signatories = signatories;
@@ -96,6 +99,7 @@ public class AgreementService {
         this.writes = writes;
         this.contextProvider = contextProvider;
         this.agreementFiles = agreementFiles;
+        this.signatureProviders = signatureProviders;
         this.clock = clock;
         this.audit = audit;
     }
@@ -449,6 +453,50 @@ public class AgreementService {
                 Map.of("agreementId", a.getId().toString(), "versionNumber", Integer.toString(v.getVersionNumber()),
                        "contentSha256", contentSha));
         return get(a.getId());
+    }
+
+    /**
+     * Moves an APPROVED agreement to SENT (Task 15; spec 3.4/4.6/5.3). The "sent version"
+     * is always the latest one -- no version can be created past DRAFT, and SENT never
+     * returns to DRAFT (cancel makes a new agreement) -- so {@code
+     * versions.ofAgreementNewestFirst(...).get(0)} needs no version-number argument the
+     * way {@code review} does.
+     *
+     * <p>{@link #providerFor} selects the one {@link SignatureProvider} bean whose {@code
+     * kind()} matches the agreement's own {@code signatureProvider} column; no bean
+     * matching is an {@link IllegalStateException}, not a silent no-op, since the column's
+     * own CHECK constraint is the only thing standing between this and a provider nobody
+     * wrote. {@code ManualSignatureProvider} never returns an envelope id, so {@code
+     * providerEnvelopeId} stays null for every agreement this sub-project sends.
+     *
+     * <p>A FILE_BACKED/MIXED agreement's owned document is retiered COMPANY_SHARED here --
+     * the one moment {@code AgreementFiles}'s own javadoc names as the SENSITIVE-to-shared
+     * transition. STRUCTURED_ONLY has no document at all ({@code documentId == null}), so
+     * this step is skipped, not a no-op retier call.
+     */
+    @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
+    @Transactional
+    public AgreementDetailView send(UUID id, long lockVersion) {
+        Agreement a = writes.loadForWrite(id, PermissionKeys.AGREEMENT_MANAGE, lockVersion,
+                EnumSet.of(AgreementStatus.APPROVED));
+        AgreementVersion sent = versions.ofAgreementNewestFirst(a.getId()).get(0);
+        providerFor(a).send(a, sent).ifPresent(a::setProviderEnvelopeId);
+        if (a.getDocumentId() != null) agreementFiles.retier(a.getDocumentId(), VisibilityTier.COMPANY_SHARED);
+        a.setStatus(AgreementStatus.SENT);
+        a.setUpdatedAt(Instant.now(clock));
+        agreements.saveAndFlush(a);
+        audit.record(AuditActions.AGREEMENT_SENT, "onboarding_case", a.getCaseId(),
+                "Sent " + a.getName() + " v" + sent.getVersionNumber() + " for signature",
+                Map.of("agreementId", a.getId().toString(), "versionNumber", Integer.toString(sent.getVersionNumber())));
+        return get(a.getId());
+    }
+
+    private SignatureProvider providerFor(Agreement a) {
+        return signatureProviders.stream()
+                .filter(p -> p.kind() == a.getSignatureProvider())
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "No SignatureProvider registered for " + a.getSignatureProvider()));
     }
 
     private static AgreementSnapshot snapshotOf(Agreement a, List<AgreementSignatory> parties) {
