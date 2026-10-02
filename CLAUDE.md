@@ -638,6 +638,16 @@ review parked; real gaps, none fixed here):
 - **A portal actor can still read `DocumentView.currentVersionNumber` via `GET /documents/{id}`**
   (the existing actor-type gap above), and `DocumentView` lacks `agreementOwned`, so the docs index
   offers edit/retire/share on an agreement's file and then 409s.
+- **The agreement detail panel can open only the document's *current* version, not a specific one.**
+  Found after the close-out: the panel had no way to open the file at all, so an "Open file" button
+  (`OpenAgreementFile.tsx`, reusing `downloadDocumentVersion` and `useDocument`) now sits in the file row
+  for every status. Still missing, and **deliberately not built**: a per-version "Open file" in
+  `VersionHistory` (so a reviewer can read the exact bytes that were submitted or rejected) and one on a
+  countersigned signature. `AgreementVersionView` carries only `documentVersionId` and
+  `AgreementSignatureView` only `countersignedDocumentVersionId` (UUIDs), while the download route needs a
+  version *number* and no endpoint lists a document's versions. Fix: expose `documentVersionNumber` /
+  `countersignedDocumentVersionNumber` on those two views (backend + regenerate `generated.ts`), or add a
+  `GET /documents/{id}/versions` list endpoint; then add the two actions.
 - **`V26`'s backfill `UPDATE`s rely on the Flyway owner bypassing `FORCE ROW LEVEL SECURITY`** (as
   `V15` does); no test runs them against existing agreement rows.
 - **Dead or test-only code:** `Scope.atLeastAsBroad`, and `AgreementRepository.findByCaseId` (used

@@ -12,6 +12,7 @@ import {
 } from "@/lib/api/agreements";
 import { t } from "@/lib/i18n";
 import { formatAgreementDate } from "./AgreementRow";
+import { OpenAgreementFile } from "./OpenAgreementFile";
 
 type Clearable = NonNullable<PatchAgreementRequest["clear"]>[number];
 
@@ -125,9 +126,12 @@ export function DraftEditor({
       {showFile && (
         <div className="flex flex-col" style={{ gap: "var(--ob-space-4)" }}>
           <h4 className="text-ink" style={{ fontWeight: 600, fontSize: "13px" }}>{t("agreements.detail.section.file")}</h4>
-          <p className="text-text-subtle" style={{ fontSize: "12.5px" }}>
-            {agreement.documentId ? t("agreements.file.attached") : t("agreements.file.none")}
-          </p>
+          <div className="flex items-center" style={{ gap: "var(--ob-space-11)" }}>
+            <p className="text-text-subtle" style={{ fontSize: "12.5px" }}>
+              {agreement.documentId ? t("agreements.file.attached") : t("agreements.file.none")}
+            </p>
+            {agreement.documentId && <OpenAgreementFile documentId={agreement.documentId} />}
+          </div>
           <Field
             type="file"
             label={agreement.documentId ? t("agreements.file.replace") : t("agreements.file.upload")}

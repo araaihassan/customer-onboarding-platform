@@ -5,7 +5,7 @@ import { XIcon } from "@/components/icons";
 import { Button } from "@/components/ui/Button";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { ErrorState, SkeletonRows } from "@/components/ui/States";
-import { useAgreement } from "@/lib/api/agreements";
+import { recordModeIncludesFile, useAgreement } from "@/lib/api/agreements";
 import { parseProblemDetail } from "@/lib/api/cases";
 import { ApiError } from "@/lib/api/client";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
@@ -13,6 +13,7 @@ import { t } from "@/lib/i18n";
 import { agreementMeta } from "./AgreementRow";
 import { AgreementActions } from "./AgreementActions";
 import { DraftEditor } from "./DraftEditor";
+import { OpenAgreementFile } from "./OpenAgreementFile";
 import { SignatoryEditor } from "./SignatoryEditor";
 import { SignatureList } from "./SignatureList";
 import { VersionHistory } from "./VersionHistory";
@@ -133,6 +134,17 @@ export function AgreementDetailPanel({ id, onClose, onOpen }: { id: string; onCl
             <Section title={t("agreements.detail.section.terms")}>
               <DraftEditor key={`terms-${agreement.lockVersion}`} agreement={agreement} editable={editable} onError={handleError} />
             </Section>
+
+            {!editable && recordModeIncludesFile(agreement.recordMode ?? "FILE_BACKED") && (
+              <Section title={t("agreements.detail.section.file")}>
+                <div className="flex items-center" style={{ gap: "var(--ob-space-11)" }}>
+                  <p className="text-text-subtle" style={{ fontSize: "12.5px" }}>
+                    {agreement.documentId ? t("agreements.file.attachedReadOnly") : t("agreements.file.noneReadOnly")}
+                  </p>
+                  {agreement.documentId && <OpenAgreementFile documentId={agreement.documentId} />}
+                </div>
+              </Section>
+            )}
 
             {status === "DRAFT" ? (
               <Section title={t("agreements.detail.section.signatories")}>

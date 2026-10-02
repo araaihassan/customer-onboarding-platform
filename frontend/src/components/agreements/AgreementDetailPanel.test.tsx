@@ -6,6 +6,12 @@ import { __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import type { AgreementDetail } from "@/lib/api/agreements";
 import { AgreementDetailPanel } from "./AgreementDetailPanel";
 
+const { downloadDocumentVersion } = vi.hoisted(() => ({ downloadDocumentVersion: vi.fn() }));
+vi.mock("@/lib/api/documents", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api/documents")>();
+  return { ...actual, downloadDocumentVersion };
+});
+
 let permissions: Record<string, string[]> = {};
 vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions }) }));
 
@@ -53,13 +59,16 @@ const sentDetail: AgreementDetail = {
 let detail: AgreementDetail;
 
 beforeEach(() => {
-  permissions = { "agreement.manage": ["ALL"], "contact.view": ["ALL"], "user.view": ["ALL"] };
+  permissions = { "agreement.manage": ["ALL"], "document.view": ["ALL"], "contact.view": ["ALL"], "user.view": ["ALL"] };
   detail = draftDetail;
   onClose.mockReset();
+  downloadDocumentVersion.mockReset();
+  downloadDocumentVersion.mockResolvedValue(undefined);
   fetchMock.mockReset();
   fetchMock.mockImplementation((url: string, init?: RequestInit) => {
     if (init?.method === "PATCH") return Promise.resolve(reply({ detail: "conflict" }, 409));
     if (url.endsWith("/agreements/a-1")) return Promise.resolve(reply(detail));
+    if (url.endsWith("/documents/doc-1")) return Promise.resolve(reply({ id: "doc-1", name: "MSA file", currentVersionNumber: 3 }));
     if (url.includes("/contacts")) return Promise.resolve(reply([]));
     if (url.includes("/admin/users")) return Promise.resolve(reply({ content: [] }));
     return Promise.resolve(reply({}));
@@ -150,5 +159,75 @@ describe("AgreementDetailPanel", () => {
     view.unmount();
     expect(document.activeElement).toBe(opener);
     opener.remove();
+  });
+});
+
+describe("AgreementDetailPanel: opening the agreement file", () => {
+  const withFile = (d: AgreementDetail, over: Partial<NonNullable<AgreementDetail["agreement"]>> = {}): AgreementDetail => ({
+    ...d,
+    agreement: { ...d.agreement, documentId: "doc-1", ...over },
+  });
+  const openButton = () => screen.findByRole("button", { name: "Open file" });
+
+  it("a DRAFT with a file offers Open file, which downloads the document's current version", async () => {
+    detail = withFile(draftDetail);
+    renderPanel();
+    const button = await openButton();
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(downloadDocumentVersion).toHaveBeenCalledWith("doc-1", 3, "MSA file"));
+  });
+
+  it.each([
+    ["SENT", { status: "SENT", displayStatus: "SENT" }],
+    ["SIGNED", { status: "SIGNED", displayStatus: "SIGNED" }],
+    ["EXPIRED", { status: "SIGNED", displayStatus: "EXPIRED" }],
+    ["CANCELLED", { status: "CANCELLED", displayStatus: "CANCELLED" }],
+  ] as const)("read-only %s still offers Open file", async (_n, over) => {
+    detail = withFile(sentDetail, over);
+    renderPanel();
+    expect(await openButton()).not.toBeNull();
+  });
+
+  it("shows no button when the agreement has no file", async () => {
+    detail = sentDetail;
+    renderPanel();
+    await screen.findByText("Sent");
+    expect(screen.queryByRole("button", { name: "Open file" })).toBeNull();
+  });
+
+  it("hides the button, but still says a file is attached, without document.view", async () => {
+    permissions = { ...permissions, "document.view": [] };
+    delete permissions["document.view"];
+    detail = withFile(sentDetail);
+    renderPanel();
+    await screen.findByText("Sent");
+    expect(screen.getByText("A file is attached.")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Open file" })).toBeNull();
+  });
+
+  it("is disabled while the download is in flight", async () => {
+    let finish: () => void = () => {};
+    downloadDocumentVersion.mockReturnValue(new Promise<void>((r) => (finish = r)));
+    detail = withFile(sentDetail);
+    renderPanel();
+    const button = (await openButton()) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(button.disabled).toBe(true));
+    fireEvent.click(button);
+    expect(downloadDocumentVersion).toHaveBeenCalledTimes(1);
+    finish();
+    await waitFor(() => expect(button.disabled).toBe(false));
+  });
+
+  it("shows an error when the download fails", async () => {
+    downloadDocumentVersion.mockRejectedValue(new Error("403"));
+    detail = withFile(sentDetail);
+    renderPanel();
+    const button = (await openButton()) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("Could not open the file"));
   });
 });
