@@ -17,6 +17,7 @@ import co.ara.onboarding.document.VisibilityTier;
 import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.identity.UserStatus;
+import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.AgreementRecordMode;
 import org.springframework.data.domain.Page;
@@ -113,6 +114,7 @@ public class AgreementService {
     @RequirePermission(PermissionKeys.AGREEMENT_VIEW)
     @Transactional(readOnly = true)
     public Page<AgreementView> list(AgreementDisplayStatus status, Pageable pageable) {
+        refusePortal();
         Specification<Agreement> spec = statusSpec(status);
         return authorizedQuery.findAll(agreements, Agreement.class, PermissionKeys.AGREEMENT_VIEW, spec, pageable)
                 .map(this::toView);
@@ -122,6 +124,7 @@ public class AgreementService {
     @RequirePermission(PermissionKeys.AGREEMENT_VIEW)
     @Transactional(readOnly = true)
     public List<AgreementView> forCase(UUID caseId) {
+        refusePortal();
         Specification<Agreement> byCase = (root, query, cb) -> cb.equal(root.get("caseId"), caseId);
         List<Agreement> all = authorizedQuery.findAll(
                         agreements, Agreement.class, PermissionKeys.AGREEMENT_VIEW, byCase, Pageable.unpaged())
@@ -149,6 +152,7 @@ public class AgreementService {
     @RequirePermission(PermissionKeys.AGREEMENT_VIEW)
     @Transactional(readOnly = true)
     public AgreementDetailView get(UUID id) {
+        refusePortal();
         Agreement a = authorizedQuery.getById(agreements, Agreement.class, PermissionKeys.AGREEMENT_VIEW, id);
 
         List<AgreementSignature> signatureRows = signatures.ofAgreement(a.getId());
@@ -575,6 +579,7 @@ public class AgreementService {
     @RequirePermission(PermissionKeys.AGREEMENT_VIEW)
     @Transactional(readOnly = true)
     public AgreementSummaryView summary() {
+        refusePortal();
         LocalDate today = LocalDate.now(clock);
 
         long draft = countByStatuses(AgreementStatus.DRAFT);
@@ -587,6 +592,22 @@ public class AgreementService {
                 agreements, Agreement.class, PermissionKeys.AGREEMENT_VIEW, expiringWithinSpec(today));
 
         return new AgreementSummaryView(draft, underReview, sent, awaitingSignature, signed, expiringWithin30Days);
+    }
+
+    /**
+     * The four operator reads ({@link #list}, {@link #forCase}, {@link #get}, {@link #summary})
+     * refuse every PORTAL actor as a 404, inside the service rather than the controller (final
+     * whole-branch review, Important 1). {@code PortalPermissions} grants a contact {@code
+     * agreement.view} at ALL, and {@code AgreementAudienceFilter} narrows only WHICH rows they
+     * reach (their own customer's, SENT onward) -- never WHAT is returned about them -- so these
+     * reads would otherwise hand a portal contact the full internal detail: every version's
+     * reviewer and rejection reason, each signature's {@code recordedBy}, {@code ownerUserId},
+     * {@code lastEditedBy}, exactly what spec 6.5 forbids. The portal's own narrow view is
+     * {@link PortalAgreementService}; this mirrors {@code document.DocumentService#forCase}'s
+     * identical guard.
+     */
+    private void refusePortal() {
+        if (contextProvider.current().userType() == UserType.PORTAL) throw new NoSuchElementException("Not found");
     }
 
     private long countByStatuses(AgreementStatus... statuses) {

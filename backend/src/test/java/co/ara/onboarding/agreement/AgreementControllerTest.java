@@ -231,4 +231,34 @@ class AgreementControllerTest extends SecurityTestBase {
                 .andExpect(status().isNotFound());
         mvc.perform(as(get(base(w) + "/portal/agreements"), w.editor())).andExpect(status().isNotFound());
     }
+
+    /**
+     * The reverse direction of the test above (final whole-branch review, Important 1): a portal
+     * contact holds agreement.view at ALL, narrowed only by AgreementAudienceFilter to their own
+     * customer's SENT-onward agreements -- so without an explicit refusal the OPERATOR reads
+     * resolve for them and hand back the full internal detail (reviewer ids, rejection reasons,
+     * recordedBy) spec 6.5 reserves for staff. Every operator read is a 404 for a portal actor;
+     * the portal's own endpoints, and the operator's, keep working.
+     */
+    @Test
+    void operatorReadEndpointsAreA404ForAPortalContact() throws Exception {
+        World w = world(AgreementRecordMode.STRUCTURED_ONLY);
+        var d = drive(w, AgreementStatus.SENT, 1);
+        UUID customer = fixture.runAsReturning(w.tenant(), () -> cases.findById(w.caseId()).orElseThrow().getCustomerId());
+        UUID portalId = fixture.createPortalUserForContact(w.tenant(), customer,
+                "portal+" + Uuid7.generate() + "@example.com");
+        AppUser portal = user(w.tenant(), portalId);
+        String b = base(w);
+
+        mvc.perform(as(get(b + "/agreements/" + d.agreementId()), portal)).andExpect(status().isNotFound());
+        mvc.perform(as(get(b + "/agreements"), portal)).andExpect(status().isNotFound());
+        mvc.perform(as(get(b + "/agreements/summary"), portal)).andExpect(status().isNotFound());
+        mvc.perform(as(get(b + "/cases/" + d.caseId() + "/agreements"), portal)).andExpect(status().isNotFound());
+
+        // The portal's own endpoint still serves them; staff are unaffected.
+        mvc.perform(as(get(b + "/portal/agreements/" + d.agreementId()), portal))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.id").value(d.agreementId().toString()));
+        mvc.perform(as(get(b + "/agreements/" + d.agreementId()), w.editor()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.agreement.id").value(d.agreementId().toString()));
+    }
 }
