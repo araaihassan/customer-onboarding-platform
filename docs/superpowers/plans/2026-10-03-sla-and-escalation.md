@@ -1829,6 +1829,8 @@ public class TenantJobRunner {
 
 Spec ยง5, invariant 4, STATE_AND_DATA L138. Pure derivation; no persistence, no HTTP.
 
+> **Amendment (review ruling):** `dueToday` is `stoppedAt == null && state != BREACHED` (RUNNING or PAUSED), per spec ง5 rule 4 (a paused clock due today belongs in the war room's Due today column); the `state == SlaClockState.RUNNING` in the code below is superseded. Also: 1e-9 epsilon on breach/at-risk/due-today, and `OPEN_DOCUMENT_REQUEST` pauses are ignored on a non-pause-eligible clock.
+
 **Files:**
 - Modify: `backend/src/main/java/co/ara/onboarding/platform/CalendarRules.java`, `BusinessCalendar.java`, `backend/src/main/java/co/ara/onboarding/tenancy/TenantBusinessCalendar.java` (add `startOfDay`)
 - Create: `backend/src/main/java/co/ara/onboarding/sla/SlaClockReader.java`, `SlaClockView.java`, `SlaClockState.java`, `SlaPolicy.java`, `SlaPolicyReader.java`

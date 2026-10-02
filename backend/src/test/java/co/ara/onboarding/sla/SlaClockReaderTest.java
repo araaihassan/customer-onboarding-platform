@@ -238,4 +238,14 @@ class SlaClockReaderTest {
         assertThat(v.state()).isEqualTo(SlaClockState.RUNNING);
         assertThat(v.pausedDays()).isCloseTo(0.0, within(1e-9));
     }
+
+    @Test
+    void aCaseHoldStillPausesANonPauseEligibleClock() {
+        Instant now = Instant.parse("2026-10-06T09:00:00Z");
+        var pauses = List.of(pause(PauseReason.CASE_HOLD, "2026-10-05T21:00:00Z", null));
+        var v = reader(now).view(clock(3, false), pauses, now, SlaPolicy.defaults(), null);
+        assertThat(v.state()).isEqualTo(SlaClockState.PAUSED);
+        assertThat(v.pauseReason()).isEqualTo(PauseReason.CASE_HOLD);
+        assertThat(v.pausedDays()).isCloseTo(0.5, within(1e-9));
+    }
 }
