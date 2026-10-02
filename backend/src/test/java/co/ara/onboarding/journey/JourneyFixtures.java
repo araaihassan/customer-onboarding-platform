@@ -56,7 +56,7 @@ public class JourneyFixtures {
     private final TenantFixture tenantFixture;
     private final WorkflowService workflows;
     private final PublishService publishService;
-    private final AtomicInteger stageOrdinal = new AtomicInteger();
+    private final AtomicInteger stageOrdinal = new AtomicInteger(1000);
 
     public JourneyFixtures(CaseRepository cases, CaseParticipantRepository participants,
                            MilestoneRepository milestones, RequirementRepository requirements,

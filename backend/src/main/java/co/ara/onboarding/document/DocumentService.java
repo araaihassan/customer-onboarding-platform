@@ -17,8 +17,6 @@ import co.ara.onboarding.journey.RequirementRepository;
 import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.platform.UserType;
-import co.ara.onboarding.platform.Uuid7;
-import co.ara.onboarding.platform.storage.BlobStore;
 import co.ara.onboarding.platform.storage.StorageProperties;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
@@ -27,8 +25,6 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
-import org.hibernate.exception.ConstraintViolationException;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -36,20 +32,11 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.ByteArrayInputStream;
-import java.io.IOException;
 import java.io.InputStream;
-import java.io.SequenceInputStream;
-import java.io.UncheckedIOException;
-import java.security.DigestInputStream;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HexFormat;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.UUID;
@@ -89,11 +76,6 @@ import java.util.UUID;
 @Service
 public class DocumentService {
 
-    /** A magic-byte/structural sniff needs only a small prefix, never the whole file. */
-    private static final int SNIFF_PREFIX_BYTES = 8192;
-
-    private static final String DOCUMENT_VERSION_NO_UNIQUE = "document_version_no_uq";
-
     /**
      * Task 18's own convention for {@code Requirement.satisfiedRefType}
      * (lowercase, matching {@code task.TaskService}'s existing
@@ -118,12 +100,11 @@ public class DocumentService {
     private final AuthContextProvider contextProvider;
     private final PortalContactDirectory portalContacts;
     private final StageWriteScopeGuard writeScope;
-    private final BlobStore blobStore;
     private final StorageProperties storageProperties;
-    private final ContentSniffGuard sniffGuard;
     private final OrgUnitResolver orgUnits;
     private final Clock clock;
     private final AuditRecorder audit;
+    private final DocumentContentWriter contentWriter;
 
     public DocumentService(DocumentRepository documents, DocumentVersionRepository versions,
                            DocumentShareRepository shares, DocumentCaseLinkRepository caseLinks,
@@ -132,9 +113,10 @@ public class DocumentService {
                            CustomerContactRepository contacts,
                            AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
                            PortalContactDirectory portalContacts,
-                           StageWriteScopeGuard writeScope, BlobStore blobStore,
-                           StorageProperties storageProperties, ContentSniffGuard sniffGuard,
-                           OrgUnitResolver orgUnits, Clock clock, AuditRecorder audit) {
+                           StageWriteScopeGuard writeScope,
+                           StorageProperties storageProperties,
+                           OrgUnitResolver orgUnits, Clock clock, AuditRecorder audit,
+                           DocumentContentWriter contentWriter) {
         this.documents = documents;
         this.versions = versions;
         this.shares = shares;
@@ -148,12 +130,11 @@ public class DocumentService {
         this.contextProvider = contextProvider;
         this.portalContacts = portalContacts;
         this.writeScope = writeScope;
-        this.blobStore = blobStore;
         this.storageProperties = storageProperties;
-        this.sniffGuard = sniffGuard;
         this.orgUnits = orgUnits;
         this.clock = clock;
         this.audit = audit;
+        this.contentWriter = contentWriter;
     }
 
     /**
@@ -421,7 +402,7 @@ public class DocumentService {
 
     /**
      * Task 15: a new document, uploaded against {@code caseId}. Blob first, row
-     * second (spec §7.4/§5.1) -- {@link #captureContent} writes the blob before
+     * second (spec §7.4/§5.1) -- {@link DocumentContentWriter#capture} writes the blob before
      * either row is inserted, and the whole method is one transaction, so any
      * failure after that point (an unexpected constraint violation on the
      * document row, say) rolls back both rows together, leaving nothing visible
@@ -480,7 +461,7 @@ public class DocumentService {
         applyWriteScope(c);
 
         UUID actor = contextProvider.current().userId();
-        StoredContent stored = captureContent(request.category(), content, sizeBytes);
+        DocumentContentWriter.StoredContent stored = contentWriter.capture(request.category(), content, sizeBytes);
         UUID resolvedTargetDepartmentId = orgUnits.resolveDepartment(request.targetDepartmentId());
         UUID resolvedOwnerContactId = resolveOwnerContact(request.ownerContactId(), c);
 
@@ -586,7 +567,7 @@ public class DocumentService {
         }
 
         UUID actor = ctx.userId();
-        StoredContent stored = captureContent(request.category(), content, sizeBytes);
+        DocumentContentWriter.StoredContent stored = contentWriter.capture(request.category(), content, sizeBytes);
 
         // No targeting field a portal caller could have supplied in the first
         // place (PortalCreateDocumentRequest carries neither), and
@@ -608,39 +589,11 @@ public class DocumentService {
      */
     private DocumentView persistNewDocument(Case c, UUID uploadedBy, CreateDocumentRequest request,
                                             UUID resolvedTargetDepartmentId, String targetContactLabel,
-                                            UUID resolvedOwnerContactId, StoredContent stored, long sizeBytes) {
-        Document d = new Document();
-        d.setId(Uuid7.generate());
-        d.setTenantId(c.getTenantId());
-        d.setCaseId(c.getId());
-        d.setCustomerId(c.getCustomerId());
-        d.setName(request.name());
-        d.setCategory(request.category());
-        d.setVisibilityTier(request.visibilityTier());
-        d.setTargetDepartmentId(resolvedTargetDepartmentId);
-        d.setTargetContactLabel(targetContactLabel);
-        d.setOwnerContactId(resolvedOwnerContactId);
-        d.setExpiresAt(request.expiresAt());
-        d.setStatus(DocumentStatus.ACTIVE);
-        d.setUploadedBy(uploadedBy);
-        // Reassigned, not discarded: Document's id is assigned in Java, not
-        // database-generated, so Spring Data's save() merges rather than
-        // persists -- merge() returns a DIFFERENT managed instance from the
-        // transient one passed in, with created_at/updated_at now populated
-        // by BaseEntity's own @PrePersist. Continuing to mutate the ORIGINAL
-        // (still-detached, still-null-timestamped) reference and saving it
-        // again would merge those nulls straight back over the real values on
-        // the second call -- exactly the "created_at violates not-null"
-        // failure this reassignment avoids.
-        d = documents.saveAndFlush(d);
-
-        DocumentVersion v = new DocumentVersion(Uuid7.generate(), c.getTenantId(), d.getId(), 1,
-                stored.storageKey(), sizeBytes, stored.contentType(), stored.sha256(),
-                ReviewStatus.PENDING, uploadedBy, Instant.now(clock));
-        versions.saveAndFlush(v);
-
-        d.setCurrentVersionId(v.getId());
-        d = documents.saveAndFlush(d);
+                                            UUID resolvedOwnerContactId, DocumentContentWriter.StoredContent stored,
+                                            long sizeBytes) {
+        Document d = contentWriter.createDocument(c, uploadedBy, request.name(), request.category(),
+                request.visibilityTier(), resolvedTargetDepartmentId, targetContactLabel,
+                resolvedOwnerContactId, request.expiresAt(), stored, sizeBytes);
 
         // Task 29: recorded against "onboarding_case"/c.getId() -- NOT
         // "document"/d.getId() -- so this surfaces on the case's own Activity
@@ -697,30 +650,14 @@ public class DocumentService {
             throw new NoSuchElementException("Not found");
         }
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_UPLOAD, documentId);
+        refuseAgreementOwned(d);
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_UPLOAD, d.getCaseId());
         applyWriteScope(c);
 
         UUID actor = contextProvider.current().userId();
-        StoredContent stored = captureContent(d.getCategory(), content, sizeBytes);
+        DocumentContentWriter.StoredContent stored = contentWriter.capture(d.getCategory(), content, sizeBytes);
 
-        int nextVersionNo = versions.maxVersionNo(d.getId()) + 1;
-        DocumentVersion v = new DocumentVersion(Uuid7.generate(), d.getTenantId(), d.getId(), nextVersionNo,
-                stored.storageKey(), sizeBytes, stored.contentType(), stored.sha256(),
-                ReviewStatus.PENDING, actor, Instant.now(clock));
-        try {
-            versions.saveAndFlush(v);
-        } catch (DataIntegrityViolationException e) {
-            if (violates(e, DOCUMENT_VERSION_NO_UNIQUE)) {
-                throw new DocumentVersionConflictException(d.getId(), e);
-            }
-            // Every other constraint is rethrown untouched -- reporting an
-            // unrelated violation as a version race would send the caller
-            // hunting for a conflict that does not exist.
-            throw e;
-        }
-
-        d.setCurrentVersionId(v.getId());
-        d = documents.saveAndFlush(d);
+        DocumentVersion v = contentWriter.appendVersion(d, actor, stored, sizeBytes);
 
         // Task 29: same "onboarding_case"/case-id resourceType as document.uploaded --
         // see that call site's own comment. resourceId is the DOCUMENT's id
@@ -728,8 +665,8 @@ public class DocumentService {
         // identifying payload field ("documentId") consistent, even though the
         // event itself is filed against the case.
         audit.record(AuditActions.DOCUMENT_VERSION_ADDED, "onboarding_case", c.getId(),
-                "Added version " + nextVersionNo + " to document " + d.getName(),
-                Map.of("documentId", d.getId().toString(), "versionNo", nextVersionNo));
+                "Added version " + v.getVersionNo() + " to document " + d.getName(),
+                Map.of("documentId", d.getId().toString(), "versionNo", v.getVersionNo()));
 
         return toVersionView(v);
     }
@@ -778,6 +715,7 @@ public class DocumentService {
     @Transactional
     public DocumentView patch(UUID id, PatchDocumentRequest request) {
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_MANAGE, id);
+        refuseAgreementOwned(d);
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_MANAGE, d.getCaseId());
         applyWriteScope(c);
 
@@ -891,6 +829,7 @@ public class DocumentService {
         }
 
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_MANAGE, id);
+        refuseAgreementOwned(d);
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_MANAGE, d.getCaseId());
         applyWriteScope(c);
 
@@ -945,6 +884,26 @@ public class DocumentService {
     }
 
     /**
+     * Sub-project 5, final whole-branch review (Important 2): an agreement's own file is
+     * mutable only through {@link AgreementFiles} (spec section 7). Without this, a
+     * {@code document.upload}/{@code document.manage}/{@code document.share} holder could
+     * swap the bytes after the agreement's four-eyes approval, inject content before
+     * someone else submits it, recategorise it out from under the facade, or retire it
+     * under a SENT agreement. Called right AFTER the document resolves through {@link
+     * AuthorizedQuery}, so an out-of-scope id is still the usual 404; a document the
+     * caller can see but may not change this way is a 409 ({@link IllegalStateException})
+     * -- the same state refusal {@code DocumentSharingService#share}/{@code #link} already
+     * give a RETIRED document, and deliberately not a 404 for a record the caller can
+     * already read. Package-private so {@link DocumentSharingService} shares it.
+     */
+    static void refuseAgreementOwned(Document d) {
+        if (d.isAgreementOwned()) {
+            throw new IllegalStateException(
+                    "Document " + d.getId() + " belongs to an agreement and can only be changed through it");
+        }
+    }
+
+    /**
      * Closes the confused-deputy gap {@link CreateDocumentRequest#ownerContactId}'s
      * own (now-stale) javadoc used to document as a deliberate simplification:
      * {@code owner_contact_id} has a foreign key to {@code customer_contact(id)},
@@ -992,91 +951,6 @@ public class DocumentService {
         }
         return contact.getId();
     }
-
-    /**
-     * The size ceiling, the sniffed-content MIME check and the SHA-256 digest,
-     * all three from Task 7's ruling (spec §2.3/§7.6), applied to one stream
-     * read exactly once:
-     *
-     * <ol>
-     *   <li>The declared {@code sizeBytes} is checked against
-     *       {@code app.storage.max-upload-bytes} before the stream is touched
-     *       at all -- no I/O, no blob, no row.</li>
-     *   <li>A bounded PREFIX (enough for magic-byte detection) is read into a
-     *       byte array and sniffed. A rejection at this point has touched
-     *       nothing else -- no blob write, no row.</li>
-     *   <li>The prefix is replayed via {@link SequenceInputStream} ahead of the
-     *       stream's own remainder -- not a second read from the source, a
-     *       replay of the bytes already buffered followed by the rest of the
-     *       SAME stream -- wrapped in a {@link DigestInputStream} before
-     *       {@link BlobStore#put} ever sees it. The bytes sniffed, hashed and
-     *       written are therefore provably identical: one read, start to
-     *       end.</li>
-     * </ol>
-     */
-    private StoredContent captureContent(DocumentCategory category, InputStream content, long sizeBytes) {
-        enforceSizeCeiling(sizeBytes);
-
-        byte[] prefix = readPrefix(content, SNIFF_PREFIX_BYTES);
-        String sniffedType = sniffGuard.detect(prefix);
-        sniffGuard.enforce(category, sniffedType);
-
-        MessageDigest digest = sha256();
-        InputStream combined = new SequenceInputStream(new ByteArrayInputStream(prefix), content);
-        DigestInputStream digestStream = new DigestInputStream(combined, digest);
-
-        // BlobStore.put takes ownership of digestStream and closes it, reading
-        // it fully -- which is what finishes updating digest with every byte.
-        String storageKey = blobStore.put(digestStream, sizeBytes, sniffedType);
-        String sha256Hex = HexFormat.of().formatHex(digest.digest());
-
-        return new StoredContent(storageKey, sniffedType, sha256Hex);
-    }
-
-    private void enforceSizeCeiling(long sizeBytes) {
-        long max = storageProperties.getMaxUploadBytes();
-        if (sizeBytes > max) throw new UploadTooLargeException(sizeBytes, max);
-    }
-
-    private static byte[] readPrefix(InputStream in, int max) {
-        try {
-            byte[] buf = new byte[max];
-            int total = 0;
-            int r;
-            while (total < max && (r = in.read(buf, total, max - total)) != -1) {
-                total += r;
-            }
-            return total == max ? buf : Arrays.copyOf(buf, total);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Could not read upload prefix", e);
-        }
-    }
-
-    private static MessageDigest sha256() {
-        try {
-            return MessageDigest.getInstance("SHA-256");
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 not available", e);
-        }
-    }
-
-    /**
-     * Matched on the constraint name Hibernate reports, not on message text,
-     * which is Postgres's to reword -- the same idiom
-     * {@code programme.ProgrammeMembershipService.violates} and
-     * {@code customer.CustomerContactService.violates} both already use.
-     */
-    private static boolean violates(Throwable failure, String constraintName) {
-        for (Throwable t = failure; t != null && t != t.getCause(); t = t.getCause()) {
-            if (t instanceof ConstraintViolationException cve
-                    && constraintName.equals(cve.getConstraintName())) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private record StoredContent(String storageKey, String contentType, String sha256) {}
 
     private static DocumentVersionView toVersionView(DocumentVersion v) {
         return new DocumentVersionView(v.getId(), v.getDocumentId(), v.getVersionNo(), v.getSizeBytes(),

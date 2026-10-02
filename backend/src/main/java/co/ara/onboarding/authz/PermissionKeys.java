@@ -62,6 +62,11 @@ public final class PermissionKeys {
     public static final String DOCUMENT_REVIEW       = "document.review";
     public static final String DOCUMENT_SHARE        = "document.share";
     public static final String DOCUMENT_REQUEST      = "document.request";
+    // Task 5 (sub-project 5): the agreement module's four keys (spec 6.1/6.2).
+    public static final String AGREEMENT_VIEW        = "agreement.view";
+    public static final String AGREEMENT_MANAGE      = "agreement.manage";
+    public static final String AGREEMENT_REVIEW      = "agreement.review";
+    public static final String AGREEMENT_SIGN_RECORD = "agreement.sign_record";
 
     private PermissionKeys() {}
 }

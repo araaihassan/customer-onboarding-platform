@@ -156,6 +156,27 @@ describe("Sidebar", () => {
     expect(linkNamed(/documents/i)).toBeNull();
   });
 
+  it("shows Agreements to an agreement.view holder", () => {
+    permissions = { "agreement.view": ["ALL"] };
+    userType = "INTERNAL";
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/agreements/i)?.getAttribute("href")).toBe("/t/acme/agreements");
+  });
+
+  it("hides Agreements from a portal user even holding agreement.view", () => {
+    // authz.PortalPermissions resolves agreement.view at ALL for portal actors.
+    permissions = { "agreement.view": ["ALL"] };
+    userType = "PORTAL";
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/agreements/i)).toBeNull();
+  });
+
+  it("hides Agreements without agreement.view", () => {
+    permissions = { "customer.view": ["ALL"] };
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/agreements/i)).toBeNull();
+  });
+
   it("omits Administration without role.view or user.view", () => {
     permissions = { "customer.view": ["ALL"] };
     render(<Sidebar slug="acme" />);

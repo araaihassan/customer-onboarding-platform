@@ -291,6 +291,27 @@ public final class AuditActions {
     public static final AuditAction DOCUMENT_REQUEST_FULFILLED  = of("document.request_fulfilled", true);
     public static final AuditAction DOCUMENT_REVIEWED           = of("document.reviewed", true);
 
+    // Sub-project 5 (spec 5.9). Business records, timeline-visible -- the customer.* /
+    // contact.* side. timelineVisible is the internal Activity tab's flag; a future
+    // portal timeline must still hide pre-SENT agreement events (spec 11.3).
+    public static final AuditAction AGREEMENT_CREATED           = of("agreement.created", true);
+    // Task 11: the rest of sub-project 5's lifecycle actions, added now so Tasks
+    // 12+ only ever reference a constant that already exists -- the same
+    // "seed the whole family in one commit" shape DOCUMENT_UPLOADED's neighbours
+    // (Task 29) already used. All timeline-visible for the same reason
+    // AGREEMENT_CREATED is: submitting, reviewing, sending, signing and cancelling
+    // an agreement are the customer's own business narrative, not internal
+    // administration -- a future portal timeline must still hide pre-SENT events
+    // (spec 11.3), which is a rendering decision, not a reason to mark any of
+    // these compliance-only here.
+    public static final AuditAction AGREEMENT_SUBMITTED          = of("agreement.submitted", true);
+    public static final AuditAction AGREEMENT_APPROVED           = of("agreement.approved", true);
+    public static final AuditAction AGREEMENT_REJECTED           = of("agreement.rejected", true);
+    public static final AuditAction AGREEMENT_SENT               = of("agreement.sent", true);
+    public static final AuditAction AGREEMENT_SIGNATURE_RECORDED = of("agreement.signature_recorded", true);
+    public static final AuditAction AGREEMENT_SIGNED             = of("agreement.signed", true);
+    public static final AuditAction AGREEMENT_CANCELLED          = of("agreement.cancelled", true);
+
     private static AuditAction of(String key, boolean timelineVisible) {
         AuditAction a = new AuditAction(key, timelineVisible);
         BY_KEY.put(key, a);

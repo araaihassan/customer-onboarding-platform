@@ -148,6 +148,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/agreements/{id}/signatories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["replaceSignatories"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/admin/users/{id}": {
         parameters: {
             query?: never;
@@ -1044,6 +1060,102 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/agreements/{id}/versions/{versionNumber}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["review_1"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/agreements/{id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/agreements/{id}/signatures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recordSignature"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/agreements/{id}/send": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["send"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/agreements/{id}/file": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["uploadFile"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/agreements/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/admin/users": {
         parameters: {
             query?: never;
@@ -1236,7 +1348,7 @@ export interface paths {
         patch: operations["patch"];
         trace?: never;
     };
-    "/api/t/{tenantSlug}/workflows/{id}": {
+    "/api/t/{tenantSlug}/agreements/{id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -1244,6 +1356,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_6"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["patch_1"];
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/workflows/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1292,6 +1420,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["list_5"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/portal/agreements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["mine"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/portal/agreements/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_8"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1435,7 +1595,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_7"];
+        get: operations["get_9"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1476,7 +1636,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/t/{tenantSlug}/admin/permissions": {
+    "/api/t/{tenantSlug}/cases/{caseId}/agreements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["forCase_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/agreements": {
         parameters: {
             query?: never;
             header?: never;
@@ -1484,6 +1660,38 @@ export interface paths {
             cookie?: never;
         };
         get: operations["list_8"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/agreements/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/admin/permissions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_9"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1596,7 +1804,7 @@ export interface components {
         };
         RequirementRequest: {
             /** @enum {string} */
-            kind?: "TASK" | "DOCUMENT" | "APPROVAL" | "MANUAL";
+            kind?: "TASK" | "DOCUMENT" | "APPROVAL" | "MANUAL" | "SIGNATURE";
             label?: string;
             /** Format: int32 */
             weight?: number;
@@ -1605,6 +1813,9 @@ export interface components {
             /** @enum {string} */
             approverRelationship?: "OWNER" | "ASSIGNEE" | "PARTICIPANT" | "APPROVER" | "CREATOR";
             requiresReview?: boolean;
+            /** @enum {string} */
+            agreementRecordMode?: "FILE_BACKED" | "STRUCTURED_PLUS_FILE" | "STRUCTURED_ONLY";
+            agreementName?: string;
         };
         StageRequest: {
             key?: string;
@@ -1687,7 +1898,7 @@ export interface components {
             /** Format: uuid */
             id?: string;
             /** @enum {string} */
-            kind?: "TASK" | "DOCUMENT" | "APPROVAL" | "MANUAL";
+            kind?: "TASK" | "DOCUMENT" | "APPROVAL" | "MANUAL" | "SIGNATURE";
             label?: string;
             /** Format: int32 */
             weight?: number;
@@ -1696,6 +1907,9 @@ export interface components {
             /** @enum {string} */
             approverRelationship?: "OWNER" | "ASSIGNEE" | "PARTICIPANT" | "APPROVER" | "CREATOR";
             requiresReview?: boolean;
+            /** @enum {string} */
+            agreementRecordMode?: "FILE_BACKED" | "STRUCTURED_PLUS_FILE" | "STRUCTURED_ONLY";
+            agreementName?: string;
         };
         StageView: {
             /** Format: uuid */
@@ -1973,6 +2187,125 @@ export interface components {
             /** Format: uuid */
             completedBy?: string;
             completionReason?: string;
+        };
+        ReplaceSignatoriesRequest: {
+            signatories: components["schemas"]["SignatoryRequest"][];
+            /** Format: int64 */
+            lockVersion?: number;
+        };
+        SignatoryRequest: {
+            /** @enum {string} */
+            kind: "CONTACT" | "INTERNAL";
+            /** Format: uuid */
+            contactId?: string;
+            /** Format: uuid */
+            userId?: string;
+            displayRole: string;
+        };
+        AgreementDetailView: {
+            agreement?: components["schemas"]["AgreementView"];
+            signatories?: components["schemas"]["AgreementSignatoryView"][];
+            versions?: components["schemas"]["AgreementVersionView"][];
+            signatures?: components["schemas"]["AgreementSignatureView"][];
+        };
+        AgreementSignatoryView: {
+            /** Format: uuid */
+            id?: string;
+            /** @enum {string} */
+            kind?: "CONTACT" | "INTERNAL";
+            /** Format: uuid */
+            contactId?: string;
+            /** Format: uuid */
+            userId?: string;
+            displayName?: string;
+            displayRole?: string;
+            /** Format: int32 */
+            sortOrder?: number;
+            signed?: boolean;
+        };
+        AgreementSignatureView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            signatoryId?: string;
+            /** Format: uuid */
+            agreementVersionId?: string;
+            signedContentSha256?: string;
+            /** Format: date */
+            signedOn?: string;
+            method?: string;
+            /** Format: uuid */
+            recordedBy?: string;
+            /** Format: date-time */
+            recordedAt?: string;
+            /** Format: uuid */
+            countersignedDocumentVersionId?: string;
+        };
+        AgreementVersionView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: int32 */
+            versionNumber?: number;
+            /** Format: uuid */
+            submittedBy?: string;
+            /** Format: date-time */
+            submittedAt?: string;
+            /** Format: uuid */
+            lastEditedBy?: string;
+            contentSha256?: string;
+            /** Format: uuid */
+            documentVersionId?: string;
+            documentSha256?: string;
+            /** @enum {string} */
+            reviewDecision?: "APPROVE" | "REJECT";
+            /** Format: uuid */
+            reviewerId?: string;
+            /** Format: date-time */
+            reviewedAt?: string;
+            reviewReason?: string;
+        };
+        AgreementView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** Format: uuid */
+            requirementId?: string;
+            /** Format: uuid */
+            customerId?: string;
+            customerName?: string;
+            name?: string;
+            /** @enum {string} */
+            recordMode?: "FILE_BACKED" | "STRUCTURED_PLUS_FILE" | "STRUCTURED_ONLY";
+            /** @enum {string} */
+            status?: "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "SENT" | "AWAITING_SIGNATURE" | "SIGNED" | "CANCELLED";
+            /** @enum {string} */
+            displayStatus?: "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "SENT" | "AWAITING_SIGNATURE" | "SIGNED" | "EXPIRED" | "CANCELLED";
+            /** Format: date */
+            effectiveDate?: string;
+            /** Format: date */
+            expiresAt?: string;
+            /** Format: date */
+            renewalDate?: string;
+            /** Format: int32 */
+            noticePeriodDays?: number;
+            /** Format: uuid */
+            ownerUserId?: string;
+            /** Format: uuid */
+            documentId?: string;
+            /** Format: uuid */
+            lastEditedBy?: string;
+            /** Format: uuid */
+            replacesAgreementId?: string;
+            cancelReason?: string;
+            /** Format: date-time */
+            signedAt?: string;
+            /** @enum {string} */
+            signatureProvider?: "MANUAL";
+            /** Format: int32 */
+            latestVersionNumber?: number;
+            /** Format: int64 */
+            lockVersion?: number;
         };
         UpdateUserRequest: {
             fullName?: string;
@@ -2443,6 +2776,31 @@ export interface components {
             token: string;
             password: string;
         };
+        ReviewAgreementRequest: {
+            /** @enum {string} */
+            decision: "APPROVE" | "REJECT";
+            reason?: string;
+            /** Format: int64 */
+            lockVersion?: number;
+        };
+        LockVersionRequest: {
+            /** Format: int64 */
+            lockVersion?: number;
+        };
+        RecordSignatureRequest: {
+            /** Format: uuid */
+            signatoryId: string;
+            /** Format: date */
+            signedOn: string;
+            method: string;
+            /** Format: int64 */
+            lockVersion?: number;
+        };
+        CancelAgreementRequest: {
+            reason: string;
+            /** Format: int64 */
+            lockVersion?: number;
+        };
         CreateUserRequest: {
             email?: string;
             fullName?: string;
@@ -2498,6 +2856,20 @@ export interface components {
             targetDepartmentId?: string;
             targetContactLabel?: string;
         };
+        PatchAgreementRequest: {
+            name?: string;
+            /** Format: date */
+            effectiveDate?: string;
+            /** Format: date */
+            expiresAt?: string;
+            /** Format: date */
+            renewalDate?: string;
+            /** Format: int32 */
+            noticePeriodDays?: number;
+            clear?: ("EFFECTIVE_DATE" | "EXPIRES_AT" | "RENEWAL_DATE" | "NOTICE_PERIOD_DAYS")[];
+            /** Format: int64 */
+            lockVersion?: number;
+        };
         PlanShapeMilestoneView: {
             /** Format: uuid */
             id?: string;
@@ -2541,38 +2913,71 @@ export interface components {
             sort?: string[];
         };
         PagePortalDocumentView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["PortalDocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             empty?: boolean;
         };
         PageableObject: {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            pageSize?: number;
-            /** Format: int32 */
-            pageNumber?: number;
             paged?: boolean;
             unpaged?: boolean;
+            /** Format: int32 */
+            pageNumber?: number;
+            /** Format: int32 */
+            pageSize?: number;
         };
         SortObject: {
-            empty?: boolean;
             unsorted?: boolean;
+            empty?: boolean;
             sorted?: boolean;
+        };
+        PortalAgreementView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: uuid */
+            caseId?: string;
+            name?: string;
+            /** @enum {string} */
+            recordMode?: "FILE_BACKED" | "STRUCTURED_PLUS_FILE" | "STRUCTURED_ONLY";
+            /** @enum {string} */
+            displayStatus?: "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "SENT" | "AWAITING_SIGNATURE" | "SIGNED" | "EXPIRED" | "CANCELLED";
+            /** Format: date */
+            effectiveDate?: string;
+            /** Format: date */
+            expiresAt?: string;
+            /** Format: date */
+            renewalDate?: string;
+            /** Format: int32 */
+            noticePeriodDays?: number;
+            /** Format: int32 */
+            sentVersionNumber?: number;
+            sentContentSha256?: string;
+            /** Format: uuid */
+            documentId?: string;
+            signatories?: components["schemas"]["PortalSignatory"][];
+            /** Format: date-time */
+            signedAt?: string;
+        };
+        PortalSignatory: {
+            displayRole?: string;
+            signed?: boolean;
+            /** Format: date */
+            signedOn?: string;
         };
         Me: {
             /** Format: uuid */
@@ -2589,21 +2994,21 @@ export interface components {
             };
         };
         PageDocumentView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             empty?: boolean;
         };
         DocumentVisibilitySummaryView: {
@@ -2613,21 +3018,21 @@ export interface components {
             hidden?: number;
         };
         PageCustomerView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             empty?: boolean;
         };
         AuditEventView: {
@@ -2646,21 +3051,21 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -2685,7 +3090,7 @@ export interface components {
             id?: string;
             label?: string;
             /** @enum {string} */
-            kind?: "TASK" | "DOCUMENT" | "APPROVAL" | "MANUAL";
+            kind?: "TASK" | "DOCUMENT" | "APPROVAL" | "MANUAL" | "SIGNATURE";
             mandatory?: boolean;
             /** @enum {string} */
             status?: "OPEN" | "SATISFIED" | "WAIVED";
@@ -2738,21 +3143,21 @@ export interface components {
             rows?: components["schemas"]["PlanRevisionDiffRowView"][];
         };
         PageDocumentRequestView: {
-            /** Format: int32 */
-            totalPages?: number;
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentRequestView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             empty?: boolean;
         };
         CandidateView: {
@@ -2773,22 +3178,54 @@ export interface components {
             eligible?: number;
             candidates?: components["schemas"]["CandidateView"][];
         };
-        PageUserView: {
-            /** Format: int32 */
-            totalPages?: number;
+        PageAgreementView: {
             /** Format: int64 */
             totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            pageable?: components["schemas"]["PageableObject"];
+            /** Format: int32 */
+            size?: number;
+            content?: components["schemas"]["AgreementView"][];
+            /** Format: int32 */
+            number?: number;
+            sort?: components["schemas"]["SortObject"];
+            /** Format: int32 */
+            numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
+            empty?: boolean;
+        };
+        AgreementSummaryView: {
+            /** Format: int64 */
+            draft?: number;
+            /** Format: int64 */
+            underReview?: number;
+            /** Format: int64 */
+            sent?: number;
+            /** Format: int64 */
+            awaitingSignature?: number;
+            /** Format: int64 */
+            signed?: number;
+            /** Format: int64 */
+            expiringWithin30Days?: number;
+        };
+        PageUserView: {
+            /** Format: int64 */
+            totalElements?: number;
+            /** Format: int32 */
+            totalPages?: number;
+            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            first?: boolean;
-            last?: boolean;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             numberOfElements?: number;
+            first?: boolean;
+            last?: boolean;
             empty?: boolean;
         };
         TeamMemberView: {
@@ -3575,6 +4012,77 @@ export interface operations {
             };
             /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    replaceSignatories: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceSignatoriesRequest"];
+            };
+        };
+        responses: {
+            /** @description The agreement with its replaced signatory list */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The agreement is not in a state that allows this, a rule such as the four-eyes review refused it, or its lockVersion is stale */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -7341,6 +7849,433 @@ export interface operations {
             };
         };
     };
+    review_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                versionNumber: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewAgreementRequest"];
+            };
+        };
+        responses: {
+            /** @description The decision recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The agreement is not in a state that allows this, a rule such as the four-eyes review refused it, or its lockVersion is stale */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    submit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LockVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Submitted for review */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The agreement is not in a state that allows this, a rule such as the four-eyes review refused it, or its lockVersion is stale */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    recordSignature: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    signature: components["schemas"]["RecordSignatureRequest"];
+                    /** Format: binary */
+                    file?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The signature recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The agreement is not in a state that allows this, a rule such as the four-eyes review refused it, or its lockVersion is stale */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The file exceeds app.storage.max-upload-bytes */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The sniffed content type is not accepted */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    send: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LockVersionRequest"];
+            };
+        };
+        responses: {
+            /** @description Sent for signature */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The agreement is not in a state that allows this, a rule such as the four-eyes review refused it, or its lockVersion is stale */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    uploadFile: {
+        parameters: {
+            query: {
+                lockVersion: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The agreement with the new draft file version */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The agreement is not in a state that allows this, a rule such as the four-eyes review refused it, or its lockVersion is stale */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The file exceeds app.storage.max-upload-bytes */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The sniffed content type is not accepted */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CancelAgreementRequest"];
+            };
+        };
+        responses: {
+            /** @description Cancelled; a successor draft is created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The agreement is not in a state that allows this, a rule such as the four-eyes review refused it, or its lockVersion is stale */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     list_3: {
         parameters: {
             query: {
@@ -7967,6 +8902,126 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The agreement with its versions, signatories and signatures */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    patch_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PatchAgreementRequest"];
+            };
+        };
+        responses: {
+            /** @description The saved agreement */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementDetailView"];
+                };
+            };
+            /** @description Validation failed */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The agreement is not in a state that allows this, a rule such as the four-eyes review refused it, or its lockVersion is stale */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    get_7: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
             /** @description The template */
             200: {
                 headers: {
@@ -8122,6 +9177,102 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["PagePortalDocumentView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    mine: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The portal contact's own customer's agreements, SENT onward */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PortalAgreementView"][];
+                };
+            };
+            /** @description Caller holds no sufficient grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The caller is not a portal user */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    get_8: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description One agreement as the portal sees it */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PortalAgreementView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, hidden from the portal, or the caller is not a portal user */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Unprocessable Entity */
@@ -8484,7 +9635,7 @@ export interface operations {
             };
         };
     };
-    get_7: {
+    get_9: {
         parameters: {
             query?: never;
             header?: never;
@@ -8635,7 +9786,135 @@ export interface operations {
             };
         };
     };
+    forCase_3: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                caseId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A journey's agreements, live first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementView"][];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     list_8: {
+        parameters: {
+            query: {
+                status?: "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "SENT" | "AWAITING_SIGNATURE" | "SIGNED" | "EXPIRED" | "CANCELLED";
+                pageable: components["schemas"]["Pageable"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Agreements visible to the caller, optionally by display status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PageAgreementView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Lifecycle counts, each respecting the caller's scope */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["AgreementSummaryView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    list_9: {
         parameters: {
             query?: never;
             header?: never;

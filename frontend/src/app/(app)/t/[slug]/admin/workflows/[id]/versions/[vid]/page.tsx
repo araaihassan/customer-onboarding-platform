@@ -98,6 +98,9 @@ function toRequirementRequest(requirement: Requirement) {
     weight: requirement.weight,
     mandatory: requirement.mandatory,
     documentCategory: requirement.documentCategory,
+    requiresReview: requirement.requiresReview,
+    agreementRecordMode: requirement.agreementRecordMode,
+    agreementName: requirement.agreementName,
     approverRelationship: requirement.approverRelationship,
   };
 }

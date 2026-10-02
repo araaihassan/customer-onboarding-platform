@@ -136,6 +136,17 @@ public final class PermissionCatalog {
         add(DOCUMENT_REVIEW,         "document",  "document",        "Approve or reject a reviewable document", ORG_SCOPES);
         add(DOCUMENT_SHARE,          "document",  "document",        "Share a document with a portal contact or link it to another case", ORG_SCOPES);
         add(DOCUMENT_REQUEST,        "document",  "document",        "Request a document from a customer contact", ORG_SCOPES);
+        // Task 5 (sub-project 5, spec 6.1): agreement.view/agreement.manage/
+        // agreement.review/agreement.sign_record. All four resourceType "agreement"
+        // -- scoping/AgreementDescriptor (Task 6) is what stops DescriptorRegistry
+        // .validate() refusing to start, the same WORKFLOW_VIEW/DOCUMENT_VIEW shape
+        // above. agreement.sign_record implies milestone.complete at an
+        // equal-or-broader scope (spec 6.3 amendment) -- see RoleTemplates and
+        // SignRecordImpliesMilestoneCompleteTest.
+        add(AGREEMENT_VIEW,        "agreement", "agreement", "View agreements",                                RECORD);
+        add(AGREEMENT_MANAGE,      "agreement", "agreement", "Draft, submit, send or cancel an agreement",     ORG_SCOPES);
+        add(AGREEMENT_REVIEW,      "agreement", "agreement", "Approve or reject a submitted agreement version", ORG_SCOPES);
+        add(AGREEMENT_SIGN_RECORD, "agreement", "agreement", "Record that a signatory has signed",             ORG_SCOPES);
     }
 
     /**

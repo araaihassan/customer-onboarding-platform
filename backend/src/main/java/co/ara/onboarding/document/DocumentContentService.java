@@ -1,8 +1,10 @@
 package co.ara.onboarding.document;
 
+import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.storage.BlobStore;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,19 +52,33 @@ public class DocumentContentService {
     private final DocumentVersionRepository versions;
     private final AuthorizedQuery authorizedQuery;
     private final BlobStore blobStore;
+    private final AuthContextProvider contextProvider;
 
     public DocumentContentService(DocumentRepository documents, DocumentVersionRepository versions,
-                                   AuthorizedQuery authorizedQuery, BlobStore blobStore) {
+                                   AuthorizedQuery authorizedQuery, BlobStore blobStore,
+                                   AuthContextProvider contextProvider) {
         this.documents = documents;
         this.versions = versions;
         this.authorizedQuery = authorizedQuery;
         this.blobStore = blobStore;
+        this.contextProvider = contextProvider;
     }
 
+    /**
+     * Sub-project 5, final whole-branch review (Important 3): a document with {@code
+     * portal_min_version_no} set (an agreement's file, once sent -- see {@link
+     * AgreementFiles#retier}) serves a PORTAL actor only that version and later ones;
+     * an earlier version -- a rejected or superseded internal draft -- is a 404, exactly
+     * as if it did not exist. Internal actors are unaffected and open every version.
+     */
     @RequirePermission(PermissionKeys.DOCUMENT_VIEW)
     @Transactional(readOnly = true)
     public BlobContent open(UUID documentId, int versionNo) {
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_VIEW, documentId);
+        if (contextProvider.current().userType() == UserType.PORTAL
+                && d.getPortalMinVersionNo() != null && versionNo < d.getPortalMinVersionNo()) {
+            throw new NoSuchElementException("Not found");
+        }
         DocumentVersion v = versions.versionAt(d.getId(), versionNo)
                 .orElseThrow(() -> new NoSuchElementException("Not found"));
         InputStream stream = blobStore.open(v.getStorageKey());

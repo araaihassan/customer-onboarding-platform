@@ -51,6 +51,21 @@ public class AuthorizedQuery {
     }
 
     /**
+     * Scope-respecting count -- composes {@link AuthorizationPredicateBuilder#forPermission}
+     * exactly like {@link #findAll}, never {@link AuthorizationPredicateBuilder#forPermissionIgnoringScope}.
+     * Sub-project 5 Task 11: {@code agreement.AgreementService#summary} needs six
+     * scope-narrowed counts and has no use for the rows themselves, so a bare
+     * {@code long} is enough -- {@link #findAll} plus {@code .getTotalElements()}
+     * would work too, but would materialize a page of content nobody reads.
+     */
+    public <T> long count(JpaSpecificationExecutor<T> repository, Class<T> entityType,
+                          String permissionKey, Specification<T> extra) {
+        Specification<T> authorized = predicates.forPermission(permissionKey, entityType);
+        Specification<T> combined = (extra == null) ? authorized : authorized.and(extra);
+        return repository.count(combined);
+    }
+
+    /**
      * Task 32 fix round 1: the sanctioned home for the codebase's second
      * deliberate authorization bypass -- deliberately living HERE, not loose
      * inside a domain service, so the one class every reviewer already checks

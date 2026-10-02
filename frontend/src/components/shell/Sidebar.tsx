@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
-import { ClipboardCheckIcon, FolderIcon, LayersIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
+import { ClipboardCheckIcon, FileSignatureIcon, FolderIcon, LayersIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
 import type { IconProps } from "@/components/icons";
 import { useAuth } from "@/lib/auth/useAuth";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
@@ -98,6 +98,8 @@ export function Sidebar({
   // the future portal document API, not for this tenant-wide OPERATOR screen --
   // see this file's own doc comment above.
   const canViewDocuments = useHasPermission("document.view") && user?.userType !== "PORTAL";
+  // Same portal-actor gate as Documents: portal contacts resolve agreement.view at ALL.
+  const canViewAgreements = useHasPermission("agreement.view") && user?.userType !== "PORTAL";
   const canViewUsers = useHasPermission("user.view");
   const canViewRoles = useHasPermission("role.view");
   const canViewWork = useHasPermission("task.view");
@@ -144,6 +146,15 @@ export function Sidebar({
       href: `/t/${slug}/documents`,
       section: `/t/${slug}/documents`,
       Icon: FolderIcon,
+    });
+  }
+
+  if (canViewAgreements) {
+    items.push({
+      label: t("nav.agreements"),
+      href: `/t/${slug}/agreements`,
+      section: `/t/${slug}/agreements`,
+      Icon: FileSignatureIcon,
     });
   }
 

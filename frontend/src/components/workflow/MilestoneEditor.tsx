@@ -4,13 +4,14 @@ import { useId } from "react";
 import { PlusIcon, XIcon } from "@/components/icons";
 import { Field } from "@/components/ui/Field";
 import { Switch } from "@/components/ui/Switch";
+import { AGREEMENT_RECORD_MODES, type AgreementRecordMode } from "@/lib/api/agreements";
 import { DOCUMENT_CATEGORIES, type DocumentCategory } from "@/lib/api/documents";
 import type { MilestoneRequest, RequirementRequest } from "@/lib/api/workflows";
 import { humanise } from "@/components/ui/StatusPill";
 import { newDraftKey } from "./draftState";
 import { t } from "@/lib/i18n";
 
-const REQUIREMENT_KINDS: NonNullable<RequirementRequest["kind"]>[] = ["MANUAL", "TASK", "DOCUMENT", "APPROVAL"];
+const REQUIREMENT_KINDS: NonNullable<RequirementRequest["kind"]>[] = ["MANUAL", "TASK", "DOCUMENT", "APPROVAL", "SIGNATURE"];
 
 /** A stage's milestones, each with its own requirements -- family 10/11's editing half. */
 export function MilestoneEditor({
@@ -146,7 +147,19 @@ function RequirementList({
           <select
             id={`req-kind-${index}`}
             value={requirement.kind ?? "MANUAL"}
-            onChange={(e) => update(index, { kind: e.target.value as RequirementRequest["kind"] })}
+            onChange={(e) => {
+              const kind = e.target.value as RequirementRequest["kind"];
+              // Agreement fields belong to SIGNATURE alone: publish Rule 6 refuses
+              // a stray value on any other kind, with a message naming a field
+              // the author can no longer see. Clear them in the same patch.
+              if (kind === "SIGNATURE") {
+                update(index, { kind, agreementRecordMode: requirement.agreementRecordMode ?? "FILE_BACKED" });
+              } else if (requirement.kind === "SIGNATURE") {
+                update(index, { kind, agreementRecordMode: undefined, agreementName: undefined });
+              } else {
+                update(index, { kind });
+              }
+            }}
             style={{
               height: "var(--ob-control-height-sm)",
               borderRadius: "var(--ob-radius-7)",
@@ -180,6 +193,13 @@ function RequirementList({
 
           {requirement.kind === "DOCUMENT" && (
             <DocumentRequirementFields
+              requirement={requirement}
+              onChange={(patch) => update(index, patch)}
+            />
+          )}
+
+          {requirement.kind === "SIGNATURE" && (
+            <SignatureRequirementFields
               requirement={requirement}
               onChange={(patch) => update(index, patch)}
             />
@@ -272,6 +292,59 @@ function DocumentRequirementFields({
           {t("workflow.requirement.requiresReview")}
         </span>
       </label>
+    </>
+  );
+}
+
+/**
+ * The two SIGNATURE-kind-only fields: how the agreement is recorded and an
+ * optional name for the agreement the requirement opens. Satisfied only by a
+ * completed signature, never by a check-off.
+ */
+function SignatureRequirementFields({
+  requirement,
+  onChange,
+}: {
+  requirement: RequirementRequest;
+  onChange: (patch: Partial<RequirementRequest>) => void;
+}) {
+  const modeId = useId();
+  const nameId = useId();
+  const control = {
+    height: "var(--ob-control-height-sm)",
+    borderRadius: "var(--ob-radius-7)",
+    border: "1px solid var(--ob-line)",
+    background: "var(--ob-surface)",
+    font: "11px/1.4 var(--ob-font-family-ui)",
+  } as const;
+
+  return (
+    <>
+      <label className="sr-only" htmlFor={modeId}>
+        {t("workflow.requirement.agreementRecordMode")}
+      </label>
+      <select
+        id={modeId}
+        value={requirement.agreementRecordMode ?? "FILE_BACKED"}
+        onChange={(e) => onChange({ agreementRecordMode: e.target.value as AgreementRecordMode })}
+        style={control}
+      >
+        {AGREEMENT_RECORD_MODES.map((mode) => (
+          <option key={mode} value={mode}>
+            {t(`agreement.recordMode.${mode}`)}
+          </option>
+        ))}
+      </select>
+
+      <input
+        id={nameId}
+        aria-label={t("workflow.requirement.agreementName")}
+        placeholder={t("workflow.requirement.agreementName")}
+        maxLength={200}
+        value={requirement.agreementName ?? ""}
+        onChange={(e) => onChange({ agreementName: e.target.value })}
+        style={{ ...control, padding: "0 var(--ob-space-8)", minWidth: 120 }}
+      />
     </>
   );
 }

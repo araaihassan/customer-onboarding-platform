@@ -21,6 +21,10 @@ import java.util.Map;
  * tenant-wide to every external user. Do not add one without adding its filter
  * in the same commit.
  *
+ * agreement.view (Task 6, sub-project 5) is the second such key -- safe only
+ * because scoping.AgreementAudienceFilter narrows it to the portal contact's own
+ * customer, from SENT onward, in the same commit.
+ *
  * REMOVED after this task's own security review (post-Task-3 fix round):
  * case.view, programme.view and plan.approve_schedule. The original version of
  * this class granted all three at ALL, on the (wrong) assumption that
@@ -44,7 +48,8 @@ public final class PortalPermissions {
     public static Map<String, Scope> forContact() {
         return Map.of(
                 PermissionKeys.DOCUMENT_VIEW,   Scope.ALL,
-                PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL);
+                PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL,
+                PermissionKeys.AGREEMENT_VIEW,  Scope.ALL);
     }
 
     /**
@@ -59,6 +64,7 @@ public final class PortalPermissions {
     public static Map<String, Scope> forSponsor() {
         return Map.of(
                 PermissionKeys.DOCUMENT_VIEW,   Scope.ALL,
-                PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL);
+                PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL,
+                PermissionKeys.AGREEMENT_VIEW,  Scope.ALL);
     }
 }

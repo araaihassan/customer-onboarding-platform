@@ -341,6 +341,14 @@ class AuthorizationCoverageTest {
             // shape task.TaskInstantiation's own entry above already documents, DOCUMENT
             // rather than TASK.
             "co.ara.onboarding.document.DocumentInstantiation",
+            // Sub-project 5 Task 10: the identical DocumentInstantiation shape, SIGNATURE
+            // rather than DOCUMENT. AgreementInstantiation is called inside its own
+            // transaction by both CaseService.create (via AgreementLifecycleAdapter,
+            // on a caseId that method just created and fully controls) and
+            // MigrationService.migrateOne (on a case already authorized under
+            // CASE_MIGRATE before migrateOne is ever reached) -- there is no
+            // request-supplied id here for AuthorizedQuery to protect either way.
+            "co.ara.onboarding.agreement.AgreementInstantiation",
             // Sub-project 4 Task 26: the customer.OrgUnitResolver shape, applied to
             // Case for a portal actor. PortalPermissions grants document.upload/
             // document.view at Scope.ALL and Case has no AudienceFilter registered,
@@ -379,7 +387,12 @@ class AuthorizationCoverageTest {
                                           // this rule covers it automatically, with no
                                           // exclusion needed, exactly as this rule's own
                                           // javadoc promises.
-                                          "co.ara.onboarding.document..")
+                                          "co.ara.onboarding.document..",
+                                          // Sub-project 5 Task 11: AgreementService is the
+                                          // first *Service in this module -- added in the same
+                                          // commit that introduces it, same reasoning as
+                                          // document.. above.
+                                          "co.ara.onboarding.agreement..")
                 // Union, not replace: a covered-package *Service/*Directory class that
                 // reaches a finder on a repository it does NOT hold as a field (passed
                 // as a parameter, obtained from another object, etc.) would be
@@ -541,7 +554,8 @@ class AuthorizationCoverageTest {
                 .contains("co.ara.onboarding.task.TaskInstantiation",
                           "co.ara.onboarding.task.TaskLifecycleAdapter",
                           "co.ara.onboarding.document.DocumentInstantiation",
-                          "co.ara.onboarding.document.PortalCaseAccess")
+                          "co.ara.onboarding.document.PortalCaseAccess",
+                          "co.ara.onboarding.agreement.AgreementInstantiation")
                 .doesNotContain("co.ara.onboarding.task.TaskDirectoryAdapter");
     }
 }

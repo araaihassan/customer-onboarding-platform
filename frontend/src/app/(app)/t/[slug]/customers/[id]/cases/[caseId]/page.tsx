@@ -6,6 +6,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { CommentThread } from "@/components/comment/CommentThread";
 import { RequestDocumentDialog } from "@/components/documents/RequestDocumentDialog";
 import { ArrowRightIcon, WorkflowIcon } from "@/components/icons";
+import { AgreementsTab } from "@/components/journey/AgreementsTab";
 import { AwaitingApprovalBanner } from "@/components/journey/AwaitingApprovalBanner";
 import { CaseHeader } from "@/components/journey/CaseHeader";
 import { CaseSwitcher } from "@/components/journey/CaseSwitcher";
@@ -145,7 +146,7 @@ export default function CaseWorkspacePage() {
             {tab === "journey" && <JourneyPreview caseId={caseId} />}
             {tab === "tasks" && <TasksTab caseId={caseId} />}
             {tab === "documents" && <DocumentsTab caseId={caseId} />}
-            {tab === "agreements" && <EmptyState title={t("case.tabs.agreements.empty")} />}
+            {tab === "agreements" && <AgreementsTab caseId={caseId} />}
             {tab === "plan" && isCustomerTemplate && <PlanTab caseId={caseId} milestones={planMilestones} />}
             {tab === "timeline" && <TimelineTab caseId={caseId} />}
           </div>

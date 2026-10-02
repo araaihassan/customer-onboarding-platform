@@ -1,3 +1,3 @@
 package co.ara.onboarding.workflow;
 
-public enum RequirementKind { TASK, DOCUMENT, APPROVAL, MANUAL }
+public enum RequirementKind { TASK, DOCUMENT, APPROVAL, MANUAL, SIGNATURE }
