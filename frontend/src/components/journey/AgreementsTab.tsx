@@ -75,7 +75,7 @@ export function AgreementsTab({ caseId, now }: { caseId: string; now?: Date }) {
         </details>
       )}
 
-      {openId && <AgreementDetailPanel key={openId} id={openId} onClose={close} />}
+      {openId && <AgreementDetailPanel key={openId} id={openId} onClose={close} onOpen={open} />}
     </div>
   );
 }

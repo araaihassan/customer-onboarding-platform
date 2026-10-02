@@ -19,10 +19,21 @@ describe("SignatureList", () => {
     expect(items).toHaveLength(2);
     expect(within(items[0]!).getByText("Dana Reyes")).not.toBeNull();
     expect(within(items[0]!).getByText("Signed")).not.toBeNull();
-    expect(within(items[0]!).getByText("14 Aug 2026 via MANUAL")).not.toBeNull();
+    expect(within(items[0]!).getByText("14 Aug 2026 via Manual record")).not.toBeNull();
     expect(within(items[1]!).getByText("Omar Fadel")).not.toBeNull();
     expect(within(items[1]!).getByText("Pending")).not.toBeNull();
     expect(within(items[1]!).queryByText(/via/)).toBeNull();
+  });
+
+  it("shows a free-text method as written and a known method through t()", () => {
+    render(
+      <SignatureList
+        signatories={[{ id: "s1", kind: "CONTACT", displayName: "Dana Reyes", displayRole: "Sponsor", sortOrder: 0, signed: true }]}
+        signatures={[{ id: "g1", signatoryId: "s1", signedOn: "2026-08-14", method: "Wet ink" }]}
+      />,
+    );
+    expect(screen.getByText("14 Aug 2026 via Wet ink")).not.toBeNull();
+    expect(screen.queryByText(/MANUAL/)).toBeNull();
   });
 
   it("renders an empty state with no signatories", () => {

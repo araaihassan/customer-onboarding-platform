@@ -111,7 +111,7 @@ describe("AgreementDetailPanel", () => {
     expect(screen.getByText("This agreement can no longer be edited.")).not.toBeNull();
     expect(screen.getByText("a1b2c3d4e5f6")).not.toBeNull();
     expect(screen.getByText("Approved")).not.toBeNull();
-    expect(screen.getByText("14 Aug 2026 via MANUAL")).not.toBeNull();
+    expect(screen.getByText("14 Aug 2026 via Manual record")).not.toBeNull();
     expect(screen.getByText("Pending")).not.toBeNull();
   });
 

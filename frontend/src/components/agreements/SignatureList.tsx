@@ -5,6 +5,14 @@ import type { AgreementSignatory, AgreementSignature } from "@/lib/api/agreement
 import { t } from "@/lib/i18n";
 import { formatAgreementDate } from "./AgreementRow";
 
+/** Known method codes read through t(); a free-text method ("Wet ink") is shown as the person wrote it. */
+export function methodLabel(method: string | undefined): string {
+  if (!method) return "—";
+  const key = `agreements.method.${method}`;
+  const label = t(key);
+  return label === key ? method : label;
+}
+
 /** Who has signed and who has not, with the date and method for each recorded signature. */
 export function SignatureList({ signatories, signatures }: { signatories: AgreementSignatory[]; signatures: AgreementSignature[] }) {
   if (signatories.length === 0) {
@@ -27,7 +35,7 @@ export function SignatureList({ signatories, signatures }: { signatories: Agreem
               <p className="truncate text-text-subtle" style={{ fontSize: "12px" }}>{s.displayRole}</p>
               {signed && sig?.signedOn && (
                 <p className="text-text-subtle" style={{ fontFamily: "var(--ob-font-family-data)", fontSize: "11.5px" }}>
-                  {t("agreements.signatures.signedOn", { date: formatAgreementDate(sig.signedOn), method: sig.method ?? "—" })}
+                  {t("agreements.signatures.signedOn", { date: formatAgreementDate(sig.signedOn), method: methodLabel(sig.method) })}
                 </p>
               )}
             </div>

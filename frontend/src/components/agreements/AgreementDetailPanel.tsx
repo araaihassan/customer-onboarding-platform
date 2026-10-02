@@ -11,6 +11,7 @@ import { ApiError } from "@/lib/api/client";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 import { agreementMeta } from "./AgreementRow";
+import { AgreementActions } from "./AgreementActions";
 import { DraftEditor } from "./DraftEditor";
 import { SignatoryEditor } from "./SignatoryEditor";
 import { SignatureList } from "./SignatureList";
@@ -24,9 +25,10 @@ import { statusLabelKey, statusTone, toneRole } from "./statusChip";
  *
  * Editing is DRAFT-only and needs agreement.manage; the server enforces both independently. Every
  * write carries the agreement's current lockVersion (see DraftEditor), and a stale one (409) shows the
- * reload message and refetches. Lifecycle actions (submit, review, send, record, cancel) are Task 26's.
+ * reload message and refetches. Lifecycle actions (submit, review, send, record, cancel) live in AgreementActions; cancelling opens the
+ * successor draft through `onOpen`.
  */
-export function AgreementDetailPanel({ id, onClose }: { id: string; onClose: () => void }) {
+export function AgreementDetailPanel({ id, onClose, onOpen }: { id: string; onClose: () => void; onOpen?: (id: string) => void }) {
   const detail = useAgreement(id);
   const canManage = useHasPermission("agreement.manage");
   const [message, setMessage] = useState<string>();
@@ -94,6 +96,10 @@ export function AgreementDetailPanel({ id, onClose }: { id: string; onClose: () 
               <XIcon size={14} />
             </Button>
           </header>
+
+          {detail.data && (
+            <AgreementActions detail={detail.data} onOpenAgreement={(next) => onOpen?.(next)} onStale={() => void detail.refetch()} />
+          )}
 
           {!editable && (
             <p className="text-text-subtle" style={{ fontSize: "12.5px" }}>
