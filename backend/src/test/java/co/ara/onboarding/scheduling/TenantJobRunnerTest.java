@@ -18,6 +18,7 @@ class TenantJobRunnerTest extends PostgresTestBase {
     @Autowired TenantJobRunner runner;
     @Autowired AuthContextProvider contexts;
     @Autowired JdbcTemplate jdbc;
+    @Autowired org.springframework.transaction.PlatformTransactionManager txManager;
 
     @Test
     void runsOncePerActiveTenantBoundAndAsTheSystemActor() {
@@ -61,6 +62,14 @@ class TenantJobRunnerTest extends PostgresTestBase {
         assertThat(second.get(10, TimeUnit.SECONDS)).isFalse();
         release.countDown();
         assertThat(first.get(10, TimeUnit.SECONDS)).isTrue();
+        // The pooled worker thread that ran the job holds nothing afterwards.
+        Future<Boolean> clean = pool.submit(() -> {
+            runner.forTenant("locked-job", tenant, t -> {});
+            return org.springframework.web.context.request.RequestContextHolder.getRequestAttributes() == null
+                    && org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication() == null
+                    && TenantContext.getOrNull() == null;
+        });
+        assertThat(clean.get(10, TimeUnit.SECONDS)).isTrue();
         pool.shutdown();
     }
 
@@ -93,5 +102,44 @@ class TenantJobRunnerTest extends PostgresTestBase {
             org.springframework.security.core.context.SecurityContextHolder.clearContext();
             org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
         }
+    }
+
+    @Test
+    void aThrowingDestructionCallbackStillRestoresTheCallersContext() {
+        UUID tenant = fixture.createTenant("job-destroy");
+        var callerAttributes = new org.springframework.web.context.request.ServletRequestAttributes(
+                new org.springframework.mock.web.MockHttpServletRequest());
+        var callerAuth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                new co.ara.onboarding.authz.AuthenticatedPrincipal(tenant, UUID.randomUUID()), null, java.util.List.of());
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(callerAttributes);
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(callerAuth);
+        try {
+            boolean ran = runner.forTenant("destroy-job", tenant, t ->
+                    org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
+                            .registerDestructionCallback("bad", () -> { throw new IllegalStateException("cleanup"); }, 0));
+            assertThat(ran).isTrue();
+            assertThat(org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()).isSameAs(callerAttributes);
+            assertThat(org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication()).isSameAs(callerAuth);
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
+    @Test
+    void aFailingBodyDoesNotPoisonACallersOuterTransaction() {
+        UUID a = fixture.createTenant("job-outer-a");
+        UUID b = fixture.createTenant("job-outer-b");
+        Set<UUID> ran = ConcurrentHashMap.newKeySet();
+        var outer = new org.springframework.transaction.support.TransactionTemplate(txManager);
+        Boolean rollbackOnly = outer.execute(status -> {
+            runner.forEachTenant("outer-job", tenant -> {
+                ran.add(tenant);
+                if (tenant.equals(a)) throw new IllegalStateException("boom");
+            });
+            return status.isRollbackOnly();
+        });
+        assertThat(rollbackOnly).isFalse();
+        assertThat(ran).contains(a, b);
     }
 }

@@ -185,4 +185,11 @@ class ModuleBoundaryTest {
             noClasses().that().resideInAPackage("..document..")
                 .should().dependOnClassesThat().resideInAPackage("..sla..")
                 .because("sla implements document.CustomerWaitLifecycle; document never imports sla (spec 3.1).");
+
+    /** The system principal is minted only by the scheduler (and authz, which owns it). */
+    @ArchTest
+    static final ArchRule onlySchedulingMintsTheSystemPrincipal =
+            noClasses().that().resideOutsideOfPackages("..scheduling..", "..authz..")
+                .should().callMethod(co.ara.onboarding.authz.SystemPrincipal.class, "authentication", java.util.UUID.class)
+                .because("a system authentication is a full-trust identity; only the job runner may create one");
 }

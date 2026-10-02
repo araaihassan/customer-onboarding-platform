@@ -7,6 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import java.util.*;
@@ -24,14 +26,17 @@ public class TenantJobRunner {
 
     private final TenantRepository tenants;
     private final TenantConnectionCustomizer binder;
-    private final TransactionTemplate tx;
+    private final TransactionTemplate isolated;
     private final JobLock lock;
 
     public TenantJobRunner(TenantRepository tenants, TenantConnectionCustomizer binder,
-                           TransactionTemplate tx, JobLock lock) {
+                           PlatformTransactionManager txManager, JobLock lock) {
         this.tenants = tenants;
         this.binder = binder;
-        this.tx = tx;
+        // REQUIRES_NEW: a caller already inside a transaction (the dev endpoint) must not have every
+        // tenant join it, or one failure poisons the rest and the advisory locks outlive the run.
+        this.isolated = new TransactionTemplate(txManager);
+        this.isolated.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.lock = lock;
     }
 
@@ -56,23 +61,30 @@ public class TenantJobRunner {
     public boolean forTenant(String job, UUID tenantId, Consumer<UUID> body) {
         var previousAttributes = RequestContextHolder.getRequestAttributes();
         var previousSecurity = SecurityContextHolder.getContext();
+        var hadAuthentication = previousSecurity.getAuthentication() != null;
         var attributes = new JobRequestAttributes();
-        RequestContextHolder.setRequestAttributes(attributes);
-        var jobSecurity = SecurityContextHolder.createEmptyContext();
-        jobSecurity.setAuthentication(SystemPrincipal.authentication(tenantId));
-        SecurityContextHolder.setContext(jobSecurity);
         try {
-            return TenantContext.runAsReturning(tenantId, () -> Boolean.TRUE.equals(tx.execute(status -> {
+            RequestContextHolder.setRequestAttributes(attributes);
+            var jobSecurity = SecurityContextHolder.createEmptyContext();
+            jobSecurity.setAuthentication(SystemPrincipal.authentication(tenantId));
+            SecurityContextHolder.setContext(jobSecurity);
+            return TenantContext.runAsReturning(tenantId, () -> Boolean.TRUE.equals(isolated.execute(status -> {
                 binder.bind(tenantId);
                 if (!lock.tryLock(job, tenantId)) return false;
                 body.accept(tenantId);
                 return true;
             })));
         } finally {
-            attributes.complete();
-            SecurityContextHolder.setContext(previousSecurity);
+            // Restore the thread FIRST: nothing below may leave the system principal on a pooled thread.
+            if (hadAuthentication) SecurityContextHolder.setContext(previousSecurity);
+            else SecurityContextHolder.clearContext();
             if (previousAttributes == null) RequestContextHolder.resetRequestAttributes();
             else RequestContextHolder.setRequestAttributes(previousAttributes);
+            try {
+                attributes.complete();
+            } catch (RuntimeException e) {
+                log.warn("Request-scope cleanup failed for job {} tenant {}", job, tenantId, e);
+            }
         }
     }
 }
