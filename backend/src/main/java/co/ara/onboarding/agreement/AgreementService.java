@@ -491,6 +491,71 @@ public class AgreementService {
         return get(a.getId());
     }
 
+    /**
+     * Cancels a live agreement and creates a DRAFT successor for the same requirement in
+     * the same transaction (Task 17; spec 5.5). Returns the successor's detail. Cancel never
+     * satisfies or waives the requirement (invariant 3): nothing here touches
+     * RequirementService. The old row is flushed as CANCELLED BEFORE the successor insert so
+     * agreement_live_per_requirement_uq never sees two live rows. The successor copies
+     * name/mode/dates/signatories but no document. A SENT/AWAITING_SIGNATURE agreement's
+     * document is retiered back to SENSITIVE. Audit: cancelled, then created.
+     */
+    @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
+    @Transactional
+    public AgreementDetailView cancel(UUID id, CancelAgreementRequest r) {
+        Agreement old = writes.loadForWrite(id, PermissionKeys.AGREEMENT_MANAGE, r.lockVersion(),
+                EnumSet.of(AgreementStatus.DRAFT, AgreementStatus.UNDER_REVIEW, AgreementStatus.APPROVED,
+                           AgreementStatus.SENT, AgreementStatus.AWAITING_SIGNATURE));
+        boolean wasSent = old.getStatus() == AgreementStatus.SENT || old.getStatus() == AgreementStatus.AWAITING_SIGNATURE;
+        UUID actor = contextProvider.current().userId();
+        Instant now = Instant.now(clock);
+
+        old.setStatus(AgreementStatus.CANCELLED);
+        old.setCancelReason(r.reason());
+        old.setUpdatedAt(now);
+        agreements.saveAndFlush(old);
+        if (wasSent && old.getDocumentId() != null) agreementFiles.retier(old.getDocumentId(), VisibilityTier.SENSITIVE);
+        audit.record(AuditActions.AGREEMENT_CANCELLED, "onboarding_case", old.getCaseId(),
+                "Cancelled " + old.getName() + ": " + r.reason(), Map.of("agreementId", old.getId().toString()));
+
+        Agreement next = new Agreement();
+        next.setId(Uuid7.generate());
+        next.setTenantId(old.getTenantId());
+        next.setCaseId(old.getCaseId());
+        next.setRequirementId(old.getRequirementId());
+        next.setCustomerId(old.getCustomerId());
+        next.setName(old.getName());
+        next.setRecordMode(old.getRecordMode());
+        next.setStatus(AgreementStatus.DRAFT);
+        next.setEffectiveDate(old.getEffectiveDate());
+        next.setExpiresAt(old.getExpiresAt());
+        next.setRenewalDate(old.getRenewalDate());
+        next.setNoticePeriodDays(old.getNoticePeriodDays());
+        next.setOwnerUserId(actor);
+        next.setLastEditedBy(actor);
+        next.setReplacesAgreementId(old.getId());
+        next.setSignatureProvider(old.getSignatureProvider());
+        next.setCreatedAt(now);
+        next.setUpdatedAt(now);
+        agreements.saveAndFlush(next);
+        for (AgreementSignatory s : signatories.ofAgreement(old.getId())) {
+            AgreementSignatory copy = new AgreementSignatory();
+            copy.setId(Uuid7.generate());
+            copy.setTenantId(next.getTenantId());
+            copy.setAgreementId(next.getId());
+            copy.setKind(s.getKind());
+            copy.setContactId(s.getContactId());
+            copy.setUserId(s.getUserId());
+            copy.setDisplayRole(s.getDisplayRole());
+            copy.setSortOrder(s.getSortOrder());
+            signatories.save(copy);
+        }
+        audit.record(AuditActions.AGREEMENT_CREATED, "onboarding_case", next.getCaseId(),
+                "Created " + next.getName() + " to replace a cancelled agreement",
+                Map.of("agreementId", next.getId().toString(), "replacesAgreementId", old.getId().toString()));
+        return get(next.getId());
+    }
+
     private SignatureProvider providerFor(Agreement a) {
         return signatureProviders.stream()
                 .filter(p -> p.kind() == a.getSignatureProvider())
