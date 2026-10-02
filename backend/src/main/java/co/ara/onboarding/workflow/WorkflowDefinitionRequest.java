@@ -2,7 +2,9 @@ package co.ara.onboarding.workflow;
 
 import co.ara.onboarding.authz.RelationshipType;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 import java.util.UUID;
@@ -44,7 +46,7 @@ public record WorkflowDefinitionRequest(
             String description,
             @Positive int estimatedDurationDays,
             List<String> dependsOnMilestoneKeys,
-            List<RequirementRequest> requirements,
+            @Valid List<RequirementRequest> requirements,
             // Boxed, not primitive boolean: a client that omits this key must default
             // to visible, never to hidden. StageRequest.portalVisible is a primitive
             // and so already has the "missing key silently binds to false" defect
@@ -71,7 +73,11 @@ public record WorkflowDefinitionRequest(
             // PublishService's Rule 6 refuses both a SIGNATURE missing one and a
             // non-SIGNATURE requirement carrying either.
             AgreementRecordMode agreementRecordMode,
-            String agreementName) {}
+            // Becomes the instantiated agreement's own name (varchar(200)) and, through it,
+            // the agreement file's download filename -- so bounded here with exactly
+            // PatchAgreementRequest.name's constraints: a 400 at the request boundary,
+            // never a database failure (final whole-branch review, minor (a)).
+            @Size(max = 200) @Pattern(regexp = "^[^\\x00-\\x1F\\x7F\"]*$") String agreementName) {}
 
     public record BranchRuleRequest(
             ConditionRequest condition,

@@ -142,6 +142,47 @@ class WorkflowApiTest extends SecurityTestBase {
            .andExpect(jsonPath("$.problems.length()").value(greaterThanOrEqualTo(2)));
     }
 
+    /**
+     * A SIGNATURE requirement's agreementName becomes the instantiated agreement's own
+     * name (varchar(200)), and through it the agreement file's download filename -- so it
+     * is bounded at the request boundary exactly like PatchAgreementRequest.name: 201
+     * characters, or a control character / double quote, is a 400, never a database
+     * failure. Exactly 200 is accepted, matching the builder's own maxLength.
+     */
+    @Test
+    void anOverlongOrUnsafeAgreementNameIsA400() throws Exception {
+        UUID tenant = fixture.createTenant("wf-agreement-name");
+        AppUser admin = adminUser(tenant, "wfagrname@example.com");
+
+        String created = mvc.perform(as(post("/api/t/wf-agreement-name/workflows"), admin)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Standard\",\"description\":\"\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID templateId = UUID.fromString(JsonPath.read(created, "$.id"));
+        String draft = mvc.perform(as(post("/api/t/wf-agreement-name/workflows/" + templateId + "/versions"), admin))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+        UUID versionId = UUID.fromString(JsonPath.read(draft, "$.versionId"));
+        String url = "/api/t/wf-agreement-name/workflows/" + templateId + "/versions/" + versionId;
+
+        for (String bad : List.of("x".repeat(201), "Bad\u0007name", "Bad \"quoted\" name")) {
+            mvc.perform(as(put(url), admin).contentType(MediaType.APPLICATION_JSON)
+                            .content(mapper.writeValueAsString(withAgreementName(bad))))
+               .andExpect(status().isBadRequest());
+        }
+        mvc.perform(as(put(url), admin).contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(withAgreementName("x".repeat(200)))))
+           .andExpect(status().isOk());
+    }
+
+    private static WorkflowDefinitionRequest withAgreementName(String agreementName) {
+        return new WorkflowDefinitionRequest(List.of(WorkflowFixtures.stage("s1", "Stage One", List.of(
+                WorkflowFixtures.milestone("m1", "Milestone One", 1, List.of(), List.of(
+                        WorkflowFixtures.signature("Sign", AgreementRecordMode.FILE_BACKED, agreementName)))))),
+                List.of(), 0L);
+    }
+
     /** A stale draft write is a 409, so the builder can say "someone else saved first". */
     @Test
     void aStaleDraftWriteAnswers409() throws Exception {
