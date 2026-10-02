@@ -1,5 +1,6 @@
 package co.ara.onboarding.authz;
 
+import co.ara.onboarding.platform.UserType;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
@@ -30,6 +31,11 @@ public class AuthContextProvider {
      * producing an AuthContext for a stranger.
      */
     public AuthContext current() {
+        var auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof SystemPrincipal s) {
+            return new AuthContext(s.tenantId(), SystemPrincipal.SYSTEM_USER_ID, UserType.SYSTEM,
+                    null, java.util.Set.of());
+        }
         AuthenticatedPrincipal p = principal();
         return actors.findActor(p.userId())
                 .orElseThrow(() -> new AccessDeniedException("Unknown user"));

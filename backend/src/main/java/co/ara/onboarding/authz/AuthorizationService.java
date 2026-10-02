@@ -51,6 +51,15 @@ public class AuthorizationService {
         // app_user check mirrors the u.status = 'ACTIVE' join below, and the
         // contact check is what makes retirement take effect on the very next
         // request, not when an access token eventually expires.
+        // The scheduler's actor: a code constant, never a role row (invariant 7), and only
+        // while the thread is bound to the tenant the principal was minted for.
+        if (actor.userType() == UserType.SYSTEM) {
+            memo = actor.tenantId().equals(co.ara.onboarding.tenancy.TenantContext.getOrNull())
+                    ? EffectivePermissions.of(SystemPermissions.forJobs())
+                    : EffectivePermissions.none();
+            return memo;
+        }
+
         if (actor.userType() == UserType.PORTAL) {
             memo = contacts.findActiveContactForUser(actor.userId())
                     .map(c -> EffectivePermissions.of(
