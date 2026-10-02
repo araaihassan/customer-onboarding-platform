@@ -650,6 +650,7 @@ public class DocumentService {
             throw new NoSuchElementException("Not found");
         }
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_UPLOAD, documentId);
+        refuseAgreementOwned(d);
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_UPLOAD, d.getCaseId());
         applyWriteScope(c);
 
@@ -714,6 +715,7 @@ public class DocumentService {
     @Transactional
     public DocumentView patch(UUID id, PatchDocumentRequest request) {
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_MANAGE, id);
+        refuseAgreementOwned(d);
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_MANAGE, d.getCaseId());
         applyWriteScope(c);
 
@@ -827,6 +829,7 @@ public class DocumentService {
         }
 
         Document d = authorizedQuery.getById(documents, Document.class, PermissionKeys.DOCUMENT_MANAGE, id);
+        refuseAgreementOwned(d);
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_MANAGE, d.getCaseId());
         applyWriteScope(c);
 
@@ -878,6 +881,26 @@ public class DocumentService {
         if (c.getCurrentStageId() == null) return;
         Stage stage = authorizedQuery.getById(stages, Stage.class, PermissionKeys.WORKFLOW_VIEW, c.getCurrentStageId());
         writeScope.check(c, stage);
+    }
+
+    /**
+     * Sub-project 5, final whole-branch review (Important 2): an agreement's own file is
+     * mutable only through {@link AgreementFiles} (spec section 7). Without this, a
+     * {@code document.upload}/{@code document.manage}/{@code document.share} holder could
+     * swap the bytes after the agreement's four-eyes approval, inject content before
+     * someone else submits it, recategorise it out from under the facade, or retire it
+     * under a SENT agreement. Called right AFTER the document resolves through {@link
+     * AuthorizedQuery}, so an out-of-scope id is still the usual 404; a document the
+     * caller can see but may not change this way is a 409 ({@link IllegalStateException})
+     * -- the same state refusal {@code DocumentSharingService#share}/{@code #link} already
+     * give a RETIRED document, and deliberately not a 404 for a record the caller can
+     * already read. Package-private so {@link DocumentSharingService} shares it.
+     */
+    static void refuseAgreementOwned(Document d) {
+        if (d.isAgreementOwned()) {
+            throw new IllegalStateException(
+                    "Document " + d.getId() + " belongs to an agreement and can only be changed through it");
+        }
     }
 
     /**

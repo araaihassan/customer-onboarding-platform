@@ -22,8 +22,12 @@ import java.util.UUID;
  * narrow facade gated on agreement permissions -- so an agreement author needs no
  * document.* permission, and an agreement's file is mutable only via its agreement.
  * Names no agreement type (ModuleBoundaryTest.noDocumentDependencyOnAgreement): the
- * gates are authz permission keys, and the category check below is how it recognises
- * "an agreement's document" without knowing what an agreement is.
+ * gates are authz permission keys, and the {@code agreement_owned} flag (V26) this class
+ * alone sets is how it recognises "an agreement's document" without knowing what an
+ * agreement is. The general document write paths ({@code DocumentService#addVersion},
+ * {@code #patch}, {@code #retire}, {@code DocumentSharingService#share}, {@code #link})
+ * refuse a document carrying that flag, which is what makes "mutable only via its
+ * agreement" true rather than aspirational (final whole-branch review, Important 2).
  *
  * <p>Documents are created SENSITIVE: that hides them from every portal contact absent
  * an explicit share ({@code scoping.DocumentAudienceFilter#portalAudience}) while
@@ -84,6 +88,8 @@ public class AgreementFiles {
         var stored = writer.capture(DocumentCategory.AGREEMENT, content, sizeBytes);
         Document d = writer.createDocument(c, actor, name, DocumentCategory.AGREEMENT, VisibilityTier.SENSITIVE,
                 null, null, null, null, stored, sizeBytes);
+        d.setAgreementOwned(true);
+        d = documents.saveAndFlush(d);
         return new OwnedFile(d.getId(), d.getCurrentVersionId(), 1, stored.sha256());
     }
 
@@ -106,6 +112,17 @@ public class AgreementFiles {
      * from send onward, never CONTACT_ONLY: an agreement's document only ever has
      * two states, unlike a document a portal contact can otherwise upload with any
      * of the three tiers.
+     *
+     * <p>Sharing it (COMPANY_SHARED) also pins {@code portal_min_version_no} to the
+     * document's current version (final whole-branch review, Important 3): at send
+     * that IS the version the agreement sent -- {@code uploadDraftFile} appends only
+     * while DRAFT, submit freezes the then-current version, and every general document
+     * write refuses this file -- so a portal contact can open the sent version and the
+     * countersigned copies appended after it, never the internal drafts before it
+     * ({@link DocumentContentService#open} enforces it). Narrowing back to SENSITIVE
+     * (cancel) leaves it as is; it is moot while no portal contact can see the file.
+     * Sharing a RETIRED file is refused (409); narrowing one is allowed, so a cancel
+     * can never be wedged by it.
      */
     @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
     @Transactional
@@ -114,6 +131,10 @@ public class AgreementFiles {
             throw new IllegalArgumentException("An agreement's document is SENSITIVE or COMPANY_SHARED, never " + tier);
         }
         Document d = ownedDocument(documentId, PermissionKeys.AGREEMENT_MANAGE);
+        if (tier == VisibilityTier.COMPANY_SHARED) {
+            refuseRetired(d);
+            d.setPortalMinVersionNo(versions.maxVersionNo(d.getId()));
+        }
         d.setVisibilityTier(tier);
         documents.saveAndFlush(d);
     }
@@ -127,6 +148,7 @@ public class AgreementFiles {
     @RequirePermission(PermissionKeys.AGREEMENT_MANAGE)
     public OwnedFile currentVersion(UUID documentId) {
         Document d = ownedDocument(documentId, PermissionKeys.AGREEMENT_MANAGE);
+        refuseRetired(d);
         int versionNo = versions.maxVersionNo(d.getId());
         DocumentVersion v = versions.versionAt(d.getId(), versionNo)
                 .orElseThrow(() -> new NoSuchElementException("Not found"));
@@ -136,6 +158,7 @@ public class AgreementFiles {
     private OwnedFile append(UUID documentId, String permission, InputStream content, long sizeBytes) {
         refusePortal();
         Document d = ownedDocument(documentId, permission);
+        refuseRetired(d);
         Case c = authorizedQuery.getById(cases, Case.class, permission, d.getCaseId());
         applyWriteScope(c);
         var stored = writer.capture(DocumentCategory.AGREEMENT, content, sizeBytes);
@@ -144,15 +167,31 @@ public class AgreementFiles {
     }
 
     /**
-     * Resolved through {@link AuthorizedQuery} like any id; a non-AGREEMENT document
-     * is simply not an agreement's file -- 404, not 400, so this facade can never be
-     * used to touch a document it has no business knowing about, even one the caller
-     * could otherwise read through {@code document.*}.
+     * Resolved through {@link AuthorizedQuery} like any id; a document this facade did
+     * not create is simply not an agreement's file -- 404, not 400, so this facade can
+     * never be used to touch a document it has no business knowing about, even one the
+     * caller could otherwise read through {@code document.*}. Keyed on the {@code
+     * agreement_owned} flag (V26), not the category: AGREEMENT was already an ordinary,
+     * user-pickable category, and an ordinary document of that category is not an
+     * agreement's file.
      */
     private Document ownedDocument(UUID documentId, String permission) {
         Document d = authorizedQuery.getById(documents, Document.class, permission, documentId);
-        if (d.getCategory() != DocumentCategory.AGREEMENT) throw new NoSuchElementException("Not found");
+        if (!d.isAgreementOwned()) throw new NoSuchElementException("Not found");
         return d;
+    }
+
+    /**
+     * A RETIRED file is frozen for the agreement too -- no new version, no freezing it into
+     * a submission, no sharing it with the customer. 409, the same refusal {@code
+     * DocumentSharingService#share}/{@code #link} give a retired document. (The general
+     * {@code DocumentService#retire} now refuses an agreement-owned file outright, so this
+     * guards only data that predates V26.)
+     */
+    private static void refuseRetired(Document d) {
+        if (d.getStatus() == DocumentStatus.RETIRED) {
+            throw new IllegalStateException("Document " + d.getId() + " is retired");
+        }
     }
 
     /** Same idiom as {@code DocumentService#upload}'s own portal refusal -- see its own javadoc. */

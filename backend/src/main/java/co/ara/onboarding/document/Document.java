@@ -67,6 +67,22 @@ public class Document extends TenantScopedEntity {
     @Column(name = "uploaded_by", nullable = false)
     private UUID uploadedBy;
 
+    /**
+     * Sub-project 5 (V26): this document is an agreement's own file, mutable only through
+     * {@link AgreementFiles}; every general-purpose document write refuses it. Set once, by
+     * {@link AgreementFiles#createOwnedDocument}, and never cleared -- no request type carries it.
+     */
+    @Column(name = "agreement_owned", nullable = false)
+    private boolean agreementOwned;
+
+    /**
+     * Sub-project 5 (V26): when set, a PORTAL actor may open only versions numbered at or above
+     * it -- {@link AgreementFiles#retier} sets it to the current version when the file is shared
+     * with the customer, hiding the internal drafts before the sent one. Null: no restriction.
+     */
+    @Column(name = "portal_min_version_no")
+    private Integer portalMinVersionNo;
+
     public UUID getCaseId() { return caseId; }
     public void setCaseId(UUID caseId) { this.caseId = caseId; }
 
@@ -102,4 +118,10 @@ public class Document extends TenantScopedEntity {
 
     public UUID getUploadedBy() { return uploadedBy; }
     public void setUploadedBy(UUID uploadedBy) { this.uploadedBy = uploadedBy; }
+
+    public boolean isAgreementOwned() { return agreementOwned; }
+    void setAgreementOwned(boolean agreementOwned) { this.agreementOwned = agreementOwned; }
+
+    public Integer getPortalMinVersionNo() { return portalMinVersionNo; }
+    void setPortalMinVersionNo(Integer portalMinVersionNo) { this.portalMinVersionNo = portalMinVersionNo; }
 }

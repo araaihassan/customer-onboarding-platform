@@ -174,6 +174,8 @@ public class DocumentSharingService {
         if (d.getStatus() == DocumentStatus.RETIRED) {
             throw new IllegalStateException("Document " + d.getId() + " is retired and cannot be shared");
         }
+        // An agreement's file reaches the customer only through the agreement's own send.
+        DocumentService.refuseAgreementOwned(d);
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_SHARE, d.getCaseId());
         applyWriteScope(c);
 
@@ -319,6 +321,8 @@ public class DocumentSharingService {
         if (d.getStatus() == DocumentStatus.RETIRED) {
             throw new IllegalStateException("Document " + d.getId() + " is retired and cannot be linked");
         }
+        // Same reason as share: an agreement's file is mutable only through its agreement.
+        DocumentService.refuseAgreementOwned(d);
         Case targetCase = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_SHARE, caseId);
         if (!targetCase.getCustomerId().equals(d.getCustomerId())) {
             throw new IllegalArgumentException(
