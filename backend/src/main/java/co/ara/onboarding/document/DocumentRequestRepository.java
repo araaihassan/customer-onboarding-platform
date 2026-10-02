@@ -14,6 +14,9 @@ public interface DocumentRequestRepository
     /** Every document request on a case. */
     List<DocumentRequest> findByCaseId(UUID caseId);
 
+    /** Requests on a case in one status; sla reads it to decide whether a clock starts paused. */
+    long countByCaseIdAndStatus(UUID caseId, DocumentRequestStatus status);
+
     /**
      * Every FULFILLED request a document fulfilled -- {@code
      * DocumentReviewService.review}'s own discovery query for its APPROVE

@@ -98,6 +98,7 @@ public class CaseService {
     private final PlanRevisionRepository planRevisions;
     private final DocumentRequestLifecycle documentRequestLifecycle;
     private final AgreementLifecycle agreementLifecycle;
+    private final SlaClockLifecycle slaClocks;
 
     public CaseService(CaseRepository cases, CaseParticipantRepository participants,
                        MilestoneRepository milestones, RequirementRepository requirements,
@@ -114,7 +115,9 @@ public class CaseService {
                        BusinessCalendar calendar, Clock clock, TaskLifecycle taskLifecycle,
                        TaskDirectory taskDirectory, PlanRevisionRepository planRevisions,
                        DocumentRequestLifecycle documentRequestLifecycle,
-                       AgreementLifecycle agreementLifecycle) {
+                       AgreementLifecycle agreementLifecycle,
+                       SlaClockLifecycle slaClocks) {
+        this.slaClocks = slaClocks;
         this.cases = cases;
         this.participants = participants;
         this.milestones = milestones;
@@ -273,6 +276,7 @@ public class CaseService {
             cases.save(c);
             audit.record(AuditActions.CASE_HELD, "onboarding_case", c.getId(),
                     "Awaiting first plan approval", Map.of("reason", "Awaiting first plan approval"));
+            slaClocks.held(c.getId(), c.getHeldAt());
         }
 
         return toView(c);
@@ -491,6 +495,7 @@ public class CaseService {
 
         audit.record(AuditActions.CASE_HELD, "onboarding_case", c.getId(),
                 "Held case: " + reason, Map.of("reason", reason));
+        slaClocks.held(c.getId(), c.getHeldAt());
         return toView(c);
     }
 
@@ -596,6 +601,7 @@ public class CaseService {
         audit.record(AuditActions.CASE_RESUMED, "onboarding_case", caseId,   // cause before effects
                 "Resumed after " + heldBusinessDays + " business days on hold",
                 Map.of("totalHoldDays", String.valueOf(c.getTotalHoldDays())));
+        slaClocks.resumed(c.getId(), Instant.now(clock));
 
         engine.reconcile(c);
         return toView(c);
