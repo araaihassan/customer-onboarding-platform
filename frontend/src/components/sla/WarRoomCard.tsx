@@ -8,7 +8,7 @@ import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 import { formatEscalationNote } from "./escalationNote";
 import { SlaChip } from "./SlaChip";
-import { days } from "./formatSlaClock";
+import { days, formatSlaClock } from "./formatSlaClock";
 
 const dataFont = { fontFamily: "var(--ob-font-family-data)" } as const;
 
@@ -36,6 +36,8 @@ export function WarRoomCard({
   const clock = card.clock ?? {};
   const breached = clock.state === "BREACHED";
   const note = noteFor(card);
+  // DOMAIN_RULES L146: every exception states pause eligibility, independent of the note.
+  const ineligible = clock.pauseEligible === false && clock.state !== "PAUSED";
   const caseName = card.caseName ?? "";
   // Without a customer id there is no valid case route: render the name as plain text, no link.
   const href = card.customerId && card.caseId ? `/t/${slug}/customers/${card.customerId}/cases/${card.caseId}` : undefined;
@@ -75,6 +77,15 @@ export function WarRoomCard({
             <dt className="text-text-subtle">{t("sla.card.elapsed")}</dt>
             <dd style={dataFont}>{`${days(clock.elapsedDays)} / ${clock.targetDays ?? 0}`}</dd>
           </div>
+          <div className="flex justify-between">
+            <dt className="text-text-subtle">{t("sla.card.clock")}</dt>
+            <dd
+              data-testid="war-room-clock"
+              style={{ fontWeight: 700, color: `var(--ob-${formatSlaClock(clock).tone}-fg)`, fontFamily: "var(--ob-font-family-data)" }}
+            >
+              {clockWord(card)}
+            </dd>
+          </div>
           <div className="flex justify-between items-center">
             <dt className="text-text-subtle">{t("sla.card.owner")}</dt>
             <dd className="flex items-center gap-1.5">
@@ -83,6 +94,11 @@ export function WarRoomCard({
             </dd>
           </div>
         </dl>
+        {ineligible && (
+          <p data-testid="war-room-ineligible" className="text-text-subtle" style={{ font: "11.5px/1.4 var(--ob-font-family-ui)" }}>
+            {t("sla.callout.ineligible")}
+          </p>
+        )}
         {note && (
           <p
             data-testid="war-room-note"
@@ -137,6 +153,20 @@ function noteFor(card: ExceptionCard): string | null {
   if (latest) return formatEscalationNote(latest);
   const clock = card.clock;
   if (clock?.state === "PAUSED" && clock.pauseReason) return t(`sla.callout.reason.${clock.pauseReason}`);
-  if (clock?.pauseEligible === false) return t("sla.callout.ineligible");
   return null;
+}
+
+/** The clock's state as a word plus the server's numbers, truncated by the same `days` the chip uses. */
+function clockWord(card: ExceptionCard): string {
+  const clock = card.clock ?? {};
+  switch (clock.state) {
+    case "PAUSED":
+      return t("sla.card.clock.paused", { days: days(clock.pausedDays) });
+    case "BREACHED":
+      return t("sla.card.clock.breached", { days: days((clock.elapsedDays ?? 0) - (clock.targetDays ?? 0)) });
+    case "MET":
+      return t("sla.card.clock.met");
+    default:
+      return clock.dueToday ? t("sla.card.clock.dueToday") : t("sla.card.clock.running");
+  }
 }

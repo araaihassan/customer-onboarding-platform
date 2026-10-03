@@ -32,6 +32,9 @@ describe("formatEscalationNote", () => {
       "Escalated to Sam Lee on 21 Aug (automatic, day 1 overdue)",
     );
   });
+  it("writes September as Sep, whatever the ICU version", () => {
+    expect(formatEscalationNote({ ...base, escalatedAt: "2026-09-21T10:00:00Z" })).toContain("on 21 Sep (");
+  });
   it("reads the date in UTC so it never shifts", () => {
     expect(formatEscalationNote({ ...base, escalatedAt: "2026-08-21T00:00:00Z" })).toContain("on 21 Aug");
   });

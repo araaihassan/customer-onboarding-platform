@@ -58,7 +58,9 @@ describe("WarRoomCard", () => {
 
   it("is flat: no shadow", () => {
     renderCard(card);
-    expect(screen.getByTestId("war-room-card").style.boxShadow).toBe("");
+    const el = screen.getByTestId("war-room-card");
+    expect(el.style.boxShadow).toBe("");
+    expect(el.className).not.toMatch(/shadow/);
   });
 
   it("survives null names: no customer, stage or owner, Unassigned, no raw ids, plain-text case name", () => {
@@ -75,9 +77,29 @@ describe("WarRoomCard", () => {
     expect(screen.getByTestId("war-room-note")).toHaveTextContent("Waiting on the customer's documents");
   });
 
-  it("shows the ineligibility line when the clock cannot pause", () => {
-    renderCard({ ...card, escalations: [], clock: { state: "RUNNING", dueToday: true, pauseEligible: false } });
-    expect(screen.getByTestId("war-room-note")).toHaveTextContent("NOT ELIGIBLE FOR PAUSE");
+  it("shows the ineligibility line when the clock cannot pause, even beside an escalation note", () => {
+    renderCard({ ...card, clock: { ...card.clock, pauseEligible: false } });
+    expect(screen.getByTestId("war-room-ineligible")).toHaveTextContent("NOT ELIGIBLE FOR PAUSE");
+    expect(screen.getByTestId("war-room-note")).toHaveTextContent("Escalated to Sam Lee");
+  });
+
+  it("omits the ineligibility line when pause is eligible", () => {
+    renderCard(card);
+    expect(screen.queryByTestId("war-room-ineligible")).toBeNull();
+  });
+
+  it.each([
+    ["breached", { state: "BREACHED", elapsedDays: 4, targetDays: 2 }, "Breached +2.0d", "risk"],
+    ["paused", { state: "PAUSED", pausedDays: 3.1 }, "Paused · 3.1d", "info"],
+    ["due today", { state: "RUNNING", dueToday: true, remainingDays: 0.4 }, "Due today", "warn"],
+    ["running", { state: "RUNNING", remainingDays: 1.2, targetDays: 3 }, "Running", "ok"],
+  ] as const)("shows a Clock row for a %s clock: a bold word in the state colour", (_n, clock, word, tone) => {
+    renderCard({ ...card, escalations: [], clock: { ...clock } });
+    expect(screen.getByText("Clock")).toBeInTheDocument();
+    const row = screen.getByTestId("war-room-clock");
+    expect(row).toHaveTextContent(word);
+    expect(row.style.fontWeight).toBe("700");
+    expect(row.style.color).toBe(`var(--ob-${tone}-fg)`);
   });
 
   it("offers Remind customer only with open requests, Reassign always", () => {

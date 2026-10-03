@@ -102,5 +102,6 @@ describe("SLA war room page", () => {
     fetchMock.mockResolvedValue(reply({ title: "boom" }, 500));
     renderPage();
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
   });
 });
