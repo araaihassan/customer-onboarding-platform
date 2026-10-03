@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setTenantSlug } from "@/lib/api/client";
 
 vi.mock("next/navigation", () => ({ useParams: () => ({ slug: "acme" }) }));
-vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions: {}, user: { userType: "INTERNAL" } }) }));
+let permissions: Record<string, string[]> = {};
+vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ permissions, user: { userType: "INTERNAL" } }) }));
+vi.mock("@/components/ui/Toast", () => ({ useToast: () => ({ show: vi.fn() }) }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: ReactNode }) => (
     <a href={href} {...rest}>
@@ -39,6 +41,7 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  permissions = {};
   setTenantSlug("acme");
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -103,5 +106,72 @@ describe("SLA war room page", () => {
     renderPage();
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
     expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  describe("card actions", () => {
+    const card = (extra: Record<string, unknown> = {}) => ({ ...mk("a", "BREACHED"), stageName: "Verification", hasOpenRequests: true, ...extra });
+
+    function board(cards: unknown[]) {
+      fetchMock.mockImplementation(async (url: string) => {
+        const u = String(url);
+        if (u.endsWith("/sla/exceptions")) return reply({ summary: {}, breached: cards, dueToday: [], watch: [] });
+        if (u.endsWith("/cases/a")) return reply({ id: "a", name: "Case a", ownerUserId: "u-1", attributes: {} });
+        if (u.endsWith("/cases/a/tasks")) return reply([]);
+        if (u.includes("/admin/users")) return reply({ content: [] });
+        if (u.endsWith("/cases/a/document-requests")) return reply({ content: [] });
+        if (u.endsWith("/cases/a/roadmap"))
+          return reply({ stages: [{ id: "s", name: "Verification", milestones: [{ id: "m-9", name: "Collect KYC", status: "ACTIVE" }] }] });
+        return reply({}, 404);
+      });
+    }
+    const exceptionFetches = () => fetchMock.mock.calls.filter(([u]) => String(u).endsWith("/sla/exceptions")).length;
+
+    it("Reassign opens the reassign dialog for that case", async () => {
+      board([card()]);
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Reassign" }));
+      expect(await screen.findByRole("dialog", { name: "Reassign" })).toBeInTheDocument();
+      expect(await screen.findByLabelText("Case owner")).toBeInTheDocument();
+    });
+
+    it("Remind customer opens the remind dialog", async () => {
+      board([card()]);
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Remind customer" }));
+      expect(await screen.findByText("No open document requests on this case.")).toBeInTheDocument();
+    });
+
+    it("Force-complete goes straight to the reason dialog when a milestone escalation names the milestone", async () => {
+      permissions = { "milestone.force_complete": ["ALL"] };
+      board([card({ escalations: [{ subjectType: "TASK", subjectId: "t-1" }, { subjectType: "MILESTONE", subjectId: "m-7" }] })]);
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Force-complete" }));
+      expect(await screen.findByLabelText(/reason/i)).toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText(/reason/i), { target: { value: "why" } });
+      fireEvent.click(screen.getByRole("button", { name: /request/i }));
+      await waitFor(() =>
+        expect(fetchMock.mock.calls.some(([u]) => String(u).endsWith("/cases/a/milestones/m-7/force-complete"))).toBe(true),
+      );
+    });
+
+    it("Force-complete opens the milestone picker when no milestone escalation exists, then the reason dialog", async () => {
+      permissions = { "milestone.force_complete": ["ALL"] };
+      board([card({ escalations: [{ subjectType: "TASK", subjectId: "t-1" }] })]);
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Force-complete" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Collect KYC" }));
+      expect(await screen.findByLabelText(/reason/i)).toBeInTheDocument();
+    });
+
+    it("closing a dialog refetches the exceptions", async () => {
+      board([card()]);
+      renderPage();
+      fireEvent.click(await screen.findByRole("button", { name: "Reassign" }));
+      await screen.findByLabelText("Case owner");
+      const before = exceptionFetches();
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      await waitFor(() => expect(exceptionFetches()).toBeGreaterThan(before));
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
   });
 });

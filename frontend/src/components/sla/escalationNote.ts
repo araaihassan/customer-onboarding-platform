@@ -5,11 +5,14 @@ import { t } from "@/lib/i18n";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 /** `d MMM` read in UTC: the value is a calendar date, so it must not shift with the viewer's zone. */
-function dayMonth(note: EscalationNote): string {
-  const raw = note.escalatedAt ?? note.dueDate;
+export function dayMonthOf(raw: string | undefined): string {
   if (!raw) return "";
   const d = new Date(raw.length === 10 ? `${raw}T00:00:00Z` : raw);
   return Number.isNaN(d.getTime()) ? "" : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+}
+
+function dayMonth(note: EscalationNote): string {
+  return dayMonthOf(note.escalatedAt ?? note.dueDate);
 }
 
 /**

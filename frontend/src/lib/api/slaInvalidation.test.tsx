@@ -3,10 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { __setAccessToken, setTenantSlug } from "@/lib/api/client";
-import { caseKeys, useDecideApproval, useForceComplete, useHold, useReopen, useResume, useSatisfy, useWaive } from "./cases";
+import { caseKeys, useUpdateCase, useDecideApproval, useForceComplete, useHold, useReopen, useResume, useSatisfy, useWaive } from "./cases";
 import { useCreateDocumentRequest, useFulfilRequest, useReviewVersion, useWithdrawRequest } from "./documents";
 import { slaKeys } from "./sla";
-import { useChangeTaskStatus } from "./tasks";
+import { useChangeTaskStatus, useUpdateTask } from "./tasks";
 import { useRecordSignature } from "./agreements";
 import { useMigrate } from "./workflows";
 
@@ -62,6 +62,8 @@ const cases: Case[] = [
     broad: true,
     run: () => ({ hook: useReviewVersion, vars: { documentId: "d", versionNo: 1, decision: "APPROVE" } }),
   },
+  { name: "useUpdateCase", response: { id: "c-1" }, run: () => ({ hook: useUpdateCase, vars: { caseId: "c-1", body: { name: "n" } } }) },
+  { name: "useUpdateTask", response: { caseId: "c-1" }, run: () => ({ hook: useUpdateTask, vars: { taskId: "t", body: {} } }) },
   { name: "useChangeTaskStatus", response: { caseId: "c-1" }, run: () => ({ hook: useChangeTaskStatus, vars: { taskId: "t", status: "DONE" } }) },
   {
     name: "useCreateDocumentRequest",

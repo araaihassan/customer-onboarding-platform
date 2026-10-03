@@ -1,14 +1,27 @@
 "use client";
 
+import { useState } from "react";
 import { useParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { ForceCompleteDialog } from "@/components/journey/ForceCompleteDialog";
+import { ForceCompleteMilestonePicker } from "@/components/sla/ForceCompleteMilestonePicker";
+import { ReassignDialog } from "@/components/sla/ReassignDialog";
+import { RemindCustomerDialog } from "@/components/sla/RemindCustomerDialog";
 import { ClockIcon } from "@/components/icons";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
 import { WarRoomCard } from "@/components/sla/WarRoomCard";
 import { EmptyState, ErrorState, SkeletonRows } from "@/components/ui/States";
-import { useSlaExceptions, type ExceptionCard } from "@/lib/api/sla";
+import { slaKeys, useSlaExceptions, type ExceptionCard } from "@/lib/api/sla";
 import { t } from "@/lib/i18n";
 
-const noop = () => {};
+type Dialog =
+  | { kind: "reassign" | "remind" | "pick"; card: ExceptionCard }
+  | { kind: "force"; card: ExceptionCard; milestoneId: string };
+
+/** The newest escalation that names a milestone: the card's own answer to "which milestone?". */
+function escalatedMilestoneId(card: ExceptionCard): string | undefined {
+  return card.escalations?.find((e) => e.subjectType === "MILESTONE" && e.subjectId)?.subjectId;
+}
 
 type Column = { key: "breached" | "dueToday" | "watch"; dot: string };
 const COLUMNS: Column[] = [
@@ -27,16 +40,28 @@ const STRIP = [
 /**
  * The SLA war room (SCREENS section 4): a summary strip, three triage columns and the policy
  * panel. The server decides what is visible and which column a clock belongs in; this renders
- * what it returns. Polling lives in `useSlaExceptions`. Dialog wiring for the card actions
- * arrives with the next task, so the callbacks are no-ops here.
+ * what it returns. Polling lives in `useSlaExceptions`. The card actions open one dialog at a
+ * time; closing any of them refetches the board, since each can move a card between columns.
  */
 export default function SlaWarRoomPage() {
   const { slug } = useParams<{ slug: string }>();
   const query = useSlaExceptions();
+  const queryClient = useQueryClient();
+  const [dialog, setDialog] = useState<Dialog | null>(null);
   useSetPageHeader(t("sla.title"));
 
   if (query.isError) return <ErrorState message={t("sla.error")} onRetry={() => void query.refetch()} />;
   if (query.isLoading || !query.data) return <SkeletonRows rows={5} height={96} />;
+
+  function closeDialog() {
+    setDialog(null);
+    void queryClient.invalidateQueries({ queryKey: slaKeys.exceptions() });
+  }
+
+  function startForceComplete(card: ExceptionCard) {
+    const milestoneId = escalatedMilestoneId(card);
+    setDialog(milestoneId ? { kind: "force", card, milestoneId } : { kind: "pick", card });
+  }
 
   const data = query.data;
   const summary = data.summary ?? {};
@@ -106,9 +131,9 @@ export default function SlaWarRoomPage() {
                     key={`${card.caseId}-${card.clock?.clockId ?? i}`}
                     card={card}
                     slug={slug}
-                    onReassign={noop}
-                    onForceComplete={noop}
-                    onRemind={noop}
+                    onReassign={(c) => setDialog({ kind: "reassign", card: c })}
+                    onForceComplete={startForceComplete}
+                    onRemind={(c) => setDialog({ kind: "remind", card: c })}
                   />
                 ))
               )}
@@ -127,6 +152,20 @@ export default function SlaWarRoomPage() {
       >
         {t("sla.policy")}
       </p>
+
+      {dialog?.kind === "reassign" && dialog.card.caseId && <ReassignDialog caseId={dialog.card.caseId} onClose={closeDialog} />}
+      {dialog?.kind === "remind" && dialog.card.caseId && <RemindCustomerDialog caseId={dialog.card.caseId} onClose={closeDialog} />}
+      {dialog?.kind === "pick" && dialog.card.caseId && (
+        <ForceCompleteMilestonePicker
+          caseId={dialog.card.caseId}
+          stageName={dialog.card.stageName}
+          onPick={(milestoneId) => setDialog({ kind: "force", card: dialog.card, milestoneId })}
+          onClose={closeDialog}
+        />
+      )}
+      {dialog?.kind === "force" && dialog.card.caseId && (
+        <ForceCompleteDialog caseId={dialog.card.caseId} milestoneId={dialog.milestoneId} onClose={closeDialog} />
+      )}
     </section>
   );
 }

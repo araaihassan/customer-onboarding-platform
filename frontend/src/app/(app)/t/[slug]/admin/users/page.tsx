@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { PlusIcon, SearchIcon, UsersIcon } from "@/components/icons";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
+import { UserSelect } from "@/components/admin/UserSelect";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
@@ -677,58 +678,6 @@ function useManagerOptions(excludeId?: string) {
   return (users.data?.content ?? []).filter(
     (candidate) =>
       candidate.status === "ACTIVE" && candidate.userType === "INTERNAL" && candidate.id !== excludeId,
-  );
-}
-
-/** Same native select and real <label htmlFor> as `DepartmentSelect`. */
-function UserSelect({
-  id,
-  label,
-  noneLabel,
-  value,
-  options,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  noneLabel: string;
-  value: string;
-  options: { id?: string; fullName?: string }[];
-  onChange: (value: string) => void;
-}) {
-  return (
-    <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
-      <label
-        htmlFor={id}
-        className="text-text-muted"
-        style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
-      >
-        {label}
-      </label>
-      <select
-        id={id}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="bg-surface border border-line text-ink"
-        style={{
-          height: "var(--ob-control-height)",
-          borderRadius: "var(--ob-radius-9)",
-          padding: "0 var(--ob-space-11)",
-          font: "13px/1.3 var(--ob-font-family-ui)",
-        }}
-      >
-        <option value="">{noneLabel}</option>
-        {/* A current value outside the fetched page must stay selectable, or saving would silently clear it. */}
-        {value && !options.some((option) => option.id === value) && (
-          <option value={value}>{t("admin.users.field.manager.current")}</option>
-        )}
-        {options.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.fullName}
-          </option>
-        ))}
-      </select>
-    </div>
   );
 }
 
