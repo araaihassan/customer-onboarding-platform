@@ -21,18 +21,19 @@ export function toStageDraft(stage: Stage): StageDraft {
   };
 }
 
-function toMilestoneRequest(milestone: Milestone) {
+export function toMilestoneRequest(milestone: Milestone) {
   return {
     key: milestone.key ?? newDraftKey("milestone"),
     name: milestone.name,
     description: milestone.description,
     estimatedDurationDays: milestone.estimatedDurationDays,
     dependsOnMilestoneKeys: milestone.dependsOnMilestoneKeys ?? [],
+    portalVisible: milestone.portalVisible,
     requirements: (milestone.requirements ?? []).map(toRequirementRequest),
   };
 }
 
-function toRequirementRequest(requirement: Requirement) {
+export function toRequirementRequest(requirement: Requirement) {
   return {
     kind: requirement.kind,
     label: requirement.label,
@@ -46,7 +47,7 @@ function toRequirementRequest(requirement: Requirement) {
   };
 }
 
-function toBranchRuleRequest(rule: BranchRule) {
+export function toBranchRuleRequest(rule: BranchRule) {
   return { condition: rule.condition, targetStageKey: rule.targetStageKey };
 }
 
