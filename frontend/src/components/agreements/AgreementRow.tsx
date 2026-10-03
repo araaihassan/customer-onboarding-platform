@@ -3,18 +3,15 @@
 import { Button } from "@/components/ui/Button";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { recordModeIncludesFile, type Agreement } from "@/lib/api/agreements";
+import { formatDate } from "@/lib/format/date";
 import { t } from "@/lib/i18n";
 import { statusLabelKey, statusTone, toneRole } from "./statusChip";
 
 const DAY_MS = 86_400_000;
 const EXPIRY_WINDOW_DAYS = 30;
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-/** `d MMM yyyy` from a date-only (`2026-08-14`) or ISO timestamp string, read in UTC so the day never shifts. */
-export function formatAgreementDate(value: string): string {
-  const d = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
-}
+/** Kept under its original name for the agreements components; the formatter lives in `lib/format/date`. */
+export const formatAgreementDate = formatDate;
 
 /** Whole days from `now` (UTC midnight) to a date-only `expiresAt`; null unless a SIGNED agreement expires within 30 days. */
 export function daysUntilExpiry(a: Agreement, now: Date): number | null {

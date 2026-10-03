@@ -13,7 +13,7 @@ export function SlaChip({ clock, prefix = false }: { clock: SlaClock; prefix?: b
   const text = prefix ? `${t("sla.chip.prefix")} ${label}` : label;
   return (
     <span data-testid="sla-chip" style={{ display: "inline-flex" }}>
-      <StatusPill status={text} role={tone} />
+      <StatusPill status={text} role={tone} verbatim />
     </span>
   );
 }

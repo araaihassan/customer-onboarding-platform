@@ -1,7 +1,7 @@
 import type { SlaClock } from "@/lib/api/sla";
 import { t } from "@/lib/i18n";
 
-export type SlaChipTone = "risk" | "warn" | "info" | "neutral" | "ok";
+export type SlaChipTone = "risk" | "warn" | "info" | "ok";
 
 /**
  * One decimal, truncated toward zero: a chip never claims more time than there is.
@@ -28,7 +28,7 @@ export function formatSlaClock(clock: SlaClock): { label: string; tone: SlaChipT
       if (clock.dueToday) return { label: t("sla.chip.dueToday"), tone: "warn" };
       return {
         label: t("sla.chip.left", { days: days(clock.remainingDays) }),
-        tone: clock.atRisk ? "warn" : "neutral",
+        tone: clock.atRisk ? "warn" : "ok",
       };
   }
 }

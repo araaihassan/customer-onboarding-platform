@@ -28,7 +28,7 @@ describe("SlaClockCallout", () => {
       />,
     );
     expect(screen.getByRole("status")).toBeInTheDocument();
-    expect(screen.getByText("SLA CLOCK")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "SLA CLOCK" })).toBeInTheDocument();
     expect(line("Paused · 3.1 business days")).toBeInTheDocument();
     expect(line("Waiting on the customer's documents")).toBeInTheDocument();
     expect(line("UK working days · business days")).toBeInTheDocument();

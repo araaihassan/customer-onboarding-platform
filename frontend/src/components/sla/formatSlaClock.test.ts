@@ -8,11 +8,11 @@ const rows: Array<[string, SlaClock, string, string]> = [
   ["met", { state: "MET" }, "MET", "ok"],
   ["due today", { state: "RUNNING", dueToday: true }, "DUE TODAY", "warn"],
   ["at risk", { state: "RUNNING", atRisk: true, remainingDays: 0.44 }, "0.4d LEFT", "warn"],
-  ["running", { state: "RUNNING", remainingDays: 1.25 }, "1.2d LEFT", "neutral"],
-  ["never rounds up", { state: "RUNNING", remainingDays: 0.96 }, "0.9d LEFT", "neutral"],
+  ["running", { state: "RUNNING", remainingDays: 1.25 }, "1.2d LEFT", "ok"],
+  ["never rounds up", { state: "RUNNING", remainingDays: 0.96 }, "0.9d LEFT", "ok"],
   ["paused wins over due today", { state: "PAUSED", pausedDays: 1, dueToday: true, atRisk: true }, "PAUSED 1.0d", "info"],
   ["breached never negative", { state: "BREACHED", elapsedDays: 1, targetDays: 2 }, "BREACHED 0.0d", "risk"],
-  ["absent numbers do not NaN", { state: "RUNNING" }, "0.0d LEFT", "neutral"],
+  ["absent numbers do not NaN", { state: "RUNNING" }, "0.0d LEFT", "ok"],
 ];
 
 describe("formatSlaClock", () => {

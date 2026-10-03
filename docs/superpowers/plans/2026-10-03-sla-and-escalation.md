@@ -3545,7 +3545,7 @@ Spec §9.1; STATE_AND_DATA L138; SCREENS §3 (chip `SLA PAUSED 3.1d`, rail "Paus
 | `state MET` | `MET` | `ok` |
 | `state RUNNING, dueToday true` | `DUE TODAY` | `warn` |
 | `state RUNNING, atRisk true, remainingDays 0.44` | `0.4d LEFT` | `warn` |
-| `state RUNNING, remainingDays 1.25` | `1.2d LEFT` | `neutral` |
+| `state RUNNING, remainingDays 1.25` | `1.2d LEFT` | `ok` |
 
 Numbers use one decimal, truncated toward zero, never rounded up (a chip must never claim more time than remains: `0.96d` shows `0.9d LEFT`). Every label string comes from `t()` with a `{days}` param — e.g. `t("sla.chip.left", { days: "1.2" })` → `"1.2d LEFT"`.
 

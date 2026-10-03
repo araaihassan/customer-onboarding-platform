@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
-import { formatAgreementDate } from "@/components/agreements/AgreementRow";
+import { formatDate } from "@/lib/format/date";
 import { ClockIcon, PauseCircleIcon } from "@/components/icons";
 import { SkeletonRows } from "@/components/ui/States";
 import type { SlaClock } from "@/lib/api/sla";
 import { t } from "@/lib/i18n";
-import { days, formatSlaClock, type SlaChipTone } from "./formatSlaClock";
+import { days, formatSlaClock } from "./formatSlaClock";
 
 const MARK = "\u0001";
 
@@ -30,10 +30,6 @@ const subtle = {
   font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
   marginTop: 2,
 } as const;
-
-function borderFor(tone: SlaChipTone): string {
-  return tone === "neutral" ? "var(--ob-line)" : `var(--ob-${tone}-border)`;
-}
 
 function headlineFor(clock: SlaClock): ReactNode {
   switch (clock.state) {
@@ -79,14 +75,14 @@ export function SlaClockCallout({ clock, loading = false }: { clock: SlaClock | 
         padding: "var(--ob-space-13) var(--ob-space-16)",
         borderRadius: "var(--ob-radius-10)",
         background: `var(--ob-${tone}-bg)`,
-        border: `1px solid ${borderFor(tone)}`,
+        border: `1px solid var(--ob-${tone}-border)`,
       }}
     >
       <span aria-hidden="true" style={{ color: `var(--ob-${tone}-fg)`, flexShrink: 0 }}>
         <Icon size={20} />
       </span>
       <div className="min-w-0 flex-1">
-        <p
+        <h3
           className="text-text-muted"
           style={{
             font: "600 var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
@@ -94,7 +90,7 @@ export function SlaClockCallout({ clock, loading = false }: { clock: SlaClock | 
           }}
         >
           {t("sla.callout.title")}
-        </p>
+        </h3>
         <p
           className="text-ink"
           style={{
@@ -118,7 +114,7 @@ export function SlaClockCallout({ clock, loading = false }: { clock: SlaClock | 
           <p className="text-text-muted" style={subtle}>
             {withData(
               esc.name ? "sla.callout.escalatedTo" : "sla.callout.escalatedToAdmins",
-              { name: esc.name ?? "", date: esc.at ? formatAgreementDate(esc.at) : "—" },
+              { name: esc.name ?? "", date: esc.at ? formatDate(esc.at) : "—" },
               ["date"],
             )}
           </p>
