@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchBlob } from "./client";
 import { caseKeys } from "./cases";
 import type { components } from "./generated";
+import { slaKeys } from "./sla";
 
 /**
  * Every type here is the generated OpenAPI type, re-exported under a shorter
@@ -429,6 +430,19 @@ export function useReviewVersion() {
     onSuccess: (_reviewed, { documentId }) => {
       void queryClient.invalidateQueries({ queryKey: documentKeys.detail(documentId) });
       void queryClient.invalidateQueries({ queryKey: documentKeys.pending() });
+    },
+  });
+}
+
+/** Nudges the customer on an open request; the exceptions board shows who was reminded, so it refetches too. */
+export function useRemindRequest() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ requestId }: { requestId: string; caseId: string }) =>
+      apiFetch<DocumentRequest>(`/document-requests/${requestId}/remind`, { method: "POST" }),
+    onSuccess: (_updated, { caseId }) => {
+      void queryClient.invalidateQueries({ queryKey: documentKeys.requestsForCase(caseId) });
+      void queryClient.invalidateQueries({ queryKey: slaKeys.exceptions() });
     },
   });
 }

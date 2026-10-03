@@ -297,3 +297,17 @@ export function groupByCategory(permissions: Permission[]): [string, Permission[
   }
   return Array.from(groups.entries());
 }
+
+export type DepartmentRequest = components["schemas"]["DepartmentRequest"];
+
+/** PUT is a full replace: send name, description and headUserId together (headUserId is the escalation route's department head). */
+export function useUpdateDepartment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: DepartmentRequest }) =>
+      apiFetch<Department>(`/admin/departments/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.departments() });
+    },
+  });
+}

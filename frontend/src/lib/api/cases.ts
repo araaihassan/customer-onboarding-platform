@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
+import { slaKeys } from "./sla";
 import type { components } from "./generated";
 
 /**
@@ -247,4 +248,31 @@ export function parseProblemDetail(message: string): string {
     // fall through
   }
   return message;
+}
+
+/** PUT /cases/{id} is a full replace (CLAUDE.md invariant): start from the current view, change only `patch`. */
+export function toUpdateCaseRequest(c: Case, patch: Partial<UpdateCaseRequest>): UpdateCaseRequest {
+  return {
+    name: c.name ?? "",
+    ownerUserId: c.ownerUserId,
+    owningDepartmentId: c.owningDepartmentId,
+    owningTeamId: c.owningTeamId,
+    attributes: c.attributes ?? {},
+    ...patch,
+  };
+}
+
+/** Reassigning the owner can move the escalation route, so the clock and exceptions refetch too. */
+export function useUpdateCase() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ caseId, body }: { caseId: string; body: UpdateCaseRequest }) =>
+      apiFetch<Case>(`/cases/${caseId}`, { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: (updated, { caseId }) => {
+      queryClient.setQueryData(caseKeys.detail(caseId), updated);
+      if (updated.customerId) void queryClient.invalidateQueries({ queryKey: caseKeys.forCustomer(updated.customerId) });
+      void queryClient.invalidateQueries({ queryKey: slaKeys.clock(caseId) });
+      void queryClient.invalidateQueries({ queryKey: slaKeys.exceptions() });
+    },
+  });
 }
