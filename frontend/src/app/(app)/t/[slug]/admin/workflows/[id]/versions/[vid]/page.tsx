@@ -14,11 +14,6 @@ import {
   usePublish,
   useSaveDraft,
   useWorkflowTemplate,
-  type Attribute,
-  type BranchRule,
-  type Milestone,
-  type Requirement,
-  type Stage,
   type WorkflowDefinition,
 } from "@/lib/api/workflows";
 import { usePlanShape } from "@/lib/api/plans";
@@ -26,7 +21,8 @@ import { PublishPanel } from "@/components/workflow/PublishPanel";
 import { ShapeApprovalPanel } from "@/components/workflow/ShapeApprovalPanel";
 import { StageInspector } from "@/components/workflow/StageInspector";
 import { StageRow } from "@/components/workflow/StageRow";
-import { newDraftKey, useDraftState, type AttributeDraft, type StageDraft } from "@/components/workflow/draftState";
+import { newDraftKey, useDraftState } from "@/components/workflow/draftState";
+import { toAttributeDraft, toStageDraft } from "@/components/workflow/toDraft";
 import { t } from "@/lib/i18n";
 
 /**
@@ -60,63 +56,6 @@ export default function VersionPage() {
   // subtree, so useDraftState's initial value is always the fresh one it was
   // seeded with, not a stale first-render snapshot React would otherwise keep.
   return <Builder key={versionId} slug={slug} templateId={templateId} initial={definition.data} />;
-}
-
-function toStageDraft(stage: Stage): StageDraft {
-  return {
-    key: stage.key ?? newDraftKey("stage"),
-    name: stage.name,
-    responsibleDepartmentId: stage.responsibleDepartmentId,
-    requiresApproval: stage.requiresApproval,
-    autoAdvance: stage.autoAdvance,
-    portalVisible: stage.portalVisible,
-    slaDays: stage.slaDays,
-    writeScope: stage.writeScope,
-    notificationTemplateKey: stage.notificationTemplateKey,
-    entryCondition: stage.entryCondition,
-    fallbackNextStageKey: stage.fallbackNextStageKey,
-    milestones: (stage.milestones ?? []).map(toMilestoneRequest),
-    branchRules: (stage.branchRules ?? []).map(toBranchRuleRequest),
-  };
-}
-
-function toMilestoneRequest(milestone: Milestone) {
-  return {
-    key: milestone.key ?? newDraftKey("milestone"),
-    name: milestone.name,
-    description: milestone.description,
-    estimatedDurationDays: milestone.estimatedDurationDays,
-    dependsOnMilestoneKeys: milestone.dependsOnMilestoneKeys ?? [],
-    requirements: (milestone.requirements ?? []).map(toRequirementRequest),
-  };
-}
-
-function toRequirementRequest(requirement: Requirement) {
-  return {
-    kind: requirement.kind,
-    label: requirement.label,
-    weight: requirement.weight,
-    mandatory: requirement.mandatory,
-    documentCategory: requirement.documentCategory,
-    requiresReview: requirement.requiresReview,
-    agreementRecordMode: requirement.agreementRecordMode,
-    agreementName: requirement.agreementName,
-    approverRelationship: requirement.approverRelationship,
-  };
-}
-
-function toBranchRuleRequest(rule: BranchRule) {
-  return { condition: rule.condition, targetStageKey: rule.targetStageKey };
-}
-
-function toAttributeDraft(attribute: Attribute): AttributeDraft {
-  return {
-    key: attribute.key ?? newDraftKey("attribute"),
-    label: attribute.label,
-    dataType: attribute.dataType,
-    required: attribute.required,
-    allowedValues: attribute.allowedValues,
-  };
 }
 
 function Builder({
@@ -205,6 +144,7 @@ function Builder({
       name: "",
       requiresApproval: false,
       autoAdvance: true,
+      pausesOnCustomer: true,
       portalVisible: true,
       writeScope: "ANY",
       milestones: [],
