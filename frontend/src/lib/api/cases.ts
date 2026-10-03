@@ -117,6 +117,8 @@ function useCaseAction(path: (id: string) => string) {
     onSuccess: (updated, id) => {
       queryClient.setQueryData(caseKeys.detail(id), updated);
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(id) });
+      // Hold/resume flip the clock's PAUSED state; advance/etc. may move the stage's clock too.
+      void queryClient.invalidateQueries({ queryKey: slaKeys.clock(id) });
     },
   });
 }
@@ -138,6 +140,8 @@ export function useHold() {
     onSuccess: (updated, { id }) => {
       queryClient.setQueryData(caseKeys.detail(id), updated);
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(id) });
+      // Hold/resume flip the clock's PAUSED state; advance/etc. may move the stage's clock too.
+      void queryClient.invalidateQueries({ queryKey: slaKeys.clock(id) });
     },
   });
 }

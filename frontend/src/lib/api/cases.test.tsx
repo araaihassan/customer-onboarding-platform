@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError, __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import {
@@ -21,6 +21,7 @@ import {
   useTimeline,
   useWaive,
 } from "./cases";
+import { slaKeys } from "./sla";
 
 const fetchMock = vi.fn();
 
@@ -206,6 +207,27 @@ describe("useResume", () => {
 
     expect(lastUrl()).toBe("/api/t/acme/cases/c-1/resume");
     expect(lastInit().method).toBe("POST");
+  });
+});
+
+describe("hold and resume refresh the SLA clock", () => {
+  it.each<[string, () => unknown]>([
+    ["useHold", () => useHold()],
+    ["useResume", () => useResume()],
+  ])("%s invalidates slaKeys.clock for the case", async (name, hook) => {
+    fetchMock.mockResolvedValue(reply({ id: "c-1" }));
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const spy = vi.spyOn(client, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => hook() as ReturnType<typeof useResume>, { wrapper });
+    await act(async () => {
+      if (name === "useHold") await (result.current as unknown as ReturnType<typeof useHold>).mutateAsync({ id: "c-1", reason: "r" });
+      else await result.current.mutateAsync("c-1");
+    });
+    const keys = spy.mock.calls.map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+    expect(keys).toContain(JSON.stringify(slaKeys.clock("c-1")));
   });
 });
 

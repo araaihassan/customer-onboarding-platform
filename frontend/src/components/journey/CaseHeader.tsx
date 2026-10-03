@@ -1,6 +1,8 @@
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
+import { SlaChip } from "@/components/sla/SlaChip";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { useCaseSlaClock } from "@/lib/api/sla";
 import { shortId } from "@/lib/api/customers";
 import type { Case } from "@/lib/api/cases";
 import type { Customer } from "@/lib/api/customers";
@@ -25,6 +27,13 @@ import { t } from "@/lib/i18n";
  * own Ruling 2). The open/closed dialog state is lifted to the parent page,
  * the same "local boolean owned by the workspace, not the header" shape
  * `page.tsx` already uses for `HoldDialog`/`holding`.
+ *
+ * Sub-project 6: the header owns its own small SLA query (`useCaseSlaClock`,
+ * the same query key the rail callout uses, so React Query dedupes them to one
+ * request) rather than widening the page's prop list. The chip renders only
+ * once a clock has actually loaded -- loading, "no clock" (404 -> null) and any
+ * thrown error (403 without case.view, 500) all render nothing, never a banner:
+ * the chip is an enhancement of the header, not something the page depends on.
  */
 export function CaseHeader({
   caseData,
@@ -35,6 +44,9 @@ export function CaseHeader({
   customer: Customer;
   onRequestDocument: () => void;
 }) {
+  const slaClock = useCaseSlaClock(caseData.id ?? "");
+  const clock = slaClock.isError ? null : slaClock.data;
+
   return (
     <div
       className="bg-surface border border-line"
@@ -52,6 +64,7 @@ export function CaseHeader({
               {customer.displayName}
             </h2>
             <StatusPill status={caseData.status} />
+            {clock && <SlaChip clock={clock} prefix />}
           </div>
 
           <p
