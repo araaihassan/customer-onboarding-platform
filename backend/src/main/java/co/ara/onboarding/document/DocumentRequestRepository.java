@@ -18,6 +18,15 @@ public interface DocumentRequestRepository
     long countByCaseIdAndStatus(UUID caseId, DocumentRequestStatus status);
 
     /**
+     * Which of the given cases have a request in the given status -- one grouped query for the war
+     * room instead of a count per clock. Not a finder (no find* name) and fed only case ids the
+     * caller already resolved through AuthorizedQuery; it returns ids, never a request.
+     */
+    @Query("select r.caseId from DocumentRequest r where r.caseId in :caseIds and r.status = :status group by r.caseId")
+    List<UUID> caseIdsWithRequestsIn(@Param("caseIds") java.util.Collection<UUID> caseIds,
+                                     @Param("status") DocumentRequestStatus status);
+
+    /**
      * Every FULFILLED request a document fulfilled -- {@code
      * DocumentReviewService.review}'s own discovery query for its APPROVE
      * branch: a document can, in principle, fulfil more than one request
