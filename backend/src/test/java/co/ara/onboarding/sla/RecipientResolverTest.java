@@ -81,8 +81,33 @@ class RecipientResolverTest extends PostgresTestBase {
     @Test
     void noActiveAdministratorYieldsAnEmptyAdministratorsRoute() {
         UUID t = fixture.createTenant("rr-none");
+        fixture.runAs(t, () -> { });   // materialise the fixture's own plumbing administrator before deactivating
+        var gone = fixture.createAdminUser(t, "gone@rr-none.test");
+        ownerJdbc().update("UPDATE role SET name = 'Administrator' WHERE id = ?", fixture.administratorRoleId(t));
+        ownerJdbc().update("UPDATE app_user SET status = 'DEACTIVATED' WHERE id IN "
+                + "(SELECT user_id FROM user_role WHERE role_id = ?)", fixture.administratorRoleId(t));
         var r = resolve(t, null);
         assertThat(r.route()).isEqualTo(EscalationRoute.ADMINISTRATORS);
         assertThat(r.recipients()).isEmpty();
+        assertThat(r.primaryUserId()).isNull();
+        assertThat(gone.getId()).isNotNull();
+    }
+
+    @Test
+    void anActiveAdministratorIsResolvedAsTheControl() {
+        UUID t = fixture.createTenant("rr-live");
+        makeAdmin(t, "live@rr-live.test");
+        assertThat(resolve(t, null).recipients()).extracting(ReportingLineDirectory.Recipient::email)
+                .contains("live@rr-live.test");
+    }
+
+    @Test
+    void aLatePersonWhoIsAnAdministratorIsDroppedFromTheAdministratorsRoute() {
+        UUID t = fixture.createTenant("rr-selfadm");
+        UUID late = fixture.createAdminUser(t, "late@rr-selfadm.test").getId();
+        makeAdmin(t, "other@rr-selfadm.test");
+        var r = resolve(t, late);
+        assertThat(r.recipients()).extracting(ReportingLineDirectory.Recipient::userId).doesNotContain(late);
+        assertThat(r.recipients()).extracting(ReportingLineDirectory.Recipient::email).contains("other@rr-selfadm.test");
     }
 }

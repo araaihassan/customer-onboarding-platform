@@ -18,6 +18,10 @@ import co.ara.onboarding.task.TaskStatus;
 import co.ara.onboarding.identity.ReportingLineDirectory;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
+import co.ara.onboarding.tenancy.TenantConnectionCustomizer;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -64,6 +68,8 @@ public class SlaSweepService {
     private final ReportingLineDirectory people;
     private final EscalationMailer mailer;
     private final JdbcTemplate jdbc;
+    private final TenantConnectionCustomizer binder;
+    private final TransactionTemplate perRow;
     private static final Logger log = LoggerFactory.getLogger(SlaSweepService.class);
 
     public SlaSweepService(AuthorizedQuery authorizedQuery, SlaClockRepository clocks, SlaPauseRepository pauses,
@@ -71,7 +77,11 @@ public class SlaSweepService {
                            SlaPolicyReader policies, TaskRepository tasks, MilestoneRepository milestones,
                            CaseRepository caseRepository, RecipientResolver resolver, EscalationWriter writer,
                            NotificationRepository notifications, ReportingLineDirectory people,
-                           EscalationMailer mailer, JdbcTemplate jdbc) {
+                           EscalationMailer mailer, JdbcTemplate jdbc, TenantConnectionCustomizer binder,
+                           PlatformTransactionManager txManager) {
+        this.binder = binder;
+        this.perRow = new TransactionTemplate(txManager);
+        this.perRow.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         this.notifications = notifications; this.people = people; this.mailer = mailer; this.jdbc = jdbc;
         this.authorizedQuery = authorizedQuery; this.clocks = clocks; this.pauses = pauses;
         this.reader = reader; this.audit = audit; this.clock = clock; this.calendar = calendar;
@@ -89,10 +99,22 @@ public class SlaSweepService {
     public void sweep() {
         stampBreaches();
         notify(escalateOverdue());
+        warnOfUndeliverableEscalations();
     }
 
-    /** How long an unsent escalation email keeps being retried before it is abandoned (the in-app row stays). */
-    static final java.time.Duration EMAIL_RETRY_WINDOW = java.time.Duration.ofDays(3);
+    /**
+     * Spec 6.2: while a tenant has no active administrator, every escalation routed to administrators
+     * has nobody to tell, and that is logged on every sweep until one exists (not only when raised).
+     */
+    private void warnOfUndeliverableEscalations() {
+        Long undelivered = jdbc.queryForObject("""
+                SELECT count(*) FROM escalation e WHERE e.route = 'ADMINISTRATORS'
+                   AND NOT EXISTS (SELECT 1 FROM notification n WHERE n.escalation_id = e.id)""", Long.class);
+        if (undelivered != null && undelivered > 0 && people.activeAdministrators().isEmpty()) {
+            log.error("Tenant {} has {} escalation(s) routed to administrators and no active administrator to deliver to",
+                    TenantContext.getRequired(), undelivered);
+        }
+    }
 
     /**
      * Spec 6.2: one in-app notification per recipient per raised escalation, written in the sweep's
@@ -141,33 +163,39 @@ public class SlaSweepService {
         return written;
     }
 
+    private void stampEmailed(UUID id, Instant at) {
+        UUID tenant = TenantContext.getRequired();
+        perRow.executeWithoutResult(status -> {
+            binder.bind(tenant);
+            jdbc.update("UPDATE notification SET emailed_at = ?, updated_at = ? WHERE id = ? AND emailed_at IS NULL",
+                    java.sql.Timestamp.from(at), java.sql.Timestamp.from(at), id);
+        });
+    }
+
     /**
-     * Run 2 (spec 6.3), also the retry: sends every committed, unsent ESCALATION notification younger
-     * than {@link #EMAIL_RETRY_WINDOW} and stamps {@code emailed_at} per row, so a retry only reaches
-     * recipients not yet emailed. A failed send leaves the row unsent; an inactive recipient is skipped.
+     * Run 2 (spec 6.3), also the retry: sends every committed, unsent ESCALATION notification and stamps
+     * {@code emailed_at} per row, so a retry only reaches recipients not yet emailed. There is no retry cap
+     * (spec 6.3: an outage delays a mandatory escalation, never loses it); attempt counts and delivery
+     * tracking are 6B's. A failed send leaves the row unsent; an inactive recipient is skipped.
+     * Each stamp commits in its own transaction right after its send, so a crash after N sends resends
+     * at most one (residual at-least-once: a crash between a send and its stamp).
      */
     @RequirePermission(PermissionKeys.SLA_VIEW)
     @Transactional(propagation = Propagation.MANDATORY)
     public int retryUnsentEmail() {
         Instant now = Instant.now(clock);
-        Instant cutoff = now.minus(EMAIL_RETRY_WINDOW);
         List<Notification> unsent = authorizedQuery.findAll(notifications, Notification.class,
                 PermissionKeys.SLA_VIEW, (r, q, cb) -> cb.and(cb.equal(r.get("type"), NotificationType.ESCALATION),
                         cb.isNull(r.get("emailedAt"))), Pageable.unpaged(Sort.by("id"))).getContent();
         int sent = 0;
         for (Notification n : unsent) {
-            if (n.getCreatedAt().isBefore(cutoff)) {
-                log.error("Escalation email {} undelivered after {}; giving up", n.getId(), EMAIL_RETRY_WINDOW);
-                continue;
-            }
             var recipient = people.activeUser(n.getRecipientUserId());
             if (recipient.isEmpty()) {
                 log.warn("Escalation email {} skipped: recipient {} is not active", n.getId(), n.getRecipientUserId());
                 continue;
             }
             if (mailer.send(n, recipient.get().email())) {
-                n.setEmailedAt(now);
-                notifications.save(n);
+                stampEmailed(n.getId(), now);
                 sent++;
             }
         }
