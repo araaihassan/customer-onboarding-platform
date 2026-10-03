@@ -10,5 +10,5 @@ import java.util.List;
  * so the view carries them and this request deliberately does not -- a PUT never touches them.
  * {@code workingDays} are ISO day-of-week numbers, 1 = Monday .. 7 = Sunday.
  */
-public record UpdateBusinessCalendarRequest(@NotBlank String name, @NotBlank String timezone,
+public record UpdateBusinessCalendarRequest(@NotBlank @jakarta.validation.constraints.Size(max = 120) String name, @NotBlank String timezone,
                                             @NotEmpty List<Integer> workingDays) {}

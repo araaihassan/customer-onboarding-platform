@@ -5,12 +5,15 @@ import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.platform.CalendarRules;
+import co.ara.onboarding.tenancy.TenantBusinessCalendar;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DateTimeException;
+import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.*;
@@ -25,6 +28,8 @@ import java.util.stream.Collectors;
 @Service
 public class CalendarAdminService {
 
+    private static final int MIN_HOLIDAY_YEAR = 2000;
+    private static final int MAX_HOLIDAY_YEAR = 2100;
     private static final double MAX_AT_RISK_DAYS = 999.9;   // numeric(4,1)
 
     private final JdbcTemplate jdbc;
@@ -42,8 +47,11 @@ public class CalendarAdminService {
     @RequirePermission(PermissionKeys.CALENDAR_MANAGE)
     @Transactional(readOnly = true)
     public BusinessCalendarView calendar() {
-        CalendarRow row = readCalendar().orElse(
-                new CalendarRow(null, "Business calendar", "UTC", List.of(1, 2, 3, 4, 5)));
+        CalendarRow row = readCalendar().orElseGet(() -> {
+            CalendarRules d = CalendarRules.weekdaysUtc();   // the same defaults TenantBusinessCalendar applies
+            return new CalendarRow(null, TenantBusinessCalendar.DEFAULT_NAME, d.zone().equals(java.time.ZoneOffset.UTC) ? "UTC" : d.zone().getId(),   // ZoneOffset.UTC's id is "Z"
+                    d.workingDays().stream().map(DayOfWeek::getValue).sorted().toList());
+        });
         return new BusinessCalendarView(row.name(), row.timezone(), row.days(), holidays());
     }
 
@@ -97,6 +105,11 @@ public class CalendarAdminService {
     public HolidayView addHoliday(CreateHolidayRequest r) {
         String name = r.name().trim();
         if (name.isEmpty()) throw new IllegalArgumentException("Name must not be blank");
+        int year = r.date().getYear();
+        if (year < MIN_HOLIDAY_YEAR || year > MAX_HOLIDAY_YEAR) {
+            throw new IllegalArgumentException("Holiday date must fall between the years "
+                    + MIN_HOLIDAY_YEAR + " and " + MAX_HOLIDAY_YEAR);
+        }
         UUID id = Uuid7.generate();
         List<UUID> inserted = jdbc.queryForList("""
                 INSERT INTO business_holiday (id, tenant_id, holiday_date, name, created_at, updated_at)
@@ -137,10 +150,13 @@ public class CalendarAdminService {
     public SlaPolicyView updatePolicy(UpdateSlaPolicyRequest r) {
         double atRisk = r.atRiskDays();
         int esc = r.escalateAfterOverdueDays();
-        if (atRisk < 0 || atRisk > MAX_AT_RISK_DAYS || Math.abs(atRisk * 10 - Math.rint(atRisk * 10)) > 1e-9) {
+        if (!Double.isFinite(atRisk) || atRisk < 0 || atRisk > MAX_AT_RISK_DAYS || Math.abs(atRisk * 10 - Math.rint(atRisk * 10)) > 1e-9) {
             throw new IllegalArgumentException("atRiskDays must be between 0 and 999.9, in steps of 0.1");
         }
-        if (esc < 1) throw new IllegalArgumentException("escalateAfterOverdueDays must be at least 1");
+        if (esc < 1 || esc > UpdateSlaPolicyRequest.MAX_ESCALATE_AFTER_OVERDUE_DAYS) {
+            throw new IllegalArgumentException("escalateAfterOverdueDays must be between 1 and "
+                    + UpdateSlaPolicyRequest.MAX_ESCALATE_AFTER_OVERDUE_DAYS);
+        }
         Map<String, Object> payload = Map.of("atRiskDays", atRisk, "escalateAfterOverdueDays", esc);
         Optional<PolicyRow> existing = readPolicy();
         if (existing.isPresent()) {

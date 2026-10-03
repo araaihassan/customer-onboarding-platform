@@ -195,6 +195,57 @@ class CalendarAdminTest extends SecurityTestBase {
     }
 
     @Test
+    void escalationCannotBeSwitchedOffByAHugeThreshold() throws Exception {
+        AppUser a = admin("cal-cap");
+        String url = base("cal-cap") + "/sla-policy";
+        for (String bad : List.of("31", "2147483647", "1.5")) {
+            mvc.perform(as(json(put(url), "{\"atRiskDays\":1,\"escalateAfterOverdueDays\":" + bad + "}"), a))
+                    .andExpect(status().isBadRequest());
+        }
+        for (int ok : new int[] {30, 1}) {
+            mvc.perform(as(json(put(url), "{\"atRiskDays\":1,\"escalateAfterOverdueDays\":" + ok + "}"), a))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.escalateAfterOverdueDays").value(ok));
+        }
+    }
+
+    @Test
+    void nonFiniteAtRiskDaysAre400AndNeverStored() throws Exception {
+        AppUser a = admin("cal-nan");
+        String url = base("cal-nan") + "/sla-policy";
+        for (String bad : List.of("\"NaN\"", "\"Infinity\"", "\"-Infinity\"", "NaN")) {
+            mvc.perform(as(json(put(url), "{\"atRiskDays\":" + bad + ",\"escalateAfterOverdueDays\":2}"), a))
+                    .andExpect(status().isBadRequest());
+        }
+        mvc.perform(as(get(url), a)).andExpect(jsonPath("$.atRiskDays").value(1.0));
+    }
+
+    @Test
+    void holidayNameAndDateAreBounded() throws Exception {
+        AppUser a = admin("cal-bound");
+        String url = base("cal-bound") + "/business-calendar/holidays";
+        mvc.perform(as(json(post(url), "{\"date\":\"2031-01-01\",\"name\":\"" + "x".repeat(121) + "\"}"), a))
+                .andExpect(status().isBadRequest());
+        for (String d : List.of("1999-12-31", "2101-01-01", "+999999-01-01")) {
+            mvc.perform(as(json(post(url), "{\"date\":\"" + d + "\",\"name\":\"h\"}"), a)).andExpect(status().is4xxClientError());
+        }
+        mvc.perform(as(json(post(url), "{\"date\":\"2100-12-31\",\"name\":\"" + "x".repeat(120) + "\"}"), a))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    void workingDaysAreDeduplicatedAndOrderAloneIsNotAChange() throws Exception {
+        AppUser a = admin("cal-order");
+        String url = base("cal-order") + "/business-calendar";
+        mvc.perform(as(json(put(url), "{\"name\":\"n\",\"timezone\":\"UTC\",\"workingDays\":[3,1,1,2]}"), a))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.workingDays", hasSize(3)))
+                .andExpect(jsonPath("$.workingDays[0]").value(1)).andExpect(jsonPath("$.workingDays[2]").value(3));
+        mvc.perform(as(json(put(url), "{\"name\":\"n\",\"timezone\":\"UTC\",\"workingDays\":[2,3,1]}"), a))
+                .andExpect(status().isOk());
+        assertThat(owner().queryForObject("select count(*) from audit_event where action = 'calendar.updated' "
+                + "and tenant_id = (select id from tenant where slug = 'cal-order')", Long.class)).isEqualTo(1L);
+    }
+
+    @Test
     void withoutCalendarManageEveryRouteIs403() throws Exception {
         UUID t = fixture.createTenant("cal-deny");
         AppUser viewer = fixture.createUserWithPassword(t, "v@cal-deny.example", "long-enough-password");

@@ -22,7 +22,7 @@ import java.util.*;
 @Component
 public class TenantBusinessCalendar implements BusinessCalendar {
 
-    private static final String DEFAULT_NAME = "Business calendar";
+    public static final String DEFAULT_NAME = "Business calendar";
 
     private final JdbcTemplate jdbc;
     private final Clock clock;
