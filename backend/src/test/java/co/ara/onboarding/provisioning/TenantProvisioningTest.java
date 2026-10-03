@@ -112,9 +112,10 @@ class TenantProvisioningTest extends PostgresTestBase {
                     // the catalog's start (unlike document's ALL-only phase), seeding
                     // them across the eligible templates immediately
                     // (RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
-                    // keeps the count honest).
+                    // keeps the count honest). Sub-project 6 Task 7 added sla.view
+                    // (RECORD) and calendar.manage (ALL-only) (53).
                     .as("Administrator must be seeded with its full template grant set")
-                    .hasSize(51);
+                    .hasSize(53);
         });
     }
 

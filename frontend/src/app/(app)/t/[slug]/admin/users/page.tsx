@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { PlusIcon, SearchIcon, UsersIcon } from "@/components/icons";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
+import { UserSelect } from "@/components/admin/UserSelect";
 import { Avatar } from "@/components/ui/Avatar";
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
@@ -22,6 +23,8 @@ import {
   useUsers,
 } from "@/lib/api/admin";
 import type { Role, User } from "@/lib/api/admin";
+import { ApiError } from "@/lib/api/client";
+import { parseProblemDetail } from "@/lib/api/cases";
 import { useAuth } from "@/lib/auth/useAuth";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { useDebounced } from "@/lib/useDebounced";
@@ -243,7 +246,7 @@ export default function UsersPage() {
         <Dialog title={t("admin.users.invite")} onClose={() => setInviting(false)}>
           <InviteForm
             pending={invite.isPending}
-            error={invite.isError ? t("common.error") : undefined}
+            error={invite.isError ? errorText(invite.error) : undefined}
             onCancel={() => setInviting(false)}
             onSubmit={(values) =>
               invite.mutate(values, { onSuccess: () => setInviting(false) })
@@ -275,7 +278,7 @@ export default function UsersPage() {
           <EditForm
             user={editing}
             pending={update.isPending}
-            error={update.isError ? t("common.error") : undefined}
+            error={update.isError ? errorText(update.error) : undefined}
             onCancel={() => setEditing(null)}
             onSubmit={(values) =>
               update.mutate(
@@ -655,6 +658,29 @@ function DepartmentSelect({
   );
 }
 
+/**
+ * A 404 from the server (a manager outside the actor's scope) arrives as a
+ * ProblemDetail; show its `detail` rather than a generic failure.
+ */
+function errorText(err: unknown): string {
+  return err instanceof ApiError ? parseProblemDetail(err.message) : t("common.error");
+}
+
+/**
+ * Manager candidates: ACTIVE INTERNAL users only, never the user being edited
+ * (self-management is refused server-side). The server narrows the list to the
+ * actor's scope, so the picker shows exactly what the API returns.
+ * KNOWN LIMIT: `useUsers` has a fixed page size of 25, so only the first 25
+ * users are offered -- no search-as-you-type in this sub-project.
+ */
+function useManagerOptions(excludeId?: string) {
+  const users = useUsers("", 0);
+  return (users.data?.content ?? []).filter(
+    (candidate) =>
+      candidate.status === "ACTIVE" && candidate.userType === "INTERNAL" && candidate.id !== excludeId,
+  );
+}
+
 function InviteForm({
   pending,
   error,
@@ -663,13 +689,15 @@ function InviteForm({
 }: {
   pending: boolean;
   error?: string;
-  onSubmit: (values: { email: string; fullName: string; departmentId?: string }) => void;
+  onSubmit: (values: { email: string; fullName: string; departmentId?: string; managerId?: string }) => void;
   onCancel: () => void;
 }) {
   const { canManageDepartments, departments, ownDepartmentId } = useDepartmentScope();
   const [email, setEmail] = useState("");
   const [fullName, setFullName] = useState("");
   const [departmentId, setDepartmentId] = useState("");
+  const [managerId, setManagerId] = useState("");
+  const managerOptions = useManagerOptions();
   const [errors, setErrors] = useState<{ email?: string; fullName?: string }>({});
 
   return (
@@ -690,7 +718,11 @@ function InviteForm({
         // only one they are guaranteed to succeed with -- with no field shown
         // to choose it (there is nothing else to choose).
         const resolvedDepartmentId = canManageDepartments ? departmentId || undefined : ownDepartmentId;
-        onSubmit({ ...values, ...(resolvedDepartmentId ? { departmentId: resolvedDepartmentId } : {}) });
+        onSubmit({
+          ...values,
+          ...(resolvedDepartmentId ? { departmentId: resolvedDepartmentId } : {}),
+          ...(managerId ? { managerId } : {}),
+        });
       }}
     >
       <div className="flex flex-col" style={{ gap: "var(--ob-space-13)" }}>
@@ -722,6 +754,15 @@ function InviteForm({
             onChange={setDepartmentId}
           />
         )}
+
+        <UserSelect
+          id="invite-manager"
+          label={t("admin.users.field.manager")}
+          noneLabel={t("admin.users.field.manager.none")}
+          value={managerId}
+          options={managerOptions}
+          onChange={setManagerId}
+        />
       </div>
 
       <p
@@ -779,12 +820,14 @@ function EditForm({
   user: User;
   pending: boolean;
   error?: string;
-  onSubmit: (values: { fullName: string; departmentId?: string }) => void;
+  onSubmit: (values: { fullName: string; departmentId?: string; managerId: string | null }) => void;
   onCancel: () => void;
 }) {
   const { canManageDepartments, departments } = useDepartmentScope();
   const [fullName, setFullName] = useState(user.fullName ?? "");
   const [departmentId, setDepartmentId] = useState(user.departmentId ?? "");
+  const [managerId, setManagerId] = useState(user.managerId ?? "");
+  const managerOptions = useManagerOptions(user.id);
   const [fullNameError, setFullNameError] = useState<string>();
 
   return (
@@ -798,7 +841,12 @@ function EditForm({
           return;
         }
         const resolvedDepartmentId = canManageDepartments ? departmentId || undefined : user.departmentId;
-        onSubmit({ fullName: trimmed, ...(resolvedDepartmentId ? { departmentId: resolvedDepartmentId } : {}) });
+        // PUT is a full replace: "No manager" is an explicit null, never an omission.
+        onSubmit({
+          fullName: trimmed,
+          ...(resolvedDepartmentId ? { departmentId: resolvedDepartmentId } : {}),
+          managerId: managerId || null,
+        });
       }}
     >
       <div className="flex flex-col" style={{ gap: "var(--ob-space-13)" }}>
@@ -820,6 +868,15 @@ function EditForm({
             onChange={setDepartmentId}
           />
         )}
+
+        <UserSelect
+          id="edit-manager"
+          label={t("admin.users.field.manager")}
+          noneLabel={t("admin.users.field.manager.none")}
+          value={managerId}
+          options={managerOptions}
+          onChange={setManagerId}
+        />
       </div>
 
       {error && (

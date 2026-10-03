@@ -15,4 +15,15 @@ import java.util.UUID;
 public record DocumentRequestView(UUID id, UUID caseId, UUID requirementId, UUID requestedOfContactId,
                                   DocumentCategory category, String description, Instant dueAt,
                                   boolean requiresReview, DocumentRequestStatus status,
-                                  UUID fulfilledDocumentId, UUID requestedBy, Instant requestedAt) {}
+                                  UUID fulfilledDocumentId, UUID requestedBy, Instant requestedAt,
+                                  int remindersSent, Instant lastRemindedAt) {
+
+    /** The pre-reminder shape, kept so positional callers need no change (spec 1.2.11). */
+    public DocumentRequestView(UUID id, UUID caseId, UUID requirementId, UUID requestedOfContactId,
+                               DocumentCategory category, String description, Instant dueAt,
+                               boolean requiresReview, DocumentRequestStatus status,
+                               UUID fulfilledDocumentId, UUID requestedBy, Instant requestedAt) {
+        this(id, caseId, requirementId, requestedOfContactId, category, description, dueAt, requiresReview,
+                status, fulfilledDocumentId, requestedBy, requestedAt, 0, null);
+    }
+}

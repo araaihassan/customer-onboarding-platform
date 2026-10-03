@@ -38,7 +38,20 @@ public record WorkflowDefinitionRequest(
             ConditionRequest entryCondition,   // null = always enterable
             String fallbackNextStageKey,       // null = next by ordinal
             @Valid List<MilestoneRequest> milestones,
-            List<BranchRuleRequest> branchRules) {}
+            List<BranchRuleRequest> branchRules,
+            /** Boxed on purpose: an omitted key must mean true, not Jackson's false (spec 8). */
+            Boolean pausesOnCustomer) {
+
+        /** Spec 1.2.11: the pre-sub-project-6 arity, so positional call sites compile unchanged. */
+        public StageRequest(String key, String name, UUID responsibleDepartmentId, boolean requiresApproval,
+                boolean autoAdvance, boolean portalVisible, Integer slaDays, WriteScope writeScope,
+                String notificationTemplateKey, ConditionRequest entryCondition, String fallbackNextStageKey,
+                List<MilestoneRequest> milestones, List<BranchRuleRequest> branchRules) {
+            this(key, name, responsibleDepartmentId, requiresApproval, autoAdvance, portalVisible, slaDays,
+                    writeScope, notificationTemplateKey, entryCondition, fallbackNextStageKey, milestones,
+                    branchRules, null);
+        }
+    }
 
     public record MilestoneRequest(
             String key,

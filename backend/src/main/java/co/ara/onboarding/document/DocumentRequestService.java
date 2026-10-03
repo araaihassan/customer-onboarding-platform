@@ -2,12 +2,15 @@ package co.ara.onboarding.document;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
+import co.ara.onboarding.auth.EmailMessage;
+import co.ara.onboarding.auth.EmailSender;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.customer.CustomerContact;
 import co.ara.onboarding.customer.CustomerContactRepository;
+import co.ara.onboarding.customer.ContactStatus;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
 import co.ara.onboarding.journey.RequirementService;
@@ -20,8 +23,13 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.UUID;
@@ -50,6 +58,11 @@ import java.util.UUID;
 @Service
 public class DocumentRequestService {
 
+    private static final Logger log = LoggerFactory.getLogger(DocumentRequestService.class);
+    /** The least time between two reminders on one request (spec 8). */
+    static final Duration REMINDER_INTERVAL = Duration.ofHours(24);
+
+
     private final DocumentRequestRepository requests;
     private final DocumentRepository documents;
     private final CaseRepository cases;
@@ -61,12 +74,15 @@ public class DocumentRequestService {
     private final RequirementService requirementService;
     private final Clock clock;
     private final AuditRecorder audit;
+    private final CustomerWaitLifecycle customerWaits;
+    private final EmailSender email;
 
     public DocumentRequestService(DocumentRequestRepository requests, DocumentRepository documents,
                                   CaseRepository cases, StageRepository stages,
                                   CustomerContactRepository contacts, AuthorizedQuery authorizedQuery,
                                   AuthContextProvider contextProvider, StageWriteScopeGuard writeScope,
-                                  RequirementService requirementService, Clock clock, AuditRecorder audit) {
+                                  RequirementService requirementService, Clock clock, AuditRecorder audit,
+                                  CustomerWaitLifecycle customerWaits, EmailSender email) {
         this.requests = requests;
         this.documents = documents;
         this.cases = cases;
@@ -78,6 +94,8 @@ public class DocumentRequestService {
         this.requirementService = requirementService;
         this.clock = clock;
         this.audit = audit;
+        this.customerWaits = customerWaits;
+        this.email = email;
     }
 
     /**
@@ -135,6 +153,7 @@ public class DocumentRequestService {
         audit.record(AuditActions.DOCUMENT_REQUESTED, "onboarding_case", c.getId(),
                 "Requested a document on case " + c.getId(),
                 Map.of("requestId", dr.getId().toString(), "category", dr.getCategory().name()));
+        customerWaits.requestOpened(c.getId(), dr.getRequestedAt());
 
         return toView(dr);
     }
@@ -229,6 +248,7 @@ public class DocumentRequestService {
             audit.record(AuditActions.DOCUMENT_REQUEST_WITHDRAWN, "onboarding_case", c.getId(),
                     "Withdrew document request " + dr.getId() + ": " + reason,
                     Map.of("requestId", dr.getId().toString(), "reason", reason));
+            customerWaits.requestClosed(dr.getCaseId(), Instant.now(clock));
         }
         return toView(dr);
     }
@@ -343,12 +363,80 @@ public class DocumentRequestService {
         audit.record(AuditActions.DOCUMENT_REQUEST_FULFILLED, "onboarding_case", c.getId(),
                 "Fulfilled document request " + dr.getId(),
                 Map.of("requestId", dr.getId().toString(), "documentId", d.getId().toString()));
+        // Before satisfy, so a satisfy that advances the stage sees the pause already closed.
+        customerWaits.requestClosed(dr.getCaseId(), Instant.now(clock));
 
         if (dr.getRequirementId() != null && !dr.isRequiresReview()) {
             requirementService.satisfy(dr.getRequirementId(), d.getId(), DocumentService.SATISFIED_REF_TYPE);
         }
 
         return toView(dr);
+    }
+
+    /**
+     * Spec 8: nudges the request's customer contact by email. Only an OPEN request with an ACTIVE
+     * contact can be reminded (422 otherwise -- never a silent no-op), and at most once per 24 hours
+     * (409). The counters move in one conditional UPDATE ({@link DocumentRequestRepository#markReminded}),
+     * so two concurrent reminders cannot both pass the rate limit and no stale save can clobber them.
+     *
+     * <p>Order: validate, record {@code document_request.reminded} (the cause), write the counters,
+     * then email only after the transaction commits -- a rolled-back reminder tells the customer
+     * nothing. A failed send is logged and the counter stays advanced (a reminder the customer may
+     * not have received; delivery tracking is 6B's). The body carries only what the customer asked
+     * for: the case name, category and description. The recipient is always the request's contact,
+     * never an internal user. The audit event hangs off the case so the timeline read finds it.
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_REQUEST)
+    @Transactional
+    public DocumentRequestView remind(UUID requestId) {
+        DocumentRequest dr = authorizedQuery.getById(
+                requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST, requestId);
+        Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.DOCUMENT_REQUEST, dr.getCaseId());
+        applyWriteScope(c);
+
+        if (dr.getStatus() != DocumentRequestStatus.OPEN) {
+            throw new ReminderNotPossibleException("Only an open request can be reminded");
+        }
+        if (dr.getRequestedOfContactId() == null) {
+            throw new ReminderNotPossibleException("This request has no contact to remind");
+        }
+        CustomerContact contact = authorizedQuery.getById(
+                contacts, CustomerContact.class, PermissionKeys.CONTACT_VIEW, dr.getRequestedOfContactId());
+        if (contact.getStatus() != ContactStatus.ACTIVE) {
+            throw new ReminderNotPossibleException("The contact on this request has been retired");
+        }
+        Instant now = Instant.now(clock);
+        Instant notAfter = now.minus(REMINDER_INTERVAL);
+        if (dr.getLastRemindedAt() != null && dr.getLastRemindedAt().isAfter(notAfter)) {
+            throw new IllegalStateException("This request was already reminded in the last 24 hours");
+        }
+
+        String to = contact.getEmail();
+        String subject = "Reminder: a document is still needed";
+        String body = "We're still waiting on a document from you for \"" + c.getName() + "\": "
+                + dr.getCategory() + (dr.getDescription() == null ? "" : " - " + dr.getDescription());
+        UUID caseId = c.getId();
+        int reminder = dr.getRemindersSent() + 1;
+
+        audit.record(AuditActions.DOCUMENT_REQUEST_REMINDED, "onboarding_case", caseId,
+                "Reminded the customer about document request " + requestId,
+                Map.of("requestId", requestId.toString(), "reminder", reminder));
+        if (requests.markReminded(requestId, now, notAfter) == 0) {
+            // A concurrent reminder won (or the request closed): roll this one back, audit row included.
+            throw new IllegalStateException("This request was already reminded in the last 24 hours");
+        }
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override public void afterCommit() {
+                try {
+                    email.send(new EmailMessage(to, subject, body));
+                } catch (RuntimeException e) {
+                    log.warn("Reminder email for document request {} failed", requestId, e);
+                }
+            }
+        });
+        return toView(authorizedQuery.getById(
+                requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST, requestId));
     }
 
     /**
@@ -383,6 +471,6 @@ public class DocumentRequestService {
         return new DocumentRequestView(dr.getId(), dr.getCaseId(), dr.getRequirementId(),
                 dr.getRequestedOfContactId(), dr.getCategory(), dr.getDescription(), dr.getDueAt(),
                 dr.isRequiresReview(), dr.getStatus(), dr.getFulfilledDocumentId(),
-                dr.getRequestedBy(), dr.getRequestedAt());
+                dr.getRequestedBy(), dr.getRequestedAt(), dr.getRemindersSent(), dr.getLastRemindedAt());
     }
 }

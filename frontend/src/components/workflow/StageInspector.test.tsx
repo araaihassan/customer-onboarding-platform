@@ -119,4 +119,46 @@ describe("StageInspector", () => {
     expect(fieldset?.disabled).toBe(true);
     expect(screen.getByText("Legal Review")).not.toBeNull();
   });
+
+  describe("Pause on customer", () => {
+    it("reads as on for a draft created before the field existed (undefined)", () => {
+      renderInspector(threeStages[1]!, 1);
+      expect(screen.getByRole("switch", { name: "Pause on customer" }).getAttribute("aria-checked")).toBe("true");
+    });
+
+    it("reads as off when the stage says false, and on when it says true", () => {
+      renderInspector({ ...threeStages[1]!, pausesOnCustomer: false }, 1);
+      expect(screen.getByRole("switch", { name: "Pause on customer" }).getAttribute("aria-checked")).toBe("false");
+      cleanup();
+      renderInspector({ ...threeStages[1]!, pausesOnCustomer: true }, 1);
+      expect(screen.getByRole("switch", { name: "Pause on customer" }).getAttribute("aria-checked")).toBe("true");
+    });
+
+    it("emits an explicit false when toggled off, and true when toggled back on", () => {
+      const onChange = renderInspector(threeStages[1]!, 1);
+      fireEvent.click(screen.getByRole("switch", { name: "Pause on customer" }));
+      expect(onChange).toHaveBeenCalledWith({ pausesOnCustomer: false });
+      cleanup();
+      const again = renderInspector({ ...threeStages[1]!, pausesOnCustomer: false }, 1);
+      fireEvent.click(screen.getByRole("switch", { name: "Pause on customer" }));
+      expect(again).toHaveBeenCalledWith({ pausesOnCustomer: true });
+    });
+
+    it("sits inside the disabled fieldset when readOnly", () => {
+      renderInspector(threeStages[1]!, 1, vi.fn(), true);
+      expect(screen.getByRole("switch", { name: "Pause on customer" }).closest("fieldset")?.disabled).toBe(true);
+    });
+
+    it("explains the effect when the stage has an SLA", () => {
+      renderInspector({ ...threeStages[1]!, slaDays: 5 }, 1);
+      expect(screen.getByText("Open customer document requests pause this stage's SLA clock.")).not.toBeNull();
+      expect(screen.queryByText("Takes effect once the stage has an SLA.")).toBeNull();
+    });
+
+    it("says it takes effect once an SLA exists when slaDays is empty, but still shows the toggle", () => {
+      renderInspector(threeStages[1]!, 1);
+      expect(screen.getByText("Takes effect once the stage has an SLA.")).not.toBeNull();
+      expect(screen.getByRole("switch", { name: "Pause on customer" })).not.toBeNull();
+    });
+  });
 });

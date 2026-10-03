@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ApiError, __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import {
@@ -21,6 +21,7 @@ import {
   useTimeline,
   useWaive,
 } from "./cases";
+import { slaKeys } from "./sla";
 
 const fetchMock = vi.fn();
 
@@ -206,6 +207,40 @@ describe("useResume", () => {
 
     expect(lastUrl()).toBe("/api/t/acme/cases/c-1/resume");
     expect(lastInit().method).toBe("POST");
+  });
+});
+
+describe("hold and resume refresh the SLA clock", () => {
+  async function invalidatedAfter(run: (client: QueryClient) => Promise<unknown>): Promise<string[]> {
+    fetchMock.mockResolvedValue(reply({ id: "c-1" }));
+    const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+    const spy = vi.spyOn(client, "invalidateQueries");
+    await run(client);
+    return spy.mock.calls.map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+  }
+  const wrap = (client: QueryClient) =>
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    };
+
+  it("useHold invalidates slaKeys.clock for the case", async () => {
+    const keys = await invalidatedAfter(async (client) => {
+      const { result } = renderHook(() => useHold(), { wrapper: wrap(client) });
+      await act(async () => {
+        await result.current.mutateAsync({ id: "c-1", reason: "r" });
+      });
+    });
+    expect(keys).toContain(JSON.stringify(slaKeys.clock("c-1")));
+  });
+
+  it("useResume invalidates slaKeys.clock for the case", async () => {
+    const keys = await invalidatedAfter(async (client) => {
+      const { result } = renderHook(() => useResume(), { wrapper: wrap(client) });
+      await act(async () => {
+        await result.current.mutateAsync("c-1");
+      });
+    });
+    expect(keys).toContain(JSON.stringify(slaKeys.clock("c-1")));
   });
 });
 

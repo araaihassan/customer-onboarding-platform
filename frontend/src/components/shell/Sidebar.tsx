@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ComponentType } from "react";
-import { ClipboardCheckIcon, FileSignatureIcon, FolderIcon, LayersIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
+import { ClipboardCheckIcon, ClockIcon, FileSignatureIcon, FolderIcon, LayersIcon, LayoutDashboardIcon, SlidersIcon, UsersIcon } from "@/components/icons";
 import type { IconProps } from "@/components/icons";
 import { useAuth } from "@/lib/auth/useAuth";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
@@ -100,6 +100,8 @@ export function Sidebar({
   const canViewDocuments = useHasPermission("document.view") && user?.userType !== "PORTAL";
   // Same portal-actor gate as Documents: portal contacts resolve agreement.view at ALL.
   const canViewAgreements = useHasPermission("agreement.view") && user?.userType !== "PORTAL";
+  // Explicit portal guard, same as Documents: the sub-project 4 close-out leak must not recur.
+  const canViewSla = useHasPermission("sla.view") && user?.userType !== "PORTAL";
   const canViewUsers = useHasPermission("user.view");
   const canViewRoles = useHasPermission("role.view");
   const canViewWork = useHasPermission("task.view");
@@ -146,6 +148,15 @@ export function Sidebar({
       href: `/t/${slug}/documents`,
       section: `/t/${slug}/documents`,
       Icon: FolderIcon,
+    });
+  }
+
+  if (canViewSla) {
+    items.push({
+      label: t("nav.sla"),
+      href: `/t/${slug}/sla`,
+      section: `/t/${slug}/sla`,
+      Icon: ClockIcon,
     });
   }
 

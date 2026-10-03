@@ -118,4 +118,10 @@ class DocumentExceptionHandler {
     ProblemDetail onConflict(RuntimeException e) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
     }
+
+    /** A reminder that cannot be sent: the request is not open, or there is no contact to remind. */
+    @ExceptionHandler(ReminderNotPossibleException.class)
+    ProblemDetail onReminderNotPossible(ReminderNotPossibleException e) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_ENTITY, e.getMessage());
+    }
 }

@@ -159,6 +159,11 @@ public abstract class PostgresTestBase {
         return new JdbcTemplate(ds);
     }
 
+    /** Owner-connection JdbcTemplate for helper components outside this hierarchy (assertions only). */
+    public static JdbcTemplate ownerJdbcForSupport() {
+        return ownerJdbc();
+    }
+
     /**
      * Runs a whole SET -&gt; act -&gt; assert sequence against ONE explicitly held
      * JDBC connection, bound to the given role.

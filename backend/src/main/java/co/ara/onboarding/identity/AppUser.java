@@ -53,6 +53,9 @@ public class AppUser extends TenantScopedEntity {
     public void setStatus(UserStatus status) { this.status = status; }
     public String getFullName() { return fullName; }
     public void setFullName(String fullName) { this.fullName = fullName; }
+    @Column(name = "manager_id") private UUID managerId;
+    public UUID getManagerId() { return managerId; }
+    public void setManagerId(UUID managerId) { this.managerId = managerId; }
     public UUID getDepartmentId() { return departmentId; }
     public void setDepartmentId(UUID departmentId) { this.departmentId = departmentId; }
     public boolean isMfaEnabled() { return mfaEnabled; }

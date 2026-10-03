@@ -41,7 +41,8 @@ public record WorkflowDefinitionView(
             String fallbackNextStageKey,
             UUID fallbackNextStageId,
             List<MilestoneView> milestones,
-            List<BranchRuleView> branchRules) {}
+            List<BranchRuleView> branchRules,
+            boolean pausesOnCustomer) {}
 
     public record MilestoneView(
             UUID id,

@@ -143,10 +143,40 @@ lifecycle actions, a visible note instead of a missing review button when the vi
 screen with its sidebar entry. **No portal UI** — the portal endpoints exist and are tested, the
 screen is sub-project 7's.
 
+**Sub-project 6 delivered:** the `sla` module and the `scheduling` slice (its own package because it
+orchestrates `tenancy` and `authz`, which `platform` may not name). One **business calendar** per tenant
+(`business_calendar`/`business_holiday`: timezone, working weekdays, dated holidays, plus `sla_policy`:
+at-risk threshold and escalate-after-overdue-days, 1 to 30) replaces `WeekdayBusinessCalendar`
+everywhere (`platform.CalendarRules` is the pure maths, `tenancy.TenantBusinessCalendar` loads it); a
+change affects only dates computed afterwards. **Clocks:** one `sla_clock` per stage visit, stored
+with its `sla_pause` intervals and written synchronously through the `journey.SlaClockLifecycle` and
+`document.CustomerWaitLifecycle` ports (`sla.SlaClockWriter`); elapsed time is derived on read by
+`SlaClockReader`, never stored. A hold pauses any clock; an open document request pauses it only on a
+stage with the new `pausesOnCustomer` toggle. **Breach and escalation:** a five-minute sweep
+(`SlaSweepJob` through `TenantJobRunner`, per tenant, under a transaction-level advisory lock, as the
+`SystemPrincipal` holding `authz.SystemPermissions`, a code constant) stamps `breached_at` and
+escalates an overdue task, milestone or breached clock once per subject and due date (a database
+unique key), to the late person's `manager_id`, else their department's `head_user_id`, else the
+tenant's administrators; each escalation writes a `notification` row and a plain-text email sent after
+commit and retried on later sweeps. `sla.*`/`escalation.*`/`notification.*` audit actions are all
+`timeline_visible=false`. `POST /document-requests/{id}/remind` is a manual, once-a-day customer
+reminder (it lives in `document`: it needs the request's private write-scope and contact resolution).
+Roles: `sla.view` at ALL/DEPARTMENT/TEAM/ASSIGNED (Operations DEPARTMENT, Project Manager TEAM),
+`calendar.manage` ALL-only (Administrator); the case-header clock reads under `case.view`.
+**Dev-only** `@Profile("dev")` endpoints (`scheduling.DevToolsController`: shift the process clock, run
+a sweep on demand) back `sla.spec.ts`; under `dev`, `PlatformBeansConfig` registers an `OffsetClock`.
+`PUT /admin/departments/{id}` is new (head picker); `V32` adds a `CHECK` on `app_user.user_type`.
+Frontend: the war room (`/sla`: exception cards, reassign, force-complete and remind actions), `SlaChip`
+and `SlaClockCallout` on the case header and roadmap, the builder's "Pause on customer" toggle,
+Administration → Business calendar (timezone, working days, holidays, SLA policy), and manager/department-head pickers. The
+builder round-trip also fixed a pre-existing silent erase of `portalVisible` on save (a derivable
+round-trip guard now exists). **No inbox, preferences or digests** (6B), **no cases-list SLA column or
+filter** (no cases list exists — design §1.2.6).
+
 **Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
 `docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
 Collaboration → **3A Programmes & Customer-Scoped Plans** → 4 Documents → **4A Meetings (needs 4)** →
-5 Agreements (needs 4; delivered) → 6 Notifications, SLA & Escalation (2, 3) → 7 Customer Portal (2, 4, 5, 3A) →
+5 Agreements (needs 4; delivered) → **6 SLA & Escalation (2, 3; delivered)** → **6B Notifications (needs 6)** → 7 Customer Portal (2, 4, 5, 3A) →
 8 Dashboards & Real-time (2–6, 3A) → 9 Reporting & Analytics (2–6) → 10 Packaging & Deploy.
 Sub-projects 2–9 each add one module in the shape of sub-project 1's Tasks
 20–21: entity with `tenant_id`, migration calling `enable_tenant_rls`, a
@@ -169,8 +199,8 @@ meeting series and never on the frozen graph (Q25, Q26); outputs are a derived r
 Q20's read-only participants are the one to watch, since a container returning journeys its viewer
 could not otherwise open would be exactly the scope-widening shape three sub-project 1 escalations
 took. Sub-projects 4–8 gain amendments rather than new scope: 4 makes meeting agendas and recordings
-real, 5 adds a `SIGNATURE` kind, 6 finally gives `stage.portal_visible` and
-`stage.notification_template_key` consumers, 7 wires the sponsor's own approve button to 3A's
+real, 5 adds a `SIGNATURE` kind, 6B gives `stage.notification_template_key` its consumer (`stage.portal_visible`
+is sub-project 7's, per Q24 — sub-project 6 deliberately did not touch it), 7 wires the sponsor's own approve button to 3A's
 endpoints and adds the programme view, 8 builds the status-report generator and the
 department-filtered portfolio.
 
@@ -278,8 +308,14 @@ Also operational: `audit_event` is partitioned by month. `V5` created only `2026
 a DEFAULT partition, so October 2026's rows landed in DEFAULT until `V27` moved them out and created
 `2026_10` through `2027_12` via `create_audit_event_partition(month)` — the one function that creates
 *and hardens* a partition (no `onboarding_app` grant, forced RLS); never create one by hand without
-it. The job that rolls partitions forward arrives in sub-project 6 and calls that function;
-`AuditPartitionCoverageTest` goes red three months before `V27`'s headroom runs out if it hasn't.
+it. The job that rolls partitions forward now exists (sub-project 6): a daily job plus one run at
+startup, globally rather than per tenant, calling `ensure_audit_event_partitions(3)` (`V33`, `SECURITY
+DEFINER`, the only DDL path `onboarding_app` holds; `V34` pins `TimeZone=UTC` inside it).
+`AuditPartitionCoverageTest` stays as the alarm if the job ever stops. **Timezone seam, not fixed:**
+`V27`'s existing partitions were created on session-zone-dependent bounds, so the first `V34`-created
+partition (2028-01) can leave a gap of a couple of hours or overlap its neighbour depending on the Flyway
+session zone that ran `V27`; pinning the Flyway/app session `TimeZone=UTC` or a realignment migration
+belongs to sub-project 10's packaging.
 
 **Seed a workflow and open a case** — nothing in the product creates either for you; both are curl
 away once a tenant's administrator is activated. **Tenant endpoints are JWT bearer-only, not HTTP
@@ -661,6 +697,47 @@ review parked; real gaps, none fixed here):
 TEAM-scoped user creation, the builder's attribute/entry-condition UI and the audit-timeline read
 carve-out are all still open and untouched by this sub-project's path.
 
+**Open at the close of sub-project 6** (spec §12 plus what per-task and whole-branch review parked;
+real gaps, none fixed here):
+
+- **A tenant's sole active administrator who owns a late milestone or clock produces an escalation with
+  no recipient.** `RecipientResolver`'s `ADMINISTRATORS` step excludes the late person, and the ERROR log
+  says "no active administrator", which is misleading (one exists). Spec §6.2 now carries an amendment;
+  fix by falling back to the late administrator or by wording the log for both cases.
+- **A failed escalation email leaves `emailed_at` null and is retried every sweep with no cap or attempt
+  tracking; a failed customer reminder email still leaves `reminders_sent`/`last_reminded_at` advanced**
+  (no retry, so the customer is silently not reminded for 24h). A crash between send and stamp resends one
+  row. Delivery tracking is 6B's. Escalations raised while a tenant had no administrator are not
+  back-filled with notifications when one appears.
+- **No cases-list SLA column, `sla=` filter or "SLA at risk" saved filter** — no `GET /cases` or screen 2
+  exists (design §1.2.6); whichever sub-project builds that screen owns them.
+- **The war room's reassign/force-complete user pickers and the manager picker on the Users screen load
+  only the first 25 users**, so a larger tenant cannot pick everyone; the Force-complete and Remind buttons
+  show on every column rather than varying by column (SCREENS §4).
+- **`resolveHead`/`resolveManager` always resolve the id under `user.view`, even when it is unchanged**, so
+  a name-only edit by a `department.manage` actor without `user.view` (or a DEPARTMENT-scoped
+  `user.manage` actor whose manager is out of scope) 404s. Loud, no data loss.
+- **Reporting-line cycles longer than one hop are not prevented** (matters only if something walks the
+  chain; the resolver takes one hop). `activeAdministrators` matches the role *name* "Administrator".
+- **`user_type` is now `CHECK (INTERNAL|PORTAL)` (`V32`);** any future user type needs a migration, and
+  `SYSTEM` is deliberately never persisted. `DocumentAudienceFilter`/`AgreementAudienceFilter` test
+  `== PORTAL`, so they treat the system principal as internal: revisit if `SystemPermissions` ever widens
+  beyond case/task/sla view.
+- **The `dev`-profile endpoints and the process-wide clock offset.** `/dev/clock/offset` shifts "now" for
+  every tenant in the backend process and nothing shifts it back; it is absent outside `dev` (proven by
+  `DevToolsProfileTest`) but a dev backend left running stays shifted until restart. `forTenant`/`runOne`
+  do not check the tenant is ACTIVE themselves (safe on the dev path via `TenantContextFilter`).
+- **The `V27` partition-bounds timezone seam** — see "Also operational" above; sub-project 10.
+- **Sweep robustness:** no per-candidate savepoint (one candidate's SQL error aborts that tenant's sweep,
+  retried next run); a non-`RuntimeException` `Error` in a job body aborts the remaining tenants; the
+  advisory-lock key is a 32-bit `hashtext` (collisions only serialise, never skip); `breached_at` is the
+  sweep time, not the crossing time; a migration and a sweep can deadlock on a clock row (recoverable).
+  One blocked partition month (rows in DEFAULT) blocks later months in the same call.
+- **A migration that gives the current stage a new SLA starts no clock until the next stage entry**
+  (spec-sanctioned); `MigrationService` keeps the open clock when a case stays in its stage by name.
+- **`Remind customer` and escalation email bodies carry the staff-written journey name/description and
+  the raw document-category enum** (a product call); no public base URL exists for email links yet.
+
 ### Tests
 
 ```bash
@@ -742,7 +819,7 @@ prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a gr
 `org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
 cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
 
-`cd frontend && npx playwright test` is the end-to-end command: fourteen specs — login, activation,
+`cd frontend && npx playwright test` is the end-to-end command: sixteen spec files (the list below stops at sub-project 4; sub-project 5 added `agreements.spec.ts`, sub-project 6 `sla.spec.ts`: breach and escalation to the owner's manager, a customer wait pausing the clock with a once-a-day reminder, and the builder's "Pause on customer" toggle surviving a save) — login, activation,
 refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
 900px card-list fallback, the administration screens, accessibility in the light theme at four
 widths, workflow authoring through publish, a case lifecycle (branch skip, force-complete,
@@ -857,6 +934,22 @@ the portal could download every pre-sent draft version — all fixed (see "deliv
 reviews checked each task against its own brief; the cross-module write paths (the general
 document API) and cross-actor reads (a portal actor on operator routes) were visible only
 whole-branch, so run a whole-branch security review before closing a sub-project.
+
+**Sub-project 6 close-out, 2026-10-03** (Task 32) — all four suites ran green in the same pass, none
+skipped, no retries. Backend `cleanTest test`, run one package per Gradle invocation, 1234 tests, 0
+failures/errors/skipped (root `ApplicationContextTest` 2, agreement 149, architecture 23, audit 15, auth
+59, authz 47, customer 41, document 185, identity 53, journey 155, platform 47, programme 29, provisioning
+7, scheduling 14, scoping 31, security 90, sla 137, support 3, task 63, tenancy 15, workflow 69, each read
+from `build/test-results/test/*.xml`); `npx vitest run` 118 files / 950 tests; `npx tsc --noEmit` clean;
+lint 0 errors (the same 2 pre-existing warnings); `npx playwright test` 53 of 53 against a fresh scratch
+database (`onboarding_e2e_sla2`, created with `docker exec onboarding-db createdb -U postgres …` and
+`DB_URL=jdbc:postgresql://localhost:5434/…`), `sla.spec.ts`'s 3 tests included. Same environment notes as
+sub-project 5's: per-package backend runs on this 8 GB host, `onboarding-db` on 5434, scratch DB by hand.
+**`sla.spec.ts` moves the dev backend's clock** (`POST /dev/clock/offset`, process-wide, never shifted
+back): everything after it in the run, concurrent workers included, and the backend's five-minute
+scheduled sweep (which then escalates other tenants' overdue work) sees a clock about two weeks ahead.
+Harmless today because no other spec asserts an absolute date and SLA audit events are not
+timeline-visible; `reuseExistingServer` leaves a hand-started dev backend shifted until restart.
 
 API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
 during `:test`; `./gradlew openApiSpec` is the wrapper that produces it and says where it is. `npm run
@@ -1227,6 +1320,42 @@ in serial package groups), vitest (99 files, 765 tests) and the Playwright suite
 `agreements.spec.ts` included) all ran green, and the eight backend packages the final fix wave
 touched re-ran green after it, so none of the ten had regressed by the time the plan finished.
 
+**Sub-project 6's own ten** (design spec §11's cross-check; a change breaking one of these is a change
+to the design, not an implementation detail):
+
+- Every clock change happens in the same transaction as the business change that caused it.
+- Stage clock calls are made only where `currentStageId` changes (`CaseEngine.enterStage`/
+  `advanceIfExitable`, `MilestoneService.reopen`); nothing adds a caller of `reconcile`.
+- `journey` and `document` never import an `sla` type; `sla` implements their ports.
+- Elapsed time is always derived, never stored.
+- An escalation fires at most once per subject and due date, enforced by the database.
+- Every overdue item past the threshold is escalated and recorded; escalation has no off switch.
+- The system actor's permission set is a code constant, never a `user_role` row.
+- The application role never runs DDL; partitions come only through the hardened function.
+- SLA mechanics never reach a `timeline_visible` event.
+- Out-of-scope and cross-tenant ids are 404; `PUT` request/view types stay field-for-field aligned.
+
+Each was re-derived against the final code at Task 32's close-out, not copied from Task 22's report: #1
+by `SlaClockLifecycleTest.everyClockWriteRollsBackWithItsCause`; #2 by `git diff` of `CaseEngine.java`
+across the branch (+7/-1: the two port calls and the constructor parameter), the only other callers being
+`MilestoneService.reopen`, and a diff-wide grep showing no added or removed `reconcile(` line; #3 by
+`ModuleBoundaryTest.noJourneyDependencyOnSla`/`.noDocumentDependencyOnSla` and a grep of `journey`/
+`document` main sources for `onboarding.sla` (none); #4 by `V31__sla.sql` (no elapsed column; its header
+says so) and `CalendarRequestViewAlignmentTest` (no request type accepts one); #5 by `V31`'s
+`UNIQUE (tenant_id, subject_type, subject_id, due_date_at_escalation)` and
+`SweepConcurrencyTest.concurrentSweepsEscalateOnce`; #6 by
+`EscalationDeliveryTest.noActiveAdministratorStillRecordsTheEscalation` (recorded even with nobody to
+deliver to) and `escalate_after_overdue_days` being `CHECK (>= 1)` with a 30-business-day ceiling so an
+administrator cannot opt out; #7 by `security.SystemActorTest`
+(`theSystemActorHoldsExactlyTheJobPermissionsAtAll`, `noJwtCanCarryTheSystemUserId`,
+`theDatabaseRefusesAUserRowTypedSystem`) and `ModuleBoundaryTest.onlySchedulingMintsTheSystemPrincipal`;
+#8 by `V33`'s `SECURITY DEFINER` function and `AuditPartitionJobTest.theApplicationRoleCanEnsurePartitionsOnlyThroughTheFunction`;
+#9 by every sla/calendar action in `AuditActions` being `of(..., false)` plus
+`SlaSweepBreachTest.breachIsAuditedAndHiddenFromTheTimeline`,
+`SlaSweepEscalationTest.escalationIsAuditedButNotOnTheTimeline` and
+`EscalationDeliveryTest.notificationSentIsAuditedOffTheTimeline`; #10 by `sla.SlaIsolationTest`,
+`CalendarRequestViewAlignmentTest` and `identity.ReportingLinesTest.theUpdateRequestAndViewStayFieldForFieldAligned`.
+
 ---
 
 ## Where the guards live
@@ -1283,6 +1412,15 @@ actor cannot open a pre-sent version), `AgreementControllerTest.operatorReadEndp
 DEPARTMENT/TEAM/ASSIGNED predicates; the audience filter's pre-`SENT`, cross-customer and cancelled
 refusals), and `journey.CauseBeforeEffectTest.signingAnAgreementIsRecordedBeforeTheRequirementItSatisfies`
 (the signature is recorded before the `satisfy` it triggers).
+
+Sub-project 6's own negatives: `security.SystemActorTest` (the system principal holds exactly the job
+permissions, no JWT can carry its id, the database refuses a `SYSTEM` user row), `sla.SlaIsolationTest`
+(cross-tenant reads and every write), `sla.SlaScopeTest` (the `sla.view` descriptor at DEPARTMENT/TEAM/
+ASSIGNED, and a holder without `case.view` sees no cards), `sla.SweepConcurrencyTest` (overlapping sweeps
+escalate once), `audit.AuditPartitionJobTest` (the application role can create partitions only through
+the function), `scheduling.DevToolsProfileTest` (the dev endpoints and `OffsetClock` are absent outside
+`dev`), and `ModuleBoundaryTest`'s named rules `noJourneyDependencyOnSla`, `noDocumentDependencyOnSla` and
+`onlySchedulingMintsTheSystemPrincipal` (only the `scheduling` slice may construct a `SystemPrincipal`).
 
 **These are not to be weakened to make a change pass.** They exist precisely to fail when something
 is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
@@ -1470,6 +1608,25 @@ plan's intentions for it:**
   screen's eyebrow says `MANUAL SIGNING`, not the design's `OPENSIGN CONNECTED`. The adapter is a
   drop-in behind that interface (spec `2026-09-25-agreements-design.md` §3.4) — do not assume it
   exists, and do not start it unprompted.
+
+## What sub-project 6B inherits
+
+- **The `notification` table** (`V31`): one row per recipient with `emailed_at`; its `type` `CHECK` allows
+  only `ESCALATION` today, so each new notification type is a migration widening it. It has a recipient-only
+  descriptor and **no HTTP read path** — the inbox is 6B's.
+- **`TenantJobRunner` and the system actor.** New jobs call `forTenant`/`forEachTenant` (per-tenant
+  transaction, advisory lock, fresh request scope, `SystemPrincipal`). `authz.SystemPermissions` is
+  read-only (case/task/sla view); giving it a write permission is a design decision, not a convenience.
+  Run an email step as a **second** tenant run after the work it reports has committed (`SlaSweepJob`
+  does this for escalations).
+- **`atRisk`** on `SlaClockView` is computed but nothing alerts on it; risk alerts (Q19) are 6B's.
+  `document_request.reminders_sent`/`last_reminded_at` exist for automatic reminders (manual remind is the
+  only writer today), and `document.expiresAt` plus the agreement expiry fields are to be reminded against.
+- **No public base URL exists for email links yet**, and a failed reminder or escalation email is not
+  tracked (see the open list above).
+- **The inbox must make `TopBar.test.tsx`'s "ships no dead notification controls" assertion true by
+  shipping a real control**, not by deleting the assertion. `stage.notification_template_key` is still an
+  inert builder field.
 
 ## Plan deviations
 

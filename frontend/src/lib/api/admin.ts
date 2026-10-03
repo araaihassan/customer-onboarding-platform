@@ -21,7 +21,10 @@ export type Department = components["schemas"]["DepartmentView"];
 export type Team = components["schemas"]["TeamView"];
 export type TeamMember = components["schemas"]["TeamMemberView"];
 export type CreateUserRequest = components["schemas"]["CreateUserRequest"];
-export type UpdateUserRequest = components["schemas"]["UpdateUserRequest"];
+/** `managerId: null` is "no manager" -- the generated type cannot express null, but a full-replace PUT must send it. */
+export type UpdateUserRequest = Omit<components["schemas"]["UpdateUserRequest"], "managerId"> & {
+  managerId?: string | null;
+};
 export type RoleRequest = components["schemas"]["RoleRequest"];
 
 /** The scope vocabulary, straight off the generated grants map. */
@@ -296,4 +299,21 @@ export function groupByCategory(permissions: Permission[]): [string, Permission[
     else groups.set(category, [permission]);
   }
   return Array.from(groups.entries());
+}
+
+/** `headUserId: null` is "no head" -- the generated type cannot express null, but a full-replace PUT must send it. */
+export type DepartmentRequest = Omit<components["schemas"]["DepartmentRequest"], "headUserId"> & {
+  headUserId?: string | null;
+};
+
+/** PUT is a full replace: send name, description and headUserId together (headUserId is the escalation route's department head). */
+export function useUpdateDepartment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, body }: { id: string; body: DepartmentRequest }) =>
+      apiFetch<Department>(`/admin/departments/${id}`, { method: "PUT", body: JSON.stringify(body) }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.departments() });
+    },
+  });
 }

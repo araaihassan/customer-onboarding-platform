@@ -171,4 +171,25 @@ class ModuleBoundaryTest {
                 .should().dependOnClassesThat().resideInAPackage("..agreement..")
                 .because("agreement consumes document through AgreementFiles; document names no agreement "
                        + "type (spec 3.1). AgreementFiles uses only authz permission keys.");
+
+    @ArchTest
+    static final ArchRule noJourneyDependencyOnSla =
+            noClasses().that().resideInAPackage("..journey..")
+                .should().dependOnClassesThat().resideInAPackage("..sla..")
+                .because("sla implements journey.SlaClockLifecycle; journey never imports sla. A one-way "
+                       + "import would still pass the plain no-cycles rule, which is why this is its own "
+                       + "named rule (spec 3.1).");
+
+    @ArchTest
+    static final ArchRule noDocumentDependencyOnSla =
+            noClasses().that().resideInAPackage("..document..")
+                .should().dependOnClassesThat().resideInAPackage("..sla..")
+                .because("sla implements document.CustomerWaitLifecycle; document never imports sla (spec 3.1).");
+
+    /** The system principal is minted only by the scheduler (and authz, which owns it). */
+    @ArchTest
+    static final ArchRule onlySchedulingMintsTheSystemPrincipal =
+            noClasses().that().resideOutsideOfPackages("..scheduling..", "..authz..")
+                .should().callMethod(co.ara.onboarding.authz.SystemPrincipal.class, "authentication", java.util.UUID.class)
+                .because("a system authentication is a full-trust identity; only the job runner may create one");
 }

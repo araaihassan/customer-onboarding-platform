@@ -16,6 +16,7 @@ import co.ara.onboarding.agreement.SignatoryKind;
 import co.ara.onboarding.agreement.SignatoryRequest;
 import co.ara.onboarding.audit.AuditEventView;
 import co.ara.onboarding.document.CreateDocumentRequest;
+import co.ara.onboarding.document.CreateDocumentRequestRequest;
 import co.ara.onboarding.document.DocumentCategory;
 import co.ara.onboarding.document.DocumentRequestRepository;
 import co.ara.onboarding.document.DocumentRequestService;
@@ -255,6 +256,23 @@ class CauseBeforeEffectTest extends PostgresTestBase {
 
             assertThat(chronological(caseId))
                     .containsSubsequence("document.uploaded", "requirement.satisfied", "milestone.completed");
+        });
+    }
+
+    /** Sub-project 6 Task 20: a reminder cannot precede the request it nudges. */
+    @Test
+    void aReminderReadsAfterTheRequestItRemindsAbout() {
+        UUID tenant = fixture.createTenant("cbe-document-remind");
+        fixture.runAs(tenant, () -> {
+            UUID caseId = openCase(tenant);
+            UUID customerId = caseRepository.findById(caseId).orElseThrow().getCustomerId();
+            UUID contactId = fixture.createContact(tenant, customerId, "remind@cbe-document-remind.example");
+            UUID requestId = documentRequestService.create(caseId, new CreateDocumentRequestRequest(
+                    DocumentCategory.OTHER, null, null, false, contactId)).id();
+
+            documentRequestService.remind(requestId);
+
+            assertThat(chronological(caseId)).containsSubsequence("document.requested", "document_request.reminded");
         });
     }
 

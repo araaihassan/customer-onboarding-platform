@@ -2,7 +2,9 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
+import { caseKeys } from "./cases";
 import type { components } from "./generated";
+import { invalidateSla } from "./sla";
 
 /**
  * Every type here is the generated OpenAPI type, re-exported under a shorter
@@ -247,8 +249,14 @@ export function useMigrate() {
   return useMutation({
     mutationFn: (body: MigrateRequest) =>
       apiFetch<MigrateResult>("/cases/migration", { method: "POST", body: JSON.stringify(body) }),
-    onSuccess: (_result, { versionId }) => {
+    onSuccess: (_result, { versionId, caseIds }) => {
       void queryClient.invalidateQueries({ queryKey: migrationKeys.preview(versionId) });
+      // A migration repins and can move a case's stage, so its clock (and roadmap) change.
+      for (const caseId of caseIds) {
+        void queryClient.invalidateQueries({ queryKey: caseKeys.detail(caseId) });
+        void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(caseId) });
+        invalidateSla(queryClient, caseId);
+      }
     },
   });
 }

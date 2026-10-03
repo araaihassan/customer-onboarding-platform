@@ -137,6 +137,42 @@ export async function readEmailToken(
   }
 }
 
+/**
+ * The most recent email to an address whose subject contains `subjectContains`: the
+ * `[email] to=… subject=…` line plus the body line that follows it, as one string.
+ * Polls for the same reason `readEmailToken` does.
+ */
+export async function readEmail(
+  email: string,
+  subjectContains: string,
+  timeoutMs = 15_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  const pattern = new RegExp(
+    `\\[email\\] to=${escapeRegExp(email)} subject=[^\\n\\r]*${escapeRegExp(subjectContains)}[^\\n\\r]*(?:[\\r\\n]+[^\\n\\r]*)?`,
+    "g",
+  );
+
+  for (;;) {
+    let log: string;
+    try {
+      log = await readFile(BACKEND_LOG, "utf8");
+    } catch {
+      throw new Error(`No backend log at ${BACKEND_LOG}. The backend must be started through e2e/support/backend.mjs.`);
+    }
+    const matches = [...log.matchAll(pattern)];
+    const last = matches[matches.length - 1];
+    if (last) return last[0];
+
+    if (Date.now() > deadline) {
+      throw new Error(
+        `No email to ${email} with subject containing "${subjectContains}" appeared in ${BACKEND_LOG} within ${timeoutMs}ms`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
 /** A bearer token, for seeding through the API rather than through the interface. */
 export async function apiLogin(
   request: APIRequestContext,
@@ -233,6 +269,36 @@ export class Api {
 
   sendInvitation(customerId: string, contactId: string) {
     return this.post<void>(`/customers/${customerId}/contacts/${contactId}/invitations`, undefined, 204);
+  }
+
+  /**
+   * Dev-profile clock lever: moves the backend's "now" forward by `seconds` (1s to 60 days
+   * per call, additive, process-wide, never reset). Returns the new total offset in seconds.
+   */
+  async shiftClock(seconds: number): Promise<number> {
+    const { offsetSeconds } = await this.post<{ offsetSeconds: number }>("/dev/clock/offset", { seconds });
+    return offsetSeconds;
+  }
+
+  /** Dev-profile lever: runs one SLA sweep (and its email run) for this tenant. */
+  async runSlaSweep(): Promise<boolean> {
+    const { ran } = await this.post<{ ran: boolean }>("/dev/jobs/sla-sweep");
+    return ran;
+  }
+
+  /**
+   * `PUT /admin/users/{id}` is a full replace: a GET first, then every field of
+   * `UpdateUserRequest` sent back, so setting the manager cannot blank the name or department.
+   */
+  async setManager(userId: string, managerId: string) {
+    const user = await this.get<{ fullName: string; departmentId?: string; managerId?: string }>(
+      `/admin/users/${userId}`,
+    );
+    return this.put<{ id: string }>(`/admin/users/${userId}`, {
+      fullName: user.fullName,
+      departmentId: user.departmentId ?? null,
+      managerId,
+    });
   }
 
   createRole(name: string, grants: Record<string, string>) {

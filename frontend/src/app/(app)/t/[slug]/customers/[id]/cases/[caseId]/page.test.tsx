@@ -52,7 +52,8 @@ function jsonReply(body: unknown, status = 200) {
 }
 
 function renderPage() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // staleTime mirrors QueryProvider's production default, which is what lets header + rail share one clock request.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } });
   function Wrapper({ children }: { children: ReactNode }) {
     return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
   }
@@ -162,5 +163,63 @@ describe("CaseWorkspacePage", () => {
 
     renderPage();
     await waitFor(() => expect(screen.getAllByTestId("milestone-row")).toHaveLength(1));
+  });
+
+  describe("SLA clock", () => {
+    function withClock(reply: () => Response | Promise<Response>, permissionsOverride?: Record<string, string[]>) {
+      if (permissionsOverride) permissions = permissionsOverride;
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url.endsWith("/sla-clock")) return reply();
+        if (url.endsWith("/roadmap")) return jsonReply({ stages: [] });
+        if (url.endsWith("/cases")) return jsonReply([caseData]);
+        if (url.endsWith("/cases/case-1")) return jsonReply(caseData);
+        if (url.endsWith("/customers/cust-1")) return jsonReply(customer);
+        return jsonReply({});
+      });
+    }
+
+    it("renders the SLA CLOCK callout first in the rail, above the switcher, with Hold still present", async () => {
+      withClock(() => jsonReply({ state: "PAUSED", pausedDays: 3.14 }), { "case.hold": ["ALL"] });
+      renderPage();
+      const callout = await screen.findByTestId("sla-clock-callout");
+      const aside = callout.closest("aside")!;
+      expect(aside.firstElementChild).toBe(callout);
+      await waitFor(() => expect(aside.querySelector('a[href$="/cases/case-1"]')).not.toBeNull()); // CaseSwitcher still renders, below the callout
+      expect(screen.getByRole("button", { name: "Put on hold" })).not.toBeNull();
+      // header chip and rail callout share one query key: a single request.
+      const clockCalls = fetchMock.mock.calls.filter((c) => (c[0] as string).endsWith("/sla-clock"));
+      expect(clockCalls).toHaveLength(1);
+    });
+
+    it("renders nothing on a 404 (no clock for this stage)", async () => {
+      withClock(() => jsonReply({}, 404));
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Northwind Foods")).not.toBeNull());
+      await waitFor(() => expect(fetchMock.mock.calls.some((c) => (c[0] as string).endsWith("/sla-clock"))).toBe(true));
+      await new Promise((r) => setTimeout(r, 20));
+      expect(screen.queryByTestId("sla-clock-callout")).toBeNull();
+      expect(screen.queryByTestId("sla-chip")).toBeNull();
+    });
+
+    it("shows a skeleton in the rail while the clock loads, and no header chip", async () => {
+      withClock(() => new Promise<Response>(() => {}));
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Northwind Foods")).not.toBeNull());
+      expect(screen.queryByTestId("sla-clock-callout")).toBeNull();
+      expect(screen.queryByTestId("sla-chip")).toBeNull();
+      expect(screen.getByRole("complementary").firstElementChild?.getAttribute("aria-busy")).toBe("true");
+    });
+
+    it.each([403, 500])("a %i reads as no clock: nothing rendered, the page still works", async (status) => {
+      withClock(() => jsonReply({ title: "x" }, status), { "case.hold": ["ALL"] });
+      renderPage();
+      await waitFor(() => expect(screen.getByText("Northwind Foods")).not.toBeNull());
+      await new Promise((r) => setTimeout(r, 20));
+      expect(screen.queryByTestId("sla-clock-callout")).toBeNull();
+      expect(screen.queryByTestId("sla-chip")).toBeNull();
+      expect(screen.queryByText("Something went wrong")).toBeNull();
+      expect(screen.getByRole("button", { name: "Put on hold" })).not.toBeNull();
+      expect(screen.getByRole("tab", { name: "Journey", selected: true })).not.toBeNull();
+    });
   });
 });

@@ -53,13 +53,16 @@ public class MilestoneService {
     private final StageWriteScopeGuard writeScope;
     private final Clock clock;
     private final TaskLifecycle taskLifecycle;
+    private final SlaClockLifecycle slaClocks;
 
     public MilestoneService(MilestoneRepository milestones, RequirementRepository requirements,
                             ApprovalRepository approvals, CaseParticipantRepository participants,
                             MilestoneDefinitionRepository milestoneDefinitions, StageRepository stages,
                             AppUserRepository users, AuthorizedQuery authorizedQuery,
                             AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine,
-                            StageWriteScopeGuard writeScope, Clock clock, TaskLifecycle taskLifecycle) {
+                            StageWriteScopeGuard writeScope, Clock clock, TaskLifecycle taskLifecycle,
+                            SlaClockLifecycle slaClocks) {
+        this.slaClocks = slaClocks;
         this.milestones = milestones;
         this.requirements = requirements;
         this.approvals = approvals;
@@ -205,6 +208,8 @@ public class MilestoneService {
             requirements.save(r);
         }
 
+        UUID previousStage = c.getCurrentStageId();
+        boolean wasCompleted = c.getStatus() == CaseStatus.COMPLETED;
         c.setCurrentStageId(definition.getStageId());
         if (c.getStatus() == CaseStatus.COMPLETED) {
             // A completed case with outstanding work is a lie every dashboard
@@ -214,6 +219,12 @@ public class MilestoneService {
         }
         audit.record(AuditActions.MILESTONE_REOPENED, "onboarding_case", c.getId(),   // cause before effects
                 "Reopened milestone: " + reason, Map.of("milestoneId", m.getId().toString()));
+        // Spec 1.2.1: reopen is the one stage-change path outside CaseEngine.
+        if (wasCompleted || !definition.getStageId().equals(previousStage)) {
+            Instant now = Instant.now(clock);
+            slaClocks.stageExited(c.getId(), now);
+            slaClocks.stageEntered(c.getId(), definition.getStageId(), now);
+        }
 
         // After MILESTONE_REOPENED's own audit record, before reconcile -- same
         // cause-before-effect position as CaseService.create's
