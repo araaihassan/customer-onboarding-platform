@@ -54,6 +54,45 @@ class AuditPartitionJobTest extends PostgresTestBase {
                 "SELECT count(*) FROM pg_policy WHERE polrelid = ?::regclass", Integer.class, far)).isPositive();
     }
 
+    /**
+     * The session TimeZone is whatever the JDBC driver sends (the JVM default), so the function must
+     * not depend on it: partition bounds are exactly UTC month boundaries and contiguous whether the
+     * session is far east or far west.
+     */
+    @Test
+    void partitionBoundsAreUtcMonthBoundariesWhateverTheSessionTimeZone() {
+        for (String zone : new String[] {"Pacific/Auckland", "Pacific/Honolulu"}) {
+            // Empty partitions past V27's headroom (V27 made 2026-10..2027-12 under its own session zone; see V34) are dropped so this run creates them afresh.
+            ownerJdbc().execute("""
+                    DO $$ DECLARE r record; BEGIN
+                      FOR r IN SELECT c.relname FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+                                WHERE i.inhparent = 'audit_event'::regclass
+                                  AND c.relname >= 'audit_event_2028_01'
+                                  AND c.relname <> 'audit_event_default'
+                      LOOP EXECUTE format('DROP TABLE %I', r.relname); END LOOP;
+                    END $$""");
+            withAppConnection(jdbc -> {
+                jdbc.execute("SET TimeZone = '" + zone + "'");
+                assertThat(jdbc.queryForObject("SELECT ensure_audit_event_partitions(36)", Integer.class))
+                        .isPositive();
+            });
+            withOwnerConnection(jdbc -> {
+                jdbc.execute("SET TimeZone = 'UTC'");
+                List<String> bad = jdbc.queryForList("""
+                        SELECT c.relname || ' ' || pg_get_expr(c.relpartbound, c.oid)
+                          FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhrelid
+                         WHERE i.inhparent = 'audit_event'::regclass AND c.relname <> 'audit_event_default'
+                           AND c.relname >= 'audit_event_2028_01'
+                           AND pg_get_expr(c.relpartbound, c.oid) <> format(
+                               'FOR VALUES FROM (''%s 00:00:00+00'') TO (''%s 00:00:00+00'')',
+                               to_char(to_date(substr(c.relname, 13), 'YYYY_MM'), 'YYYY-MM-DD'),
+                               to_char(to_date(substr(c.relname, 13), 'YYYY_MM') + interval '1 month', 'YYYY-MM-DD'))
+                        """, String.class);
+                assertThat(bad).as("partitions not on UTC month bounds under " + zone).isEmpty();
+            });
+        }
+    }
+
     @Test
     void itRejectsAnOutOfRangeArgument() {
         for (int bad : new int[] {-1, 37}) {

@@ -39,6 +39,7 @@ class SlaSweepJobTest extends PostgresTestBase {
         ownerJdbc().update("update task set due_date = ? where id = ?",
                 fixture.runAsReturning(t, () -> calendar.today()).minusDays(7), task);
         fixture.createAdminUser(t, "admin2@" + slug + ".test");
+        // The recipient resolver finds administrators by role NAME; the fixture's role carries a different one.
         ownerJdbc().update("update role set name = 'Administrator' where id = ?", fixture.administratorRoleId(t));
         return t;
     }
@@ -63,5 +64,9 @@ class SlaSweepJobTest extends PostgresTestBase {
         assertThat(job.runOne(a)).isTrue();
         assertThat(sla.escalationCount(a)).isEqualTo(1);
         assertThat(sla.escalationCount(b)).isZero();
+        // runOne also runs the email pass, so a notification written by the sweep is already emailed.
+        assertThat(ownerJdbc().queryForObject(
+                "select count(*) from notification where tenant_id = ? and emailed_at is not null",
+                Integer.class, a)).isPositive();
     }
 }

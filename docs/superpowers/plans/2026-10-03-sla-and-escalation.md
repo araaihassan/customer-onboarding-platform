@@ -63,6 +63,7 @@ backend/src/main/resources/db/migration/
   V31__sla.sql                          Task 5  — sla_clock, sla_pause, escalation, notification, reminder cols
   V32__app_user_type_check.sql          Task 8  - CHECK (user_type IN ('INTERNAL','PORTAL'))
   V33__audit_partition_maintenance.sql  Task 17 — ensure_audit_event_partitions (SECURITY DEFINER)
+  V34__audit_partition_utc.sql         Task 17 fix — pins TimeZone=UTC inside ensure_audit_event_partitions
 
 backend/src/main/java/co/ara/onboarding/
   platform/  CalendarRules (2, +startOfDay 10), BusinessCalendar (2, 10), WeekdayBusinessCalendar DELETED (2),
@@ -2966,7 +2967,7 @@ Spec §3.4, §6.4, invariant 8.
   `SlaSweepJobTest.runAllSweepsEveryActiveTenantAndEmails` — two tenants each with an overdue task ⇒ after `runAll()`, an escalation and an emailed notification in each.
 
 - [ ] **Step 2: Run — fail.**
-- [ ] **Step 3: Migration `V33__audit_partition_maintenance.sql`.**
+- [ ] **Step 3: Migration `V33__audit_partition_maintenance.sql`.**  *(Amended in Task 17 review: V33 as written reads the session TimeZone; `V34__audit_partition_utc.sql` re-declares the function with `SET TimeZone = 'UTC'`.)*
 
 ```sql
 -- Sub-project 6, spec §6.4, invariant 8. The roll-forward job runs as onboarding_app, which holds

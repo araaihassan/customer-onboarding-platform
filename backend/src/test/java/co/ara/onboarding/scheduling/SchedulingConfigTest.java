@@ -17,4 +17,9 @@ class SchedulingConfigTest extends PostgresTestBase {
         assertThat(context.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class)).isEmpty();
         assertThat(context.getBeansOfType(SchedulingConfig.class)).isEmpty();
     }
+
+    @Test
+    void theSchedulerHasTwoThreadsSoALongSweepCannotDelayThePartitionCron() {
+        assertThat(context.getEnvironment().getProperty("spring.task.scheduling.pool.size")).isEqualTo("2");
+    }
 }
