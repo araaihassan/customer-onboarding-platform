@@ -101,29 +101,36 @@ class CustomerWaitTest extends PostgresTestBase {
         assertThat(sla.closedPauses(clockId)).isEqualTo(1);
     }
 
-    /** Resume must not close the open request pause: the clock stays PAUSED, does not elapse, and paused time grows by no more than the wall time. */
+    /**
+     * Resume must not close the open request pause, and the hold/request overlap is counted once.
+     * Starts on a Monday 09:00 UTC; the request opens at once, the hold runs Tuesday to Wednesday
+     * 09:00. Paused time at Wednesday 09:00 is the two working days since the request opened; adding
+     * the hold's own day on top would read 3.
+     */
     @Test
     void resumeWithAnOpenRequestStaysPaused() {
         UUID t = fixture.createTenant("cw-resume");
-        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 3, true));
+        java.time.ZonedDateTime now = clock.instant().atZone(java.time.ZoneOffset.UTC);
+        java.time.ZonedDateTime monday = now.with(java.time.temporal.TemporalAdjusters.next(java.time.DayOfWeek.MONDAY))
+                .withHour(9).withMinute(0).withSecond(0).withNano(0);
+        clock.advance(java.time.Duration.between(now, monday));
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));
         UUID clockId = sla.openClockId(caseId);
         newRequest(t, caseId, false);
+
+        clock.advance(java.time.Duration.ofDays(1));
         fixture.runAs(t, () -> cases.hold(caseId, "x"));
         assertThat(sla.openPauseReasons(clockId)).containsExactly("CASE_HOLD", "OPEN_DOCUMENT_REQUEST");
+        clock.advance(java.time.Duration.ofDays(1));
         fixture.runAs(t, () -> cases.resume(caseId));
         assertThat(sla.openPauseReasons(clockId)).containsExactly("OPEN_DOCUMENT_REQUEST");
         assertThat(sla.closedPauses(clockId)).isEqualTo(1);
-        SlaClockView before = fixture.runAsReturning(t, () -> clockService.forCase(caseId));
-        assertThat(before.state()).isEqualTo(SlaClockState.PAUSED);
-        assertThat(before.pauseReason()).isEqualTo(PauseReason.OPEN_DOCUMENT_REQUEST);
 
-        // Two wall-clock days later nothing has elapsed, and the paused total grew by at most the
-        // two days (a double-counted overlap would exceed that bound).
-        clock.advance(java.time.Duration.ofDays(2));
-        SlaClockView after = fixture.runAsReturning(t, () -> clockService.forCase(caseId));
-        assertThat(after.state()).isEqualTo(SlaClockState.PAUSED);
-        assertThat(after.elapsedDays()).isEqualTo(before.elapsedDays());
-        assertThat(after.pausedDays() - before.pausedDays()).isLessThanOrEqualTo(2.0 + 1e-6);
+        SlaClockView view = fixture.runAsReturning(t, () -> clockService.forCase(caseId));
+        assertThat(view.state()).isEqualTo(SlaClockState.PAUSED);
+        assertThat(view.pauseReason()).isEqualTo(PauseReason.OPEN_DOCUMENT_REQUEST);
+        assertThat(view.pausedDays()).isCloseTo(2.0, org.assertj.core.data.Offset.offset(0.01));
+        assertThat(view.elapsedDays()).isCloseTo(0.0, org.assertj.core.data.Offset.offset(0.01));
     }
 
     @Test

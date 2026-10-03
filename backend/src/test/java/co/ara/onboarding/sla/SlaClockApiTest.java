@@ -6,12 +6,15 @@ import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
+import co.ara.onboarding.workflow.WorkflowFixtures;
 import co.ara.onboarding.security.SecurityTestBase;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
@@ -60,11 +63,11 @@ class SlaClockApiTest extends SecurityTestBase {
     void aCaseWithNoClockIs404() throws Exception {
         UUID t = fixture.createTenant("slaapi-none");
         AppUser admin = fixture.createAdminUser(t, "a@slaapi-none.example");
-        UUID caseId = fixture.runAsReturning(t, () -> sla.open(t, new co.ara.onboarding.workflow.WorkflowDefinitionRequest(
-                java.util.List.of(SlaTestSupport.slaStage("s1", "S1", java.util.List.of(
-                        co.ara.onboarding.workflow.WorkflowFixtures.milestone("m1", "M", 1, java.util.List.of(),
-                                java.util.List.of(co.ara.onboarding.workflow.WorkflowFixtures.manual("x")))), null, false)),
-                java.util.List.of(), 0L)));
+        UUID caseId = fixture.runAsReturning(t, () -> sla.open(t, new WorkflowDefinitionRequest(
+                List.of(SlaTestSupport.slaStage("s1", "S1", List.of(
+                        WorkflowFixtures.milestone("m1", "M", 1, List.of(),
+                                List.of(WorkflowFixtures.manual("x")))), null, false)),
+                List.of(), 0L)));
         mvc.perform(as(get(url("slaapi-none", caseId)), admin)).andExpect(status().isNotFound());
     }
 
@@ -91,20 +94,34 @@ class SlaClockApiTest extends SecurityTestBase {
         mvc.perform(as(get(url("slaapi-scope", mine.get())), viewer.get())).andExpect(status().isOk());
     }
 
-    /** A case holder without sla.view is refused the clock even though they may read the case. */
+    /** The single-case clock is read under case.view (spec 7.1): a case reader with no sla.view still sees it. */
     @Test
-    void caseViewWithoutSlaViewIsRefused() throws Exception {
-        UUID t = fixture.createTenant("slaapi-noperm");
+    void caseViewWithoutSlaViewStillReadsTheClock() throws Exception {
+        UUID t = fixture.createTenant("slaapi-caseonly");
         var viewer = new AtomicReference<AppUser>();
         var caseId = new AtomicReference<UUID>();
         fixture.runAs(t, () -> {
-            AppUser v = fixture.createUserWithPassword(t, "v@slaapi-noperm.example", "long-enough-password");
+            AppUser v = fixture.createUserWithPassword(t, "v@slaapi-caseonly.example", "long-enough-password");
             viewer.set(v);
             caseId.set(sla.caseWithSla(t, 3, true));
             roles.assignRole(v.getId(), roles.createRole("Case Only", "", Map.of(
                     PermissionKeys.CASE_VIEW, Scope.ALL, PermissionKeys.WORKFLOW_VIEW, Scope.ALL)));
         });
-        mvc.perform(as(get(url("slaapi-noperm", caseId.get())), viewer.get())).andExpect(status().isForbidden());
+        mvc.perform(as(get(url("slaapi-caseonly", caseId.get())), viewer.get())).andExpect(status().isOk());
+    }
+
+    @Test
+    void aUserWithNeitherPermissionIsForbidden() throws Exception {
+        UUID t = fixture.createTenant("slaapi-neither");
+        var viewer = new AtomicReference<AppUser>();
+        var caseId = new AtomicReference<UUID>();
+        fixture.runAs(t, () -> {
+            AppUser v = fixture.createUserWithPassword(t, "v@slaapi-neither.example", "long-enough-password");
+            viewer.set(v);
+            caseId.set(sla.caseWithSla(t, 3, true));
+            roles.assignRole(v.getId(), roles.createRole("Workflow Only", "", Map.of(PermissionKeys.WORKFLOW_VIEW, Scope.ALL)));
+        });
+        mvc.perform(as(get(url("slaapi-neither", caseId.get())), viewer.get())).andExpect(status().isForbidden());
     }
 
     private UUID caseOfTeam(UUID t, UUID team) {

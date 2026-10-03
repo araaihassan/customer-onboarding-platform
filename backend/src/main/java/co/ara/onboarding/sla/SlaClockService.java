@@ -41,40 +41,42 @@ public class SlaClockService {
     }
 
     /**
-     * The case's most recent clock (the open one if any). 404 when the case is out of scope, in
-     * another tenant, or has never had a clock. The gate is sla.view alone (the gate is any-of, so
-     * naming case.view too would admit a case reader with no SLA grant); the case itself still
-     * resolves under case.view.
+     * The case's most recent clock (the open one if any), read under case.view: anyone who can open
+     * the case sees its clock (spec 7.1, 8). 404 when the case is out of scope, in another tenant, or
+     * has never had a clock.
      */
-    @RequirePermission(PermissionKeys.SLA_VIEW)
+    @RequirePermission(PermissionKeys.CASE_VIEW)
     @Transactional(readOnly = true)
     public SlaClockView forCase(UUID caseId) {
         Case c = authorizedQuery.getById(cases, Case.class, PermissionKeys.CASE_VIEW, caseId);
         Specification<SlaClock> ofCase = (root, q, cb) -> cb.equal(root.get("caseId"), c.getId());
-        SlaClock latest = authorizedQuery.findAll(clocks, SlaClock.class, PermissionKeys.SLA_VIEW, ofCase,
+        SlaClock latest = authorizedQuery.findAll(clocks, SlaClock.class, PermissionKeys.CASE_VIEW, ofCase,
                         PageRequest.of(0, 1, Sort.by("startedAt").descending()))
                 .stream().findFirst().orElseThrow(() -> new NoSuchElementException("Not found"));
-        return views(List.of(latest)).get(latest.getId());
+        return render(List.of(latest), PermissionKeys.CASE_VIEW).get(latest.getId());
     }
 
-    /** Views for clocks the caller already read through AuthorizedQuery; keyed by clock id, input order. */
+    /** Views for the war room's clocks, read under sla.view; keyed by clock id, input order. */
     @RequirePermission(PermissionKeys.SLA_VIEW)
     @Transactional(readOnly = true)
     public Map<UUID, SlaClockView> views(List<SlaClock> list) {
+        return render(list, PermissionKeys.SLA_VIEW);
+    }
+
+    private Map<UUID, SlaClockView> render(List<SlaClock> list, String permission) {
         if (list.isEmpty()) return Map.of();
         Instant now = Instant.now(clock);
         SlaPolicy policy = policies.current();
         Set<UUID> clockIds = list.stream().map(SlaClock::getId).collect(Collectors.toSet());
-        Set<UUID> caseIds = list.stream().map(SlaClock::getCaseId).collect(Collectors.toSet());
         Specification<SlaPause> ofClocks = (root, q, cb) -> root.get("clockId").in(clockIds);
         Map<UUID, List<SlaPause>> pausesByClock = authorizedQuery
-                .findAll(pauses, SlaPause.class, PermissionKeys.SLA_VIEW, ofClocks, Pageable.unpaged())
+                .findAll(pauses, SlaPause.class, permission, ofClocks, Pageable.unpaged())
                 .stream().collect(Collectors.groupingBy(SlaPause::getClockId));
         Specification<Escalation> clockEscalations = (root, q, cb) -> cb.and(
-                root.get("caseId").in(caseIds),
+                root.get("subjectId").in(clockIds),
                 cb.equal(root.get("subjectType"), EscalationSubject.SLA_CLOCK));
         Map<UUID, Escalation> escalationByClock = authorizedQuery
-                .findAll(escalations, Escalation.class, PermissionKeys.SLA_VIEW, clockEscalations, Pageable.unpaged())
+                .findAll(escalations, Escalation.class, permission, clockEscalations, Pageable.unpaged())
                 .stream().sorted(Comparator.comparing(Escalation::getEscalatedAt).reversed())
                 .collect(Collectors.toMap(Escalation::getSubjectId, e -> e, (a, b) -> a));
         Map<UUID, SlaClockView> out = new LinkedHashMap<>();

@@ -17,7 +17,8 @@ public class SlaClockController {
     @GetMapping("/cases/{id}/sla-clock")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "The case's current (or last stopped) SLA clock"),
-            @ApiResponse(responseCode = "403", description = "The caller lacks sla.view"),
+            @ApiResponse(responseCode = "401", description = "Not authenticated"),
+            @ApiResponse(responseCode = "403", description = "The caller lacks case.view"),
             @ApiResponse(responseCode = "404", description = "Out of scope, another tenant's, or the case has never had a clock")
     })
     public SlaClockView forCase(@PathVariable UUID id) { return service.forCase(id); }
