@@ -257,7 +257,7 @@ public class UserAdminService {
     private UUID resolveManager(UUID managerId, UUID subjectUserId) {
         if (managerId == null) return null;
         if (managerId.equals(subjectUserId)) {
-            throw new IllegalArgumentException("A user cannot be their own manager");
+            throw new ReportingLineException("A user cannot be their own manager");
         }
         return authorizedQuery.getById(repository, AppUser.class, PermissionKeys.USER_VIEW, managerId).getId();
     }

@@ -47,7 +47,7 @@ class ReportingLinesTest extends PostgresTestBase {
         UUID u = fixture.runAsReturning(tenant, () -> fixture.createUser(tenant, "u@self.test"));
         assertThatThrownBy(() -> fixture.runAsUser(tenant, admin.getId(), () ->
                 users.update(u, new UserAdminService.UpdateUserRequest("U", null, u))))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(ReportingLineException.class);
     }
 
     @Test
