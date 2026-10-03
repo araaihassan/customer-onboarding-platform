@@ -705,5 +705,22 @@
   "documents.review.note": "Note",
   "documents.review.note.rejectRequired": "A note is required when rejecting",
   "documents.review.submit": "Submit review",
-  "documents.review.action": "Review"
+  "documents.review.action": "Review",
+  "sla.chip.breached": "BREACHED {days}d",
+  "sla.chip.paused": "PAUSED {days}d",
+  "sla.chip.met": "MET",
+  "sla.chip.dueToday": "DUE TODAY",
+  "sla.chip.left": "{days}d LEFT",
+  "sla.chip.prefix": "SLA",
+  "sla.callout.title": "SLA CLOCK",
+  "sla.callout.paused": "Paused · {days} business days",
+  "sla.callout.running": "{left} of {target} business days left",
+  "sla.callout.breached": "Breached by {days} business days",
+  "sla.callout.met": "Met in {days} business days",
+  "sla.callout.reason.CASE_HOLD": "Case on hold",
+  "sla.callout.reason.OPEN_DOCUMENT_REQUEST": "Waiting on the customer's documents",
+  "sla.callout.ineligible": "NOT ELIGIBLE FOR PAUSE — INTERNAL REVIEW",
+  "sla.callout.escalatedTo": "Escalated to {name} on {date}",
+  "sla.callout.escalatedToAdmins": "Escalated to administrators on {date}",
+  "sla.callout.calendar": "{name} · business days"
 }
