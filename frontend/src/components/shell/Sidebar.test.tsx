@@ -369,3 +369,25 @@ describe("Sidebar", () => {
     expect(openContainer.querySelector("aside")?.className).not.toContain("-translate-x-full");
   });
 });
+
+describe("Sidebar SLA war room entry", () => {
+  it("offers the SLA war room with sla.view for an INTERNAL user", () => {
+    permissions = { "sla.view": ["ALL"] };
+    userType = "INTERNAL";
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/sla war room/i)?.getAttribute("href")).toBe("/t/acme/sla");
+  });
+
+  it("omits it without sla.view", () => {
+    userType = "INTERNAL";
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/sla war room/i)).toBeNull();
+  });
+
+  it("omits it for a PORTAL actor even if sla.view were held", () => {
+    permissions = { "sla.view": ["ALL"] };
+    userType = "PORTAL";
+    render(<Sidebar slug="acme" />);
+    expect(linkNamed(/sla war room/i)).toBeNull();
+  });
+});
