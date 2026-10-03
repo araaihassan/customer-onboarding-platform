@@ -6,6 +6,7 @@ import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -59,7 +60,7 @@ public class SlaSweepService {
         Specification<SlaClock> openUnstamped = (r, q, cb) ->
                 cb.and(cb.isNull(r.get("stoppedAt")), cb.isNull(r.get("breachedAt")));
         List<SlaClock> open = authorizedQuery.findAll(clocks, SlaClock.class, PermissionKeys.SLA_VIEW,
-                openUnstamped, Pageable.unpaged()).getContent();
+                openUnstamped, Pageable.unpaged(Sort.by("id"))).getContent();
         if (open.isEmpty()) return 0;
         Set<UUID> ids = open.stream().map(SlaClock::getId).collect(Collectors.toSet());
         Specification<SlaPause> ofClocks = (r, q, cb) -> r.get("clockId").in(ids);

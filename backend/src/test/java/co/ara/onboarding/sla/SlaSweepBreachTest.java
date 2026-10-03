@@ -40,6 +40,8 @@ class SlaSweepBreachTest extends PostgresTestBase {
     @Autowired SlaSweepService sweep;
     @Autowired TenantJobRunner runner;
     @Autowired SlaClockRepository slaClocks;
+    @Autowired co.ara.onboarding.authz.AuthorizedQuery authorizedQuery;
+    @org.springframework.test.context.bean.override.mockito.MockitoSpyBean SlaClockReader spiedReader;
 
     @AfterEach void clear() {
         SecurityContextHolder.clearContext();
@@ -199,5 +201,56 @@ class SlaSweepBreachTest extends PostgresTestBase {
         assertThat(stamped).isNotNull();
         assertThat(ownerJdbc().queryForObject("select outcome from sla_clock where id = ?", String.class, clockId))
                 .isEqualTo("BREACHED");
+    }
+
+    // After the stamp, a read in the SAME transaction must see breached_at (the sweep's next step
+    // reads stamped clocks); a second clock in the batch is still stamped after the persistence clear.
+    @Test
+    void stampedClocksReadBackInTheSameTransactionAndTheRestOfTheBatchIsStamped() {
+        UUID t = fixture.createTenant("sw-fresh");
+        UUID c1 = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 1, true));
+        UUID c2 = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 1, true));
+        clock.advance(Duration.ofDays(4));
+        long[] seen = new long[2];
+        runner.forTenant("sla-sweep", t, x -> {
+            seen[0] = sweep.stampBreaches();
+            seen[1] = authorizedQuery.findAll(slaClocks, SlaClock.class, co.ara.onboarding.authz.PermissionKeys.SLA_VIEW,
+                    (r, q, cb) -> cb.isNotNull(r.get("breachedAt")), Pageable.unpaged())
+                    .stream().filter(c -> c.getBreachedAt() != null).count();
+        });
+        assertThat(seen[0]).isEqualTo(2);
+        assertThat(seen[1]).isEqualTo(2);
+        assertThat(breachedAt(sla.openClockId(c1))).isNotNull();
+        assertThat(breachedAt(sla.openClockId(c2))).isNotNull();
+    }
+
+    // The real sweep path: one clock is stopped by another committed transaction between the read
+    // and its stamp. It gets no stamp and no audit row; the other clock in the batch is still stamped.
+    @Test
+    void aClockStoppedMidSweepIsSkippedWithoutAuditAndTheBatchContinues() {
+        UUID t = fixture.createTenant("sw-mid");
+        UUID c1 = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 1, true));
+        UUID c2 = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 1, true));
+        UUID id1 = sla.openClockId(c1), id2 = sla.openClockId(c2);
+        UUID doomed = id1.compareTo(id2) < 0 ? id1 : id2;   // read (and stamped) first: sorted by id
+        UUID other = doomed.equals(id1) ? id2 : id1;
+        clock.advance(Duration.ofDays(4));
+        org.mockito.Mockito.doAnswer(inv -> {
+            SlaClock c = inv.getArgument(0);
+            if (doomed.equals(c.getId())) {   // elapsed() is the sweep's last read before the stamp
+                ownerJdbc().update("update sla_clock set stopped_at = now(), outcome = 'BREACHED' where id = ?", doomed);
+            }
+            return inv.callRealMethod();
+        }).when(spiedReader).elapsed(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any());
+        assertThat(stamp(t)).isEqualTo(1);
+        assertThat(breachedAt(doomed)).isNull();
+        assertThat(breachedAt(other)).isNotNull();
+        assertThat(ownerJdbc().queryForObject(
+                "select count(*) from audit_event where action = 'sla.breached' and resource_id = ?",
+                Long.class, doomed)).isZero();
+        assertThat(ownerJdbc().queryForObject(
+                "select count(*) from audit_event where action = 'sla.breached' and resource_id = ?",
+                Long.class, other)).isEqualTo(1);
     }
 }
