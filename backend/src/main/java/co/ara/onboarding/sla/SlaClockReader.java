@@ -26,6 +26,9 @@ public class SlaClockReader {
         return pauses.stream().filter(p -> p.getReason() != PauseReason.OPEN_DOCUMENT_REQUEST).toList();
     }
 
+    /** True once elapsed has reached the target, within EPS; the one threshold for live view and stop outcome. */
+    public boolean exhausted(double elapsed, int targetDays) { return targetDays - elapsed <= EPS; }
+
     public double elapsed(SlaClock clock, List<SlaPause> pauses, Instant now) {
         pauses = effective(clock, pauses);
         Instant end = end(clock, now);
@@ -48,7 +51,7 @@ public class SlaClockReader {
         double elapsed = elapsed(clock, pauses, now);
         double paused = paused(clock, pauses, now);
         double rawRemaining = clock.getTargetDays() - elapsed;
-        double remaining = rawRemaining <= EPS ? 0 : rawRemaining;
+        double remaining = exhausted(elapsed, clock.getTargetDays()) ? 0 : rawRemaining;
         Optional<SlaPause> open = clock.getStoppedAt() == null
                 ? pauses.stream().filter(p -> p.getEndedAt() == null).min(Comparator.comparing(SlaPause::getStartedAt))
                 : Optional.empty();

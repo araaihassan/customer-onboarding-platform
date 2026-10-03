@@ -65,18 +65,21 @@ public class DocumentInstantiation {
     private final DocumentRequestRepository documentRequests;
     private final AuthContextProvider contextProvider;
     private final Clock clock;
+    private final CustomerWaitLifecycle customerWaits;
 
     public DocumentInstantiation(RequirementRepository requirements,
                                   RequirementDefinitionRepository requirementDefinitions,
                                   MilestoneRepository milestones,
                                   DocumentRequestRepository documentRequests,
-                                  AuthContextProvider contextProvider, Clock clock) {
+                                  AuthContextProvider contextProvider, Clock clock,
+                                  CustomerWaitLifecycle customerWaits) {
         this.requirements = requirements;
         this.requirementDefinitions = requirementDefinitions;
         this.milestones = milestones;
         this.documentRequests = documentRequests;
         this.contextProvider = contextProvider;
         this.clock = clock;
+        this.customerWaits = customerWaits;
     }
 
     /**
@@ -127,6 +130,8 @@ public class DocumentInstantiation {
             dr.setRequestedAt(Instant.now(clock));
 
             documentRequests.save(dr);
+            // No-op on a brand-new case (no clock yet); SlaClockWriter.start sees the open request.
+            customerWaits.requestOpened(caseId, dr.getRequestedAt());
         }
     }
 

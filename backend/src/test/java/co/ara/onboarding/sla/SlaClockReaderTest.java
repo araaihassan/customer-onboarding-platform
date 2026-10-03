@@ -248,4 +248,13 @@ class SlaClockReaderTest {
         assertThat(v.pauseReason()).isEqualTo(PauseReason.CASE_HOLD);
         assertThat(v.pausedDays()).isCloseTo(0.5, within(1e-9));
     }
+
+    /** Stop-time outcome and the live view share one threshold: within EPS of the target is exhausted. */
+    @Test
+    void exhaustionUsesTheSameEpsilonAsTheLiveView() {
+        SlaClockReader r = reader(MON_09);
+        assertThat(r.exhausted(3 - 1e-10, 3)).isTrue();
+        assertThat(r.exhausted(3.0, 3)).isTrue();
+        assertThat(r.exhausted(3 - 1e-6, 3)).isFalse();
+    }
 }

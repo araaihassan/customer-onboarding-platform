@@ -61,12 +61,14 @@ public class DocumentRequestService {
     private final RequirementService requirementService;
     private final Clock clock;
     private final AuditRecorder audit;
+    private final CustomerWaitLifecycle customerWaits;
 
     public DocumentRequestService(DocumentRequestRepository requests, DocumentRepository documents,
                                   CaseRepository cases, StageRepository stages,
                                   CustomerContactRepository contacts, AuthorizedQuery authorizedQuery,
                                   AuthContextProvider contextProvider, StageWriteScopeGuard writeScope,
-                                  RequirementService requirementService, Clock clock, AuditRecorder audit) {
+                                  RequirementService requirementService, Clock clock, AuditRecorder audit,
+                                  CustomerWaitLifecycle customerWaits) {
         this.requests = requests;
         this.documents = documents;
         this.cases = cases;
@@ -78,6 +80,7 @@ public class DocumentRequestService {
         this.requirementService = requirementService;
         this.clock = clock;
         this.audit = audit;
+        this.customerWaits = customerWaits;
     }
 
     /**
@@ -135,6 +138,7 @@ public class DocumentRequestService {
         audit.record(AuditActions.DOCUMENT_REQUESTED, "onboarding_case", c.getId(),
                 "Requested a document on case " + c.getId(),
                 Map.of("requestId", dr.getId().toString(), "category", dr.getCategory().name()));
+        customerWaits.requestOpened(c.getId(), dr.getRequestedAt());
 
         return toView(dr);
     }
@@ -229,6 +233,7 @@ public class DocumentRequestService {
             audit.record(AuditActions.DOCUMENT_REQUEST_WITHDRAWN, "onboarding_case", c.getId(),
                     "Withdrew document request " + dr.getId() + ": " + reason,
                     Map.of("requestId", dr.getId().toString(), "reason", reason));
+            customerWaits.requestClosed(dr.getCaseId(), Instant.now(clock));
         }
         return toView(dr);
     }
@@ -343,6 +348,8 @@ public class DocumentRequestService {
         audit.record(AuditActions.DOCUMENT_REQUEST_FULFILLED, "onboarding_case", c.getId(),
                 "Fulfilled document request " + dr.getId(),
                 Map.of("requestId", dr.getId().toString(), "documentId", d.getId().toString()));
+        // Before satisfy, so a satisfy that advances the stage sees the pause already closed.
+        customerWaits.requestClosed(dr.getCaseId(), Instant.now(clock));
 
         if (dr.getRequirementId() != null && !dr.isRequiresReview()) {
             requirementService.satisfy(dr.getRequirementId(), d.getId(), DocumentService.SATISFIED_REF_TYPE);

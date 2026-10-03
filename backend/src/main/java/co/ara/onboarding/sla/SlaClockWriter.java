@@ -67,7 +67,7 @@ class SlaClockWriter {
             }
             double elapsed = reader.elapsed(c, pauses.findByClockId(c.getId()), at);
             c.setStoppedAt(at);
-            c.setOutcome(c.getBreachedAt() != null || elapsed >= c.getTargetDays()
+            c.setOutcome(c.getBreachedAt() != null || reader.exhausted(elapsed, c.getTargetDays())
                     ? SlaClockOutcome.BREACHED : SlaClockOutcome.MET);
             clocks.saveAndFlush(c);
         });
