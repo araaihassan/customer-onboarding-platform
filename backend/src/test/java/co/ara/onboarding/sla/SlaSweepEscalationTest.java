@@ -193,6 +193,63 @@ class SlaSweepEscalationTest extends PostgresTestBase {
     }
 
     @Test
+    void anUnassignedOverdueTaskHasNoLateUserEvenWhenTheCaseHasAnOwner() {
+        UUID t = fixture.createTenant("esc-unassigned");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));
+        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@x.test"));
+        ownerJdbc().update("update onboarding_case set owner_user_id = ? where id = ?", owner, caseId);
+        UUID task = task(t, caseId, null);
+        due(task, today(t).minusDays(7));
+        assertThat(escalate(t)).hasSize(1);
+        assertThat(rows(task).get(0).get("late_user_id")).isNull();
+    }
+
+    @Test
+    void aBreachedClockUsesTheCaseOwnerAsTheLatePerson() {
+        UUID t = fixture.createTenant("esc-clock-owner");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));
+        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@x.test"));
+        ownerJdbc().update("update onboarding_case set owner_user_id = ? where id = ?", owner, caseId);
+        UUID clockId = sla.openClockId(caseId);
+        ownerJdbc().update("update sla_clock set breached_at = ? where id = ?",
+                Timestamp.from(Instant.now(clock).minus(Duration.ofDays(7))), clockId);
+        assertThat(escalate(t)).hasSize(1);
+        assertThat(rows(clockId).get(0).get("late_user_id")).isEqualTo(owner);
+    }
+
+    @Test
+    void doneAndSkippedMilestonesNeverEscalate() {
+        UUID t = fixture.createTenant("esc-ms-closed");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.twoStageCaseWithSla(t, 5, 5));
+        UUID m1 = fixture.runAsReturning(t, () -> sla.milestoneIdAt(caseId, 0));
+        UUID m2 = fixture.runAsReturning(t, () -> sla.milestoneIdAt(caseId, 1));
+        LocalDate old = today(t).minusDays(7);
+        ownerJdbc().update("update milestone set due_date = ?, status = 'DONE' where id = ?", old, m1);
+        ownerJdbc().update("update milestone set due_date = ?, status = 'SKIPPED' where id = ?", old, m2);
+        assertThat(escalate(t)).isEmpty();
+    }
+
+    @Test
+    void aMilestoneOnACompletedCaseNeverEscalates() {
+        UUID t = fixture.createTenant("esc-case-done");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));
+        UUID m = fixture.runAsReturning(t, () -> sla.milestoneIdAt(caseId, 0));
+        ownerJdbc().update("update milestone set due_date = ? where id = ?", today(t).minusDays(7), m);
+        ownerJdbc().update("update onboarding_case set status = 'COMPLETED' where id = ?", caseId);
+        assertThat(escalate(t)).isEmpty();
+    }
+
+    @Test
+    void aStoppedButBreachedClockNeverEscalates() {
+        UUID t = fixture.createTenant("esc-clock-stopped");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));
+        UUID clockId = sla.openClockId(caseId);
+        ownerJdbc().update("update sla_clock set breached_at = ?, stopped_at = now(), outcome = 'BREACHED' where id = ?",
+                Timestamp.from(Instant.now(clock).minus(Duration.ofDays(7))), clockId);
+        assertThat(escalate(t)).isEmpty();
+    }
+
+    @Test
     void escalationIsAuditedButNotOnTheTimeline() {
         UUID t = fixture.createTenant("esc-audit");
         UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));

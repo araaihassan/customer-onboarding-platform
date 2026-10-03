@@ -127,7 +127,10 @@ public class SlaSweepService {
             if (kase == null || kase.getStatus() != CaseStatus.ACTIVE) continue;
             int overdueDays = calendar.businessDaysBetween(c.dueDate(), today);
             if (!today.isAfter(c.dueDate()) || overdueDays < policy.escalateAfterOverdueDays()) continue;
-            UUID late = c.latePerson() != null ? c.latePerson() : kase.getOwnerUserId();
+            // Spec 6.2: an unassigned task has no late person (it starts at the administrators step);
+            // only a milestone or a clock falls back to the case owner.
+            UUID late = c.type() == EscalationSubject.TASK || c.latePerson() != null
+                    ? c.latePerson() : kase.getOwnerUserId();
             RecipientResolver.Resolution resolution = resolver.resolve(late);
             // Audit follows the conditional insert: only a row this call wrote is recorded or returned.
             // Nothing audited depends on the escalation id existing first, unlike the cause-before-effect
