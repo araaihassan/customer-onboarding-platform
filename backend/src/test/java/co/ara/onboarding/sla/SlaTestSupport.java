@@ -30,8 +30,13 @@ public class SlaTestSupport {
     private final TenantFixture fixture;
     private final JourneyFixtures journey;
     private final CaseService cases;
+    private final co.ara.onboarding.scheduling.TenantJobRunner runner;
+    private final SlaSweepService sweep;
 
-    SlaTestSupport(TenantFixture fixture, JourneyFixtures journey, CaseService cases) {
+    SlaTestSupport(TenantFixture fixture, JourneyFixtures journey, CaseService cases,
+                   co.ara.onboarding.scheduling.TenantJobRunner runner, SlaSweepService sweep) {
+        this.runner = runner;
+        this.sweep = sweep;
         this.fixture = fixture;
         this.journey = journey;
         this.cases = cases;
@@ -116,5 +121,15 @@ public class SlaTestSupport {
         return owner().queryForList(
                 "select id, stage_id, target_days, started_at, stopped_at, outcome from sla_clock "
                         + "where case_id = ? order by started_at, created_at", caseId);
+    }
+
+    /** The two TenantJobRunner runs of spec 6.3, in order: write breaches/escalations/notifications, then email. */
+    public void sweepAndEmail(UUID tenant) {
+        runner.forTenant("sla-sweep", tenant, t -> sweep.sweep());
+        runner.forTenant("sla-email", tenant, t -> sweep.retryUnsentEmail());
+    }
+
+    public long escalationCount(UUID tenant) {
+        return owner().queryForObject("select count(*) from escalation where tenant_id = ?", Long.class, tenant);
     }
 }

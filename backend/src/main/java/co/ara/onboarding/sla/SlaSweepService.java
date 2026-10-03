@@ -15,6 +15,12 @@ import co.ara.onboarding.platform.BusinessCalendar;
 import co.ara.onboarding.task.Task;
 import co.ara.onboarding.task.TaskRepository;
 import co.ara.onboarding.task.TaskStatus;
+import co.ara.onboarding.identity.ReportingLineDirectory;
+import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.tenancy.TenantContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -54,23 +60,118 @@ public class SlaSweepService {
     private final CaseRepository caseRepository;
     private final RecipientResolver resolver;
     private final EscalationWriter writer;
+    private final NotificationRepository notifications;
+    private final ReportingLineDirectory people;
+    private final EscalationMailer mailer;
+    private final JdbcTemplate jdbc;
+    private static final Logger log = LoggerFactory.getLogger(SlaSweepService.class);
 
     public SlaSweepService(AuthorizedQuery authorizedQuery, SlaClockRepository clocks, SlaPauseRepository pauses,
                            SlaClockReader reader, AuditRecorder audit, Clock clock, BusinessCalendar calendar,
                            SlaPolicyReader policies, TaskRepository tasks, MilestoneRepository milestones,
-                           CaseRepository caseRepository, RecipientResolver resolver, EscalationWriter writer) {
+                           CaseRepository caseRepository, RecipientResolver resolver, EscalationWriter writer,
+                           NotificationRepository notifications, ReportingLineDirectory people,
+                           EscalationMailer mailer, JdbcTemplate jdbc) {
+        this.notifications = notifications; this.people = people; this.mailer = mailer; this.jdbc = jdbc;
         this.authorizedQuery = authorizedQuery; this.clocks = clocks; this.pauses = pauses;
         this.reader = reader; this.audit = audit; this.clock = clock; this.calendar = calendar;
         this.policies = policies; this.tasks = tasks; this.milestones = milestones;
         this.caseRepository = caseRepository; this.resolver = resolver; this.writer = writer;
     }
 
-    /** The escalation-writing steps in spec order; later tasks extend it. */
+    /**
+     * Run 1 of the sweep (spec 6.1): breaches, escalations and their in-app notifications, all in the
+     * runner's one transaction. Email is NOT sent here -- it goes out in run 2 ({@link #retryUnsentEmail})
+     * once this has committed, so a rolled-back sweep sends nothing.
+     */
     @RequirePermission(PermissionKeys.SLA_VIEW)
     @Transactional(propagation = Propagation.MANDATORY)
     public void sweep() {
         stampBreaches();
-        escalateOverdue();
+        notify(escalateOverdue());
+    }
+
+    /** How long an unsent escalation email keeps being retried before it is abandoned (the in-app row stays). */
+    static final java.time.Duration EMAIL_RETRY_WINDOW = java.time.Duration.ofDays(3);
+
+    /**
+     * Spec 6.2: one in-app notification per recipient per raised escalation, written in the sweep's
+     * transaction. An escalation with nobody to notify is logged loudly but stays recorded.
+     */
+    @RequirePermission(PermissionKeys.SLA_VIEW)
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int notify(List<RaisedEscalation> raised) {
+        if (raised.isEmpty()) return 0;
+        UUID tenant = TenantContext.getRequired();
+        String slug = jdbc.queryForObject("SELECT slug FROM tenant WHERE id = ?", String.class, tenant);
+        int written = 0;
+        for (RaisedEscalation e : raised) {
+            var recipients = e.resolution().recipients();
+            if (recipients.isEmpty()) {
+                log.error("Escalation {} in tenant {} has no active administrator to deliver to",
+                        e.escalationId(), tenant);
+                continue;
+            }
+            String late = people.activeUser(e.latePersonId()).map(ReportingLineDirectory.Recipient::fullName)
+                    .orElse("unassigned");
+            String what = switch (e.subjectType()) {
+                case TASK -> "Task";
+                case MILESTONE -> "Milestone";
+                default -> "SLA";
+            };
+            for (ReportingLineDirectory.Recipient r : recipients) {
+                Notification n = new Notification();
+                n.setId(Uuid7.generate());
+                n.setTenantId(tenant);
+                n.setRecipientUserId(r.userId());
+                n.setType(NotificationType.ESCALATION);
+                n.setTitle("Escalation: " + what + " overdue by " + e.overdueDays() + " business day(s)");
+                n.setBody(what + " overdue on case '" + e.caseName() + "'. Late person: " + late + ".");
+                n.setLinkPath("/t/" + slug + "/customers/" + e.customerId() + "/cases/" + e.caseId());
+                n.setCaseId(e.caseId());
+                n.setEscalationId(e.escalationId());
+                notifications.save(n);
+                audit.record(AuditActions.NOTIFICATION_SENT, "notification", n.getId(),
+                        "Escalation notification queued",
+                        Map.of("escalationId", e.escalationId().toString(),
+                                "recipientUserId", r.userId().toString()));
+                written++;
+            }
+        }
+        return written;
+    }
+
+    /**
+     * Run 2 (spec 6.3), also the retry: sends every committed, unsent ESCALATION notification younger
+     * than {@link #EMAIL_RETRY_WINDOW} and stamps {@code emailed_at} per row, so a retry only reaches
+     * recipients not yet emailed. A failed send leaves the row unsent; an inactive recipient is skipped.
+     */
+    @RequirePermission(PermissionKeys.SLA_VIEW)
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int retryUnsentEmail() {
+        Instant now = Instant.now(clock);
+        Instant cutoff = now.minus(EMAIL_RETRY_WINDOW);
+        List<Notification> unsent = authorizedQuery.findAll(notifications, Notification.class,
+                PermissionKeys.SLA_VIEW, (r, q, cb) -> cb.and(cb.equal(r.get("type"), NotificationType.ESCALATION),
+                        cb.isNull(r.get("emailedAt"))), Pageable.unpaged(Sort.by("id"))).getContent();
+        int sent = 0;
+        for (Notification n : unsent) {
+            if (n.getCreatedAt().isBefore(cutoff)) {
+                log.error("Escalation email {} undelivered after {}; giving up", n.getId(), EMAIL_RETRY_WINDOW);
+                continue;
+            }
+            var recipient = people.activeUser(n.getRecipientUserId());
+            if (recipient.isEmpty()) {
+                log.warn("Escalation email {} skipped: recipient {} is not active", n.getId(), n.getRecipientUserId());
+                continue;
+            }
+            if (mailer.send(n, recipient.get().email())) {
+                n.setEmailedAt(now);
+                notifications.save(n);
+                sent++;
+            }
+        }
+        return sent;
     }
 
     private record Candidate(EscalationSubject type, UUID id, UUID caseId, UUID latePerson, LocalDate dueDate) {}

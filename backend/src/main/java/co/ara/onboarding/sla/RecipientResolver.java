@@ -8,7 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-/** Spec 6.2. Task 16 completes the chain; this first version routes everything to administrators. */
+/** Spec 6.2: late person's manager, else department head, else administrators; inactive and self are skipped. */
 @Component
 public class RecipientResolver {
 
@@ -25,6 +25,16 @@ public class RecipientResolver {
 
     @Transactional(propagation = Propagation.MANDATORY, readOnly = true)
     public Resolution resolve(UUID latePersonId) {
-        return new Resolution(EscalationRoute.ADMINISTRATORS, people.activeAdministrators());
+        if (latePersonId != null) {
+            var manager = people.activeManagerOf(latePersonId).filter(r -> !r.userId().equals(latePersonId));
+            if (manager.isPresent()) return new Resolution(EscalationRoute.MANAGER, List.of(manager.get()));
+            var head = people.activeDepartmentHeadOf(latePersonId).filter(r -> !r.userId().equals(latePersonId));
+            if (head.isPresent()) return new Resolution(EscalationRoute.DEPARTMENT_HEAD, List.of(head.get()));
+        }
+        // Never the late person about their own lateness, even if they are an administrator. An empty
+        // list is returned as is: the caller records the escalation and logs, it never drops it.
+        var admins = people.activeAdministrators().stream()
+                .filter(r -> !r.userId().equals(latePersonId)).toList();
+        return new Resolution(EscalationRoute.ADMINISTRATORS, admins);
     }
 }
