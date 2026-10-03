@@ -55,6 +55,14 @@ public class SlaTestSupport {
                 List.of(), 0L));
     }
 
+    /** The {@link #caseWithSla} workflow (3-day SLA) opened for an existing customer; run inside runAs. */
+    public UUID openFor(UUID customerId) {
+        UUID versionId = journey.publish(new WorkflowDefinitionRequest(
+                List.of(slaStage("s1", "Stage One", List.of(oneManual("m1")), 3, true)), List.of(), 0L));
+        return cases.create(new CreateCaseRequest(customerId, journey.templateOf(versionId),
+                "SLA case", Map.of())).id();
+    }
+
     public UUID twoStageCaseWithSla(UUID tenant, int firstSla, int secondSla) {
         return open(tenant, new WorkflowDefinitionRequest(List.of(
                 slaStage("s1", "Stage One", List.of(oneManual("m1")), firstSla, true),

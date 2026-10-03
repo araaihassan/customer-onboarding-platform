@@ -31,6 +31,42 @@ class SlaDescriptorsTest extends PostgresTestBase {
     @Autowired JourneyFixtures journey;
     @Autowired SlaClockRepository slaClocks;
     @Autowired EscalationRepository escalations;
+    @Autowired SlaPauseRepository slaPauses;
+
+    private SlaPause pause(UUID tenant, SlaClock clock) {
+        SlaPause p = new SlaPause();
+        p.setId(Uuid7.generate());
+        p.setTenantId(tenant);
+        p.setClockId(clock.getId());
+        p.setReason(PauseReason.CASE_HOLD);
+        p.setStartedAt(Instant.now());
+        return slaPauses.saveAndFlush(p);
+    }
+
+    /** sla_pause inherits scope two levels deep: pause -> clock -> case. */
+    @Test
+    void aTeamScopedHolderSeesOnlyPausesOfTheirTeamsClocksAndNoTeamSeesNothing() {
+        UUID tenant = fixture.createTenant("sla-pause");
+        UUID[] mine = new UUID[1];
+        UUID[] user = new UUID[2];
+        fixture.runAs(tenant, () -> {
+            UUID team = fixture.createTeam(tenant, "A");
+            UUID other = fixture.createTeam(tenant, "B");
+            user[0] = holder(tenant, "t@sla-pause.example", Scope.TEAM);
+            fixture.addToTeam(tenant, user[0], team);
+            user[1] = fixture.createUser(tenant, "n@sla-pause.example");
+            roles.assignRole(user[1], roles.createRole("No Team Sla", "", Map.of(PermissionKeys.SLA_VIEW, Scope.TEAM)));
+            mine[0] = pause(tenant, clock(tenant, journey.newCase(tenant, null, null, team))).getId();
+            pause(tenant, clock(tenant, journey.newCase(tenant, null, null, other)));
+        });
+        for (int i = 0; i < 2; i++) {
+            var out = new java.util.concurrent.atomic.AtomicReference<List<UUID>>();
+            fixture.runAsUser(tenant, user[i], () -> out.set(authorizedQuery
+                    .findAll(slaPauses, SlaPause.class, PermissionKeys.SLA_VIEW, null, Pageable.unpaged())
+                    .map(SlaPause::getId).getContent()));
+            if (i == 0) assertThat(out.get()).containsExactly(mine[0]); else assertThat(out.get()).isEmpty();
+        }
+    }
 
     private SlaClock clock(UUID tenant, Case c) {
         SlaClock s = new SlaClock();

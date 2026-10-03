@@ -31,6 +31,7 @@ class CustomerWaitTest extends PostgresTestBase {
     @Autowired CaseService cases;
     @Autowired DocumentRequestService requests;
     @Autowired DocumentRepository documents;
+    @Autowired SlaClockService clockService;
 
     private UUID newRequest(UUID t, UUID caseId, boolean requiresReview) {
         return fixture.runAsReturning(t, () -> requests.create(caseId,
@@ -100,7 +101,7 @@ class CustomerWaitTest extends PostgresTestBase {
         assertThat(sla.closedPauses(clockId)).isEqualTo(1);
     }
 
-    /** Review focus 1: resume must not close the request pause, and paused time is not double counted. */
+    /** Resume must not close the open request pause: the clock stays PAUSED, does not elapse, and paused time grows by no more than the wall time. */
     @Test
     void resumeWithAnOpenRequestStaysPaused() {
         UUID t = fixture.createTenant("cw-resume");
@@ -112,6 +113,17 @@ class CustomerWaitTest extends PostgresTestBase {
         fixture.runAs(t, () -> cases.resume(caseId));
         assertThat(sla.openPauseReasons(clockId)).containsExactly("OPEN_DOCUMENT_REQUEST");
         assertThat(sla.closedPauses(clockId)).isEqualTo(1);
+        SlaClockView before = fixture.runAsReturning(t, () -> clockService.forCase(caseId));
+        assertThat(before.state()).isEqualTo(SlaClockState.PAUSED);
+        assertThat(before.pauseReason()).isEqualTo(PauseReason.OPEN_DOCUMENT_REQUEST);
+
+        // Two wall-clock days later nothing has elapsed, and the paused total grew by at most the
+        // two days (a double-counted overlap would exceed that bound).
+        clock.advance(java.time.Duration.ofDays(2));
+        SlaClockView after = fixture.runAsReturning(t, () -> clockService.forCase(caseId));
+        assertThat(after.state()).isEqualTo(SlaClockState.PAUSED);
+        assertThat(after.elapsedDays()).isEqualTo(before.elapsedDays());
+        assertThat(after.pausedDays() - before.pausedDays()).isLessThanOrEqualTo(2.0 + 1e-6);
     }
 
     @Test
