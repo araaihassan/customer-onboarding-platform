@@ -36,6 +36,14 @@ app:
     ttl: P14D
   tenant:
     resolution: path-prefix
+  # Background jobs (scheduling/): off under the test profile regardless. Set
+  # APP_SCHEDULING_ENABLED=false to run an instance that must not sweep or roll partitions.
+  scheduling:
+    enabled: ${APP_SCHEDULING_ENABLED:true}
+  sla:
+    sweep-interval: PT5M
+  audit:
+    partition-cron: "0 15 2 * * *"
   # The first platform administrator, for bootstrapping a fresh deployment.
   # Both blank by default, so nothing is created unless an operator opts in:
   #   APP_PLATFORM_ADMIN_EMAIL=... APP_PLATFORM_ADMIN_PASSWORD=... 
