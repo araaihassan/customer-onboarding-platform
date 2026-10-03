@@ -78,6 +78,7 @@ export function ReassignDialog({ caseId, onClose }: { caseId: string; onClose: (
             label={t("sla.reassign.owner")}
             currentLabel={t("sla.reassign.currentOwner")}
             value={ownerValue}
+            placeholderLabel={t("sla.reassign.choose")}
             options={options}
             onChange={setOwner}
           />
@@ -122,9 +123,10 @@ export function ReassignDialog({ caseId, onClose }: { caseId: string; onClose: (
                     </p>
                     <UserSelect
                       id={`reassign-task-${id}`}
-                      label={t("sla.reassign.assignee")}
+                      label={t("sla.reassign.assignee", { title: task.title ?? "" })}
                       currentLabel={t("sla.reassign.currentAssignee")}
                       value={value}
+                      placeholderLabel={t("sla.reassign.choose")}
                       options={options}
                       onChange={(next) => setAssignees((prev) => ({ ...prev, [id]: next }))}
                     />

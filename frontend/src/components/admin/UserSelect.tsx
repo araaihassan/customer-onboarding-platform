@@ -6,6 +6,7 @@ import { t } from "@/lib/i18n";
  * Same native select and real <label htmlFor> as the users page's `DepartmentSelect`. Extracted
  * from the users page when the SLA war room's ReassignDialog became its third consumer.
  *
+ * `placeholderLabel` (only with no `noneLabel`) renders a disabled, selected "Choose…" option while the value is empty.
  * `noneLabel` is optional: omit it and there is no blank option, so a caller that must never
  * clear a value (reassigning an owner) cannot do so by accident. `currentLabel` names the
  * fallback option for a current value outside the fetched page; it defaults to the users page's
@@ -16,6 +17,7 @@ export function UserSelect({
   label,
   noneLabel,
   currentLabel,
+  placeholderLabel,
   value,
   options,
   onChange,
@@ -24,6 +26,7 @@ export function UserSelect({
   label: string;
   noneLabel?: string;
   currentLabel?: string;
+  placeholderLabel?: string;
   value: string;
   options: { id?: string; fullName?: string }[];
   onChange: (value: string) => void;
@@ -49,6 +52,12 @@ export function UserSelect({
           font: "13px/1.3 var(--ob-font-family-ui)",
         }}
       >
+        {/* No none option and no value: show a disabled placeholder rather than the first user as if chosen. */}
+        {noneLabel === undefined && placeholderLabel !== undefined && value === "" && (
+          <option value="" disabled>
+            {placeholderLabel}
+          </option>
+        )}
         {noneLabel !== undefined && <option value="">{noneLabel}</option>}
         {/* A current value outside the fetched page must stay selectable, or saving would silently clear it. */}
         {value && !options.some((option) => option.id === value) && (

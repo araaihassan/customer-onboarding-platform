@@ -119,8 +119,20 @@ describe("SLA war room page", () => {
         if (u.endsWith("/cases/a/tasks")) return reply([]);
         if (u.includes("/admin/users")) return reply({ content: [] });
         if (u.endsWith("/cases/a/document-requests")) return reply({ content: [] });
+        if (u.endsWith("/cases/a/approvals")) return reply([]);
         if (u.endsWith("/cases/a/roadmap"))
-          return reply({ stages: [{ id: "s", name: "Verification", milestones: [{ id: "m-9", name: "Collect KYC", status: "ACTIVE" }] }] });
+          return reply({
+            stages: [
+              {
+                id: "s",
+                name: "Verification",
+                milestones: [
+                  { id: "m-7", name: "Escalated one", status: "ACTIVE" },
+                  { id: "m-9", name: "Collect KYC", status: "ACTIVE" },
+                ],
+              },
+            ],
+          });
         return reply({}, 404);
       });
     }

@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { useParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { ForceCompleteDialog } from "@/components/journey/ForceCompleteDialog";
-import { ForceCompleteMilestonePicker } from "@/components/sla/ForceCompleteMilestonePicker";
+import { ForceCompleteFlow } from "@/components/sla/ForceCompleteFlow";
 import { ReassignDialog } from "@/components/sla/ReassignDialog";
 import { RemindCustomerDialog } from "@/components/sla/RemindCustomerDialog";
 import { ClockIcon } from "@/components/icons";
@@ -14,11 +13,9 @@ import { EmptyState, ErrorState, SkeletonRows } from "@/components/ui/States";
 import { slaKeys, useSlaExceptions, type ExceptionCard } from "@/lib/api/sla";
 import { t } from "@/lib/i18n";
 
-type Dialog =
-  | { kind: "reassign" | "remind" | "pick"; card: ExceptionCard }
-  | { kind: "force"; card: ExceptionCard; milestoneId: string };
+type Dialog = { kind: "reassign" | "remind" | "force"; card: ExceptionCard };
 
-/** The newest escalation that names a milestone: the card's own answer to "which milestone?". */
+/** The newest escalation that names a milestone: a candidate only, ForceCompleteFlow validates it. */
 function escalatedMilestoneId(card: ExceptionCard): string | undefined {
   return card.escalations?.find((e) => e.subjectType === "MILESTONE" && e.subjectId)?.subjectId;
 }
@@ -56,11 +53,6 @@ export default function SlaWarRoomPage() {
   function closeDialog() {
     setDialog(null);
     void queryClient.invalidateQueries({ queryKey: slaKeys.exceptions() });
-  }
-
-  function startForceComplete(card: ExceptionCard) {
-    const milestoneId = escalatedMilestoneId(card);
-    setDialog(milestoneId ? { kind: "force", card, milestoneId } : { kind: "pick", card });
   }
 
   const data = query.data;
@@ -132,7 +124,7 @@ export default function SlaWarRoomPage() {
                     card={card}
                     slug={slug}
                     onReassign={(c) => setDialog({ kind: "reassign", card: c })}
-                    onForceComplete={startForceComplete}
+                    onForceComplete={(c) => setDialog({ kind: "force", card: c })}
                     onRemind={(c) => setDialog({ kind: "remind", card: c })}
                   />
                 ))
@@ -155,16 +147,13 @@ export default function SlaWarRoomPage() {
 
       {dialog?.kind === "reassign" && dialog.card.caseId && <ReassignDialog caseId={dialog.card.caseId} onClose={closeDialog} />}
       {dialog?.kind === "remind" && dialog.card.caseId && <RemindCustomerDialog caseId={dialog.card.caseId} onClose={closeDialog} />}
-      {dialog?.kind === "pick" && dialog.card.caseId && (
-        <ForceCompleteMilestonePicker
+      {dialog?.kind === "force" && dialog.card.caseId && (
+        <ForceCompleteFlow
           caseId={dialog.card.caseId}
           stageName={dialog.card.stageName}
-          onPick={(milestoneId) => setDialog({ kind: "force", card: dialog.card, milestoneId })}
+          escalatedMilestoneId={escalatedMilestoneId(dialog.card)}
           onClose={closeDialog}
         />
-      )}
-      {dialog?.kind === "force" && dialog.card.caseId && (
-        <ForceCompleteDialog caseId={dialog.card.caseId} milestoneId={dialog.milestoneId} onClose={closeDialog} />
       )}
     </section>
   );

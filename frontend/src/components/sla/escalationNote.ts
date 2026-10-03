@@ -1,18 +1,9 @@
 import type { EscalationNote } from "@/lib/api/sla";
+import { formatDayMonth } from "@/lib/format/date";
 import { t } from "@/lib/i18n";
 
-// A fixed table, not Intl: ICU 72+ renders September as "Sept" in en-GB, and the design wants "21 Sep".
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/** `d MMM` read in UTC: the value is a calendar date, so it must not shift with the viewer's zone. */
-export function dayMonthOf(raw: string | undefined): string {
-  if (!raw) return "";
-  const d = new Date(raw.length === 10 ? `${raw}T00:00:00Z` : raw);
-  return Number.isNaN(d.getTime()) ? "" : `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
-}
-
 function dayMonth(note: EscalationNote): string {
-  return dayMonthOf(note.escalatedAt ?? note.dueDate);
+  return formatDayMonth(note.escalatedAt ?? note.dueDate);
 }
 
 /**

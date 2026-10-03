@@ -7,9 +7,9 @@ import { SkeletonRows } from "@/components/ui/States";
 import { ApiError } from "@/lib/api/client";
 import { parseProblemDetail } from "@/lib/api/cases";
 import { useDocumentRequests, useRemindRequest, type DocumentRequest } from "@/lib/api/documents";
+import { formatDayMonth } from "@/lib/format/date";
 import { t } from "@/lib/i18n";
 import { InlineError, SlaEyebrow } from "./dialogParts";
-import { dayMonthOf } from "./escalationNote";
 
 const dataFont = { fontFamily: "var(--ob-font-family-data)" } as const;
 
@@ -63,7 +63,7 @@ export function RemindCustomerDialog({ caseId, onClose }: { caseId: string; onCl
           const noContact = !request.requestedOfContactId;
           const history =
             (request.remindersSent ?? 0) > 0
-              ? t("sla.remind.history", { count: String(request.remindersSent), date: dayMonthOf(request.lastRemindedAt) })
+              ? t("sla.remind.history", { count: String(request.remindersSent), date: formatDayMonth(request.lastRemindedAt) })
               : t("sla.remind.never");
           return (
             <li

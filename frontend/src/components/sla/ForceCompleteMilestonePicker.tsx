@@ -3,13 +3,14 @@
 import { Button } from "@/components/ui/Button";
 import { Dialog, DialogActions } from "@/components/ui/Dialog";
 import { SkeletonRows } from "@/components/ui/States";
-import { useRoadmap } from "@/lib/api/cases";
+import { isForceCompletable, pendingForceComplete } from "@/components/journey/forceCompleteEligibility";
+import { useApprovals, useRoadmap } from "@/lib/api/cases";
 import { t } from "@/lib/i18n";
 import { InlineError, SlaEyebrow } from "./dialogParts";
 
 /**
  * The step before the existing ForceCompleteDialog when the war-room card carries no milestone
- * escalation to name the target. Lists the current stage's incomplete milestones from the
+ * escalation to name a valid target. Lists the current stage's force-completable milestones from the
  * roadmap; the roadmap does not mark the current stage, so the card's stage name picks it (when it
  * matches nothing, every stage's incomplete milestones are offered rather than none).
  */
@@ -25,17 +26,19 @@ export function ForceCompleteMilestonePicker({
   onClose: () => void;
 }) {
   const roadmap = useRoadmap(caseId);
+  const approvals = useApprovals(caseId);
   const stages = roadmap.data?.stages ?? [];
   const current = stageName ? stages.filter((s) => s.name === stageName) : [];
   const scoped = current.length > 0 ? current : stages;
+  // Same rule as the case workspace: no DONE/SKIPPED milestone, none with a request already pending.
   const milestones = scoped
     .flatMap((s) => s.milestones ?? [])
-    .filter((m) => m.status !== "DONE" && m.status !== "SKIPPED");
+    .filter((m) => isForceCompletable(m.status ?? "PENDING", pendingForceComplete(approvals.data ?? [], m.id)));
 
   let body;
-  if (roadmap.isError) {
+  if (roadmap.isError || approvals.isError) {
     body = <InlineError>{t("sla.forceComplete.error")}</InlineError>;
-  } else if (roadmap.isLoading) {
+  } else if (roadmap.isLoading || approvals.isLoading) {
     body = <SkeletonRows rows={3} height={36} />;
   } else if (milestones.length === 0) {
     body = (

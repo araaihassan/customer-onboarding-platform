@@ -27,6 +27,12 @@ const roadmap = {
   ],
 };
 
+function serve(road: unknown, approvals: unknown, approvalsStatus = 200) {
+  fetchMock.mockImplementation(async (url: string) =>
+    String(url).endsWith("/approvals") ? reply(approvals, approvalsStatus) : reply(road),
+  );
+}
+
 function renderPicker(stageName: string | undefined, onPick = vi.fn(), onClose = vi.fn()) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
@@ -39,12 +45,12 @@ beforeEach(() => {
   global.fetch = fetchMock as unknown as typeof fetch;
   setTenantSlug("acme");
   __setAccessToken("token");
-  fetchMock.mockImplementation(async () => reply(roadmap));
+  serve(roadmap, []);
 });
 afterEach(cleanup);
 
 describe("ForceCompleteMilestonePicker", () => {
-  it("offers only the current stage's incomplete milestones and passes the chosen id on", async () => {
+  it("offers only the current stage's force-completable milestones and passes the chosen id on", async () => {
     const { onPick } = renderPicker("Verification");
     await screen.findByRole("button", { name: "Collect KYC" });
     expect(screen.getByRole("button", { name: "Sanctions check" })).toBeInTheDocument();
@@ -55,16 +61,49 @@ describe("ForceCompleteMilestonePicker", () => {
     expect(onPick).toHaveBeenCalledWith("m-2");
   });
 
-  it("says so when the current stage has nothing left to force-complete", async () => {
-    fetchMock.mockImplementation(async () =>
-      reply({ stages: [{ id: "s-2", name: "Verification", milestones: [{ id: "m-3", name: "Finished", status: "DONE" }] }] }),
+  it("excludes a milestone that already has a pending force-complete request", async () => {
+    serve(roadmap, [{ id: "a-1", kind: "FORCE_COMPLETE", milestoneId: "m-1", status: "PENDING" }]);
+    renderPicker("Verification");
+    await screen.findByRole("button", { name: "Sanctions check" });
+    expect(screen.queryByRole("button", { name: "Collect KYC" })).toBeNull();
+  });
+
+  it("still offers a milestone whose earlier force-complete request was decided", async () => {
+    serve(roadmap, [{ id: "a-1", kind: "FORCE_COMPLETE", milestoneId: "m-1", status: "REJECTED" }]);
+    renderPicker("Verification");
+    expect(await screen.findByRole("button", { name: "Collect KYC" })).toBeInTheDocument();
+  });
+
+  it("says so when nothing in the stage can be force-completed", async () => {
+    serve(
+      {
+        stages: [
+          {
+            id: "s-2",
+            name: "Verification",
+            milestones: [
+              { id: "m-3", name: "Finished", status: "DONE" },
+              { id: "m-4", name: "Skipped one", status: "SKIPPED" },
+              { id: "m-1", name: "Collect KYC", status: "ACTIVE" },
+            ],
+          },
+        ],
+      },
+      [{ id: "a-1", kind: "FORCE_COMPLETE", milestoneId: "m-1", status: "PENDING" }],
     );
     renderPicker("Verification");
-    expect(await screen.findByText("No incomplete milestones in this stage.")).toBeInTheDocument();
+    expect(await screen.findByText("No milestone can be force-completed.")).toBeInTheDocument();
+    expect(screen.queryAllByRole("listitem")).toHaveLength(0);
   });
 
   it("shows an error state when the roadmap cannot be loaded", async () => {
     fetchMock.mockImplementation(async () => reply({}, 500));
+    renderPicker("Verification");
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+  });
+
+  it("shows an error state when the approvals cannot be loaded", async () => {
+    serve(roadmap, {}, 500);
     renderPicker("Verification");
     expect(await screen.findByRole("alert")).toBeInTheDocument();
   });

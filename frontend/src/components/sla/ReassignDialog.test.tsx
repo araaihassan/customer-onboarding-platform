@@ -49,6 +49,7 @@ const tasks = [
   { ...task, id: "tk-2", title: "Done thing", status: "COMPLETED" },
   { ...task, id: "tk-3", title: "Cancelled thing", status: "CANCELLED" },
   { ...task, id: "tk-4", title: "Unowned thing", assigneeId: undefined },
+  { ...task, id: "tk-5", title: "Second open task", assigneeId: "u-2" },
 ];
 
 function route(over: Record<string, () => Response> = {}) {
@@ -98,7 +99,9 @@ describe("ReassignDialog", () => {
     expect(screen.queryByText("Done thing")).toBeNull();
     expect(screen.queryByText("Cancelled thing")).toBeNull();
     expect(screen.queryByText("Unowned thing")).toBeNull();
-    expect(screen.getAllByLabelText("Assignee")).toHaveLength(1);
+    expect(screen.getAllByLabelText(/^Assignee for /)).toHaveLength(2);
+    expect(screen.getByLabelText("Assignee for Collect KYC")).toHaveValue("u-1");
+    expect(screen.getByLabelText("Assignee for Second open task")).toHaveValue("u-2");
   });
 
   it("saves the owner with a full-replace body that carries every other field untouched", async () => {
@@ -123,7 +126,7 @@ describe("ReassignDialog", () => {
 
   it("saves a task with its full current fields and only the assignee changed", async () => {
     const { onClose } = renderDialog();
-    const select = await screen.findByLabelText("Assignee");
+    const select = await screen.findByLabelText("Assignee for Collect KYC");
     await waitFor(() => expect((select as HTMLSelectElement).value).toBe("u-1"));
     fireEvent.change(select, { target: { value: "u-2" } });
     fireEvent.click(screen.getByRole("button", { name: "Reassign task Collect KYC" }));
@@ -155,6 +158,15 @@ describe("ReassignDialog", () => {
     renderDialog();
     const owner = (await screen.findByLabelText("Case owner")) as HTMLSelectElement;
     await waitFor(() => expect(owner.value).toBe("u-far"));
+  });
+
+  it("shows a disabled Choose placeholder, not the first user, when the case has no owner", async () => {
+    route({ "GET /api/t/acme/cases/c-1": () => reply({ ...theCase, ownerUserId: undefined }) });
+    renderDialog();
+    const owner = (await screen.findByLabelText("Case owner")) as HTMLSelectElement;
+    await waitFor(() => expect(owner.value).toBe(""));
+    expect(within(owner).getByRole("option", { name: "Choose…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reassign owner" })).toBeDisabled();
   });
 
   it("shows the problem detail on a 404 and stays open", async () => {

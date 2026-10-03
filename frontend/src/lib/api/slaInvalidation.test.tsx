@@ -63,7 +63,7 @@ const cases: Case[] = [
     run: () => ({ hook: useReviewVersion, vars: { documentId: "d", versionNo: 1, decision: "APPROVE" } }),
   },
   { name: "useUpdateCase", response: { id: "c-1" }, run: () => ({ hook: useUpdateCase, vars: { caseId: "c-1", body: { name: "n" } } }) },
-  { name: "useUpdateTask", response: { caseId: "c-1" }, run: () => ({ hook: useUpdateTask, vars: { taskId: "t", body: {} } }) },
+  { name: "useUpdateTask", response: { caseId: "c-1" }, run: () => ({ hook: useUpdateTask, vars: { taskId: "t", body: { title: "t", priority: "LOW", milestoneId: "m" } } }) },
   { name: "useChangeTaskStatus", response: { caseId: "c-1" }, run: () => ({ hook: useChangeTaskStatus, vars: { taskId: "t", status: "DONE" } }) },
   {
     name: "useCreateDocumentRequest",
