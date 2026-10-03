@@ -14,8 +14,12 @@ import {
   useCreateTeam,
   useDepartments,
   useTeams,
+  useUpdateDepartment,
+  useUsers,
 } from "@/lib/api/admin";
-import type { Department, Team } from "@/lib/api/admin";
+import type { Department, Team, User } from "@/lib/api/admin";
+import { parseProblemDetail } from "@/lib/api/cases";
+import { ApiError } from "@/lib/api/client";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
 
@@ -38,11 +42,18 @@ import { t } from "@/lib/i18n";
 export default function OrgPage() {
   const canManageDepartments = useHasPermission("department.manage");
   const canManageTeams = useHasPermission("team.manage");
+  const canViewUsers = useHasPermission("user.view");
 
   const departments = useDepartments(canManageDepartments);
   const teams = useTeams(canManageTeams);
   const createDepartment = useCreateDepartment();
   const createTeam = useCreateTeam();
+  const updateDepartment = useUpdateDepartment();
+  // Heads are resolved to names from the first page of users (fixed page size
+  // of 25 -- a known limit; a head beyond it shows a neutral fallback).
+  const users = useUsers("", 0, canManageDepartments && canViewUsers);
+  const userList = users.data?.content ?? [];
+  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null);
 
   const [creating, setCreating] = useState<"department" | "team" | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -94,6 +105,12 @@ export default function OrgPage() {
                   key={department.id}
                   name={department.name ?? ""}
                   detail={department.description}
+                  head={headLabel(department, userList, canViewUsers)}
+                  editLabel={t("admin.departments.edit.for", { name: department.name ?? "" })}
+                  onEdit={() => {
+                    updateDepartment.reset();
+                    setEditingDepartment(department);
+                  }}
                 />
               ))}
             </ul>
@@ -224,6 +241,30 @@ export default function OrgPage() {
         </Dialog>
       )}
 
+      {editingDepartment && (
+        <Dialog title={t("admin.departments.edit.title")} onClose={() => setEditingDepartment(null)}>
+          <DepartmentEditForm
+            department={editingDepartment}
+            heads={canViewUsers ? userList : undefined}
+            pending={updateDepartment.isPending}
+            error={
+              updateDepartment.isError
+                ? updateDepartment.error instanceof ApiError
+                  ? parseProblemDetail(updateDepartment.error.message)
+                  : t("common.error")
+                : undefined
+            }
+            onCancel={() => setEditingDepartment(null)}
+            onSubmit={(body) =>
+              updateDepartment.mutate(
+                { id: editingDepartment.id ?? "", body },
+                { onSuccess: () => setEditingDepartment(null) },
+              )
+            }
+          />
+        </Dialog>
+      )}
+
       {creating === "team" && (
         <Dialog title={t("admin.teams.create")} onClose={() => setCreating(null)}>
           <OrgForm
@@ -240,12 +281,37 @@ export default function OrgPage() {
   );
 }
 
-function Row({ name, detail }: { name: string; detail?: string }) {
+/**
+ * The head's NAME, never its uuid in human text. A head not in the fetched page
+ * (or an actor who cannot read users) gets a neutral label instead.
+ */
+function headLabel(department: Department, users: User[], canViewUsers: boolean): string {
+  if (!department.headUserId) return t("admin.departments.noHead");
+  const head = canViewUsers ? users.find((u) => u.id === department.headUserId) : undefined;
+  return head?.fullName
+    ? t("admin.departments.head", { name: head.fullName })
+    : t("admin.departments.headUnknown");
+}
+
+function Row({
+  name,
+  detail,
+  head,
+  editLabel,
+  onEdit,
+}: {
+  name: string;
+  detail?: string;
+  head: string;
+  editLabel: string;
+  onEdit: () => void;
+}) {
   return (
     <li
-      className="border-t border-line-faint first:border-t-0"
-      style={{ padding: "var(--ob-space-10) 0" }}
+      className="flex items-center border-t border-line-faint first:border-t-0"
+      style={{ padding: "var(--ob-space-10) 0", gap: "var(--ob-space-11)" }}
     >
+      <div className="flex-1 min-w-0">
       <p
         className="truncate text-ink"
         style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
@@ -260,7 +326,138 @@ function Row({ name, detail }: { name: string; detail?: string }) {
           {detail}
         </p>
       )}
+      <p
+        className="truncate text-text-subtle"
+        style={{ font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)" }}
+      >
+        {head}
+      </p>
+      </div>
+      <Button
+        type="button"
+        variant="secondary"
+        aria-label={editLabel}
+        onClick={onEdit}
+        style={{ height: "var(--ob-control-height-sm)" }}
+      >
+        {t("admin.departments.edit")}
+      </Button>
     </li>
+  );
+}
+
+/**
+ * PUT is a full replace: name, description AND headUserId always travel
+ * together. "No head" is an explicit null; without user.view the select is
+ * hidden and the current head is resent unchanged rather than blanked.
+ */
+function DepartmentEditForm({
+  department,
+  heads,
+  pending,
+  error,
+  onSubmit,
+  onCancel,
+}: {
+  department: Department;
+  heads?: User[];
+  pending: boolean;
+  error?: string;
+  onSubmit: (body: { name: string; description: string; headUserId: string | null }) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState(department.name ?? "");
+  const [description, setDescription] = useState(department.description ?? "");
+  const [headUserId, setHeadUserId] = useState(department.headUserId ?? "");
+  const [nameError, setNameError] = useState<string>();
+  const candidates = (heads ?? []).filter((u) => u.status === "ACTIVE" && u.userType === "INTERNAL");
+
+  return (
+    <form
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        const trimmed = name.trim();
+        if (!trimmed) {
+          setNameError(t("customer.form.required"));
+          return;
+        }
+        onSubmit({
+          name: trimmed,
+          description: description.trim(),
+          headUserId: headUserId || null,
+        });
+      }}
+    >
+      <div className="flex flex-col" style={{ gap: "var(--ob-space-13)" }}>
+        <Field
+          label={t("admin.org.field.name")}
+          value={name}
+          error={nameError}
+          onChange={(event) => {
+            setName(event.target.value);
+            setNameError(undefined);
+          }}
+        />
+        <Field
+          label={t("admin.org.field.description")}
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+        />
+        {heads && (
+          <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
+            <label
+              htmlFor="department-head"
+              className="text-text-muted"
+              style={{ font: "500 var(--ob-type-table-cell-size)/var(--ob-type-table-cell-line) var(--ob-font-family-ui)" }}
+            >
+              {t("admin.org.field.head")}
+            </label>
+            <select
+              id="department-head"
+              value={headUserId}
+              onChange={(event) => setHeadUserId(event.target.value)}
+              className="bg-surface border border-line text-ink"
+              style={{
+                height: "var(--ob-control-height)",
+                borderRadius: "var(--ob-radius-9)",
+                padding: "0 var(--ob-space-11)",
+                font: "13px/1.3 var(--ob-font-family-ui)",
+              }}
+            >
+              <option value="">{t("admin.org.field.head.none")}</option>
+              {candidates.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>
+                  {candidate.fullName}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <p
+          role="alert"
+          style={{
+            color: "var(--ob-risk-fg)",
+            marginTop: "var(--ob-space-11)",
+            font: "var(--ob-type-row-subtitle-size)/var(--ob-type-row-subtitle-line) var(--ob-font-family-ui)",
+          }}
+        >
+          {error}
+        </p>
+      )}
+
+      <DialogActions>
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button type="submit" disabled={pending}>
+          {t("common.save")}
+        </Button>
+      </DialogActions>
+    </form>
   );
 }
 

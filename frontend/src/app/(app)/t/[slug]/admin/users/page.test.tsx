@@ -13,6 +13,7 @@ import {
   useUpdateUser,
   useUsers,
 } from "@/lib/api/admin";
+import { ApiError } from "@/lib/api/client";
 
 vi.mock("@/lib/api/admin", () => ({
   useUsers: vi.fn(),
@@ -43,9 +44,17 @@ const target = {
   email: "target@example.com",
   fullName: "Target Person",
   status: "ACTIVE" as const,
+  userType: "INTERNAL" as const,
   departmentId: "dept-1",
   roleIds: [],
 };
+
+// The picker lists ACTIVE INTERNAL users only, and never the user being edited.
+const colleagues = [
+  { id: "user-2", email: "boss@example.com", fullName: "Boss Person", status: "ACTIVE" as const, userType: "INTERNAL" as const, roleIds: [] },
+  { id: "user-3", email: "gone@example.com", fullName: "Deactivated Person", status: "DEACTIVATED" as const, userType: "INTERNAL" as const, roleIds: [] },
+  { id: "user-4", email: "portal@example.com", fullName: "Portal Person", status: "ACTIVE" as const, userType: "PORTAL" as const, roleIds: [] },
+];
 
 const departments = [
   { id: "dept-1", name: "Engineering" },
@@ -56,12 +65,14 @@ function primeHooks(options: {
   inviteMutate?: ReturnType<typeof vi.fn>;
   updateMutate?: ReturnType<typeof vi.fn>;
   departmentsEnabled?: boolean;
+  updateError?: Error;
+  target?: Record<string, unknown>;
 }) {
   const inviteMutate = options.inviteMutate ?? vi.fn();
   const updateMutate = options.updateMutate ?? vi.fn();
 
   vi.mocked(useUsers).mockReturnValue({
-    data: { content: [target], totalElements: 1, totalPages: 1 },
+    data: { content: [options.target ?? target, ...colleagues], totalElements: 4, totalPages: 1 },
     isLoading: false,
     isError: false,
     isFetching: false,
@@ -83,7 +94,8 @@ function primeHooks(options: {
     mutate: updateMutate,
     reset: vi.fn(),
     isPending: false,
-    isError: false,
+    isError: Boolean(options.updateError),
+    error: options.updateError ?? null,
   } as unknown as ReturnType<typeof useUpdateUser>);
   vi.mocked(useDeactivateUser).mockReturnValue({
     mutate: vi.fn(),
@@ -195,7 +207,7 @@ describe("UsersPage edit form", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(updateMutate).toHaveBeenCalledWith(
-      { id: "user-1", body: { fullName: "Target Person", departmentId: "dept-2" } },
+      { id: "user-1", body: { fullName: "Target Person", departmentId: "dept-2", managerId: null } },
       expect.anything(),
     );
   });
@@ -212,8 +224,93 @@ describe("UsersPage edit form", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(updateMutate).toHaveBeenCalledWith(
-      { id: "user-1", body: { fullName: "Target Person", departmentId: "dept-1" } },
+      { id: "user-1", body: { fullName: "Target Person", departmentId: "dept-1", managerId: null } },
       expect.anything(),
     );
+  });
+});
+
+describe("UsersPage manager picker", () => {
+  const manager = { "user.view": ["ALL"], "user.manage": ["ALL"] };
+  const actor = { id: "actor-1", fullName: "Actor", email: "actor@example.com" };
+
+  it("lists active internal users except the one being edited, with a No manager option", () => {
+    permissions = manager;
+    user = actor;
+    primeHooks({});
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Target Person" }));
+
+    const select = screen.getByLabelText("Manager") as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual(["No manager", "Boss Person"]);
+    expect(select.value).toBe("");
+  });
+
+  it("sends the chosen managerId in the full-replace body", () => {
+    permissions = manager;
+    user = actor;
+    const { updateMutate } = primeHooks({});
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Target Person" }));
+    fireEvent.change(screen.getByLabelText("Manager"), { target: { value: "user-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(updateMutate).toHaveBeenCalledWith(
+      { id: "user-1", body: { fullName: "Target Person", departmentId: "dept-1", managerId: "user-2" } },
+      expect.anything(),
+    );
+  });
+
+  it("sends managerId null when the manager is cleared", () => {
+    permissions = manager;
+    user = actor;
+    const { updateMutate } = primeHooks({ target: { ...target, managerId: "user-2" } });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Target Person" }));
+    const select = screen.getByLabelText("Manager") as HTMLSelectElement;
+    expect(select.value).toBe("user-2");
+    fireEvent.change(select, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(updateMutate).toHaveBeenCalledWith(
+      { id: "user-1", body: { fullName: "Target Person", departmentId: "dept-1", managerId: null } },
+      expect.anything(),
+    );
+  });
+
+  it("shows the same select on the invite form and sends managerId", () => {
+    permissions = manager;
+    user = actor;
+    const { inviteMutate } = primeHooks({});
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Invite user" }));
+
+    const select = screen.getByLabelText("Manager") as HTMLSelectElement;
+    expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
+      "No manager",
+      "Target Person",
+      "Boss Person",
+    ]);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@example.com" } });
+    fireEvent.change(screen.getByLabelText("Full name"), { target: { value: "New Person" } });
+    fireEvent.change(select, { target: { value: "user-2" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
+
+    expect(inviteMutate).toHaveBeenCalledWith(
+      { email: "new@example.com", fullName: "New Person", managerId: "user-2" },
+      expect.anything(),
+    );
+  });
+
+  it("shows the server's problem detail when the manager is out of scope (404)", () => {
+    permissions = manager;
+    user = actor;
+    primeHooks({
+      updateError: new ApiError(404, JSON.stringify({ detail: "Manager not found" })),
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Target Person" }));
+
+    expect(screen.getByRole("alert").textContent).toBe("Manager not found");
   });
 });
