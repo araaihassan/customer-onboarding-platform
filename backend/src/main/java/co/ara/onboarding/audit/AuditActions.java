@@ -328,4 +328,10 @@ public final class AuditActions {
     public static Optional<AuditAction> byKey(String key) {
         return Optional.ofNullable(BY_KEY.get(key));
     }
+
+    // SLA & escalation (sub-project 6). All compliance-only: the design hides SLA mechanics from the
+    // customer (SCREENS L344) and the portal reads this same flag (spec 4.7, invariant 9).
+    public static final AuditAction SLA_BREACHED      = of("sla.breached", false);
+    public static final AuditAction ESCALATION_RAISED = of("escalation.raised", false);
+    public static final AuditAction NOTIFICATION_SENT = of("notification.sent", false);
 }

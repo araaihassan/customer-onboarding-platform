@@ -26,8 +26,12 @@ public class RequestAuditContext {
     private final String requestId = UUID.randomUUID().toString();
 
     public RequestAuditContext(Optional<HttpServletRequest> request) {
-        this.ip = request.map(HttpServletRequest::getRemoteAddr).orElse(null);
-        this.userAgent = request.map(r -> r.getHeader("User-Agent")).orElse(null);
+        // Inside a scheduled job (TenantJobRunner) the injected HttpServletRequest is a proxy with no
+        // servlet request behind it, and touching it throws; such a context has no ip or agent.
+        boolean servlet = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
+                instanceof org.springframework.web.context.request.ServletRequestAttributes;
+        this.ip = servlet ? request.map(HttpServletRequest::getRemoteAddr).orElse(null) : null;
+        this.userAgent = servlet ? request.map(r -> r.getHeader("User-Agent")).orElse(null) : null;
     }
 
     public void setActor(UUID userId, ActorType type) {
