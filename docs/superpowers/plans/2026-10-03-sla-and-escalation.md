@@ -3744,6 +3744,8 @@ Spec §10.3.
   - **"What sub-project 6B inherits"** (new): the `notification` table and its `type` check to widen by migration; `TenantJobRunner` and the system actor (and the fact that `SystemPermissions` is read-only — 6B adding a write permission to it is a design decision, not a convenience); `atRisk` for risk alerts; `reminders_sent`/`last_reminded_at` for automatic reminders; no public base URL exists for email links yet; a failed reminder email still advances the counter; the inbox must make `TopBar.test.tsx`'s "no dead notification controls" assertion true by shipping a real control, not by deleting the assertion.
   - **Open at the close of sub-project 6:** the cases-list SLA column/filter (no screen 2 exists — §1.2.6); the war room's user pickers load only the first page of users; anything else found during execution.
   - **Tests section:** `sla.spec.ts` added, and that it shifts the dev backend's clock for the rest of the run.
+> **Amendment (Task 32):** the close-out ran per package (1234 backend tests, 8 GB host), Step 4 (memory note) was left to the controller, and CLAUDE.md's open list also carries the sole-administrator no-recipient escalation (spec 6.2 amended) and the V27 partition-bounds timezone seam. The `sla.spec.ts` header comment was corrected in the same commit.
+
 - [ ] **Step 4: Update the memory note** `subproject6_sla_and_escalation.md` to COMPLETE with the branch/PR state, and its `MEMORY.md` line.
 - [ ] **Step 5: Commit** — `docs: close out sub-project 6, SLA & Escalation`. **Do not push or open a PR** — report to the user and wait for their go-ahead (they approve every git push/PR/merge).
 

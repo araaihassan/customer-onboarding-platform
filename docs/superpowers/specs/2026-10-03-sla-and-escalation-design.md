@@ -439,6 +439,12 @@ war room shows it, routed `ADMINISTRATORS` with no one to deliver to) and logs a
 tenant on every sweep until an administrator exists. Invariant 6 is therefore "every overdue item is
 escalated and recorded", not "every escalation is delivered".
 
+**Amendment (Task 31 e2e, 2026-10-03):** there is a second way step 3 comes up empty. Step 3 excludes
+the late person, so a tenant's *sole* active administrator who owns a late milestone or clock yields
+no recipient although an active administrator exists, and the "no active administrator" error log is
+then misleading. Open for 6B or a follow-up: fall back to the late administrator themselves, or word
+the log for both cases.
+
 ### 6.3 Email
 
 Sent after commit, never inside the transaction, through the existing `EmailSender`, plain text,

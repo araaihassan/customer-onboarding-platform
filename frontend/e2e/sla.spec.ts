@@ -19,6 +19,13 @@ import type { Tenant } from "./support/tenant";
  * the second test deliberately creates its case AFTER the shift so its clock is
  * young.
  *
+ * The shift also reaches CONCURRENT workers (the shift is process-wide, not per spec,
+ * so another worker's request mid-run sees a clock days ahead) and the backend's own
+ * five-minute scheduled sweep, which will then escalate other tenants' overdue work
+ * against the shifted clock. That is harmless today: the audit events it writes are not
+ * timeline-visible and no notification UI exists yet (6B). `reuseExistingServer` means
+ * a dev backend started by hand and reused here stays shifted until it is restarted.
+ *
  * Shift sizes are chosen to hold on any weekday: four calendar days always contain
  * at least one business day (Mon-Fri), and a further ten always contain at least
  * five, which clears the policy's escalate-after threshold whatever day this runs.
@@ -107,6 +114,9 @@ test.beforeAll(async ({ playwright }) => {
 test("a breached clock escalates to the owner's manager, by email and on the war room", async ({ page, request }) => {
   const admin = await Api.as(request, tenant.slug, tenant.adminEmail);
 
+  // Order matters: the first shift (T+4d) must be small enough that the breach is stamped but
+  // not yet overdue by the policy threshold, so the second shift (T+14d total) is what raises
+  // the escalation. Reordering or merging the shifts breaks the "repeat is quiet" assertion.
   await admin.shiftClock(4 * 86_400);
   await admin.runSlaSweep(); // stamps the breach
   await admin.runSlaSweep(); // nothing new yet; proves a repeat is quiet
