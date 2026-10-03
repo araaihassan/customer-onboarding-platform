@@ -426,6 +426,9 @@ function DepartmentEditForm({
               }}
             >
               <option value="">{t("admin.org.field.head.none")}</option>
+              {headUserId && !candidates.some((c) => c.id === headUserId) && (
+                <option value={headUserId}>{t("admin.departments.headUnknown")}</option>
+              )}
               {candidates.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
                   {candidate.fullName}

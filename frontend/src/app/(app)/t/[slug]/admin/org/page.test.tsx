@@ -140,3 +140,22 @@ describe("OrgPage department head", () => {
     expect(screen.queryByRole("button", { name: /^Edit/ })).toBeNull();
   });
 });
+
+describe("OrgPage head outside the fetched page", () => {
+  it("keeps the current head selected so saving does not clear it", () => {
+    const { updateMutate } = prime();
+    vi.mocked(useDepartments).mockReturnValue({
+      data: [{ id: "dept-9", name: "Legal", description: "", headUserId: "user-99" }],
+      isLoading: false,
+      isError: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useDepartments>);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Legal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(updateMutate).toHaveBeenCalledWith(
+      { id: "dept-9", body: { name: "Legal", description: "", headUserId: "user-99" } },
+      expect.anything(),
+    );
+  });
+});

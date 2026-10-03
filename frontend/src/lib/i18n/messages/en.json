@@ -101,6 +101,7 @@
   "admin.users.field.department.none": "No department",
   "admin.users.field.manager": "Manager",
   "admin.users.field.manager.none": "No manager",
+  "admin.users.field.manager.current": "Current manager",
   "admin.users.edit": "Edit",
   "admin.users.edit.for": "Edit {name}",
   "admin.users.edit.title": "Edit user",

@@ -718,6 +718,10 @@ function UserSelect({
         }}
       >
         <option value="">{noneLabel}</option>
+        {/* A current value outside the fetched page must stay selectable, or saving would silently clear it. */}
+        {value && !options.some((option) => option.id === value) && (
+          <option value={value}>{t("admin.users.field.manager.current")}</option>
+        )}
         {options.map((option) => (
           <option key={option.id} value={option.id}>
             {option.fullName}
