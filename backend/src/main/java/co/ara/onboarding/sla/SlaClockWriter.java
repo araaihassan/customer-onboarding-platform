@@ -9,6 +9,8 @@ import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,9 +33,11 @@ class SlaClockWriter {
     private final CaseRepository cases;
     private final DocumentRequestRepository requests;
     private final SlaClockReader reader;
+    private final EntityManager em;
 
     SlaClockWriter(SlaClockRepository clocks, SlaPauseRepository pauses, StageRepository stages,
-                   CaseRepository cases, DocumentRequestRepository requests, SlaClockReader reader) {
+                   CaseRepository cases, DocumentRequestRepository requests, SlaClockReader reader, EntityManager em) {
+        this.em = em;
         this.clocks = clocks; this.pauses = pauses; this.stages = stages;
         this.cases = cases; this.requests = requests; this.reader = reader;
     }
@@ -61,6 +65,10 @@ class SlaClockWriter {
     @Transactional(propagation = Propagation.MANDATORY)
     void stopOpen(UUID caseId, Instant at) {
         clocks.findByCaseIdAndStoppedAtIsNull(caseId).ifPresent(c -> {
+            // Lock and reload: the sweep stamps breached_at without the case lock, so the snapshot
+            // loaded above may be stale. Under the row lock the outcome sees any committed stamp.
+            em.refresh(c, LockModeType.PESSIMISTIC_WRITE);
+            if (c.getStoppedAt() != null) return;
             for (SlaPause p : pauses.findByClockIdAndEndedAtIsNull(c.getId())) {
                 p.setEndedAt(at);
                 pauses.save(p);

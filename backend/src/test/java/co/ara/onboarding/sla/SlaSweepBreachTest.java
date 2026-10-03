@@ -39,6 +39,7 @@ class SlaSweepBreachTest extends PostgresTestBase {
     @Autowired TimelineService timeline;
     @Autowired SlaSweepService sweep;
     @Autowired TenantJobRunner runner;
+    @Autowired SlaClockRepository slaClocks;
 
     @AfterEach void clear() {
         SecurityContextHolder.clearContext();
@@ -101,6 +102,7 @@ class SlaSweepBreachTest extends PostgresTestBase {
         assertThat(rows).hasSize(1);
         assertThat(rows.get(0).get("timeline_visible")).isEqualTo(false);
         assertThat(rows.get(0).get("actor_type")).isEqualTo("SYSTEM");
+        assertThat(rows.get(0).get("actor_user_id")).isNull();
         List<String> actions = fixture.runAsReturning(t, () -> timeline.forCase(caseId, Pageable.ofSize(100))
                 .getContent().stream().map(AuditEventView::action).toList());
         assertThat(actions).doesNotContain("sla.breached");
@@ -146,5 +148,56 @@ class SlaSweepBreachTest extends PostgresTestBase {
         fixture.runUnauthenticated(t, () -> n[0] = sweep.stampBreaches());
         assertThat(n[0]).isEqualTo(1);
         assertThat(breachedAt(clockId)).isNotNull();
+    }
+
+    @Test
+    void exhaustedBeforeAPauseOpenedIsStillStamped() {
+        UUID t = fixture.createTenant("sw-late-pause");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 1, true));
+        UUID clockId = sla.openClockId(caseId);
+        clock.advance(Duration.ofDays(4));
+        fixture.runAs(t, () -> cases.hold(caseId, "x"));
+        assertThat(stamp(t)).isEqualTo(1);
+        assertThat(breachedAt(clockId)).isNotNull();
+    }
+
+    // Race (i): the clock was stopped by a committed transaction after the sweep read it. The
+    // conditional stamp must touch nothing, so no reopened clock and no audit row.
+    @Test
+    void aClockStoppedAfterTheSweepReadItIsNotStampedOrAudited() {
+        UUID t = fixture.createTenant("sw-race-stop");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 1, true));
+        UUID clockId = sla.openClockId(caseId);
+        clock.advance(Duration.ofDays(4));
+        fixture.runAs(t, () -> requirements.satisfy(sla.firstRequirementId(caseId), null, null));
+        int[] rows = new int[1];
+        runner.forTenant("sla-sweep", t, x -> rows[0] = slaClocks.stampBreach(clockId, Instant.now(clock)));
+        assertThat(rows[0]).isZero();
+        assertThat(breachedAt(clockId)).isNull();
+        assertThat(sla.openClockId(caseId)).isNull();
+        assertThat(ownerJdbc().queryForObject(
+                "select count(*) from audit_event where action = 'sla.breached' and resource_id = ?",
+                Long.class, clockId)).isZero();
+        assertThat(ownerJdbc().queryForObject("select stopped_at is not null from sla_clock where id = ?",
+                Boolean.class, clockId)).isTrue();
+    }
+
+    // Race (ii): the request loaded the clock, the sweep committed a stamp, then the request stops it.
+    // The stop must not write the stale null back and must record the breach as the outcome.
+    @Test
+    void stoppingAClockNeverClobbersAConcurrentlyStampedBreach() {
+        UUID t = fixture.createTenant("sw-race-stamp");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 3, true));
+        UUID clockId = sla.openClockId(caseId);
+        UUID req = fixture.runAsReturning(t, () -> sla.firstRequirementId(caseId));
+        fixture.runAs(t, () -> {
+            slaClocks.findById(clockId).orElseThrow(); // the request's stale snapshot (breached_at null)
+            ownerJdbc().update("update sla_clock set breached_at = now() where id = ?", clockId);
+            requirements.satisfy(req, null, null);
+        });
+        Instant stamped = breachedAt(clockId);
+        assertThat(stamped).isNotNull();
+        assertThat(ownerJdbc().queryForObject("select outcome from sla_clock where id = ?", String.class, clockId))
+                .isEqualTo("BREACHED");
     }
 }

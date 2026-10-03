@@ -8,6 +8,7 @@ import java.util.UUID;
 
 /** One stage visit's SLA clock (spec 4.4, 5). Elapsed time is never stored. */
 @Entity
+@org.hibernate.annotations.DynamicUpdate
 @Table(name = "sla_clock")
 public class SlaClock extends TenantScopedEntity {
     @Column(name = "case_id", nullable = false) private UUID caseId;

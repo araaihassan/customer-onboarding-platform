@@ -2,6 +2,8 @@ package co.ara.onboarding.platform;
 
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.stereotype.Component;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.web.context.annotation.RequestScope;
 import java.util.Optional;
 import java.util.UUID;
@@ -28,8 +30,8 @@ public class RequestAuditContext {
     public RequestAuditContext(Optional<HttpServletRequest> request) {
         // Inside a scheduled job (TenantJobRunner) the injected HttpServletRequest is a proxy with no
         // servlet request behind it, and touching it throws; such a context has no ip or agent.
-        boolean servlet = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes()
-                instanceof org.springframework.web.context.request.ServletRequestAttributes;
+        boolean servlet = RequestContextHolder.getRequestAttributes()
+                instanceof ServletRequestAttributes;
         this.ip = servlet ? request.map(HttpServletRequest::getRemoteAddr).orElse(null) : null;
         this.userAgent = servlet ? request.map(r -> r.getHeader("User-Agent")).orElse(null) : null;
     }

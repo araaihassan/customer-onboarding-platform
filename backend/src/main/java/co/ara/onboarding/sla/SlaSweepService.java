@@ -70,11 +70,12 @@ public class SlaSweepService {
         for (SlaClock c : open) {
             double elapsed = reader.elapsed(c, pausesByClock.getOrDefault(c.getId(), List.of()), now);
             if (!reader.exhausted(elapsed, c.getTargetDays())) continue;
-            // Cause before effect: the audit row is recorded before the state it describes is written.
+            // Conditional update: a clock stopped or stamped since it was read is left alone (0 rows),
+            // so a lost race neither reopens it, overwrites a stamp, nor audits a breach that was not
+            // stamped here. The audit row follows in the same transaction, only for a row we changed.
+            if (clocks.stampBreach(c.getId(), now) != 1) continue;
             audit.record(AuditActions.SLA_BREACHED, "sla_clock", c.getId(), "SLA breached",
                     Map.of("caseId", c.getCaseId().toString(), "targetDays", c.getTargetDays()));
-            c.setBreachedAt(now);
-            clocks.save(c);
             stamped++;
         }
         return stamped;
