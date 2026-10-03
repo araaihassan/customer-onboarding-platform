@@ -334,4 +334,10 @@ public final class AuditActions {
     public static final AuditAction SLA_BREACHED      = of("sla.breached", false);
     public static final AuditAction ESCALATION_RAISED = of("escalation.raised", false);
     public static final AuditAction NOTIFICATION_SENT = of("notification.sent", false);
+
+    // Tenant configuration (sub-project 6). Compliance-only.
+    public static final AuditAction CALENDAR_UPDATED         = of("calendar.updated", false);
+    public static final AuditAction CALENDAR_HOLIDAY_ADDED   = of("calendar.holiday_added", false);
+    public static final AuditAction CALENDAR_HOLIDAY_REMOVED = of("calendar.holiday_removed", false);
+    public static final AuditAction SLA_POLICY_UPDATED       = of("sla_policy.updated", false);
 }
