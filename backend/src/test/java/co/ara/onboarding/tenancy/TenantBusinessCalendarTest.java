@@ -35,7 +35,7 @@ class TenantBusinessCalendarTest extends PostgresTestBase {
     // exercises the weekday-UTC fallback every fixture tenant in the suite depends on.
     @Test
     void aFixtureTenantWithNoCalendarRowFallsBackToWeekdayUtc() {
-        UUID tenant = fixture.createTenant("cal-default");
+        UUID tenant = fixture.createTenant("tbc-default");
         fixture.runAs(tenant, () -> {
             assertThat(calendar.plusBusinessDays(FRI, 1)).isEqualTo(LocalDate.of(2026, 10, 5));
             assertThat(calendar.name()).isEqualTo("Business calendar");
