@@ -211,22 +211,35 @@ describe("useResume", () => {
 });
 
 describe("hold and resume refresh the SLA clock", () => {
-  it.each<[string, () => unknown]>([
-    ["useHold", () => useHold()],
-    ["useResume", () => useResume()],
-  ])("%s invalidates slaKeys.clock for the case", async (name, hook) => {
+  async function invalidatedAfter(run: (client: QueryClient) => Promise<unknown>): Promise<string[]> {
     fetchMock.mockResolvedValue(reply({ id: "c-1" }));
     const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
     const spy = vi.spyOn(client, "invalidateQueries");
-    const wrapper = ({ children }: { children: ReactNode }) => (
-      <QueryClientProvider client={client}>{children}</QueryClientProvider>
-    );
-    const { result } = renderHook(() => hook() as ReturnType<typeof useResume>, { wrapper });
-    await act(async () => {
-      if (name === "useHold") await (result.current as unknown as ReturnType<typeof useHold>).mutateAsync({ id: "c-1", reason: "r" });
-      else await result.current.mutateAsync("c-1");
+    await run(client);
+    return spy.mock.calls.map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+  }
+  const wrap = (client: QueryClient) =>
+    function Wrapper({ children }: { children: ReactNode }) {
+      return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    };
+
+  it("useHold invalidates slaKeys.clock for the case", async () => {
+    const keys = await invalidatedAfter(async (client) => {
+      const { result } = renderHook(() => useHold(), { wrapper: wrap(client) });
+      await act(async () => {
+        await result.current.mutateAsync({ id: "c-1", reason: "r" });
+      });
     });
-    const keys = spy.mock.calls.map((c) => JSON.stringify((c[0] as { queryKey: unknown }).queryKey));
+    expect(keys).toContain(JSON.stringify(slaKeys.clock("c-1")));
+  });
+
+  it("useResume invalidates slaKeys.clock for the case", async () => {
+    const keys = await invalidatedAfter(async (client) => {
+      const { result } = renderHook(() => useResume(), { wrapper: wrap(client) });
+      await act(async () => {
+        await result.current.mutateAsync("c-1");
+      });
+    });
     expect(keys).toContain(JSON.stringify(slaKeys.clock("c-1")));
   });
 });

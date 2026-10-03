@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch, apiFetchBlob } from "./client";
 import { caseKeys } from "./cases";
 import type { components } from "./generated";
-import { slaKeys } from "./sla";
+import { invalidateSla, slaKeys } from "./sla";
 
 /**
  * Every type here is the generated OpenAPI type, re-exported under a shorter
@@ -365,6 +365,8 @@ export function useCreateDocumentRequest() {
       apiFetch<DocumentRequest>(`/cases/${caseId}/document-requests`, { method: "POST", body: JSON.stringify(body) }),
     onSuccess: (_created, { caseId }) => {
       void queryClient.invalidateQueries({ queryKey: documentKeys.requestsForCase(caseId) });
+      // An open customer request pauses the clock.
+      invalidateSla(queryClient, caseId);
     },
   });
 }
@@ -379,7 +381,11 @@ export function useWithdrawRequest() {
         body: JSON.stringify({ reason }),
       }),
     onSuccess: (updated) => {
-      if (updated.caseId) void queryClient.invalidateQueries({ queryKey: documentKeys.requestsForCase(updated.caseId) });
+      if (updated.caseId) {
+        void queryClient.invalidateQueries({ queryKey: documentKeys.requestsForCase(updated.caseId) });
+        // Closing the last open request resumes the clock.
+        invalidateSla(queryClient, updated.caseId);
+      }
     },
   });
 }
@@ -405,6 +411,7 @@ export function useFulfilRequest() {
       void queryClient.invalidateQueries({ queryKey: documentKeys.requestsForCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: documentKeys.forCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(updated.caseId) });
+      invalidateSla(queryClient, updated.caseId);
     },
   });
 }
@@ -430,6 +437,10 @@ export function useReviewVersion() {
     onSuccess: (_reviewed, { documentId }) => {
       void queryClient.invalidateQueries({ queryKey: documentKeys.detail(documentId) });
       void queryClient.invalidateQueries({ queryKey: documentKeys.pending() });
+      // Approval can satisfy a requirement and advance the stage; the version carries no case id,
+      // so refresh every case's roadmap and clock rather than none.
+      void queryClient.invalidateQueries({ queryKey: [...caseKeys.all, "roadmap"] });
+      void queryClient.invalidateQueries({ queryKey: slaKeys.all });
     },
   });
 }

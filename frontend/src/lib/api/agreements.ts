@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import { caseKeys } from "./cases";
+import { invalidateSla } from "./sla";
 import type { components } from "./generated";
 
 /** Generated types only -- never hand-write an API type (lib/api/documents.ts' discipline). */
@@ -95,6 +96,7 @@ function useAgreementMutation<TVars>(
       if (opts.touchesCase && a?.caseId) {
         void queryClient.invalidateQueries({ queryKey: caseKeys.detail(a.caseId) });
         void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(a.caseId) });
+        invalidateSla(queryClient, a.caseId); // the last signature satisfies a requirement and can advance the stage
       }
     },
   });

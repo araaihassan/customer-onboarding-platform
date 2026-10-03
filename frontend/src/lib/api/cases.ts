@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
-import { slaKeys } from "./sla";
+import { invalidateSla, slaKeys } from "./sla";
 import type { components } from "./generated";
 
 /**
@@ -118,7 +118,7 @@ function useCaseAction(path: (id: string) => string) {
       queryClient.setQueryData(caseKeys.detail(id), updated);
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(id) });
       // Hold/resume flip the clock's PAUSED state; advance/etc. may move the stage's clock too.
-      void queryClient.invalidateQueries({ queryKey: slaKeys.clock(id) });
+      invalidateSla(queryClient, id);
     },
   });
 }
@@ -141,7 +141,7 @@ export function useHold() {
       queryClient.setQueryData(caseKeys.detail(id), updated);
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(id) });
       // Hold/resume flip the clock's PAUSED state; advance/etc. may move the stage's clock too.
-      void queryClient.invalidateQueries({ queryKey: slaKeys.clock(id) });
+      invalidateSla(queryClient, id);
     },
   });
 }
@@ -149,6 +149,8 @@ export function useHold() {
 function invalidateRoadmap(queryClient: ReturnType<typeof useQueryClient>, caseId: string) {
   void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(caseId) });
   void queryClient.invalidateQueries({ queryKey: caseKeys.detail(caseId) });
+  // Satisfy/waive/force-complete/reopen/decide can auto-advance or reopen a stage, which changes its clock.
+  invalidateSla(queryClient, caseId);
 }
 
 /**

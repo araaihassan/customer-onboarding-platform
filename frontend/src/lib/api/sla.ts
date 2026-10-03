@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, type QueryClient } from "@tanstack/react-query";
 import { ApiError, apiFetch } from "./client";
 import type { components } from "./generated";
 
@@ -31,6 +31,15 @@ export function useCaseSlaClock(caseId: string) {
     },
     enabled: Boolean(caseId),
   });
+}
+
+/**
+ * A case's clock (and the war-room feed built from clocks) goes stale whenever a mutation can
+ * change the stage or open/close a pause. The case page does not poll, so every such hook calls this.
+ */
+export function invalidateSla(queryClient: QueryClient, caseId: string) {
+  void queryClient.invalidateQueries({ queryKey: slaKeys.clock(caseId) });
+  void queryClient.invalidateQueries({ queryKey: slaKeys.exceptions() });
 }
 
 /** The tenant-wide exceptions board, refreshed every minute. */

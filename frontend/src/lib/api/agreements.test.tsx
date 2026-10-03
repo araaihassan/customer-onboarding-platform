@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { __setAccessToken, setTenantSlug } from "@/lib/api/client";
 import { caseKeys } from "./cases";
+import { slaKeys } from "./sla";
 import {
   agreementKeys,
   useAgreement,
@@ -187,7 +188,7 @@ describe("agreements api writes", () => {
     expect(part.type).toBe("application/json");
     expect(JSON.parse(await part.text())).toEqual(signature);
     expect((body.get("file") as File).name).toBe("signed.pdf");
-    expect(inv).toEqual(keys(...STANDARD, caseKeys.detail("c1"), caseKeys.roadmap("c1")));
+    expect(inv).toEqual(keys(...STANDARD, caseKeys.detail("c1"), caseKeys.roadmap("c1"), slaKeys.clock("c1"), slaKeys.exceptions()));
   });
 
   it("useRecordSignature omits the file part when none is given", async () => {

@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import { caseKeys, type Case } from "./cases";
+import { invalidateSla } from "./sla";
 import { customerKeys, type Customer } from "./customers";
 import type { components } from "./generated";
 
@@ -200,6 +201,7 @@ export function useChangeTaskStatus() {
       if (!updated.caseId) return;
       void queryClient.invalidateQueries({ queryKey: taskKeys.forCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(updated.caseId) });
+      invalidateSla(queryClient, updated.caseId);
       void queryClient.invalidateQueries({ queryKey: taskKeys.mineAll() });
     },
   });

@@ -207,7 +207,7 @@ describe("CaseWorkspacePage", () => {
       await waitFor(() => expect(screen.getByText("Northwind Foods")).not.toBeNull());
       expect(screen.queryByTestId("sla-clock-callout")).toBeNull();
       expect(screen.queryByTestId("sla-chip")).toBeNull();
-      expect(screen.getByRole("complementary").querySelector("[aria-busy='true'], .animate-pulse, [data-testid*='skeleton']")).not.toBeNull();
+      expect(screen.getByRole("complementary").firstElementChild?.getAttribute("aria-busy")).toBe("true");
     });
 
     it.each([403, 500])("a %i reads as no clock: nothing rendered, the page still works", async (status) => {

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setTenantSlug } from "@/lib/api/client";
+import { slaKeys } from "@/lib/api/sla";
 import { CaseHeader } from "./CaseHeader";
 import type { Case } from "@/lib/api/cases";
 import type { Customer } from "@/lib/api/customers";
@@ -28,8 +29,9 @@ beforeEach(() => {
   setTenantSlug("acme");
 });
 
+let client: QueryClient;
 function render(ui: ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
@@ -107,7 +109,9 @@ describe("CaseHeader", () => {
     it("renders no chip when the clock is null (404)", async () => {
       render(<CaseHeader caseData={caseData} customer={customer} onRequestDocument={vi.fn()} />);
       await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      await new Promise((r) => setTimeout(r, 0));
+      // the 404 resolves to null and the query settles: success with no data, not an error
+      await waitFor(() => expect(client.getQueryState(slaKeys.clock(caseData.id!))?.status).toBe("success"));
+      expect(client.getQueryData(slaKeys.clock(caseData.id!))).toBeNull();
       expect(screen.queryByTestId("sla-chip")).toBeNull();
     });
 
@@ -121,8 +125,7 @@ describe("CaseHeader", () => {
     it.each([403, 500])("treats a %i as no clock: no chip, header intact", async (status) => {
       fetchMock.mockImplementation(async () => reply({ title: "x" }, status));
       render(<CaseHeader caseData={caseData} customer={customer} onRequestDocument={vi.fn()} />);
-      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      await new Promise((r) => setTimeout(r, 20));
+      await waitFor(() => expect(client.getQueryState(slaKeys.clock(caseData.id!))?.status).toBe("error"));
       expect(screen.queryByTestId("sla-chip")).toBeNull();
       expect(screen.queryByRole("alert")).toBeNull();
       expect(screen.getByText("Acme Corp")).not.toBeNull();
