@@ -2,6 +2,7 @@ package co.ara.onboarding.document;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -48,4 +49,19 @@ public interface DocumentRequestRepository
     @Query("select dr from DocumentRequest dr where dr.fulfilledDocumentId = :documentId "
             + "and dr.status = co.ara.onboarding.document.DocumentRequestStatus.FULFILLED")
     List<DocumentRequest> fulfilledBy(@Param("documentId") UUID documentId);
+
+    /**
+     * The one write of the reminder counters: conditional, so two concurrent reminders cannot both
+     * pass the rate limit (the loser matches 0 rows once the winner commits) and no stale whole-entity
+     * save can overwrite a counter. Only an OPEN request, and only if never reminded or last reminded
+     * at or before {@code notAfter}. Returns the rows changed (1, or 0 for refused).
+     */
+    // flush first so the audit row written just before reaches the database; clear so the request
+    // loaded earlier in this transaction is re-read with the new counters rather than held stale.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update DocumentRequest r set r.remindersSent = r.remindersSent + 1, r.lastRemindedAt = :now "
+            + "where r.id = :id and r.status = co.ara.onboarding.document.DocumentRequestStatus.OPEN "
+            + "and (r.lastRemindedAt is null or r.lastRemindedAt <= :notAfter)")
+    int markReminded(@Param("id") UUID id, @Param("now") java.time.Instant now,
+                     @Param("notAfter") java.time.Instant notAfter);
 }

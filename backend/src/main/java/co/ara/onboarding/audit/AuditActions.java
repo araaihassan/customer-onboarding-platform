@@ -292,6 +292,8 @@ public final class AuditActions {
     // DOCUMENT_REQUEST_WITHDRAWN are: fulfilling a request is the customer's
     // own side of the document story, not internal administration.
     public static final AuditAction DOCUMENT_REQUEST_FULFILLED  = of("document.request_fulfilled", true);
+    // Timeline-visible: the customer received it (spec 4.7). Recorded against onboarding_case like its siblings.
+    public static final AuditAction DOCUMENT_REQUEST_REMINDED   = of("document_request.reminded", true);
     public static final AuditAction DOCUMENT_REVIEWED           = of("document.reviewed", true);
 
     // Sub-project 5 (spec 5.9). Business records, timeline-visible -- the customer.* /
