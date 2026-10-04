@@ -31,6 +31,7 @@ class EscalationDeliveryTest extends PostgresTestBase {
     @Autowired TenantJobRunner runner;
     @Autowired BusinessCalendar calendar;
     @Autowired RecordingEmailSender emails;
+    @Autowired co.ara.onboarding.scheduling.EmailDispatchJob dispatch;
 
     @AfterEach void clear() {
         SecurityContextHolder.clearContext();
@@ -173,8 +174,10 @@ class EscalationDeliveryTest extends PostgresTestBase {
             sweep.sweep();
             throw new IllegalStateException("boom");
         })).isInstanceOf(RuntimeException.class);
-        runner.forTenant("sla-email", x[0], t -> sweep.retryUnsentEmail());
+        dispatch.runOne(x[0]);
         assertThat(emails.lastTo("a@del-rb.test")).isEmpty();
+        assertThat(ownerJdbc().queryForObject("select count(*) from email_outbox where tenant_id = ?",
+                Long.class, x[0])).isZero();
         assertThat(notifications(x[0])).isEmpty();
         assertThat(sla.escalationCount(x[0])).isZero();
     }
@@ -184,8 +187,6 @@ class EscalationDeliveryTest extends PostgresTestBase {
         UUID[] x = overdue("del-once", "late@del-once.test");
         admin(x[0], "a@del-once.test");
         sla.sweepAndEmail(x[0]);
-        int[] sent = {-1};
-        runner.forTenant("sla-email", x[0], t -> sent[0] = sweep.retryUnsentEmail());
-        assertThat(sent[0]).isZero();
+        assertThat(dispatch.runOne(x[0])).isZero();
     }
 }

@@ -32,9 +32,12 @@ public class SlaTestSupport {
     private final CaseService cases;
     private final co.ara.onboarding.scheduling.TenantJobRunner runner;
     private final SlaSweepService sweep;
+    private final co.ara.onboarding.scheduling.EmailDispatchJob dispatch;
 
     SlaTestSupport(TenantFixture fixture, JourneyFixtures journey, CaseService cases,
-                   co.ara.onboarding.scheduling.TenantJobRunner runner, SlaSweepService sweep) {
+                   co.ara.onboarding.scheduling.TenantJobRunner runner, SlaSweepService sweep,
+                   co.ara.onboarding.scheduling.EmailDispatchJob dispatch) {
+        this.dispatch = dispatch;
         this.runner = runner;
         this.sweep = sweep;
         this.fixture = fixture;
@@ -123,10 +126,10 @@ public class SlaTestSupport {
                         + "where case_id = ? order by started_at, created_at", caseId);
     }
 
-    /** The two TenantJobRunner runs of spec 6.3, in order: write breaches/escalations/notifications, then email. */
+    /** The sweep run, then the outbox dispatcher (6B spec 6.4). */
     public void sweepAndEmail(UUID tenant) {
         runner.forTenant("sla-sweep", tenant, t -> sweep.sweep());
-        runner.forTenant("sla-email", tenant, t -> sweep.retryUnsentEmail());
+        dispatch.runOne(tenant);
     }
 
     public long escalationCount(UUID tenant) {

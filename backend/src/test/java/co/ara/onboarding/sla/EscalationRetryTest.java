@@ -54,6 +54,7 @@ class EscalationRetryTest extends PostgresTestBase {
     @Autowired SlaTestSupport sla;
     @Autowired TaskService tasks;
     @Autowired BusinessCalendar calendar;
+    @Autowired co.ara.onboarding.support.MutableClock clock;
 
     @AfterEach void clear() {
         SecurityContextHolder.clearContext();
@@ -63,11 +64,11 @@ class EscalationRetryTest extends PostgresTestBase {
 
     private long unsent(UUID t) {
         return ownerJdbc().queryForObject(
-                "select count(*) from notification where tenant_id = ? and emailed_at is null", Long.class, t);
+                "select count(*) from email_outbox where tenant_id = ? and status <> 'SENT'", Long.class, t);
     }
 
     @Test
-    void aFailedSendIsRetriedNextRunAndOnlyToWhoWasNotReached() {
+    void aFailedSendIsRetriedAfterBackoffAndOnlyToWhoWasNotReached() {
         UUID t = fixture.createTenant("retry");
         UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));
         UUID late = fixture.runAsReturning(t, () -> fixture.createUser(t, "late@retry.test"));
@@ -87,6 +88,7 @@ class EscalationRetryTest extends PostgresTestBase {
         assertThat(delivered).contains("ok@retry.test").doesNotContain("down@retry.test");
 
         failingFor.set(false);
+        clock.advance(java.time.Duration.ofMinutes(2));   // the first retry is due one minute after the failure
         sla.sweepAndEmail(t);
         assertThat(unsent(t)).isZero();
         assertThat(delivered).containsOnlyOnce("down@retry.test").containsOnlyOnce("ok@retry.test");

@@ -31,10 +31,11 @@ public class RecipientResolver {
             var head = people.activeDepartmentHeadOf(latePersonId).filter(r -> !r.userId().equals(latePersonId));
             if (head.isPresent()) return new Resolution(EscalationRoute.DEPARTMENT_HEAD, List.of(head.get()));
         }
-        // Never the late person about their own lateness, even if they are an administrator. An empty
-        // list is returned as is: the caller records the escalation and logs, it never drops it.
-        var admins = people.activeAdministrators().stream()
-                .filter(r -> !r.userId().equals(latePersonId)).toList();
-        return new Resolution(EscalationRoute.ADMINISTRATORS, admins);
+        // Never the late person about their own lateness -- unless they are the tenant's only
+        // active administrator, in which case they are the only person who can act (6B spec 5.4,
+        // closing sub-project 6 spec 6.2's amendment). An empty list now means no administrator exists.
+        var admins = people.activeAdministrators();
+        var others = admins.stream().filter(r -> !r.userId().equals(latePersonId)).toList();
+        return new Resolution(EscalationRoute.ADMINISTRATORS, others.isEmpty() ? admins : others);
     }
 }

@@ -26,6 +26,21 @@ class RecipientResolverTest extends PostgresTestBase {
     }
 
     @Test
+    void aSoleAdministratorWhoIsLateIsTheirOwnRecipient() {
+        // 6B spec 5.4: the only administrator owns the late milestone and has no manager or head.
+        UUID t = fixture.createTenant("rr-sole");
+        fixture.runAs(t, () -> { });   // materialise the fixture's own plumbing administrator first
+        UUID admin = fixture.createAdminUser(t, "only@rr-sole.test").getId();
+        ownerJdbc().update("update role set name = 'Administrator' where id = ?", fixture.administratorRoleId(t));
+        ownerJdbc().update("update app_user set status = 'DEACTIVATED' where id <> ? and id in "
+                + "(select user_id from user_role where role_id = ?)", admin, fixture.administratorRoleId(t));
+        var resolution = resolve(t, admin);
+        assertThat(resolution.route()).isEqualTo(EscalationRoute.ADMINISTRATORS);
+        assertThat(resolution.recipients()).extracting(ReportingLineDirectory.Recipient::userId)
+                .containsExactly(admin);
+    }
+
+    @Test
     void aManagerIsFirst() {
         UUID t = fixture.createTenant("rr-mgr");
         UUID[] ids = fixture.runAsReturning(t, () -> new UUID[] {
