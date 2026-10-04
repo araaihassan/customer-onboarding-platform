@@ -1,5 +1,9 @@
 package co.ara.onboarding.sla;
 
+import co.ara.onboarding.notification.Notification;
+import co.ara.onboarding.notification.NotificationRepository;
+import co.ara.onboarding.notification.NotificationType;
+
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthorizedQuery;

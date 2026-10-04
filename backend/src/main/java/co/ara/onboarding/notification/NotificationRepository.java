@@ -1,4 +1,4 @@
-package co.ara.onboarding.sla;
+package co.ara.onboarding.notification;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;

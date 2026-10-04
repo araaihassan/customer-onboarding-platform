@@ -185,6 +185,49 @@ class ModuleBoundaryTest {
             noClasses().that().resideInAPackage("..document..")
                 .should().dependOnClassesThat().resideInAPackage("..sla..")
                 .because("sla implements document.CustomerWaitLifecycle; document never imports sla (spec 3.1).");
+    // Sub-project 6B (spec 3.1): producers publish event records and never import notification.
+    // Each arrow is its own rule because a one-way import would still pass the no-cycles check.
+    @ArchTest
+    static final ArchRule noTaskDependencyOnNotification =
+            noClasses().that().resideInAPackage("..task..")
+                .should().dependOnClassesThat().resideInAPackage("..notification..")
+                .because("task publishes TaskAssigned/CommentAdded; notification listens (spec 3.2)");
+
+    @ArchTest
+    static final ArchRule noJourneyDependencyOnNotification =
+            noClasses().that().resideInAPackage("..journey..")
+                .should().dependOnClassesThat().resideInAPackage("..notification..")
+                .because("journey publishes milestone and stage events; notification listens (spec 3.2)");
+
+    @ArchTest
+    static final ArchRule noDocumentDependencyOnNotification =
+            noClasses().that().resideInAPackage("..document..")
+                .should().dependOnClassesThat().resideInAPackage("..notification..")
+                .because("document publishes request, upload, review and reminder events (spec 3.2, plan amendment 3)");
+
+    @ArchTest
+    static final ArchRule noAgreementDependencyOnNotification =
+            noClasses().that().resideInAPackage("..agreement..")
+                .should().dependOnClassesThat().resideInAPackage("..notification..")
+                .because("agreement publishes AgreementStatusChanged; notification listens (spec 3.2)");
+
+    @ArchTest
+    static final ArchRule noWorkflowDependencyOnNotification =
+            noClasses().that().resideInAPackage("..workflow..")
+                .should().dependOnClassesThat().resideInAPackage("..notification..")
+                .because("workflow declares the NotificationTemplateKeys port; notification implements it (plan amendment 5)");
+
+    @ArchTest
+    static final ArchRule noCustomerDependencyOnNotification =
+            noClasses().that().resideInAPackage("..customer..")
+                .should().dependOnClassesThat().resideInAPackage("..notification..")
+                .because("customer publishes CustomerOwnerAssigned; notification listens (plan amendment 8)");
+
+    @ArchTest
+    static final ArchRule noNotificationDependencyOnSla =
+            noClasses().that().resideInAPackage("..notification..")
+                .should().dependOnClassesThat().resideInAPackage("..sla..")
+                .because("sla writes escalations through notification; the reverse arrow would be a cycle (plan amendment 2)");
 
     /** The system principal is minted only by the scheduler (and authz, which owns it). */
     @ArchTest

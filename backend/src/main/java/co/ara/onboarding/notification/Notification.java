@@ -1,12 +1,11 @@
-package co.ara.onboarding.sla;
+package co.ara.onboarding.notification;
 
 import co.ara.onboarding.tenancy.TenantScopedEntity;
 import jakarta.persistence.*;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.UUID;
 
-/** An in-app notification (spec 4.6). */
+/** An in-app notification (6B spec §4.1; created by sub-project 6, spec §4.5). */
 @Entity
 @Table(name = "notification")
 public class Notification extends TenantScopedEntity {

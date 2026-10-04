@@ -1,5 +1,9 @@
 package co.ara.onboarding.sla;
 
+import co.ara.onboarding.notification.Notification;
+import co.ara.onboarding.notification.NotificationRepository;
+import co.ara.onboarding.notification.NotificationType;
+
 import co.ara.onboarding.auth.EmailMessage;
 import co.ara.onboarding.auth.EmailSender;
 import org.slf4j.Logger;

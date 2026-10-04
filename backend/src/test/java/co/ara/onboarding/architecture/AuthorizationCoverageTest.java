@@ -401,7 +401,8 @@ class AuthorizationCoverageTest {
                                           // Sub-project 6 Task 11: the sla module's first
                                           // finder-calling class, added in the commit that
                                           // introduces it (its one exclusion is named above).
-                                          "co.ara.onboarding.sla..")
+                                          "co.ara.onboarding.sla..",
+                                          "co.ara.onboarding.notification..")
                 // Union, not replace: a covered-package *Service/*Directory class that
                 // reaches a finder on a repository it does NOT hold as a field (passed
                 // as a parameter, obtained from another object, etc.) would be

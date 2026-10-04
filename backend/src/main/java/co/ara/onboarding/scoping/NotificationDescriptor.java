@@ -3,7 +3,7 @@ package co.ara.onboarding.scoping;
 import co.ara.onboarding.authz.AuthContext;
 import co.ara.onboarding.authz.RelationshipType;
 import co.ara.onboarding.authz.ResourceAuthorizationDescriptor;
-import co.ara.onboarding.sla.Notification;
+import co.ara.onboarding.notification.Notification;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Component;
 
