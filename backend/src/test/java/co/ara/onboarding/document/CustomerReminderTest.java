@@ -10,7 +10,9 @@ import co.ara.onboarding.journey.CaseService;
 import co.ara.onboarding.journey.CreateCaseRequest;
 import co.ara.onboarding.journey.JourneyFixtures;
 import co.ara.onboarding.journey.TimelineService;
+import co.ara.onboarding.notification.NotificationTestSupport;
 import co.ara.onboarding.platform.Uuid7;
+import co.ara.onboarding.scheduling.EmailDispatchJob;
 import co.ara.onboarding.security.SecurityTestBase;
 import co.ara.onboarding.support.RecordingEmailSender;
 import co.ara.onboarding.workflow.WorkflowDefinitionRequest;
@@ -43,6 +45,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /** Spec 8: a staff member nudges the customer contact about an open document request. */
 class CustomerReminderTest extends SecurityTestBase {
 
+    @Autowired NotificationTestSupport support;
+    @Autowired EmailDispatchJob dispatch;
     @Autowired JourneyFixtures journey;
     @Autowired CaseService cases;
     @Autowired RecordingEmailSender emails;
@@ -63,9 +67,14 @@ class CustomerReminderTest extends SecurityTestBase {
     @BeforeEach
     void seed() {
         slug = "doc-remind-" + Uuid7.generate();
-        tenant = fixture.createTenant(slug);
+        var arranged = support.openRequestWithContact(slug);
+        tenant = arranged.tenant();
+        caseId = arranged.caseId();
+        contactId = arranged.contactId();
+        contactEmail = arranged.contactEmail();
+        customerId = ownerJdbcForSupport().queryForObject(
+                "select customer_id from onboarding_case where id = ?", UUID.class, caseId);
         actor = fixture.createUserWithPassword(tenant, "actor+" + Uuid7.generate() + "@remind.example", "long-enough-password");
-        contactEmail = "contact+" + Uuid7.generate() + "@customer.example";
         fixture.runAs(tenant, () -> {
             roles.assignRole(actor.getId(), roles.createRole("Reminder Actor " + Uuid7.generate(), "", Map.of(
                     PermissionKeys.DOCUMENT_REQUEST, Scope.ALL,
@@ -73,10 +82,6 @@ class CustomerReminderTest extends SecurityTestBase {
                     PermissionKeys.CASE_VIEW, Scope.ALL,
                     PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
                     PermissionKeys.WORKFLOW_VIEW, Scope.ALL)));
-            Case c = journey.newCase(tenant);
-            caseId = c.getId();
-            customerId = c.getCustomerId();
-            contactId = fixture.createContact(tenant, customerId, contactEmail);
         });
     }
 
@@ -138,6 +143,7 @@ class CustomerReminderTest extends SecurityTestBase {
         remind(actor, id).andExpect(status().isOk())
                 .andExpect(jsonPath("$.remindersSent").value(1))
                 .andExpect(jsonPath("$.lastRemindedAt").exists());
+        dispatch.runOne(tenant);
         var mail = emails.lastTo(contactEmail);
         assertThat(mail).isPresent();
         assertThat(mail.get().body()).contains("Signed MSA");
@@ -163,6 +169,7 @@ class CustomerReminderTest extends SecurityTestBase {
         UUID id = openRequest(caseId, contactId);
         ownerJdbcForSupport().update("update customer_contact set status = 'INACTIVE' where id = ?", contactId);
         remind(actor, id).andExpect(status().isUnprocessableEntity());
+        dispatch.runOne(tenant);
         assertThat(emails.lastTo(contactEmail)).isEmpty();
         assertThat(remindersSent(id)).isZero();
     }
@@ -194,6 +201,7 @@ class CustomerReminderTest extends SecurityTestBase {
                         .contentType("application/json").content("{\"documentId\":\"" + documentId + "\"}"))
                 .andExpect(status().isOk());
         remind(actor, fulfilled).andExpect(status().isUnprocessableEntity());
+        dispatch.runOne(tenant);
         assertThat(emails.lastTo(contactEmail)).isEmpty();
     }
 
@@ -274,6 +282,7 @@ class CustomerReminderTest extends SecurityTestBase {
             requestService.remind(id);
             throw new IllegalStateException("force a rollback after the reminder was written");
         })).hasMessageContaining("force a rollback");
+        dispatch.runOne(tenant);
         assertThat(emails.lastTo(contactEmail)).isEmpty();
         assertThat(remindersSent(id)).isZero();
     }
@@ -301,6 +310,7 @@ class CustomerReminderTest extends SecurityTestBase {
             pool.shutdownNow();
         }
         assertThat(remindersSent(id)).isEqualTo(1);
+        dispatch.runOne(tenant);
         assertThat(emails.lastTo(contactEmail)).isPresent();
     }
 }

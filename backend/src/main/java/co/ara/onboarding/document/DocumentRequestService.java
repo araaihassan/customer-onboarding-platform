@@ -2,8 +2,6 @@ package co.ara.onboarding.document;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
-import co.ara.onboarding.auth.EmailMessage;
-import co.ara.onboarding.auth.EmailSender;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
@@ -18,15 +16,12 @@ import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -58,7 +53,6 @@ import java.util.UUID;
 @Service
 public class DocumentRequestService {
 
-    private static final Logger log = LoggerFactory.getLogger(DocumentRequestService.class);
     /** The least time between two reminders on one request (spec 8). */
     static final Duration REMINDER_INTERVAL = Duration.ofHours(24);
 
@@ -75,14 +69,14 @@ public class DocumentRequestService {
     private final Clock clock;
     private final AuditRecorder audit;
     private final CustomerWaitLifecycle customerWaits;
-    private final EmailSender email;
+    private final ApplicationEventPublisher events;
 
     public DocumentRequestService(DocumentRequestRepository requests, DocumentRepository documents,
                                   CaseRepository cases, StageRepository stages,
                                   CustomerContactRepository contacts, AuthorizedQuery authorizedQuery,
                                   AuthContextProvider contextProvider, StageWriteScopeGuard writeScope,
                                   RequirementService requirementService, Clock clock, AuditRecorder audit,
-                                  CustomerWaitLifecycle customerWaits, EmailSender email) {
+                                  CustomerWaitLifecycle customerWaits, ApplicationEventPublisher events) {
         this.requests = requests;
         this.documents = documents;
         this.cases = cases;
@@ -95,7 +89,7 @@ public class DocumentRequestService {
         this.clock = clock;
         this.audit = audit;
         this.customerWaits = customerWaits;
-        this.email = email;
+        this.events = events;
     }
 
     /**
@@ -380,9 +374,9 @@ public class DocumentRequestService {
      * so two concurrent reminders cannot both pass the rate limit and no stale save can clobber them.
      *
      * <p>Order: validate, record {@code document_request.reminded} (the cause), write the counters,
-     * then email only after the transaction commits -- a rolled-back reminder tells the customer
-     * nothing. A failed send is logged and the counter stays advanced (a reminder the customer may
-     * not have received; delivery tracking is 6B's). The body carries only what the customer asked
+     * then publish {@link CustomerReminderQueued}; notification queues it in the email outbox in
+     * this same transaction, so a rolled-back reminder queues nothing and a failed send is retried
+     * by the dispatcher. The body carries only what the customer asked
      * for: the case name, category and description. The recipient is always the request's contact,
      * never an internal user. The audit event hangs off the case so the timeline read finds it.
      */
@@ -426,15 +420,9 @@ public class DocumentRequestService {
             throw new IllegalStateException("This request was already reminded in the last 24 hours");
         }
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
-                try {
-                    email.send(new EmailMessage(to, subject, body));
-                } catch (RuntimeException e) {
-                    log.warn("Reminder email for document request {} failed", requestId, e);
-                }
-            }
-        });
+        // Plan amendment 3: document never imports notification. The listener queues the outbox
+        // row in this same transaction, so a rolled-back reminder queues nothing.
+        events.publishEvent(new CustomerReminderQueued(requestId, caseId, contact.getId(), to, subject, body, false));
         return toView(authorizedQuery.getById(
                 requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST, requestId));
     }
