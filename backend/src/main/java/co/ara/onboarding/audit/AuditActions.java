@@ -342,4 +342,7 @@ public final class AuditActions {
     public static final AuditAction CALENDAR_HOLIDAY_ADDED   = of("calendar.holiday_added", false);
     public static final AuditAction CALENDAR_HOLIDAY_REMOVED = of("calendar.holiday_removed", false);
     public static final AuditAction SLA_POLICY_UPDATED       = of("sla_policy.updated", false);
+
+    // Notifications (sub-project 6B). All compliance-only (6B spec 4.7).
+    public static final AuditAction EMAIL_FAILED = of("email.failed", false);
 }

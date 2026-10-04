@@ -59,6 +59,22 @@ public class TenantJobRunner {
      * own user's context back afterwards instead of a cleared one.
      */
     public boolean forTenant(String job, UUID tenantId, Consumer<UUID> body) {
+        return run(job, tenantId, body, true);
+    }
+
+    /**
+     * Plan amendment 10: for a run that must never be skipped because another run of the same job
+     * holds the advisory lock -- the dispatcher's stamp step, whose rows are leased to this caller.
+     */
+    public boolean forTenantUnlocked(String job, UUID tenantId, Consumer<UUID> body) {
+        return run(job, tenantId, body, false);
+    }
+
+    public List<UUID> activeTenantIds() {
+        return tenants.findAll().stream().filter(t -> t.getStatus() == TenantStatus.ACTIVE).map(Tenant::getId).toList();
+    }
+
+    private boolean run(String job, UUID tenantId, Consumer<UUID> body, boolean locked) {
         var previousAttributes = RequestContextHolder.getRequestAttributes();
         var previousSecurity = SecurityContextHolder.getContext();
         var hadAuthentication = previousSecurity.getAuthentication() != null;
@@ -70,7 +86,7 @@ public class TenantJobRunner {
             SecurityContextHolder.setContext(jobSecurity);
             return TenantContext.runAsReturning(tenantId, () -> Boolean.TRUE.equals(isolated.execute(status -> {
                 binder.bind(tenantId);
-                if (!lock.tryLock(job, tenantId)) return false;
+                if (locked && !lock.tryLock(job, tenantId)) return false;
                 body.accept(tenantId);
                 return true;
             })));

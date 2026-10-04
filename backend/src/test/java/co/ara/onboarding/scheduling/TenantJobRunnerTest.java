@@ -142,4 +142,20 @@ class TenantJobRunnerTest extends PostgresTestBase {
         assertThat(rollbackOnly).isFalse();
         assertThat(ran).contains(a, b);
     }
+
+    @Test
+    void anUnlockedRunIsNotSkippedWhileTheLockedRunHoldsTheLock() throws Exception {
+        UUID t = fixture.createTenant("job-unlocked");
+        var ranInside = new java.util.concurrent.atomic.AtomicBoolean();
+        runner.forTenant("contended", t, x -> ranInside.set(runner.forTenantUnlocked("contended", t, y -> {})));
+        assertThat(ranInside).isTrue();
+    }
+
+    @Test
+    void activeTenantIdsSkipsSuspendedTenants() {
+        UUID a = fixture.createTenant("job-ids-a");
+        UUID b = fixture.createTenant("job-ids-b");
+        ownerJdbc().update("UPDATE tenant SET status = 'SUSPENDED' WHERE id = ?", b);
+        assertThat(runner.activeTenantIds()).contains(a).doesNotContain(b);
+    }
 }

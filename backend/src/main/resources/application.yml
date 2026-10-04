@@ -47,6 +47,10 @@ app:
     enabled: ${APP_SCHEDULING_ENABLED:true}
   sla:
     sweep-interval: PT5M
+  notifications:
+    dispatch-interval: PT1M
+    sweep-interval: PT1H
+    digest-interval: PT15M
   audit:
     partition-cron: "0 15 2 * * *"
   # The first platform administrator, for bootstrapping a fresh deployment.
