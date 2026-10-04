@@ -1,4 +1,4 @@
--- Sub-project 6B, spec Â§4.1, Â§4.5, Â§4.6 and plan amendments 6-7. notification widens to every
+-- Sub-project 6B, spec §4.1, §4.5, §4.6 and plan amendments 6-7. notification widens to every
 -- type; email_outbox becomes the single queue for every notification-class email. Neither
 -- notification nor email_outbox grants DELETE: each row is the only record that a message
 -- was raised or sent.
@@ -21,7 +21,7 @@ ALTER TABLE notification ADD COLUMN dedupe_key   text    NULL CHECK (length(dedu
 -- Every existing row is a sub-project 6 escalation about a case. Runs as the Flyway owner, so
 -- RLS does not filter it (the V28 precedent).
 UPDATE notification SET subject_type = 'case', subject_id = COALESCE(case_id, escalation_id),
-    email_state = 'QUEUED', tone = 'RISK';
+    email_state = CASE WHEN emailed_at IS NULL THEN 'QUEUED' ELSE 'NONE' END, tone = 'RISK';
 ALTER TABLE notification ALTER COLUMN subject_type SET NOT NULL;
 ALTER TABLE notification ALTER COLUMN subject_id   SET NOT NULL;
 

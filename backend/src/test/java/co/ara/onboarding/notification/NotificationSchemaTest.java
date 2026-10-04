@@ -75,4 +75,31 @@ class NotificationSchemaTest extends PostgresTestBase {
                 .extracting(NotificationCatalog.Entry::type).containsExactly(NotificationType.ESCALATION);
         assertThat(NotificationCatalog.optOut()).hasSize(14);
     }
+
+    @Test
+    void theBackfillQueuesOnlyEscalationsThatWereNeverEmailed() throws Exception {
+        UUID t = fixture.createTenant("ns-backfill");
+        UUID u = fixture.runAsReturning(t, () -> fixture.createUser(t, "u@ns-backfill.test"));
+        String insert = """
+            insert into notification (id, tenant_id, recipient_user_id, type, title, body, link_path,
+                subject_type, subject_id, in_app, email_state, tone, emailed_at, created_at, updated_at)
+            values (?, ?, ?, 'ESCALATION', 't', 'b', '/x', 'x', gen_random_uuid(), true, 'NONE', 'INFO', cast(? as timestamptz), now(), now())""";
+        UUID unsent = UUID.randomUUID();
+        UUID sent = UUID.randomUUID();
+        ownerJdbc().update(insert, unsent, t, u, null);
+        ownerJdbc().update(insert, sent, t, u, java.sql.Timestamp.from(java.time.Instant.now()));
+        // Run the migration's own backfill statement, narrowed to this tenant.
+        String sql = new String(new org.springframework.core.io.ClassPathResource(
+                "db/migration/V35__notification_outbox.sql").getInputStream().readAllBytes(),
+                java.nio.charset.StandardCharsets.UTF_8);
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(UPDATE notification SET subject_type.*?);",
+                java.util.regex.Pattern.DOTALL).matcher(sql);
+        assertThat(m.find()).isTrue();
+        // The fixture has no real case to satisfy the case_id FK, so keep subject_id as inserted.
+        ownerJdbc().update(m.group(1).replace("COALESCE(case_id, escalation_id)", "subject_id") + " WHERE tenant_id = ?", t);
+        assertThat(ownerJdbc().queryForObject("select email_state from notification where id = ?", String.class, unsent))
+                .isEqualTo("QUEUED");
+        assertThat(ownerJdbc().queryForObject("select email_state from notification where id = ?", String.class, sent))
+                .isEqualTo("NONE");
+    }
 }

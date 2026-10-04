@@ -7,7 +7,7 @@ import java.util.Map;
 import static co.ara.onboarding.notification.NotificationType.*;
 
 /**
- * Spec Â§5.1: every type, its preferences-pane label and its defaults. Defaults come from the
+ * Spec §5.1: every type, its preferences-pane label and its defaults. Defaults come from the
  * prototype's channel captions; ESCALATION is the one locked type (QA Q10).
  */
 public final class NotificationCatalog {
