@@ -80,7 +80,7 @@ public class EmailDispatchJob {
             email.send(new EmailMessage(c.to(), c.subject(), body));
             return new Result(c.id(), Outcome.SENT, null);
         } catch (RuntimeException e) {
-            log.warn("Email {} ({}) to {} failed on attempt {}", c.id(), c.kind(), c.to(), c.attempts(), e);
+            log.warn("Email {} ({}) failed on attempt {}", c.id(), c.kind(), c.attempts(), e);
             return new Result(c.id(), Outcome.FAILED, e.getMessage());
         }
     }

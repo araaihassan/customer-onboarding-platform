@@ -19,6 +19,8 @@ class EmailDispatchTest extends PostgresTestBase {
     @Autowired TenantFixture fixture;
     @Autowired NotificationTestSupport support;
     @Autowired EmailDispatchJob dispatch;
+    @Autowired co.ara.onboarding.scheduling.TenantJobRunner runner;
+    @Autowired EmailDispatchService service;
 
     @AfterEach void reset() { FlakyEmail.reset(); }
 
@@ -72,6 +74,7 @@ class EmailDispatchTest extends PostgresTestBase {
         ownerJdbc().update("update app_user set status = 'INACTIVE' where id = ?", x[1]);
         dispatch.runOne(x[0]);
         assertThat(support.outbox(x[0]).get(0).get("status")).isEqualTo("SKIPPED");
+        assertThat(support.outbox(x[0]).get(0).get("attempts")).isEqualTo(0);
         assertThat(FlakyEmail.sent).isEmpty();
     }
 
@@ -107,4 +110,23 @@ class EmailDispatchTest extends PostgresTestBase {
         assertThat(FlakyEmail.sent).hasSize(20);
         assertThat(support.outbox(x[0])).allSatisfy(r -> assertThat(r.get("status")).isEqualTo("SENT"));
     }
+
+    private void staleFailedStampLeavesTheRowAlone(String slug, String status) {
+        UUID[] x = tenantWithUser(slug);
+        UUID id = fixture.runAsReturning(x[0], () -> support.queueEmail(x[0], x[1], "u@" + slug + ".test", "Hello"));
+        ownerJdbc().update("update email_outbox set status = ?, attempts = 5, lease_until = null where id = ?", status, id);
+        runner.forTenantUnlocked("email-stamp", x[0], t -> service.stamp(java.util.List.of(
+                new EmailDispatchService.Result(id, EmailDispatchService.Outcome.FAILED, "late"))));
+        var row = support.outbox(x[0]).get(0);
+        assertThat(row.get("status")).isEqualTo(status);
+        assertThat(row.get("last_error")).isNull();
+        assertThat(ownerJdbc().queryForObject(
+                "select count(*) from audit_event where tenant_id = ? and action = 'email.failed'", Long.class, x[0])).isZero();
+    }
+
+    @Test
+    void aLateFailedResultDoesNotReopenASentRow() { staleFailedStampLeavesTheRowAlone("disp-stale-sent", "SENT"); }
+
+    @Test
+    void aLateFailedResultDoesNotReopenASkippedRow() { staleFailedStampLeavesTheRowAlone("disp-stale-skip", "SKIPPED"); }
 }

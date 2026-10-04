@@ -64,7 +64,8 @@ public class EmailDispatchService {
         for (Map<String, Object> r : rows) {
             UUID id = (UUID) r.get("id");
             if (!recipientStillActive((UUID) r.get("recipient_user_id"), (UUID) r.get("contact_id"))) {
-                jdbc.update("UPDATE email_outbox SET status = 'SKIPPED', lease_until = NULL, updated_at = ? WHERE id = ?",
+                jdbc.update("UPDATE email_outbox SET status = 'SKIPPED', lease_until = NULL, attempts = attempts - 1,"
+                        + " updated_at = ? WHERE id = ?",
                         now, id);
                 continue;
             }
@@ -98,18 +99,24 @@ public class EmailDispatchService {
                         + " AND emailed_at IS NULL", now, now, r.id());
                 continue;
             }
-            int attempts = jdbc.queryForObject("SELECT attempts FROM email_outbox WHERE id = ?", Integer.class, r.id());
+            // Guarded on SENDING: a late FAILED result from a dispatcher whose lease expired must not
+            // reopen a row another dispatcher already sent, failed or skipped.
+            List<Integer> current = jdbc.queryForList(
+                    "SELECT attempts FROM email_outbox WHERE id = ? AND status = 'SENDING'", Integer.class, r.id());
+            if (current.isEmpty()) continue;
+            int attempts = current.get(0);
             String error = r.error() == null ? "unknown" : r.error().substring(0, Math.min(500, r.error().length()));
             if (attempts >= MAX_ATTEMPTS) {
-                jdbc.update("UPDATE email_outbox SET status = 'FAILED', lease_until = NULL, last_error = ?, updated_at = ?"
-                        + " WHERE id = ?", error, now, r.id());
-                audit.record(AuditActions.EMAIL_FAILED, "email_outbox", r.id(),
-                        "Email delivery failed after " + attempts + " attempts", Map.of("attempts", attempts));
+                int changed = jdbc.update("UPDATE email_outbox SET status = 'FAILED', lease_until = NULL, last_error = ?,"
+                        + " updated_at = ? WHERE id = ? AND status = 'SENDING'", error, now, r.id());
+                if (changed > 0) {
+                    audit.record(AuditActions.EMAIL_FAILED, "email_outbox", r.id(),
+                            "Email delivery failed after " + attempts + " attempts", Map.of("attempts", attempts));
+                }
             } else {
                 Timestamp next = Timestamp.from(at.plus(BACKOFF.get(attempts - 1)));
                 jdbc.update("UPDATE email_outbox SET status = 'PENDING', next_attempt_at = ?, lease_until = NULL,"
-                        + " last_error = ?, updated_at = ? WHERE id = ?", next, error, now, r.id());
-            }
-        }
+                        + " last_error = ?, updated_at = ? WHERE id = ? AND status = 'SENDING'", next, error, now, r.id());
+            }        }
     }
 }
