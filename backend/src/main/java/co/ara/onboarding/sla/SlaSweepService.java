@@ -2,7 +2,9 @@ package co.ara.onboarding.sla;
 
 import co.ara.onboarding.notification.Notification;
 import co.ara.onboarding.notification.NotificationRepository;
+import co.ara.onboarding.notification.EmailState;
 import co.ara.onboarding.notification.NotificationType;
+import co.ara.onboarding.notification.Tone;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
@@ -156,6 +158,11 @@ public class SlaSweepService {
                 n.setLinkPath("/t/" + slug + "/customers/" + e.customerId() + "/cases/" + e.caseId());
                 n.setCaseId(e.caseId());
                 n.setEscalationId(e.escalationId());
+                n.setSubjectType("case");
+                n.setSubjectId(e.caseId());
+                n.setInApp(true);
+                n.setEmailState(EmailState.QUEUED);
+                n.setTone(Tone.RISK);
                 notifications.save(n);
                 audit.record(AuditActions.NOTIFICATION_SENT, "notification", n.getId(),
                         "Escalation notification queued",

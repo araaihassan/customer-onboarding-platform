@@ -38,6 +38,8 @@ class NotificationDescriptorTest extends PostgresTestBase {
         n.setTitle("t");
         n.setBody("b");
         n.setLinkPath("/x");
+        n.setSubjectType("case");
+        n.setSubjectId(Uuid7.generate());
         return notifications.saveAndFlush(n).getId();
     }
 

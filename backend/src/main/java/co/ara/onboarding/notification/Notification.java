@@ -18,6 +18,12 @@ public class Notification extends TenantScopedEntity {
     @Column(name = "escalation_id") private UUID escalationId;
     @Column(name = "read_at") private Instant readAt;
     @Column(name = "emailed_at") private Instant emailedAt;
+    @Column(name = "subject_type", nullable = false) private String subjectType;
+    @Column(name = "subject_id", nullable = false) private UUID subjectId;
+    @Column(name = "in_app", nullable = false) private boolean inApp = true;
+    @Enumerated(EnumType.STRING) @Column(name = "email_state", nullable = false) private EmailState emailState = EmailState.NONE;
+    @Enumerated(EnumType.STRING) @Column(name = "tone", nullable = false) private Tone tone = Tone.INFO;
+    @Column(name = "dedupe_key") private String dedupeKey;
 
     public UUID getRecipientUserId() { return recipientUserId; }
     public void setRecipientUserId(UUID recipientUserId) { this.recipientUserId = recipientUserId; }
@@ -37,4 +43,16 @@ public class Notification extends TenantScopedEntity {
     public void setReadAt(Instant readAt) { this.readAt = readAt; }
     public Instant getEmailedAt() { return emailedAt; }
     public void setEmailedAt(Instant emailedAt) { this.emailedAt = emailedAt; }
+    public String getSubjectType() { return subjectType; }
+    public void setSubjectType(String subjectType) { this.subjectType = subjectType; }
+    public UUID getSubjectId() { return subjectId; }
+    public void setSubjectId(UUID subjectId) { this.subjectId = subjectId; }
+    public boolean isInApp() { return inApp; }
+    public void setInApp(boolean inApp) { this.inApp = inApp; }
+    public EmailState getEmailState() { return emailState; }
+    public void setEmailState(EmailState emailState) { this.emailState = emailState; }
+    public Tone getTone() { return tone; }
+    public void setTone(Tone tone) { this.tone = tone; }
+    public String getDedupeKey() { return dedupeKey; }
+    public void setDedupeKey(String dedupeKey) { this.dedupeKey = dedupeKey; }
 }
