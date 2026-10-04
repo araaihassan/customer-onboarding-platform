@@ -180,6 +180,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/admin/sla-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["policy"];
+        put: operations["updatePolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/admin/roles/{id}/grants": {
         parameters: {
             query?: never;
@@ -189,6 +205,38 @@ export interface paths {
         };
         get?: never;
         put: operations["updateGrants"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/admin/departments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["updateDepartment"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/admin/business-calendar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["calendar"];
+        put: operations["updateCalendar"];
         post?: never;
         delete?: never;
         options?: never;
@@ -574,6 +622,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["withdraw"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/document-requests/{id}/remind": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["remind"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1316,6 +1380,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/admin/business-calendar/holidays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["addHoliday"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/admin/business-calendar/holidays/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["removeHoliday"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/tenants": {
         parameters: {
             query?: never;
@@ -1404,6 +1500,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["myWork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/sla/exceptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["exceptions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1572,6 +1684,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/cases/{id}/sla-clock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["forCase_3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/cases/{id}/roadmap": {
         parameters: {
             query?: never;
@@ -1643,7 +1771,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["forCase_3"];
+        get: operations["forCase_4"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1834,6 +1962,7 @@ export interface components {
             fallbackNextStageKey?: string;
             milestones?: components["schemas"]["MilestoneRequest"][];
             branchRules?: components["schemas"]["BranchRuleRequest"][];
+            pausesOnCustomer?: boolean;
         };
         WorkflowDefinitionRequest: {
             stages?: components["schemas"]["StageRequest"][];
@@ -1932,6 +2061,7 @@ export interface components {
             fallbackNextStageId?: string;
             milestones?: components["schemas"]["MilestoneView"][];
             branchRules?: components["schemas"]["BranchRuleView"][];
+            pausesOnCustomer?: boolean;
         };
         WorkflowDefinitionView: {
             /** Format: uuid */
@@ -2311,6 +2441,8 @@ export interface components {
             fullName?: string;
             /** Format: uuid */
             departmentId?: string;
+            /** Format: uuid */
+            managerId?: string;
         };
         UserView: {
             /** Format: uuid */
@@ -2318,13 +2450,59 @@ export interface components {
             email?: string;
             fullName?: string;
             /** @enum {string} */
-            userType?: "INTERNAL" | "PORTAL";
+            userType?: "INTERNAL" | "PORTAL" | "SYSTEM";
             /** @enum {string} */
             status?: "INVITED" | "ACTIVE" | "SUSPENDED" | "DEACTIVATED";
             /** Format: uuid */
             departmentId?: string;
+            /** Format: uuid */
+            managerId?: string;
             teamIds?: string[];
             roleIds?: string[];
+        };
+        UpdateSlaPolicyRequest: {
+            /** Format: double */
+            atRiskDays: number;
+            /** Format: int32 */
+            escalateAfterOverdueDays: number;
+        };
+        SlaPolicyView: {
+            /** Format: double */
+            atRiskDays?: number;
+            /** Format: int32 */
+            escalateAfterOverdueDays?: number;
+        };
+        DepartmentRequest: {
+            name?: string;
+            description?: string;
+            /** Format: uuid */
+            headUserId?: string;
+        };
+        DepartmentView: {
+            /** Format: uuid */
+            id?: string;
+            name?: string;
+            description?: string;
+            /** Format: uuid */
+            headUserId?: string;
+        };
+        UpdateBusinessCalendarRequest: {
+            name: string;
+            timezone: string;
+            workingDays: number[];
+        };
+        BusinessCalendarView: {
+            name?: string;
+            timezone?: string;
+            workingDays?: number[];
+            holidays?: components["schemas"]["HolidayView"][];
+        };
+        HolidayView: {
+            /** Format: uuid */
+            id?: string;
+            /** Format: date */
+            date?: string;
+            name?: string;
         };
         CreateTemplateRequest: {
             name: string;
@@ -2567,6 +2745,10 @@ export interface components {
             requestedBy?: string;
             /** Format: date-time */
             requestedAt?: string;
+            /** Format: int32 */
+            remindersSent?: number;
+            /** Format: date-time */
+            lastRemindedAt?: string;
         };
         FulfilDocumentRequestRequest: {
             /** Format: uuid */
@@ -2806,6 +2988,8 @@ export interface components {
             fullName?: string;
             /** Format: uuid */
             departmentId?: string;
+            /** Format: uuid */
+            managerId?: string;
         };
         TeamRequest: {
             name?: string;
@@ -2832,15 +3016,10 @@ export interface components {
                 [key: string]: "ALL" | "DEPARTMENT" | "TEAM" | "ASSIGNED";
             };
         };
-        DepartmentRequest: {
-            name?: string;
-            description?: string;
-        };
-        DepartmentView: {
-            /** Format: uuid */
-            id?: string;
-            name?: string;
-            description?: string;
+        CreateHolidayRequest: {
+            /** Format: date */
+            date: string;
+            name: string;
         };
         ProvisionRequest: {
             slug: string;
@@ -2888,6 +3067,96 @@ export interface components {
             approval?: components["schemas"]["PlanShapeApprovalView"];
             stages?: components["schemas"]["PlanShapeStageView"][];
         };
+        Card: {
+            /** Format: uuid */
+            caseId?: string;
+            caseName?: string;
+            /** Format: uuid */
+            customerId?: string;
+            customerName?: string;
+            stageName?: string;
+            /** Format: uuid */
+            ownerUserId?: string;
+            ownerName?: string;
+            clock?: components["schemas"]["SlaClockView"];
+            hasOpenRequests?: boolean;
+            escalations?: components["schemas"]["EscalationNote"][];
+        };
+        EscalatedTo: {
+            /** @enum {string} */
+            route?: "MANAGER" | "DEPARTMENT_HEAD" | "ADMINISTRATORS";
+            /** Format: uuid */
+            userId?: string;
+            name?: string;
+            /** Format: date-time */
+            at?: string;
+        };
+        EscalationNote: {
+            /** @enum {string} */
+            subjectType?: "TASK" | "MILESTONE" | "SLA_CLOCK";
+            /** Format: uuid */
+            subjectId?: string;
+            /** @enum {string} */
+            route?: "MANAGER" | "DEPARTMENT_HEAD" | "ADMINISTRATORS";
+            /** Format: uuid */
+            escalatedToUserId?: string;
+            escalatedToName?: string;
+            latePersonName?: string;
+            /** Format: date */
+            dueDate?: string;
+            /** Format: int32 */
+            overdueDays?: number;
+            /** Format: date-time */
+            escalatedAt?: string;
+        };
+        ExceptionsView: {
+            summary?: components["schemas"]["Summary"];
+            breached?: components["schemas"]["Card"][];
+            dueToday?: components["schemas"]["Card"][];
+            watch?: components["schemas"]["Card"][];
+            calendarName?: string;
+        };
+        SlaClockView: {
+            /** Format: uuid */
+            clockId?: string;
+            /** Format: uuid */
+            caseId?: string;
+            /** Format: uuid */
+            stageId?: string;
+            /** Format: int32 */
+            targetDays?: number;
+            /** Format: double */
+            elapsedDays?: number;
+            /** Format: double */
+            pausedDays?: number;
+            /** Format: double */
+            remainingDays?: number;
+            /** @enum {string} */
+            state?: "RUNNING" | "PAUSED" | "BREACHED" | "MET";
+            atRisk?: boolean;
+            dueToday?: boolean;
+            /** @enum {string} */
+            pauseReason?: "CASE_HOLD" | "OPEN_DOCUMENT_REQUEST";
+            pauseEligible?: boolean;
+            /** Format: date-time */
+            startedAt?: string;
+            /** Format: date-time */
+            stoppedAt?: string;
+            /** Format: date-time */
+            breachedAt?: string;
+            escalatedTo?: components["schemas"]["EscalatedTo"];
+            calendarName?: string;
+        };
+        Summary: {
+            /** Format: int32 */
+            breached?: number;
+            /** Format: int32 */
+            dueToday?: number;
+            /** Format: int32 */
+            clocksPaused?: number;
+            /** Format: int32 */
+            autoEscalated?: number;
+        };
         ProgrammeDetailView: {
             programme?: components["schemas"]["ProgrammeView"];
             journeys?: components["schemas"]["ProgrammeJourneyView"][];
@@ -2917,34 +3186,34 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["PortalDocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         PageableObject: {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            paged?: boolean;
             unpaged?: boolean;
-            /** Format: int32 */
-            pageNumber?: number;
+            paged?: boolean;
             /** Format: int32 */
             pageSize?: number;
+            /** Format: int32 */
+            pageNumber?: number;
         };
         SortObject: {
-            unsorted?: boolean;
             empty?: boolean;
             sorted?: boolean;
+            unsorted?: boolean;
         };
         PortalAgreementView: {
             /** Format: uuid */
@@ -2985,7 +3254,7 @@ export interface components {
             fullName?: string;
             email?: string;
             /** @enum {string} */
-            userType?: "INTERNAL" | "PORTAL";
+            userType?: "INTERNAL" | "PORTAL" | "SYSTEM";
             /** Format: uuid */
             departmentId?: string;
             teamIds?: string[];
@@ -2998,17 +3267,17 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         DocumentVisibilitySummaryView: {
@@ -3022,17 +3291,17 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         AuditEventView: {
@@ -3055,17 +3324,17 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         MilestoneRoadmapView: {
@@ -3147,17 +3416,17 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentRequestView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         CandidateView: {
@@ -3183,17 +3452,17 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AgreementView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         AgreementSummaryView: {
@@ -3215,17 +3484,17 @@ export interface components {
             totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
-            pageable?: components["schemas"]["PageableObject"];
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
             /** Format: int32 */
             number?: number;
             sort?: components["schemas"]["SortObject"];
-            /** Format: int32 */
-            numberOfElements?: number;
+            pageable?: components["schemas"]["PageableObject"];
             first?: boolean;
             last?: boolean;
+            /** Format: int32 */
+            numberOfElements?: number;
             empty?: boolean;
         };
         TeamMemberView: {
@@ -4167,6 +4436,113 @@ export interface operations {
             };
         };
     };
+    policy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant's SLA policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaPolicyView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaPolicyView"];
+                };
+            };
+            /** @description The caller lacks calendar.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaPolicyView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    updatePolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateSlaPolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The policy was replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaPolicyView"];
+                };
+            };
+            /** @description atRiskDays negative or off the 0.1 grid, or escalateAfterOverdueDays below 1 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaPolicyView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaPolicyView"];
+                };
+            };
+            /** @description The caller lacks calendar.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaPolicyView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     updateGrants: {
         parameters: {
             query?: never;
@@ -4190,6 +4566,148 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    updateDepartment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DepartmentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DepartmentView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    calendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The calendar and its holidays */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BusinessCalendarView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BusinessCalendarView"];
+                };
+            };
+            /** @description The caller lacks calendar.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BusinessCalendarView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    updateCalendar: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateBusinessCalendarRequest"];
+            };
+        };
+        responses: {
+            /** @description The calendar was replaced (holidays untouched) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BusinessCalendarView"];
+                };
+            };
+            /** @description Unknown timezone, or working days outside 1-7 */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BusinessCalendarView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BusinessCalendarView"];
+                };
+            };
+            /** @description The caller lacks calendar.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["BusinessCalendarView"];
+                };
             };
             /** @description Unprocessable Entity */
             422: {
@@ -5805,6 +6323,64 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    remind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The contact was emailed; remindersSent and lastRemindedAt advanced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["DocumentRequestView"];
+                };
+            };
+            /** @description Caller holds no sufficient grant, or write_scope refused this stage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Absent, or out of the caller's scope (spec 6.8: identical response either way) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The request was already reminded in the last 24 hours */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description The request is not open, has no contact, or its contact is retired */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemDetail"];
                 };
             };
         };
@@ -8745,6 +9321,125 @@ export interface operations {
             };
         };
     };
+    addHoliday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateHolidayRequest"];
+            };
+        };
+        responses: {
+            /** @description The holiday was added */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["HolidayView"];
+                };
+            };
+            /** @description Invalid date or name */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["HolidayView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["HolidayView"];
+                };
+            };
+            /** @description The caller lacks calendar.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["HolidayView"];
+                };
+            };
+            /** @description A holiday already exists on that date */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["HolidayView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    removeHoliday: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The holiday was removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description The caller lacks calendar.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description No such holiday in this tenant */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     provision: {
         parameters: {
             query?: never;
@@ -9146,6 +9841,53 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    exceptions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Breached, due-today and watch clocks within the caller's sla.view scope */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ExceptionsView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ExceptionsView"];
+                };
+            };
+            /** @description The caller lacks sla.view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ExceptionsView"];
                 };
             };
             /** @description Unprocessable Entity */
@@ -9586,6 +10328,64 @@ export interface operations {
             };
         };
     };
+    forCase_3: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The case's current (or last stopped) SLA clock */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaClockView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaClockView"];
+                };
+            };
+            /** @description The caller lacks case.view */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaClockView"];
+                };
+            };
+            /** @description Out of scope, another tenant's, or the case has never had a clock */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["SlaClockView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     roadmap: {
         parameters: {
             query?: never;
@@ -9786,7 +10586,7 @@ export interface operations {
             };
         };
     };
-    forCase_3: {
+    forCase_4: {
         parameters: {
             query?: never;
             header?: never;

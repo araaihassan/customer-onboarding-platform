@@ -4,6 +4,7 @@ import { useMemo } from "react";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { apiFetch } from "./client";
 import { caseKeys, type Case } from "./cases";
+import { invalidateSla } from "./sla";
 import { customerKeys, type Customer } from "./customers";
 import type { components } from "./generated";
 
@@ -200,6 +201,7 @@ export function useChangeTaskStatus() {
       if (!updated.caseId) return;
       void queryClient.invalidateQueries({ queryKey: taskKeys.forCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: caseKeys.roadmap(updated.caseId) });
+      invalidateSla(queryClient, updated.caseId);
       void queryClient.invalidateQueries({ queryKey: taskKeys.mineAll() });
     },
   });
@@ -228,8 +230,27 @@ export function useUpdateTask() {
       if (!updated.caseId) return;
       void queryClient.invalidateQueries({ queryKey: taskKeys.forCase(updated.caseId) });
       void queryClient.invalidateQueries({ queryKey: taskKeys.mineAll() });
+      // Reassigning an assignee can move the escalation route, so the clock and war room refetch too.
+      invalidateSla(queryClient, updated.caseId);
     },
   });
+}
+
+/**
+ * PUT /tasks/{id} is a full replace (CLAUDE.md invariant): start from the current view, change only
+ * `patch`. The `Record<keyof ...>` below requires every key `UpdateTaskRequest` has, so `tsc` fails here
+ * if the request type ever gains a field this helper forgets to carry.
+ */
+export function toUpdateTaskRequest(task: Task, patch: Partial<UpdateTaskRequest> = {}): UpdateTaskRequest {
+  const full: Record<keyof UpdateTaskRequest, unknown> = {
+    title: task.title ?? "",
+    description: task.description,
+    priority: task.priority ?? "MEDIUM",
+    assigneeId: task.assigneeId ?? null,
+    dueDate: task.dueDate,
+    milestoneId: task.milestoneId ?? "",
+  };
+  return { ...(full as UpdateTaskRequest), ...patch };
 }
 
 /**

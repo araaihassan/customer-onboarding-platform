@@ -57,7 +57,20 @@ export function humanise(status: string): string {
  * `status ?? "PROSPECT"`, and the point of accepting undefined here is that they
  * no longer have to reach for a default that is a guess.
  */
-export function StatusPill({ status, role }: { status?: string; role?: StatusRole }) {
+export function StatusPill({
+  status,
+  role,
+  verbatim = false,
+}: {
+  status?: string;
+  role?: StatusRole;
+  /**
+   * Opt-in for a label already worded in its final casing (the SLA chips, whose
+   * lower-case unit is `3.1d`, not `3.1D`): skips humanise() and the uppercase
+   * transform, keeps the data font. Every other caller is unchanged.
+   */
+  verbatim?: boolean;
+}) {
   if (!status) return <StatusPill status="—" role="neutral" />;
 
   const resolved = role ?? roleForStatus(status);
@@ -70,12 +83,12 @@ export function StatusPill({ status, role }: { status?: string; role?: StatusRol
         borderRadius: "var(--ob-radius-5)",
         padding: "3px 8px",
         whiteSpace: "nowrap",
-        textTransform: "uppercase",
+        textTransform: verbatim ? "none" : "uppercase",
         letterSpacing: "0.05em",
         font: "var(--ob-type-mono-chip-size)/var(--ob-type-mono-chip-line) var(--ob-font-family-data)",
       }}
     >
-      {humanise(status)}
+      {verbatim ? status : humanise(status)}
     </span>
   );
 }

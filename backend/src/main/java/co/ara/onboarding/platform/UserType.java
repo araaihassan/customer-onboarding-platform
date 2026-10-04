@@ -13,4 +13,9 @@ package co.ara.onboarding.platform;
  * platform is the one module both may depend on. RequestAuditContext.ActorType is
  * the same pattern: a cross-cutting classification kept in the foundation.
  */
-public enum UserType { INTERNAL, PORTAL }
+public enum UserType {
+    INTERNAL,
+    PORTAL,
+    /** The scheduler's actor (spec 1.2.3). Never persisted -- no app_user row has it. */
+    SYSTEM
+}

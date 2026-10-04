@@ -39,6 +39,9 @@ public final class AuditActions {
     public static final AuditAction USER_ROLE_UNASSIGNED      = of("user.role_unassigned", false);
     public static final AuditAction TEAM_MEMBER_ADDED         = of("team.member_added", false);
     public static final AuditAction TEAM_MEMBER_REMOVED       = of("team.member_removed", false);
+    // Identity reporting lines (sub-project 6). Compliance-only, like every other user.* action.
+    public static final AuditAction USER_MANAGER_CHANGED    = of("user.manager_changed", false);
+    public static final AuditAction DEPARTMENT_HEAD_CHANGED = of("department.head_changed", false);
     public static final AuditAction DEPARTMENT_CREATED        = of("department.created", false);
     public static final AuditAction TEAM_CREATED              = of("team.created", false);
     public static final AuditAction ROLE_CREATED              = of("role.created", false);
@@ -289,6 +292,8 @@ public final class AuditActions {
     // DOCUMENT_REQUEST_WITHDRAWN are: fulfilling a request is the customer's
     // own side of the document story, not internal administration.
     public static final AuditAction DOCUMENT_REQUEST_FULFILLED  = of("document.request_fulfilled", true);
+    // Timeline-visible: the customer received it (spec 4.7). Recorded against onboarding_case like its siblings.
+    public static final AuditAction DOCUMENT_REQUEST_REMINDED   = of("document_request.reminded", true);
     public static final AuditAction DOCUMENT_REVIEWED           = of("document.reviewed", true);
 
     // Sub-project 5 (spec 5.9). Business records, timeline-visible -- the customer.* /
@@ -325,4 +330,16 @@ public final class AuditActions {
     public static Optional<AuditAction> byKey(String key) {
         return Optional.ofNullable(BY_KEY.get(key));
     }
+
+    // SLA & escalation (sub-project 6). All compliance-only: the design hides SLA mechanics from the
+    // customer (SCREENS L344) and the portal reads this same flag (spec 4.7, invariant 9).
+    public static final AuditAction SLA_BREACHED      = of("sla.breached", false);
+    public static final AuditAction ESCALATION_RAISED = of("escalation.raised", false);
+    public static final AuditAction NOTIFICATION_SENT = of("notification.sent", false);
+
+    // Tenant configuration (sub-project 6). Compliance-only.
+    public static final AuditAction CALENDAR_UPDATED         = of("calendar.updated", false);
+    public static final AuditAction CALENDAR_HOLIDAY_ADDED   = of("calendar.holiday_added", false);
+    public static final AuditAction CALENDAR_HOLIDAY_REMOVED = of("calendar.holiday_removed", false);
+    public static final AuditAction SLA_POLICY_UPDATED       = of("sla_policy.updated", false);
 }

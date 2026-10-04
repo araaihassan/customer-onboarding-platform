@@ -121,7 +121,8 @@ public final class RoleTemplates {
             entry(PROGRAMME_VIEW, TEAM), entry(PROGRAMME_MANAGE, TEAM),
             entry(DOCUMENT_VIEW, TEAM), entry(DOCUMENT_UPLOAD, TEAM), entry(DOCUMENT_MANAGE, TEAM),
             entry(DOCUMENT_SHARE, TEAM), entry(DOCUMENT_REQUEST, TEAM),
-            entry(AGREEMENT_VIEW, TEAM), entry(AGREEMENT_MANAGE, TEAM), entry(AGREEMENT_SIGN_RECORD, TEAM))),
+            entry(AGREEMENT_VIEW, TEAM), entry(AGREEMENT_MANAGE, TEAM), entry(AGREEMENT_SIGN_RECORD, TEAM),
+            entry(SLA_VIEW, TEAM))),
 
         // TASK_COMPLETE joins MILESTONE_COMPLETE at the same ASSIGNED scope (spec
         // 5.2); no COMMENT_CREATE, for the same reason Sales Representative has
@@ -173,7 +174,8 @@ public final class RoleTemplates {
             // own CASE_VIEW/CASE_EDIT scope; sign_record's implied
             // milestone.complete prerequisite is already held at DEPARTMENT above.
             entry(AGREEMENT_VIEW, DEPARTMENT), entry(AGREEMENT_MANAGE, DEPARTMENT),
-            entry(AGREEMENT_SIGN_RECORD, DEPARTMENT))),
+            entry(AGREEMENT_SIGN_RECORD, DEPARTMENT),
+            entry(SLA_VIEW, DEPARTMENT))),
 
         // Map.ofEntries, not Map.of: eleven grants crosses Map.of's ten-pair ceiling.
         // DOCUMENT_VIEW and DOCUMENT_REVIEW both at ALL (Task 11, sub-project 4):
@@ -287,6 +289,8 @@ public final class RoleTemplates {
             // requires Administrator to cover the whole catalog; no other template
             // is expected to hold it until a later task decides otherwise.
             entry(PLAN_APPROVE_SHAPE, ALL),
+            // sub-project 6 Task 7: SLA visibility and the tenant calendar.
+            entry(SLA_VIEW, ALL), entry(CALENDAR_MANAGE, ALL),
             // Task 23 (sub-project 3A): gate 2's two permissions, seeded here purely
             // because RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
             // requires Administrator to cover the whole catalog -- Project Manager and

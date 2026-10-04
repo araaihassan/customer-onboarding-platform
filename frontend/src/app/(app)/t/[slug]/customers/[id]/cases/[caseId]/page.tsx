@@ -14,6 +14,7 @@ import { DocumentsTab } from "@/components/journey/DocumentsTab";
 import { HoldDialog } from "@/components/journey/HoldDialog";
 import { PlanTab, type PlanPreviewMilestone } from "@/components/journey/PlanTab";
 import { Roadmap } from "@/components/journey/Roadmap";
+import { SlaClockCallout } from "@/components/sla/SlaClockCallout";
 import { TasksTab } from "@/components/journey/TasksTab";
 import { TimelineTab } from "@/components/journey/TimelineTab";
 import { useSetPageHeader } from "@/components/shell/PageHeader";
@@ -24,6 +25,7 @@ import { ApiError } from "@/lib/api/client";
 import { useApprovals, useCase, useCases, useParticipants, useResume, useRoadmap } from "@/lib/api/cases";
 import { useCustomer } from "@/lib/api/customers";
 import { usePlanRevisions } from "@/lib/api/plans";
+import { useCaseSlaClock } from "@/lib/api/sla";
 import { useDefinition, useWorkflowTemplate, type Stage } from "@/lib/api/workflows";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
@@ -46,6 +48,8 @@ export default function CaseWorkspacePage() {
   const caseQuery = useCase(caseId);
   const cases = useCases(customerId);
   const resume = useResume();
+  // Same query key as CaseHeader's chip: one request, shared. A thrown error (403/500) reads as "no clock".
+  const slaClock = useCaseSlaClock(caseId);
   const canHold = useHasPermission("case.hold");
   const [holding, setHolding] = useState(false);
   const [requestingDocument, setRequestingDocument] = useState(false);
@@ -167,6 +171,8 @@ export default function CaseWorkspacePage() {
             paddingLeft: "var(--ob-space-16)",
           }}
         >
+          <SlaClockCallout clock={slaClock.isError ? null : slaClock.data} loading={slaClock.isLoading} />
+
           <CaseSwitcher
             cases={cases.data ?? []}
             activeCaseId={caseId}

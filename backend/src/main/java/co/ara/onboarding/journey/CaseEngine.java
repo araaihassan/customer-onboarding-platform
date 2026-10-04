@@ -68,6 +68,7 @@ class CaseEngine {
     private final AuditRecorder audit;
     private final AuthContextProvider contextProvider;
     private final Clock clock;
+    private final SlaClockLifecycle slaClocks;
 
     CaseEngine(CaseRepository cases, StageRepository stageRepository,
                MilestoneDefinitionRepository milestoneDefinitions,
@@ -79,7 +80,7 @@ class CaseEngine {
                BranchRuleRepository branchRules, ApprovalRepository approvals,
                CustomerDirectory customers, ConditionEvaluator evaluator,
                BusinessCalendar calendar, AuditRecorder audit,
-               AuthContextProvider contextProvider, Clock clock) {
+               AuthContextProvider contextProvider, Clock clock, SlaClockLifecycle slaClocks) {
         this.cases = cases;
         this.stageRepository = stageRepository;
         this.milestoneDefinitions = milestoneDefinitions;
@@ -97,6 +98,7 @@ class CaseEngine {
         this.audit = audit;
         this.contextProvider = contextProvider;
         this.clock = clock;
+        this.slaClocks = slaClocks;
     }
 
     /**
@@ -341,6 +343,9 @@ class CaseEngine {
         if (!current.isAutoAdvance() && !c.isAdvanceRequested()) return;   // waits for case.advance
 
         Stage next = nextStage(c, current, stages, definitions, instances, true);
+        // Spec 1.2.1: every gate has passed, so the current stage is really being left (advance or
+        // completion alike). The exit is not separately audited.
+        slaClocks.stageExited(c.getId(), Instant.now(clock));
         if (next == null) {
             // The terminal rule. current_stage_id stays on this stage -- a real one, never a
             // skipped one and never null -- and the case completes.
@@ -515,6 +520,7 @@ class CaseEngine {
         c.setTargetCompletionDate(latestDueDate(instances));
         audit.record(AuditActions.CASE_STAGE_ENTERED, "onboarding_case", c.getId(),
                 "Entered stage \"" + stage.getName() + "\"", Map.of("stageId", stage.getId().toString()));
+        slaClocks.stageEntered(c.getId(), stage.getId(), Instant.now(clock));   // after its cause
     }
 
     /** The furthest-out due date scheduled so far -- only entered stages have one. */

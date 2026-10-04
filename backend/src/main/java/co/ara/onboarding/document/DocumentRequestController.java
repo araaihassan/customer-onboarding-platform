@@ -146,4 +146,20 @@ public class DocumentRequestController {
                                       @Valid @RequestBody FulfilDocumentRequestRequest request) {
         return requests.fulfil(id, request.documentId());
     }
+
+    @PostMapping("/document-requests/{id}/remind")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The contact was emailed; remindersSent and lastRemindedAt advanced"),
+            @ApiResponse(responseCode = "403", description = FORBIDDEN,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "404", description = NOT_FOUND,
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "409", description = "The request was already reminded in the last 24 hours",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class))),
+            @ApiResponse(responseCode = "422", description = "The request is not open, has no contact, or its contact is retired",
+                    content = @Content(schema = @Schema(implementation = ProblemDetail.class)))
+    })
+    public DocumentRequestView remind(@PathVariable UUID id) {
+        return requests.remind(id);
+    }
 }

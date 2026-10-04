@@ -27,4 +27,12 @@ public final class TenantContext {
             if (previous == null) CURRENT.remove(); else CURRENT.set(previous);
         }
     }
+
+    public static <T> T runAsReturning(UUID tenantId, java.util.function.Supplier<T> action) {
+        UUID previous = CURRENT.get();
+        CURRENT.set(tenantId);
+        try { return action.get(); } finally {
+            if (previous == null) CURRENT.remove(); else CURRENT.set(previous);
+        }
+    }
 }

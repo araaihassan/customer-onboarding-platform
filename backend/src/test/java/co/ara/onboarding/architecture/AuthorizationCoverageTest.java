@@ -304,6 +304,11 @@ class AuthorizationCoverageTest {
             // it needs no exclusion at all.
             "co.ara.onboarding.task.TaskInstantiation",
             "co.ara.onboarding.task.TaskLifecycleAdapter",
+            // Runs only inside CaseEngine/CaseService/MilestoneService/DocumentRequestService's own
+            // transaction (MANDATORY) on a case id the caller already resolved under its own gate; it
+            // never receives an id from a request. The TaskLifecycleAdapter precedent. Both SLA
+            // lifecycle adapters delegate here and inject no repository themselves (spec 3.2).
+            "co.ara.onboarding.sla.SlaClockWriter",
             // Both ids PendingInvitationRevoker acts on are resolved through
             // AuthorizedQuery by its only callers (UserInvitationService,
             // auth.InvitationService) before either method runs -- never a fresh
@@ -392,7 +397,11 @@ class AuthorizationCoverageTest {
                                           // first *Service in this module -- added in the same
                                           // commit that introduces it, same reasoning as
                                           // document.. above.
-                                          "co.ara.onboarding.agreement..")
+                                          "co.ara.onboarding.agreement..",
+                                          // Sub-project 6 Task 11: the sla module's first
+                                          // finder-calling class, added in the commit that
+                                          // introduces it (its one exclusion is named above).
+                                          "co.ara.onboarding.sla..")
                 // Union, not replace: a covered-package *Service/*Directory class that
                 // reaches a finder on a repository it does NOT hold as a field (passed
                 // as a parameter, obtained from another object, etc.) would be
@@ -555,7 +564,8 @@ class AuthorizationCoverageTest {
                           "co.ara.onboarding.task.TaskLifecycleAdapter",
                           "co.ara.onboarding.document.DocumentInstantiation",
                           "co.ara.onboarding.document.PortalCaseAccess",
-                          "co.ara.onboarding.agreement.AgreementInstantiation")
+                          "co.ara.onboarding.agreement.AgreementInstantiation",
+                          "co.ara.onboarding.sla.SlaClockWriter")
                 .doesNotContain("co.ara.onboarding.task.TaskDirectoryAdapter");
     }
 }

@@ -9,6 +9,7 @@ import { StatusPill, type StatusRole } from "@/components/ui/StatusPill";
 import type { Approval, MilestoneRoadmap, Participant } from "@/lib/api/cases";
 import { useHasPermission } from "@/lib/auth/useHasPermission";
 import { t } from "@/lib/i18n";
+import { isForceCompletable, pendingForceComplete } from "./forceCompleteEligibility";
 import { ApprovalPanel } from "./ApprovalPanel";
 import { ForceCompleteDialog } from "./ForceCompleteDialog";
 import { RequirementList } from "./RequirementList";
@@ -62,10 +63,8 @@ export function MilestoneRow({
   const status = milestone.status ?? "PENDING";
   const owner = participants.find((p) => p.userId === milestone.ownerUserId)?.fullName;
   const blockedBy = milestone.blockedByMilestoneNames ?? [];
-  const pendingApproval = approvals.find(
-    (a) => a.kind === "FORCE_COMPLETE" && a.milestoneId === milestone.id && a.status === "PENDING",
-  );
-  const canRequestForceComplete = canForceComplete && status !== "DONE" && status !== "SKIPPED" && !pendingApproval;
+  const pendingApproval = pendingForceComplete(approvals, milestone.id);
+  const canRequestForceComplete = canForceComplete && isForceCompletable(status, pendingApproval);
   const open = status !== "DONE" && status !== "SKIPPED";
   // ISO dates sort lexically, so a plain string compare avoids a Date() timezone
   // shift landing the boundary on the wrong day (CaseHeader's own toDateOnly note).

@@ -126,7 +126,8 @@ public final class WorkflowFixtures {
                 s.notificationTemplateKey(), toConditionRequest(s.entryCondition()),
                 s.fallbackNextStageKey(),
                 s.milestones().stream().map(WorkflowFixtures::toMilestoneRequest).toList(),
-                s.branchRules().stream().map(WorkflowFixtures::toBranchRuleRequest).toList());
+                s.branchRules().stream().map(WorkflowFixtures::toBranchRuleRequest).toList(),
+                s.pausesOnCustomer());
     }
 
     private static MilestoneRequest toMilestoneRequest(MilestoneView m) {

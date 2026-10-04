@@ -29,6 +29,7 @@ import co.ara.onboarding.tenancy.TenantRepository;
 import co.ara.onboarding.tenancy.TenantStatus;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,11 +60,13 @@ public class TenantProvisioningService {
     private final EmailSender email;
     private final TenantConnectionCustomizer binder;
     private final AuditRecorder audit;
+    private final JdbcTemplate jdbc;
 
     public TenantProvisioningService(TenantRepository tenants, RoleRepository roles,
                                      UserRoleRepository userRoles, AppUserRepository users,
                                      InvitationRepository invitations, EmailSender email,
-                                     TenantConnectionCustomizer binder, AuditRecorder audit) {
+                                     TenantConnectionCustomizer binder, AuditRecorder audit,
+                                     JdbcTemplate jdbc) {
         this.tenants = tenants;
         this.roles = roles;
         this.userRoles = userRoles;
@@ -72,6 +75,7 @@ public class TenantProvisioningService {
         this.email = email;
         this.binder = binder;
         this.audit = audit;
+        this.jdbc = jdbc;
     }
 
     /**
@@ -120,6 +124,7 @@ public class TenantProvisioningService {
         try {
             binder.bind(tenant.getId());
             seedRoles(tenant.getId());
+            seedCalendarAndPolicy(tenant.getId());
 
             AppUser admin = new AppUser();
             admin.setId(Uuid7.generate());
@@ -212,6 +217,16 @@ public class TenantProvisioningService {
 
         email.send(new EmailMessage(adminEmail, "Activate your account",
                 "Use this token to activate your account: " + raw));
+    }
+
+    /** Spec §4.1: every tenant starts with a Monday-Friday UTC calendar and the default SLA policy. */
+    private void seedCalendarAndPolicy(UUID tenantId) {
+        jdbc.update("""
+                INSERT INTO business_calendar (id, tenant_id, created_at, updated_at)
+                VALUES (?, ?, now(), now())""", Uuid7.generate(), tenantId);
+        jdbc.update("""
+                INSERT INTO sla_policy (id, tenant_id, created_at, updated_at)
+                VALUES (?, ?, now(), now())""", Uuid7.generate(), tenantId);
     }
 
     private void seedRoles(UUID tenantId) {

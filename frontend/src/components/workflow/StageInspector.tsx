@@ -162,6 +162,18 @@ export function StageInspector({
           onChange={(checked) => onChange({ autoAdvance: checked })}
           label={t("workflow.inspector.autoAdvance")}
         />
+        {/* Undefined (a draft from before the field existed) reads as on, the server's own
+            default; a toggle always writes an explicit boolean so a save never omits it. */}
+        <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
+          <Switch
+            checked={stage.pausesOnCustomer ?? true}
+            onChange={(checked) => onChange({ pausesOnCustomer: checked })}
+            label={t("workflow.inspector.pausesOnCustomer")}
+          />
+          <p className="text-text-faint" style={{ font: "10.5px/1.4 var(--ob-font-family-ui)" }}>
+            {stage.slaDays ? t("workflow.inspector.pausesOnCustomer.hint") : t("workflow.inspector.pausesOnCustomer.noSla")}
+          </p>
+        </div>
         <Switch
           checked={stage.portalVisible ?? true}
           onChange={(checked) => onChange({ portalVisible: checked })}

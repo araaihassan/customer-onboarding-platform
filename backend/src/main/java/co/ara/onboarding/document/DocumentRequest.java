@@ -71,6 +71,18 @@ public class DocumentRequest {
     @Column(name = "requested_at", nullable = false)
     private Instant requestedAt;
 
+    @Column(name = "reminders_sent", nullable = false)
+    private int remindersSent;
+
+    @Column(name = "last_reminded_at")
+    private Instant lastRemindedAt;
+
+    public int getRemindersSent() { return remindersSent; }
+    public void setRemindersSent(int remindersSent) { this.remindersSent = remindersSent; }
+
+    public Instant getLastRemindedAt() { return lastRemindedAt; }
+    public void setLastRemindedAt(Instant lastRemindedAt) { this.lastRemindedAt = lastRemindedAt; }
+
     public UUID getId() { return id; }
     public void setId(UUID id) { this.id = id; }
 

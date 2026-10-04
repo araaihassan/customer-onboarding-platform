@@ -51,6 +51,8 @@ public final class PermissionKeys {
     public static final String PROGRAMME_CREATE      = "programme.create";
     public static final String PROGRAMME_MANAGE      = "programme.manage";
     public static final String PLAN_APPROVE_SHAPE    = "plan.approve_shape";
+    public static final String SLA_VIEW        = "sla.view";
+    public static final String CALENDAR_MANAGE = "calendar.manage";
     public static final String PLAN_ISSUE               = "plan.issue";
     public static final String PLAN_APPROVE_SCHEDULE    = "plan.approve_schedule";
     // Task 3 (sub-project 4) added the four keys PortalPermissions references.

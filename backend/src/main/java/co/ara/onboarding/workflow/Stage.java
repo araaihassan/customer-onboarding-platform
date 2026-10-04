@@ -41,6 +41,10 @@ public class Stage extends TenantScopedEntity {
     @Column(name = "portal_visible", nullable = false)
     private boolean portalVisible = true;
 
+    /** Whether an open customer document request pauses this stage's SLA clock (sub-project 6). */
+    @Column(name = "pauses_on_customer", nullable = false)
+    private boolean pausesOnCustomer = true;
+
     /** The tenant's promise; distinct from the schedule driven by milestone effort. */
     @Column(name = "sla_days")
     private Integer slaDays;
@@ -87,6 +91,9 @@ public class Stage extends TenantScopedEntity {
 
     public boolean isAutoAdvance() { return autoAdvance; }
     public void setAutoAdvance(boolean autoAdvance) { this.autoAdvance = autoAdvance; }
+
+    public boolean isPausesOnCustomer() { return pausesOnCustomer; }
+    public void setPausesOnCustomer(boolean pausesOnCustomer) { this.pausesOnCustomer = pausesOnCustomer; }
 
     public boolean isPortalVisible() { return portalVisible; }
     public void setPortalVisible(boolean portalVisible) { this.portalVisible = portalVisible; }

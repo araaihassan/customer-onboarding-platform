@@ -42,7 +42,7 @@ public class IdentityActorDirectory implements ActorDirectory {
     @Override
     @Transactional(readOnly = true)
     public Optional<AuthContext> findActor(UUID userId) {
-        return users.findById(userId).map(u -> new AuthContext(
+        return users.findById(userId).filter(u -> u.getUserType() != co.ara.onboarding.platform.UserType.SYSTEM).map(u -> new AuthContext(
                 u.getTenantId(), u.getId(), u.getUserType(),
                 u.getDepartmentId(), Set.copyOf(u.getTeamIds())));
     }
