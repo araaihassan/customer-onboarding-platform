@@ -54,6 +54,7 @@ public class MilestoneService {
     private final Clock clock;
     private final TaskLifecycle taskLifecycle;
     private final SlaClockLifecycle slaClocks;
+    private final org.springframework.context.ApplicationEventPublisher events;
 
     public MilestoneService(MilestoneRepository milestones, RequirementRepository requirements,
                             ApprovalRepository approvals, CaseParticipantRepository participants,
@@ -61,7 +62,9 @@ public class MilestoneService {
                             AppUserRepository users, AuthorizedQuery authorizedQuery,
                             AuthContextProvider contextProvider, AuditRecorder audit, CaseEngine engine,
                             StageWriteScopeGuard writeScope, Clock clock, TaskLifecycle taskLifecycle,
-                            SlaClockLifecycle slaClocks) {
+                            SlaClockLifecycle slaClocks,
+                            org.springframework.context.ApplicationEventPublisher events) {
+        this.events = events;
         this.slaClocks = slaClocks;
         this.milestones = milestones;
         this.requirements = requirements;
@@ -224,6 +227,9 @@ public class MilestoneService {
             Instant now = Instant.now(clock);
             slaClocks.stageExited(c.getId(), now);
             slaClocks.stageEntered(c.getId(), definition.getStageId(), now);
+            UUID actor = contextProvider.principal().userId();
+            if (previousStage != null) events.publishEvent(new StageExited(c.getId(), previousStage, actor));
+            events.publishEvent(new StageEntered(c.getId(), definition.getStageId(), actor));
         }
 
         // After MILESTONE_REOPENED's own audit record, before reconcile -- same

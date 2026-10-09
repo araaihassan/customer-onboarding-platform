@@ -47,6 +47,7 @@ public class PublishService {
     private final AuditRecorder audit;
     private final WorkflowService workflows;
     private final ApplicationEventPublisher events;
+    private final NotificationTemplateKeys templateKeys;
 
     public PublishService(WorkflowTemplateRepository templates,
                           WorkflowVersionRepository versions,
@@ -60,8 +61,10 @@ public class PublishService {
                           AuthContextProvider contextProvider,
                           AuditRecorder audit,
                           WorkflowService workflows,
-                          ApplicationEventPublisher events) {
+                          ApplicationEventPublisher events,
+                          NotificationTemplateKeys templateKeys) {
         this.events = events;
+        this.templateKeys = templateKeys;
         this.templates = templates;
         this.versions = versions;
         this.stages = stages;
@@ -204,6 +207,14 @@ public class PublishService {
                 }
             } else if (agreementFields) {
                 problems.add("Requirement '" + r.getLabel() + "' carries agreement fields, which only a SIGNATURE requirement may");
+            }
+        }
+        // Rule 7 (6B spec 8): a stage's notification template key must name a template in this
+        // tenant. A template deactivated later just sends nothing -- a frozen version can't be fixed.
+        for (Stage s : stages) {
+            String key = s.getNotificationTemplateKey();
+            if (key != null && !key.isBlank() && !templateKeys.exists(key)) {
+                problems.add("Stage " + s.getName() + " uses notification template '" + key + "', which does not exist");
             }
         }
         return problems;

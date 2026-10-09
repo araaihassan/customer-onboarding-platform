@@ -162,6 +162,25 @@ public class SubjectFacts {
                 .stream().findFirst().orElse("Someone");
     }
 
+    public record StageFacts(UUID id, String name, String templateKey) {}
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public StageFacts stage(UUID stageId) {
+        return jdbc.queryForObject("SELECT id, name, notification_template_key FROM stage WHERE id = ?",
+                (rs, i) -> new StageFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getString(3)), stageId);
+    }
+
+    public record TemplateFacts(String enteredSubject, String enteredBody, String exitedSubject, String exitedBody) {}
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<TemplateFacts> activeTemplate(String key) {
+        return jdbc.query("""
+                SELECT entered_subject, entered_body, exited_subject, exited_body
+                  FROM notification_template WHERE key = ? AND active""",
+                (rs, i) -> new TemplateFacts(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4)), key)
+                .stream().findFirst();
+    }
+
     public record OutdatedCase(UUID caseId, UUID ownerUserId, UUID customerId) {}
 
     @Transactional(propagation = Propagation.MANDATORY)

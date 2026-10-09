@@ -354,6 +354,7 @@ class CaseEngine {
         // Spec 1.2.1: every gate has passed, so the current stage is really being left (advance or
         // completion alike). The exit is not separately audited.
         slaClocks.stageExited(c.getId(), Instant.now(clock));
+        events.publishEvent(new StageExited(c.getId(), current.getId(), contextProvider.current().userId()));
         if (next == null) {
             // The terminal rule. current_stage_id stays on this stage -- a real one, never a
             // skipped one and never null -- and the case completes.
@@ -529,6 +530,7 @@ class CaseEngine {
         audit.record(AuditActions.CASE_STAGE_ENTERED, "onboarding_case", c.getId(),
                 "Entered stage \"" + stage.getName() + "\"", Map.of("stageId", stage.getId().toString()));
         slaClocks.stageEntered(c.getId(), stage.getId(), Instant.now(clock));   // after its cause
+        events.publishEvent(new StageEntered(c.getId(), stage.getId(), contextProvider.current().userId()));
     }
 
     /** The furthest-out due date scheduled so far -- only entered stages have one. */
