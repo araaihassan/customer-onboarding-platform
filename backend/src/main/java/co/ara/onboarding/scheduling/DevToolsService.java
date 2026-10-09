@@ -38,7 +38,7 @@ public class DevToolsService {
         this.dispatch = dispatch;
     }
 
-    // @Transactional(readOnly) on both: the permission gate runs inside the tenant binder, which only
+    // @Transactional(readOnly) on every method here: the permission gate runs inside the tenant binder, which only
     // exists within a transaction; without one the gate reads zero grants (RLS) and 403s an administrator.
     @Transactional(readOnly = true)
     @RequirePermission(PermissionKeys.TENANT_SETTINGS_EDIT)

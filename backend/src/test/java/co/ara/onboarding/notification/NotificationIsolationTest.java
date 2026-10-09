@@ -1,7 +1,5 @@
 package co.ara.onboarding.notification;
 
-import co.ara.onboarding.authz.PermissionKeys;
-import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.document.CreateDocumentRequest;
 import co.ara.onboarding.document.CreateDocumentRequestRequest;
 import co.ara.onboarding.document.DocumentCategory;
@@ -29,7 +27,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -50,9 +47,6 @@ class NotificationIsolationTest extends SecurityTestBase {
     private static final byte[] PDF_BYTES =
             "%PDF-1.4\n%abc\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n"
                     .getBytes(StandardCharsets.ISO_8859_1);
-    private static final Map<String, Scope> VIEWER = Map.of(
-            PermissionKeys.TASK_VIEW, Scope.ALL, PermissionKeys.CASE_VIEW, Scope.ALL,
-            PermissionKeys.DOCUMENT_VIEW, Scope.ALL);
 
     @Autowired SlaTestSupport sla;
     @Autowired TaskService tasks;
@@ -82,10 +76,8 @@ class NotificationIsolationTest extends SecurityTestBase {
     }
 
     /** One tenant with an overdue task, a document expiring in five days and an overdue open request. */
-    private Side side(UUID t, String slug) {
+    private Side side(UUID t, UUID owner) {
         seedConfig(t);
-        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@" + slug + ".test"));
-        support.grant(t, owner, VIEWER);
         UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));
         ownerJdbc().update("update onboarding_case set owner_user_id = ? where id = ?", owner, caseId);
         LocalDate today = fixture.runAsReturning(t, () -> calendar.today());
@@ -109,9 +101,10 @@ class NotificationIsolationTest extends SecurityTestBase {
         UUID a = fixture.createTenant(prefix + "-a");
         UUID b = fixture.createTenant(prefix + "-b");
         AppUser adminA = fixture.createAdminUser(a, "admin@" + prefix + "-a.example");
-        fixture.createAdminUser(b, "admin@" + prefix + "-b.example");
-        Side sa = side(a, prefix + "-a");
-        Side sb = side(b, prefix + "-b");
+        AppUser adminB = fixture.createAdminUser(b, "admin@" + prefix + "-b.example");
+        // each tenant's administrator owns and is assigned that tenant's work, so the sweep notifies the acting user
+        Side sa = side(a, adminA.getId());
+        Side sb = side(b, adminB.getId());
         UUID templateB = fixture.runAsReturning(b, () -> templates.createTemplate(
                 new CreateTemplateRequest("kickoff", "B kickoff", "{case} entered {stage}", "b body", null, null, true)).id());
         UUID templateA = fixture.runAsReturning(a, () -> templates.createTemplate(
@@ -157,8 +150,10 @@ class NotificationIsolationTest extends SecurityTestBase {
         job.runOne(w.b().tenant());
         assertThat(support.rowsFor(w.b().tenant(), w.b().owner()).stream().map(r -> r.get("type")).toList())
                 .contains("TASK_OVERDUE");
-        assertThat(ownerJdbc().queryForObject("select count(*) from notification where tenant_id = ? "
-                + "and subject_id in (?, ?, ?, ?)", Long.class, w.a().tenant(),
+        // and A's sweeps never stamped a row into any tenant but A's own for B's subjects: every row about
+        // B's task/document/request belongs to B (a leak would carry tenant A's id, or be missing from B's count)
+        assertThat(ownerJdbc().queryForObject("select count(*) from notification where tenant_id <> ? "
+                + "and subject_id in (?, ?, ?, ?)", Long.class, w.b().tenant(),
                 w.b().taskId(), w.b().docId(), w.b().requestId(), w.b().caseId())).isZero();
     }
 
@@ -173,25 +168,47 @@ class NotificationIsolationTest extends SecurityTestBase {
                 .andExpect(status().isNotFound());
         assertThat(ownerJdbc().queryForObject("select read_at from notification where id = ?", Timestamp.class, rowB))
                 .isNull();
+        // positive control: the same call on the tenant's own row is a 204 and stamps read_at
+        job.runOne(w.a().tenant());
+        UUID rowA = ownerJdbc().queryForObject("select id from notification where tenant_id = ? and recipient_user_id = ? "
+                + "and in_app limit 1", UUID.class, w.a().tenant(), w.adminA().getId());
+        mvc.perform(as(post(base("ni-read-a") + "/notifications/" + rowA + "/read"), w.adminA()))
+                .andExpect(status().isNoContent());
+        assertThat(ownerJdbc().queryForObject("select read_at from notification where id = ?", Timestamp.class, rowA))
+                .isNotNull();
         // an invented id answers the same as a foreign one
         mvc.perform(as(post(base("ni-read-a") + "/notifications/" + Uuid7.generate() + "/read"), w.adminA()))
                 .andExpect(status().isNotFound());
     }
 
     @Test
-    void theInboxListsNoneOfTenantBsRows() throws Exception {
+    void theInboxListsOnlyTheActingTenantsRows() throws Exception {
         World w = world("ni-inbox");
         job.runOne(w.a().tenant());
         job.runOne(w.b().tenant());
-        assertThat(rowsFor(w.b().tenant())).isPositive();
+        List<UUID> aIds = ownerJdbc().queryForList(
+                "select id from notification where tenant_id = ? and recipient_user_id = ? and in_app",
+                UUID.class, w.a().tenant(), w.adminA().getId());
+        List<UUID> bIds = ownerJdbc().queryForList("select id from notification where tenant_id = ?", UUID.class,
+                w.b().tenant());
+        // positive controls: the acting user has rows of its own, and B has rows that could have leaked
+        assertThat(aIds).isNotEmpty();
+        assertThat(bIds).isNotEmpty();
 
-        mvc.perform(as(get(base("ni-inbox-a") + "/notifications"), w.adminA()))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[?(@.id == '" + ownerJdbc().queryForObject(
-                        "select id from notification where tenant_id = ? limit 1", UUID.class, w.b().tenant()) + "')]",
-                        hasSize(0)));
+        String body = mvc.perform(as(get(base("ni-inbox-a") + "/notifications?limit=100"), w.adminA()))
+                .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        var items = new com.fasterxml.jackson.databind.ObjectMapper().readTree(body).get("items");
+        List<String> listed = new java.util.ArrayList<>();
+        items.forEach(n -> listed.add(n.get("id").asText()));
+        assertThat(listed).containsExactlyInAnyOrderElementsOf(aIds.stream().map(UUID::toString).toList());
+        assertThat(listed).doesNotContainAnyElementsOf(bIds.stream().map(UUID::toString).toList());
+
+        long unread = ownerJdbc().queryForObject("select count(*) from notification where tenant_id = ? "
+                + "and recipient_user_id = ? and in_app and read_at is null", Long.class,
+                w.a().tenant(), w.adminA().getId());
+        assertThat(unread).isPositive();
         mvc.perform(as(get(base("ni-inbox-a") + "/notifications/unread-count"), w.adminA()))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.unreadCount").value(0));
+                .andExpect(status().isOk()).andExpect(jsonPath("$.unreadCount").value(unread));
     }
 
     @Test
