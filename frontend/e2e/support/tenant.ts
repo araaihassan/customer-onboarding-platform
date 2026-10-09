@@ -202,6 +202,13 @@ export async function readEmailBody(
   }
 }
 
+/** How many emails to an address with a subject containing the text the backend log holds so far (the log is shared across specs: take a count before, and compare). */
+export async function countEmails(email: string, subjectContains: string): Promise<number> {
+  const log = await readFile(BACKEND_LOG, "utf8");
+  const pattern = new RegExp(`\\[email\\] to=${escapeRegExp(email)} subject=[^\\n\\r]*${escapeRegExp(subjectContains)}`, "g");
+  return [...log.matchAll(pattern)].length;
+}
+
 /** A bearer token, for seeding through the API rather than through the interface. */
 export async function apiLogin(
   request: APIRequestContext,

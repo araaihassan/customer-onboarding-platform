@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { Api, apiContext, provisionTenant, readEmailBody, seedUser, signIn } from "./support/tenant";
+import { Api, apiContext, countEmails, provisionTenant, readEmailBody, seedUser, signIn } from "./support/tenant";
 import type { Tenant } from "./support/tenant";
 
 /**
@@ -77,15 +77,20 @@ async function assignTaskToBen(ann: Api, title: string) {
 }
 
 /** Waits until the server holds ben's TASK_ASSIGNED channels as given (the switches are optimistic). */
-async function expectTaskAssignedChannels(request: Parameters<typeof Api.as>[0], inApp: boolean, email: boolean) {
+async function expectTaskAssignedChannels(
+  request: Parameters<typeof Api.as>[0],
+  inApp: boolean,
+  email: boolean,
+  cadence?: "IMMEDIATE" | "DAILY" | "WEEKLY",
+) {
   const ben = await Api.as(request, tenant.slug, benEmail);
   await expect
     .poll(async () => {
-      const prefs = await ben.get<{ types: { type: string; inApp: boolean; email: boolean }[] }>("/notifications/preferences");
+      const prefs = await ben.get<{ emailCadence: string; types: { type: string; inApp: boolean; email: boolean }[] }>("/notifications/preferences");
       const row = prefs.types.find((tp) => tp.type === "TASK_ASSIGNED")!;
-      return [row.inApp, row.email];
+      return [row.inApp, row.email, cadence === undefined ? undefined : prefs.emailCadence];
     })
-    .toEqual([inApp, email]);
+    .toEqual([inApp, email, cadence]);
 }
 
 const inboxButton = (page: Page, name: string | RegExp) => page.getByRole("button", { name });
@@ -233,6 +238,8 @@ test("a keyed stage sends a stage-entered alert", async ({ page, request }) => {
   await page.context().clearCookies();
   await signIn(page, tenant.slug, benEmail);
   await inboxButton(page, /Inbox/).click();
+  // Wait for the list to load (an earlier row is known to exist) so the negative below means something.
+  await expect(drawer(page).getByRole("button", { name: /Assigned before the switch-off/ })).toBeVisible();
   await expect(drawer(page).getByText(/Kickoff for/)).toHaveCount(0);
   await page.keyboard.press("Escape");
 
@@ -260,7 +267,7 @@ test("a daily-digest user receives one digest email", async ({ page, request }) 
   await expect(emailSwitch).toHaveAttribute("aria-checked", "true");
   await drawer(page).getByRole("tab", { name: "Daily digest" }).click();
   await expect(drawer(page).getByRole("tab", { name: "Daily digest" })).toHaveAttribute("aria-selected", "true");
-  await expectTaskAssignedChannels(request, true, true);
+  await expectTaskAssignedChannels(request, true, true, "DAILY"); // every queued save, the cadence last, is stored before the task is assigned
 
   const ann = await Api.as(request, tenant.slug, annEmail);
   await assignTaskToBen(ann, "Digest-worthy task");
@@ -271,6 +278,7 @@ test("a daily-digest user receives one digest email", async ({ page, request }) 
   const admin = await Api.as(request, tenant.slug, tenant.adminEmail);
   const offset = await admin.shiftClock(1);
   const backendNow = Date.now() + offset * 1000;
+  // The weekday skip assumes the default tenant calendar (UTC, Mon-Fri, no holidays).
   const target = new Date(backendNow);
   target.setUTCHours(8, 5, 0, 0);
   while (target.getTime() <= backendNow || [0, 6].includes(target.getUTCDay())) {
@@ -283,9 +291,12 @@ test("a daily-digest user receives one digest email", async ({ page, request }) 
   // runDigest queues the digests AND dispatches this tenant's email (DigestJob.runOne), so the
   // explicit dispatch that follows finds nothing left to send, and a second digest run queues
   // nothing: one digest, not two.
+  const digestsBefore = await countEmails(benEmail, "Your daily digest");
   expect(await admin.runDigest()).toBeGreaterThanOrEqual(1);
   expect(await admin.runEmailDispatch()).toBe(0);
   expect(await admin.runDigest()).toBe(0);
+  // ben's address is unique to this tenant, but count a delta anyway: exactly one digest left.
+  await expect.poll(() => countEmails(benEmail, "Your daily digest")).toBe(digestsBefore + 1);
 
   const mail = await readEmailBody(benEmail, "Your daily digest");
   expect(mail).toContain("Digest-worthy task");
