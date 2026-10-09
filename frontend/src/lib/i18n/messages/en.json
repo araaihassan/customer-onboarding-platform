@@ -848,5 +848,17 @@
   "time.minutesAgo": "{n} MIN AGO",
   "time.hoursAgo": "{n} HOURS AGO",
   "time.yesterday": "YESTERDAY",
-  "time.daysAgo": "{n} DAYS AGO"
+  "time.daysAgo": "{n} DAYS AGO",
+  "notifications.prefs.intro": "Every notification type is optional. Escalation to your manager is enforced by policy and cannot be disabled.",
+  "notifications.prefs.delivery": "Email delivery",
+  "notifications.prefs.digestCaption": "Digests arrive at 08:00 your organisation's time.",
+  "notifications.prefs.required": "Required by policy",
+  "notifications.prefs.inApp": "In-app",
+  "notifications.prefs.email": "Email",
+  "notifications.prefs.inAppFor": "In-app for {type}",
+  "notifications.prefs.emailFor": "Email for {type}",
+  "notifications.prefs.saveFailed": "Your change could not be saved",
+  "notifications.cadence.IMMEDIATE": "Immediately",
+  "notifications.cadence.DAILY": "Daily digest",
+  "notifications.cadence.WEEKLY": "Weekly digest"
 }

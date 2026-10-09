@@ -36,4 +36,26 @@ describe("Switch", () => {
     render(<Switch checked={false} onChange={vi.fn()} label="Auto-advance" />);
     expect(screen.getByText("Auto-advance")).not.toBeNull();
   });
+
+  it("disabled blocks onChange and sets aria-disabled", () => {
+    const onChange = vi.fn();
+    render(<Switch checked={true} onChange={onChange} label="Email" disabled />);
+    const el = screen.getByRole("switch");
+    fireEvent.click(el);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(el.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("ariaLabel replaces aria-labelledby as the accessible name", () => {
+    render(<Switch checked={false} onChange={vi.fn()} label="Email" ariaLabel="Email for Task assigned to me" />);
+    const el = screen.getByRole("switch", { name: "Email for Task assigned to me" });
+    expect(el.getAttribute("aria-labelledby")).toBeNull();
+    expect(screen.getByText("Email")).not.toBeNull();
+  });
+
+  it("the knob carries the COMPONENTS 17 shadow", () => {
+    render(<Switch checked={false} onChange={vi.fn()} label="Auto-advance" />);
+    const knob = screen.getByRole("switch").querySelector("span") as HTMLElement;
+    expect(knob.style.boxShadow).toBe("0 1px 2px rgba(0,0,0,.2)");
+  });
 });
