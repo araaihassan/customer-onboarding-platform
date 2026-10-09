@@ -28,4 +28,15 @@ describe("admin tab strip", () => {
     const link = screen.getByRole("link", { name: "Business calendar" });
     expect(link.getAttribute("href")).toBe("/t/acme/admin/business-calendar");
   });
+
+  it("shows the Notifications tab only with notification.manage", () => {
+    const { unmount } = render(<AdminLayout>x</AdminLayout>);
+    expect(screen.queryByRole("link", { name: "Notifications" })).toBeNull();
+    unmount();
+    permissions["notification.manage"] = ["ALL"];
+    render(<AdminLayout>x</AdminLayout>);
+    expect(screen.getByRole("link", { name: "Notifications" }).getAttribute("href")).toBe(
+      "/t/acme/admin/notifications",
+    );
+  });
 });
