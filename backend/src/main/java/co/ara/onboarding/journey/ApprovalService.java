@@ -6,6 +6,7 @@ import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -36,10 +37,13 @@ public class ApprovalService {
     private final AuditRecorder audit;
     private final CaseEngine engine;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     public ApprovalService(ApprovalRepository approvals, MilestoneRepository milestones, CaseRepository cases,
                            AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
-                           AuditRecorder audit, CaseEngine engine, Clock clock) {
+                           AuditRecorder audit, CaseEngine engine, Clock clock,
+                           ApplicationEventPublisher events) {
+        this.events = events;
         this.approvals = approvals;
         this.milestones = milestones;
         this.cases = cases;
@@ -145,6 +149,10 @@ public class ApprovalService {
                     "Forced completion: " + a.getReason(),
                     Map.of("milestoneId", m.getId().toString(), "approvalId", a.getId().toString(),
                             "requestedBy", a.getRequestedBy().toString()));
+            // After its own audit record, before reconcile records what it triggers. A forced
+            // milestone is already DONE, so markDone never publishes for it: this is its one event.
+            milestones.flush();
+            events.publishEvent(new MilestoneCompleted(m.getId(), c.getId(), true, decider));
             engine.reconcile(c);                       // cause before effects
         } else {
             audit.record(AuditActions.MILESTONE_FORCE_REJECTED, "onboarding_case", c.getId(),

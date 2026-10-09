@@ -24,6 +24,7 @@ import java.util.UUID;
  *   <li>{@link #tenantSlug} -- the bound tenant's slug, for link paths.</li>
  *   <li>{@link #caseFacts} -- a case's name, customer, owner and pinned template/version.</li>
  *   <li>{@link #task} -- a task's title, case, assignee and due date.</li>
+ *   <li>{@link #milestone} -- a milestone's definition name, case, owner and due date.</li>
  *   <li>{@link #earlierCommenters} / {@link #commentBody} -- a comment thread's earlier authors, and one body.</li>
  *   <li>{@link #caseAudience} -- the case owner plus every ACTIVE case participant.</li>
  *   <li>{@link #activeInternalEmail} -- an address only for an ACTIVE INTERNAL user.</li>
@@ -37,6 +38,8 @@ public class SubjectFacts {
                             UUID templateId, UUID versionId) {}
 
     public record TaskFacts(UUID id, String title, UUID caseId, UUID assigneeId, LocalDate dueDate) {}
+
+    public record MilestoneFacts(UUID id, String name, UUID caseId, UUID ownerUserId, LocalDate dueDate) {}
 
     private final JdbcTemplate jdbc;
 
@@ -62,6 +65,16 @@ public class SubjectFacts {
         return jdbc.queryForObject("SELECT id, title, case_id, assignee_id, due_date FROM task WHERE id = ?",
                 (rs, i) -> new TaskFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class),
                         rs.getObject(4, UUID.class), rs.getObject(5, LocalDate.class)), taskId);
+    }
+
+    /** The name comes from the milestone's definition; the instance carries only its id. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public MilestoneFacts milestone(UUID milestoneId) {
+        return jdbc.queryForObject("""
+                SELECT m.id, d.name, m.case_id, m.owner_user_id, m.due_date
+                  FROM milestone m JOIN milestone_definition d ON d.id = m.milestone_definition_id WHERE m.id = ?""",
+                (rs, i) -> new MilestoneFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class),
+                        rs.getObject(4, UUID.class), rs.getObject(5, LocalDate.class)), milestoneId);
     }
 
     /**

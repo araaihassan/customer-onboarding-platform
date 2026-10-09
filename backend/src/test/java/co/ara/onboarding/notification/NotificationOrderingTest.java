@@ -2,6 +2,7 @@ package co.ara.onboarding.notification;
 
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.Scope;
+import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.sla.SlaTestSupport;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
@@ -32,6 +33,7 @@ class NotificationOrderingTest extends PostgresTestBase {
     @Autowired TaskService tasks;
     @Autowired NotificationTestSupport support;
     @Autowired CommentService comments;
+    @Autowired RequirementService requirements;
 
     /** Cause before effect: the cause's audit row is not later than the notification it led to. */
     private void assertCauseFirst(UUID tenant, String cause) {
@@ -97,5 +99,24 @@ class NotificationOrderingTest extends PostgresTestBase {
 
         assertThat(support.rowsFor(t, owner)).hasSize(1);
         assertCauseFirst(t, "comment.added");
+    }
+
+    @Test
+    void completingAMilestoneIsRecordedBeforeItsNotification() {
+        UUID t = fixture.createTenant("order-milestone-completed");
+        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@order-milestone-completed.test"));
+        support.grant(t, owner, Map.of(PermissionKeys.CASE_VIEW, Scope.ALL));
+        UUID caseId = fixture.runAsReturning(t, () ->
+                sla.openFor(fixture.createCustomerOwnedBy(t, "Acme", owner)));
+        UUID completer = fixture.runAsReturning(t, () -> fixture.createUser(t, "done@order-milestone-completed.test"));
+        support.grant(t, completer, Map.of(PermissionKeys.MILESTONE_COMPLETE, Scope.ALL,
+                PermissionKeys.CASE_VIEW, Scope.ALL, PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+        UUID rid = fixture.runAsReturning(t, () -> sla.firstRequirementId(caseId));
+
+        // The owner is the only candidate, so the only notification.sent row is the completion's.
+        fixture.runAsUser(t, completer, () -> requirements.satisfy(rid, null, null));
+
+        assertThat(support.rowsFor(t, owner)).hasSize(1);
+        assertCauseFirst(t, "milestone.completed");
     }
 }
