@@ -15,7 +15,15 @@ export function InboxButton() {
   const count = useUnreadCount(internal);
   const [open, setOpen] = useState(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const toggle = useCallback(() => setOpen((o) => !o), []);
+  const toggle = useCallback(
+    () =>
+      setOpen((o) => {
+        if (o) return false;
+        // Never open over another modal (a Dialog, the mobile Sidebar drawer).
+        return !document.querySelector('[aria-modal="true"]');
+      }),
+    [],
+  );
   const close = useCallback(() => setOpen(false), []);
   useInboxShortcut(toggle, internal);
   if (!internal) return null;

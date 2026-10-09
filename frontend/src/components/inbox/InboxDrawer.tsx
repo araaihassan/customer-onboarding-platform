@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type { RefObject } from "react";
+import { createPortal } from "react-dom";
 import { XIcon } from "@/components/icons";
 import { Button } from "@/components/ui/Button";
 import { FOCUSABLE, isVisible } from "@/components/ui/Dialog";
@@ -63,12 +64,17 @@ export function InboxDrawer({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [focusables, onClose]);
 
-  return (
+  // Portalled to <body>: the top bar is sticky + z-30, which is its own stacking
+  // context, so a drawer left inside it could never rise above the Rail (z-60).
+  // Scrim z-70 and panel z-80 sit above the Rail, the mobile Sidebar (z-50) and
+  // every Dialog (z-50); there is no shared --ob-z-* scale to extend.
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <>
       <div
         data-inbox-scrim
         aria-hidden="true"
-        className="fixed inset-0 z-40"
+        className="fixed inset-0 z-[70]"
         style={{ background: "var(--ob-scrim-drawer)" }}
         onClick={onClose}
       />
@@ -77,7 +83,7 @@ export function InboxDrawer({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="fixed inset-y-0 right-0 z-50 flex flex-col"
+        className="fixed inset-y-0 right-0 z-[80] flex flex-col"
         style={{
           width: "min(390px, 100vw)",
           background: "var(--ob-canvas)",
@@ -124,6 +130,7 @@ export function InboxDrawer({
           {pane === "list" ? <InboxList onNavigate={onClose} /> : <PreferencesPane />}
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   );
 }

@@ -49,10 +49,10 @@ describe("InboxDrawer", () => {
 
   it("closes on the close button, Escape and a scrim click", () => {
     const onClose = vi.fn();
-    const { container } = render(<InboxDrawer onClose={onClose} returnFocusTo={createRef()} />);
+    render(<InboxDrawer onClose={onClose} returnFocusTo={createRef()} />);
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     fireEvent.keyDown(document, { key: "Escape" });
-    fireEvent.click(container.querySelector("[data-inbox-scrim]")!);
+    fireEvent.click(document.querySelector("[data-inbox-scrim]")!);
     expect(onClose).toHaveBeenCalledTimes(3);
   });
 

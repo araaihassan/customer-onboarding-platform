@@ -5,8 +5,12 @@ import "@testing-library/jest-dom/vitest";
 let userType = "INTERNAL";
 let count = 3;
 vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ user: { userType } }) }));
+const useUnreadCount = vi.fn((enabled: boolean) => {
+  void enabled;
+  return { data: count };
+});
 vi.mock("@/lib/api/notifications", () => ({
-  useUnreadCount: () => ({ data: count }),
+  useUnreadCount: (enabled: boolean) => useUnreadCount(enabled),
   useMarkAllRead: () => ({ mutate: vi.fn() }),
 }));
 vi.mock("./InboxList", () => ({ InboxList: () => <div>LIST</div> }));
@@ -17,6 +21,7 @@ const { InboxButton } = await import("./InboxButton");
 beforeEach(() => {
   userType = "INTERNAL";
   count = 3;
+  useUnreadCount.mockClear();
 });
 afterEach(cleanup);
 
@@ -25,6 +30,7 @@ describe("InboxButton", () => {
     const { unmount } = render(<InboxButton />);
     expect(screen.getByText("Inbox")).toBeInTheDocument();
     expect(screen.getByText("3")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Inbox, 3 unread" })).toBeInTheDocument();
     unmount();
     count = 250;
     const second = render(<InboxButton />);
@@ -51,6 +57,30 @@ describe("InboxButton", () => {
     userType = "PORTAL";
     const { container } = render(<InboxButton />);
     expect(container).toBeEmptyDOMElement();
+    expect(useUnreadCount).toHaveBeenCalledWith(false);
+    expect(useUnreadCount).not.toHaveBeenCalledWith(true);
+    fireEvent.keyDown(document, { key: "j", ctrlKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("attaches no document keydown listener for a portal user", () => {
+    userType = "PORTAL";
+    const spy = vi.spyOn(document, "addEventListener");
+    render(<InboxButton />);
+    expect(spy.mock.calls.some(([type]) => type === "keydown")).toBe(false);
+    spy.mockRestore();
+  });
+
+  it("does not open over another open modal, but still closes itself", () => {
+    const modal = document.createElement("div");
+    modal.setAttribute("aria-modal", "true");
+    document.body.appendChild(modal);
+    render(<InboxButton />);
+    fireEvent.keyDown(document, { key: "j", ctrlKey: true });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    modal.remove();
+    fireEvent.keyDown(document, { key: "j", ctrlKey: true });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "j", ctrlKey: true });
     expect(screen.queryByRole("dialog")).toBeNull();
   });

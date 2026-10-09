@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
 
 vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ user: { userType: "INTERNAL" } }) }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -93,7 +94,11 @@ describe("TopBar", () => {
   it("ships a live Inbox control and no dead search or account controls", () => {
     renderTopBar();
     fireEvent.click(screen.getByRole("button", { name: /inbox/i }));
-    expect(screen.getByRole("dialog", { name: "Inbox" })).not.toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Inbox" });
+    expect(dialog).not.toBeNull();
+    // The header is sticky + z-30, a stacking context: a drawer inside it could
+    // never rise above the Rail (z-60). It must be portalled out.
+    expect(screen.getByRole("banner")).not.toContainElement(dialog);
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /account/i })).toBeNull();
   });
