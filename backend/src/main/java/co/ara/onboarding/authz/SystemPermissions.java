@@ -10,9 +10,11 @@ import static co.ara.onboarding.authz.PermissionKeys.*;
  * own tables through its own gated service methods, which require sla.view.
  *
  * <p>document.request is the one write permission (6B spec 6.2): the automatic-reminder step calls
- * DocumentRequestService.remindAutomatically and nothing else. It also gates create/fulfil/withdraw; the
- * containment is structural -- NotificationSweepService names no other DocumentRequestService method,
- * which AutoReminderTest asserts.
+ * DocumentRequestService.remindAutomatically and nothing else. It also gates create/fulfil/withdraw;
+ * the containment is structural: ModuleBoundaryTest.onlyRemindAutomaticallyIsCalledOutsideDocument
+ * forbids every class outside the document module from calling any other DocumentRequestService
+ * method, so no job running as the system principal can reach them. remindAutomatically itself
+ * refuses any non-SYSTEM caller.
  */
 public final class SystemPermissions {
     private SystemPermissions() {}

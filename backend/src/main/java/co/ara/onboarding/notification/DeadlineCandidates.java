@@ -97,7 +97,8 @@ public class DeadlineCandidates {
     }
 
     /**
-     * OPEN requests with an ACTIVE contact, on a case that is neither held nor cancelled, under the cap.
+     * OPEN requests with an ACTIVE contact, on an ACTIVE case (as openRequestsDue: a customer is not emailed about a
+     * COMPLETED, held or cancelled journey), under the cap.
      * The 24-hour floor is deliberately NOT filtered here: it is measured against the application Clock
      * (the database's now() can disagree with it, and the tests move only the former), so
      * remindAutomatically owns it. Columns id, requested_at, last_reminded_at.
@@ -109,6 +110,6 @@ public class DeadlineCandidates {
                   JOIN customer_contact k ON k.id = r.requested_of_contact_id AND k.status = 'ACTIVE'
                   JOIN onboarding_case c ON c.id = r.case_id
                  WHERE r.status = 'OPEN' AND r.reminders_sent < ?
-                   AND c.status NOT IN ('ON_HOLD','CANCELLED')""", max);
+                   AND c.status = 'ACTIVE'""", max);
     }
 }

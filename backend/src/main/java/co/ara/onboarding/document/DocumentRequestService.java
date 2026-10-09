@@ -13,6 +13,7 @@ import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
 import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.journey.StageWriteScopeGuard;
+import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
@@ -448,6 +449,8 @@ public class DocumentRequestService {
     @RequirePermission(PermissionKeys.DOCUMENT_REQUEST)
     @Transactional
     public boolean remindAutomatically(UUID requestId) {
+        // System-only: it skips the stage write-scope guard and resolves the contact under document.request.
+        if (contextProvider.current().userType() != UserType.SYSTEM) return false;
         var found = authorizedQuery.findAll(requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST,
                 (r, q, cb) -> cb.equal(r.get("id"), requestId), PageRequest.of(0, 1)).getContent();
         if (found.isEmpty()) return false;

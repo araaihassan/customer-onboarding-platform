@@ -14,8 +14,6 @@ import co.ara.onboarding.workflow.WriteScope;
 import co.ara.onboarding.scheduling.NotificationSweepJob;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
-import com.tngtech.archunit.base.DescribedPredicate;
-import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import org.junit.jupiter.api.AfterEach;
@@ -30,7 +28,6 @@ import java.util.UUID;
 
 import static co.ara.onboarding.workflow.WorkflowFixtures.manual;
 import static co.ara.onboarding.workflow.WorkflowFixtures.milestone;
-import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** 6B spec 6.2: automatic customer reminders on the tenant's cadence (default off). */
@@ -43,6 +40,7 @@ class AutoReminderTest extends PostgresTestBase {
     @Autowired DocumentRequestService requests;
     @Autowired DocumentRequestRepository requestRepository;
     @Autowired JourneyFixtures journey;
+    @Autowired co.ara.onboarding.document.DocumentService documents;
     @Autowired CaseService cases;
 
     @AfterEach void reset() { FlakyEmail.reset(); }
@@ -50,12 +48,28 @@ class AutoReminderTest extends PostgresTestBase {
     /** The fixture tenant has no calendar or policy row; seed them, policy on with the given cadence. */
     private NotificationTestSupport.Arranged arranged(String slug, boolean enabled, int interval, int max) {
         var x = support.openRequestWithContact(slug);
+        seed(x, enabled, interval, max);
+        return x;
+    }
+
+    private void seed(NotificationTestSupport.Arranged x, boolean enabled, int interval, int max) {
         ownerJdbc().update("insert into business_calendar (id, tenant_id, created_at, updated_at) "
                 + "values (gen_random_uuid(), ?, now(), now()) on conflict (tenant_id) do nothing", x.tenant());
         ownerJdbc().update("insert into notification_policy (id, tenant_id, created_at, updated_at) "
                 + "values (gen_random_uuid(), ?, now(), now()) on conflict (tenant_id) do nothing", x.tenant());
         ownerJdbc().update("update notification_policy set auto_remind_enabled = ?, auto_remind_interval_days = ?, "
                 + "auto_remind_max = ? where tenant_id = ?", enabled, interval, max, x.tenant());
+    }
+
+    /** The real defaults: a policy row exists but nothing is updated, or no policy row at all. */
+    private NotificationTestSupport.Arranged defaults(String slug, boolean policyRow) {
+        var x = support.openRequestWithContact(slug);
+        ownerJdbc().update("insert into business_calendar (id, tenant_id, created_at, updated_at) "
+                + "values (gen_random_uuid(), ?, now(), now()) on conflict (tenant_id) do nothing", x.tenant());
+        if (policyRow) {
+            ownerJdbc().update("insert into notification_policy (id, tenant_id, created_at, updated_at) "
+                    + "values (gen_random_uuid(), ?, now(), now()) on conflict (tenant_id) do nothing", x.tenant());
+        }
         return x;
     }
 
@@ -70,11 +84,21 @@ class AutoReminderTest extends PostgresTestBase {
 
     @Test
     void offByDefaultNothingIsSent() {
-        var x = arranged("ar-off", false, 3, 3);
+        var withRow = defaults("ar-off", true);
+        var noRow = defaults("ar-off-norow", false);
         clock.advance(Duration.ofDays(14));
-        job.runOne(x.tenant());
-        assertThat(reminders(x.tenant())).isEmpty();
-        assertThat(remindersSent(x.requestId())).isZero();
+        job.runOne(withRow.tenant());
+        job.runOne(noRow.tenant());
+        assertThat(ownerJdbc().queryForObject("select auto_remind_enabled from notification_policy "
+                + "where tenant_id = ?", Boolean.class, withRow.tenant())).isFalse();
+        assertThat(reminders(withRow.tenant())).isEmpty();
+        assertThat(reminders(noRow.tenant())).isEmpty();
+        assertThat(remindersSent(withRow.requestId())).isZero();
+        assertThat(remindersSent(noRow.requestId())).isZero();
+        // Positive control: turning the policy on makes the same fixture send.
+        ownerJdbc().update("update notification_policy set auto_remind_enabled = true where tenant_id = ?", withRow.tenant());
+        job.runOne(withRow.tenant());
+        assertThat(reminders(withRow.tenant())).hasSize(1);
     }
 
     @Test
@@ -115,6 +139,23 @@ class AutoReminderTest extends PostgresTestBase {
         assertThat(remindersSent(x.requestId())).isEqualTo(2);
     }
 
+    /** Runs remindAutomatically directly as the system principal, bypassing the sweep's interval check. */
+    private boolean remindAsSystem(UUID tenant, UUID requestId) {
+        org.springframework.web.context.request.RequestContextHolder.setRequestAttributes(
+                new org.springframework.web.context.request.ServletRequestAttributes(
+                        new org.springframework.mock.web.MockHttpServletRequest()));
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                co.ara.onboarding.authz.SystemPrincipal.authentication(tenant));
+        try {
+            boolean[] r = new boolean[1];
+            fixture.runUnauthenticated(tenant, () -> r[0] = requests.remindAutomatically(requestId));
+            return r[0];
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+            org.springframework.web.context.request.RequestContextHolder.resetRequestAttributes();
+        }
+    }
+
     @Test
     void theManualButtonsTwentyFourHourFloorIsShared() {
         var x = arranged("ar-floor", true, 3, 3);
@@ -122,7 +163,50 @@ class AutoReminderTest extends PostgresTestBase {
         fixture.runAs(x.tenant(), () -> requests.remind(x.requestId()));
         job.runOne(x.tenant());
         assertThat(reminders(x.tenant())).hasSize(1);          // the manual one only
+        // The sweep's interval check skips the row first, so call the service directly: only the floor refuses.
+        assertThat(remindAsSystem(x.tenant(), x.requestId())).isFalse();
         assertThat(remindersSent(x.requestId())).isEqualTo(1);
+        assertThat(reminders(x.tenant())).hasSize(1);
+        // Positive control: past the 24 hours the same direct call sends.
+        clock.advance(Duration.ofHours(25));
+        assertThat(remindAsSystem(x.tenant(), x.requestId())).isTrue();
+        assertThat(remindersSent(x.requestId())).isEqualTo(2);
+    }
+
+    @Test
+    void aHumanCallerIsRefusedEvenHoldingDocumentRequestAtAll() {
+        var x = arranged("ar-human", true, 3, 3);
+        UUID admin = fixture.createAdministrator(x.tenant(), "admin+" + Uuid7.generate() + "@ar.test");
+        boolean[] r = new boolean[1];
+        fixture.runAsUser(x.tenant(), admin, () -> r[0] = requests.remindAutomatically(x.requestId()));
+        assertThat(r[0]).isFalse();
+        assertThat(remindersSent(x.requestId())).isZero();
+        assertThat(reminders(x.tenant())).isEmpty();
+        assertThat(remindAsSystem(x.tenant(), x.requestId())).isTrue();   // positive control
+    }
+
+    @Test
+    void aFulfilledRequestOrACompletedCaseIsNotReminded() {
+        var fulfilled = arranged("ar-fulfilled", true, 3, 3);
+        UUID admin = fixture.createAdministrator(fulfilled.tenant(), "up+" + Uuid7.generate() + "@ar.test");
+        byte[] pdf = "%PDF-1.4\n%abc\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        UUID[] doc = new UUID[1];
+        fixture.runAsUser(fulfilled.tenant(), admin, () -> doc[0] = documents.upload(fulfilled.caseId(),
+                new co.ara.onboarding.document.CreateDocumentRequest("Done", DocumentCategory.OTHER,
+                        co.ara.onboarding.document.VisibilityTier.COMPANY_SHARED, null, null, null, null),
+                new java.io.ByteArrayInputStream(pdf), pdf.length, "application/pdf").id());
+        ownerJdbc().update("update document_request set status = 'FULFILLED', fulfilled_document_id = ? where id = ?",
+                doc[0], fulfilled.requestId());
+        var completed = arranged("ar-completed", true, 3, 3);
+        ownerJdbc().update("update onboarding_case set status = 'COMPLETED' where id = ?", completed.caseId());
+        var active = arranged("ar-active", true, 3, 3);
+        clock.advance(Duration.ofDays(7));
+        job.runOne(fulfilled.tenant());
+        job.runOne(completed.tenant());
+        job.runOne(active.tenant());
+        assertThat(reminders(fulfilled.tenant())).isEmpty();
+        assertThat(reminders(completed.tenant())).isEmpty();
+        assertThat(reminders(active.tenant())).hasSize(1);
     }
 
     @Test
@@ -181,7 +265,7 @@ class AutoReminderTest extends PostgresTestBase {
             dr.setCategory(DocumentCategory.OTHER);
             dr.setStatus(DocumentRequestStatus.OPEN);
             dr.setRequestedBy(admin);
-            dr.setRequestedAt(java.time.Instant.now());
+            dr.setRequestedAt(java.time.Instant.now(clock));
             ids[2] = requestRepository.saveAndFlush(dr).getId();
         });
         assertThat(ownerJdbc().queryForObject("select count(*) from stage where tenant_id = ? "
@@ -192,20 +276,13 @@ class AutoReminderTest extends PostgresTestBase {
         assertThat(remindersSent(ids[2])).isEqualTo(1);
     }
 
+    /** The containment rule lives in ModuleBoundaryTest; this proves it is not vacuous. */
     @Test
-    void theSweepCallsNoOtherDocumentRequestServiceMethod() {
+    void theSweepDoesCallRemindAutomatically() {
         var classes = new ClassFileImporter().withImportOption(ImportOption.Predefined.DO_NOT_INCLUDE_TESTS)
                 .importPackages("co.ara.onboarding");
-        DescribedPredicate<JavaCall<?>> other = DescribedPredicate.describe(
-                "call a DocumentRequestService method other than remindAutomatically",
-                c -> c.getTargetOwner().isAssignableTo(DocumentRequestService.class)
-                        && !c.getName().equals("remindAutomatically"));
-        noClasses().that().resideInAPackage("..notification..").should().callMethodWhere(other).check(classes);
-        // Positive control: the sweep does call remindAutomatically, so the rule is not vacuous.
-        DescribedPredicate<JavaCall<?>> sanctioned = DescribedPredicate.describe("remindAutomatically",
-                c -> c.getTargetOwner().isAssignableTo(DocumentRequestService.class)
-                        && c.getName().equals("remindAutomatically"));
         assertThat(classes.get(NotificationSweepService.class).getMethodCallsFromSelf().stream()
-                .anyMatch(sanctioned::test)).isTrue();
+                .anyMatch(c -> c.getTargetOwner().isAssignableTo(DocumentRequestService.class)
+                        && c.getName().equals("remindAutomatically"))).isTrue();
     }
 }

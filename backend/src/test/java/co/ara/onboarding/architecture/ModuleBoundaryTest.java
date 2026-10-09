@@ -235,4 +235,15 @@ class ModuleBoundaryTest {
             noClasses().that().resideOutsideOfPackages("..scheduling..", "..authz..")
                 .should().callMethod(co.ara.onboarding.authz.SystemPrincipal.class, "authentication", java.util.UUID.class)
                 .because("a system authentication is a full-trust identity; only the job runner may create one");
+
+    /** SystemPermissions holds document.request, which gates more than the sweep's one call. */
+    @ArchTest
+    static final ArchRule onlyRemindAutomaticallyIsCalledOutsideDocument =
+            noClasses().that().resideOutsideOfPackage("..document..")
+                .should().callMethodWhere(com.tngtech.archunit.base.DescribedPredicate.describe(
+                        "call a DocumentRequestService method other than remindAutomatically",
+                        (com.tngtech.archunit.core.domain.JavaCall<?> c) ->
+                                c.getTargetOwner().isAssignableTo(co.ara.onboarding.document.DocumentRequestService.class)
+                                        && !c.getName().equals("remindAutomatically")))
+                .because("the system actor holds document.request; only remindAutomatically may be reached with it");
 }
