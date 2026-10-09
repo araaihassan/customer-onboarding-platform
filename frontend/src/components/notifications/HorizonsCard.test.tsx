@@ -160,6 +160,33 @@ describe("HorizonsCard", () => {
     expect(show).not.toHaveBeenCalled();
   });
 
+  const refetched = { ...policy, horizons: { ...policy.horizons, MILESTONE_DUE: [7] } };
+
+  it("keeps an unsaved edit when the policy is refetched (e.g. on window focus)", () => {
+    prime();
+    const { rerender } = render(<HorizonsCard />);
+    add(row("Task due"), "5");
+    expect(within(row("Task due")).getByRole("button", { name: "Remove 5 days" })).toBeTruthy();
+
+    prime({ data: refetched });               // a new data object from a background refetch
+    rerender(<HorizonsCard />);
+    expect(within(row("Task due")).getByRole("button", { name: "Remove 5 days" })).toBeTruthy();
+  });
+
+  it("reseeds a pristine form from a refetch, and again after a successful save (positive control)", () => {
+    prime();
+    const { rerender } = render(<HorizonsCard />);
+    prime({ data: refetched });
+    rerender(<HorizonsCard />);
+    expect(within(row("Milestone due")).getByRole("button", { name: "Remove 7 days" })).toBeTruthy();
+
+    add(row("Task due"), "5");
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    prime({ data: { ...refetched, horizons: { ...refetched.horizons, TASK_DUE: [1, 3, 5], MILESTONE_DUE: [8] } } });
+    rerender(<HorizonsCard />);
+    expect(within(row("Milestone due")).getByRole("button", { name: "Remove 8 days" })).toBeTruthy();
+  });
+
   it("shows a skeleton while loading and an error state on failure", () => {
     prime({ loading: true });
     const { unmount } = render(<HorizonsCard />);

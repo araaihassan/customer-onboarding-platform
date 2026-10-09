@@ -7,6 +7,15 @@ import { t } from "@/lib/i18n";
 import { useInbox, useMarkRead, type NotificationItem } from "@/lib/api/notifications";
 import { InboxRow } from "./InboxRow";
 
+/**
+ * Only a same-origin, app-relative path is followed. The backend emits nothing else, but a link is
+ * stored text: an absolute, protocol-relative ("//host", or "/\host", which browsers read the same way) or
+ * scheme URL is never navigated to.
+ */
+function isAppPath(path: string | undefined): path is string {
+  return typeof path === "string" && path.startsWith("/") && !path.startsWith("//") && !path.startsWith("/\\");
+}
+
 /** The inbox's scrolling list: newest first, cursor-paged. Opening a row marks it read and follows its link. */
 export function InboxList({ onNavigate }: { onNavigate: () => void }) {
   const router = useRouter();
@@ -15,7 +24,7 @@ export function InboxList({ onNavigate }: { onNavigate: () => void }) {
 
   const open = (item: NotificationItem) => {
     if (!item.read && item.id) markRead.mutate(item.id);
-    if (item.linkPath) router.push(item.linkPath);
+    if (isAppPath(item.linkPath)) router.push(item.linkPath);
     onNavigate();
   };
 

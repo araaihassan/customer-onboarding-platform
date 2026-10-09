@@ -67,6 +67,22 @@ describe("InboxList", () => {
     expect(push).toHaveBeenCalledWith("/cases/b");
   });
 
+  it.each([
+    ["an absolute URL", "https://evil.example/phish"],
+    ["a protocol-relative URL", "//evil.example/phish"],
+    ["a backslash protocol-relative URL", "/\\evil.example/phish"],
+    ["a javascript: URL", "javascript:alert(1)"],
+    ["a relative path without a leading slash", "cases/a"],
+  ])("never navigates to %s, but still marks the row read and closes", (_label, linkPath) => {
+    inbox.data = { pages: [{ items: [{ ...n("x", false), linkPath }] }] };
+    const onNavigate = vi.fn();
+    render(<InboxList onNavigate={onNavigate} />);
+    fireEvent.click(screen.getByText("Title x"));
+    expect(push).not.toHaveBeenCalled();
+    expect(mutate).toHaveBeenCalledWith("x");
+    expect(onNavigate).toHaveBeenCalled();
+  });
+
   it("shows the empty state", () => {
     inbox.data = { pages: [{ items: [] }] };
     inbox.hasNextPage = false;

@@ -52,7 +52,7 @@ export function StageInspector({
   );
   const offeredKeys = new Set(templateOptions.map((o) => o.key));
   const currentTemplateKey = stage.notificationTemplateKey ?? "";
-  const forwardStagesExist =stageIndex < stages.length - 1;
+  const forwardStagesExist = stageIndex < stages.length - 1;
 
   function updateBranchRule(index: number, patch: Partial<BranchRuleRequest>) {
     const rules = [...(stage.branchRules ?? [])];

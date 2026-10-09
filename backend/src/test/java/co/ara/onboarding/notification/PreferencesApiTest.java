@@ -142,6 +142,14 @@ class PreferencesApiTest extends SecurityTestBase {
                 .andExpect(status().isBadRequest());
     }
 
+    /** Final-review minor (c): a null element is a validation failure (400), never an NPE (500). */
+    @Test
+    void aNullTypeEntryIs400() throws Exception {
+        doPut(me, body("DAILY", List.of("null")))
+                .andExpect(status().isBadRequest());
+        mvc.perform(as(get(url()), me)).andExpect(jsonPath("$.emailCadence").value("IMMEDIATE"));
+    }
+
     @Test
     void aMissingBooleanIs400() throws Exception {
         doPut(me, body("DAILY", null, false, false, List.of(typeJson("TASK_ASSIGNED", null, true)),

@@ -26,6 +26,10 @@ public class NotificationWriter {
     public record EscalationNotice(UUID recipientUserId, String recipientEmail, String title, String body,
                                    String linkPath, UUID caseId, UUID escalationId) {}
 
+    /** What an in-app row stores, and so what its immediate email says too. */
+    static final int TITLE_MAX = 120;
+    static final int BODY_MAX = 500;
+
     private final JdbcTemplate jdbc;
     private final OutboxWriter outbox;
     private final AuditRecorder audit;
@@ -62,7 +66,7 @@ public class NotificationWriter {
         if (id.isEmpty()) return id;
         if (state == EmailState.QUEUED) {
             outbox.queue(new OutboxWriter.OutboxMessage(OutboxKind.NOTIFICATION, email, recipient, null, id.get(),
-                    null, d.title(), d.body(), d.linkPath()));
+                    null, Text.clip(d.title(), TITLE_MAX), Text.clip(d.body(), BODY_MAX), d.linkPath()));
         }
         audit.record(AuditActions.NOTIFICATION_SENT, "notification", id.get(), d.type().name() + " notification",
                 Map.of("type", d.type().name(), "recipientUserId", recipient.toString(),
@@ -84,8 +88,8 @@ public class NotificationWriter {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT ON CONSTRAINT notification_once_per_dedupe_key DO NOTHING
                 RETURNING id""", UUID.class,
-                Uuid7.generate(), TenantContext.getRequired(), recipient, d.type().name(), Text.clip(d.title(), 120),
-                Text.clip(d.body(), 500), d.linkPath(), d.caseId(), d.subjectType(), d.subjectId(), inApp,
+                Uuid7.generate(), TenantContext.getRequired(), recipient, d.type().name(), Text.clip(d.title(), TITLE_MAX),
+                Text.clip(d.body(), BODY_MAX), d.linkPath(), d.caseId(), d.subjectType(), d.subjectId(), inApp,
                 state.name(), d.tone().name(), d.dedupeKey(), now, now).stream().findFirst();
     }
 }

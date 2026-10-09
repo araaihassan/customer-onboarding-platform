@@ -8,7 +8,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-/** Spec 6.2: late person's manager, else department head, else administrators; inactive and self are skipped. */
+/**
+ * Spec 6.2: late person's manager, else department head, else administrators; inactive people are
+ * skipped, and so is the late person -- except when they are the tenant's only active administrator, who
+ * is then the recipient rather than nobody (an escalation is never silently undelivered).
+ */
 @Component
 public class RecipientResolver {
 

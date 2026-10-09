@@ -10,7 +10,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Spec 6.2: manager, then department head, then administrators; never the late person, never silently nobody. */
+/**
+ * Spec 6.2: manager, then department head, then administrators; never the late person unless they are the
+ * tenant's sole active administrator, and never silently nobody.
+ */
 class RecipientResolverTest extends PostgresTestBase {
 
     @Autowired TenantFixture fixture;

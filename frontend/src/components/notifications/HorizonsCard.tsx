@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { XIcon } from "@/components/icons";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
@@ -100,9 +100,17 @@ function PolicyForm({ data }: { data: NotificationPolicy }) {
   const [interval, setIntervalText] = useState(String(data.autoRemind?.intervalDays ?? 3));
   const [max, setMax] = useState(String(data.autoRemind?.max ?? 3));
   const [error, setError] = useState<string | null>(null);
+  // Unsaved edits: a background refetch (window focus) must not overwrite them.
+  const dirty = useRef(false);
+  const edited = <T,>(set: (value: T) => void) => (value: T) => {
+    dirty.current = true;
+    set(value);
+  };
 
-  // A save invalidates the query; re-seed so the form shows what the server kept (sorted).
+  // Re-seed from the server only while the form is pristine -- after a successful save (which clears
+  // the dirty flag and invalidates the query) that shows what the server kept, sorted.
   useEffect(() => {
+    if (dirty.current) return;
     setDraft(toDraft(data));
     setEnabled(data.autoRemind?.enabled ?? false);
     setIntervalText(String(data.autoRemind?.intervalDays ?? 3));
@@ -127,7 +135,10 @@ function PolicyForm({ data }: { data: NotificationPolicy }) {
         update.mutate(
           { autoRemind: { enabled, intervalDays: intervalNumber, max: maxNumber }, horizons: { ...draft } },
           {
-            onSuccess: () => toast.show(t("notifications.policy.saved")),
+            onSuccess: () => {
+              dirty.current = false;   // the refetch the save triggers re-seeds the form
+              toast.show(t("notifications.policy.saved"));
+            },
             onError: (err) => setError(problem(err)),
           },
         );
@@ -139,7 +150,7 @@ function PolicyForm({ data }: { data: NotificationPolicy }) {
             key={kind}
             kind={kind}
             leads={draft[kind]}
-            onChange={(next) => setDraft((d) => ({ ...d, [kind]: next }))}
+            onChange={edited((next: number[]) => setDraft((d) => ({ ...d, [kind]: next })))}
           />
         ))}
       </div>
@@ -149,20 +160,20 @@ function PolicyForm({ data }: { data: NotificationPolicy }) {
         style={{ gap: "var(--ob-space-11)", paddingTop: "var(--ob-space-16)" }}
       >
         <div style={{ maxWidth: "26rem" }}>
-          <Switch checked={enabled} onChange={setEnabled} label={t("notifications.policy.autoRemind")} />
+          <Switch checked={enabled} onChange={edited(setEnabled)} label={t("notifications.policy.autoRemind")} />
         </div>
         <div className="flex flex-wrap items-start" style={{ gap: "var(--ob-space-16)" }}>
           <NumberInput
             label={t("notifications.policy.interval")}
             value={interval}
-            onChange={setIntervalText}
+            onChange={edited(setIntervalText)}
             max={INTERVAL_MAX}
             invalid={!intervalValid}
           />
           <NumberInput
             label={t("notifications.policy.max")}
             value={max}
-            onChange={setMax}
+            onChange={edited(setMax)}
             max={REMIND_MAX}
             invalid={!maxValid}
           />
