@@ -45,6 +45,22 @@ public class NotificationAdminController {
         return service.updateTemplate(id, request);
     }
 
+    @GetMapping("/admin/notification-policy")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Deadline lead times and the automatic-reminder policy"),
+            @ApiResponse(responseCode = "401", description = "Not authenticated"),
+            @ApiResponse(responseCode = "403", description = "The caller lacks notification.manage")})
+    public PolicyView policy() { return service.getPolicy(); }
+
+    @PutMapping("/admin/notification-policy")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "The policy was replaced"),
+            @ApiResponse(responseCode = "400", description = "A kind is missing or the reminder policy is out of range"),
+            @ApiResponse(responseCode = "401", description = "Not authenticated"),
+            @ApiResponse(responseCode = "403", description = "The caller lacks notification.manage"),
+            @ApiResponse(responseCode = "422", description = "A lead time outside 1-90, repeated, or more than five for a kind")})
+    public PolicyView replacePolicy(@Valid @RequestBody UpdatePolicyRequest request) { return service.replacePolicy(request); }
+
     @GetMapping("/notification-templates/options")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Active templates, for the builder's picker"),

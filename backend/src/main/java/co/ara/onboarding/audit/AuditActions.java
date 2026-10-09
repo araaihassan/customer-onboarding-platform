@@ -349,4 +349,5 @@ public final class AuditActions {
     public static final AuditAction NOTIFICATION_TEMPLATE_CREATED     = of("notification_template.created", false);
     public static final AuditAction NOTIFICATION_TEMPLATE_UPDATED     = of("notification_template.updated", false);
     public static final AuditAction NOTIFICATION_TEMPLATE_DEACTIVATED = of("notification_template.deactivated", false);
+    public static final AuditAction NOTIFICATION_POLICY_UPDATED       = of("notification_policy.updated", false);
 }
