@@ -412,7 +412,9 @@ Each candidate is evaluated in the tenant's calendar and timezone; "today" is te
   active contact, `reminders_sent < auto_remind_max`, and `businessDaysBetween(last_reminded_at ??
   requested_at, now) ≥ interval`, and not reminded in the last 24 hours (the manual floor). Calls
   `DocumentRequestService.remindAutomatically(requestId)` (gated `document.request`), which shares
-  the manual path's contact resolution and counters, **skips `StageWriteScopeGuard`** (a stage's
+  the manual path's message and counters but resolves the request, contact and case under
+  `document.request` itself (the manual path resolves the contact under `contact.view`, which the
+  system actor does not hold — amended at close-out), refuses any non-`SYSTEM` caller, **skips `StageWriteScopeGuard`** (a stage's
   write scope governs internal collaborators; this is tenant policy acting, the portal-write
   precedent's reasoning), queues a `CUSTOMER_REMINDER` outbox row, and records
   `document_request.reminded` with `automatic: true`.
@@ -420,8 +422,10 @@ Each candidate is evaluated in the tenant's calendar and timezone; "today" is te
 **System actor.** `authz.SystemPermissions.forJobs()` gains exactly `document.request` at `ALL` —
 the permission the manual remind is gated by — and nothing else; an exact-set test pins it. This is
 broader than reminding: `document.request` also gates create, fulfil and withdraw. The mitigation is
-structural, not by permission: the job calls only `remindAutomatically`, and `NotificationSweepJob`'s
-test asserts it touches no other `DocumentRequestService` method. A narrower system-only permission
+structural, not by permission: the job calls only `remindAutomatically`, and
+`ModuleBoundaryTest.onlyRemindAutomaticallyIsCalledOutsideDocument` forbids every class outside
+`document` from calling any other `DocumentRequestService` method (amended at close-out: the
+containment moved from a job-level test to this ArchUnit rule in Task 25's fix round). A narrower system-only permission
 was considered and rejected: a catalogued key no role template holds would be a permission with no
 UI and its own coverage-test carve-out.
 

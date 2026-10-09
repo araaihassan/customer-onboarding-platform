@@ -173,10 +173,52 @@ builder round-trip also fixed a pre-existing silent erase of `portalVisible` on 
 round-trip guard now exists). **No inbox, preferences or digests** (6B), **no cases-list SLA column or
 filter** (no cases list exists — design §1.2.6).
 
+**Sub-project 6B delivered:** the `notification` module (`Notification`/`NotificationRepository` moved in
+from `sla`, which now writes escalations through `NotificationWriter`). **Producers never import it:**
+`task`, `journey`, `document`, `agreement`, `workflow` and `customer` each declare id-only event records
+in their own package (`TaskAssigned`, `CommentAdded`, `MilestoneCompleted`, `StageEntered`/`Exited`,
+`DocumentRequested`/`Uploaded`/`Reviewed`, `CustomerReminderQueued`, `AgreementStatusChanged`,
+`WorkflowVersionPublished`, `CustomerOwnerAssigned`; `notification.RiskChanged` is the one exception, since
+`sla → notification` is the allowed arrow) and publish them **after** their own audit action; per-producer
+`*Notifications` classes handle them with plain synchronous `@EventListener`s inside the producer's
+transaction, so a notification commits or rolls back with its action. Every event runs one
+`NotificationPipeline`: candidates → drop the actor, non-ACTIVE and non-INTERNAL users → **per-recipient
+visibility through `authz.RecipientAccess.canView`** (builds the recipient's own grants from scratch via
+`GrantLookup`, the query the request path now shares, and runs the real `AuthorizationPredicateBuilder`
+predicate, audience filter included, as an existence check) → preferences → row + `email_state`
+(`NONE`/`QUEUED`/`DIGEST_PENDING`). A draft naming a case gated on something narrower (task, document,
+agreement view) must carry a **case-free variant** (`Draft.orWithoutCase`), delivered to a recipient who
+cannot view the case — a draft without one is not delivered to them at all. Subject facts and sweep
+candidates are read with RLS-bound `JdbcTemplate` SQL (`SubjectFacts`, `DeadlineCandidates`), never
+returned to a caller (plan amendment 4). **Email** is always an `email_outbox` row (`NOTIFICATION`/
+`DIGEST`/`CUSTOMER_REMINDER`), sent only by `scheduling.EmailDispatchJob` every minute: claim under
+`SKIP LOCKED` with a 5-minute lease, send outside any transaction, stamp; backoff 1m/5m/30m/2h, `FAILED`
+plus `email.failed` after the fifth attempt; a batch stops starting sends after a 3-minute budget and
+releases the rest; SMTP connect/read/write timeouts 10s/30s/30s; scheduler pool 4. **Sweeps:** the SLA
+sweep adds once-per-clock at-risk/breached alerts; hourly `NotificationSweepJob` sends task overdue,
+deadline approaching (per-tenant horizons, business days), document/agreement expiry and renewal
+(calendar days) and automatic customer reminders, each deduplicated by a `(tenant, recipient, dedupe_key)`
+unique key, with in-app-false "consumed markers" burning the larger leads; `DigestJob` (15 min) sends
+daily/weekly digests at 08:00 tenant-local. **APIs:** the self-service inbox (`/notifications`, cursor,
+unread count, mark read/all — every row re-checked against the recipient's *current* access through
+`NotificationVisibility`, the class the digest shares; `ESCALATION` exempt) and preferences (full replace
+listing all fourteen opt-out types; escalation locked on, 422), both ungated on `MeService`'s basis; the
+admin policy (horizons, auto-remind) and templates (`{case}`/`{customer}`/`{stage}`/`{owner}` only, key
+immutable) under the new **`notification.manage`** (ALL-only, Administrator); `GET
+/notification-templates/options` under `workflow.manage`; publish validation refuses a stage key naming no
+template (`workflow.NotificationTemplateKeys` port). **System actor** gains exactly `document.request@ALL`
+for `DocumentRequestService.remindAutomatically`, contained structurally (below). `V35`–`V38`; `V37`
+backfills `notification.manage` onto every tenant's Administrator. `app.public-base-url`
+(`APP_PUBLIC_BASE_URL`) is required outside `dev`/`test`. Dev endpoints `POST /dev/jobs/notification-sweep`,
+`/digest`, `/email-dispatch`. Frontend: the top bar's Inbox button (badge polled every 60s, ⌘/Ctrl-J,
+hidden for PORTAL) and drawer with a preferences pane (cadence, per-type in-app/email toggles, saves
+serialised), Administration → Notifications (deadline horizons and auto-reminders, templates), and the
+builder's stage template picker replacing the inert field.
+
 **Sequence** (each gains a `*-design.md` in `docs/superpowers/specs/` and a plan in
 `docs/superpowers/plans/`): 1 Foundation & Tenancy → 2 Workflow Engine & Case Lifecycle → 3 Tasks &
 Collaboration → **3A Programmes & Customer-Scoped Plans** → 4 Documents → **4A Meetings (needs 4)** →
-5 Agreements (needs 4; delivered) → **6 SLA & Escalation (2, 3; delivered)** → **6B Notifications (needs 6)** → 7 Customer Portal (2, 4, 5, 3A) →
+5 Agreements (needs 4; delivered) → **6 SLA & Escalation (2, 3; delivered)** → **6B Notifications (needs 6; delivered)** → 7 Customer Portal (2, 4, 5, 3A) →
 8 Dashboards & Real-time (2–6, 3A) → 9 Reporting & Analytics (2–6) → 10 Packaging & Deploy.
 Sub-projects 2–9 each add one module in the shape of sub-project 1's Tasks
 20–21: entity with `tenant_id`, migration calling `enable_tenant_rls`, a
@@ -258,6 +300,13 @@ signing key, and `AppRolePasswordReconciler` (a Flyway `AFTER_MIGRATE` callback)
 single startup, automatically. Change it between restarts and the role is simply repointed to the
 new value each time — there is no "spate of 401s" equivalent, and no separate `ALTER ROLE` step to
 remember.
+
+`APP_PUBLIC_BASE_URL` (the absolute URL every notification email links through, no trailing slash) is
+required outside `dev`/`test` — `PublicBaseUrl` refuses to start on a blank or malformed value, naming the
+variable — and defaults to `http://localhost:3000` under both. Notification emails are not sent inline:
+they queue in `email_outbox` and the dispatcher sends them within a minute, so under `dev` the `[email]`
+log line for a reminder or notification appears only after it runs (`POST /api/t/{slug}/dev/jobs/email-dispatch`
+forces it).
 
 Both platform-admin variables are blank by default and `PlatformAdminBootstrap` does nothing without
 them — but `/api/platform/**` is HTTP Basic behind `hasRole("PLATFORM_ADMIN")`, so without one no
@@ -700,15 +749,8 @@ carve-out are all still open and untouched by this sub-project's path.
 **Open at the close of sub-project 6** (spec §12 plus what per-task and whole-branch review parked;
 real gaps, none fixed here):
 
-- **A tenant's sole active administrator who owns a late milestone or clock produces an escalation with
-  no recipient.** `RecipientResolver`'s `ADMINISTRATORS` step excludes the late person, and the ERROR log
-  says "no active administrator", which is misleading (one exists). Spec §6.2 now carries an amendment;
-  fix by falling back to the late administrator or by wording the log for both cases.
-- **A failed escalation email leaves `emailed_at` null and is retried every sweep with no cap or attempt
-  tracking; a failed customer reminder email still leaves `reminders_sent`/`last_reminded_at` advanced**
-  (no retry, so the customer is silently not reminded for 24h). A crash between send and stamp resends one
-  row. Delivery tracking is 6B's. Escalations raised while a tenant had no administrator are not
-  back-filled with notifications when one appears.
+- **Escalations raised while a tenant had no administrator are not back-filled** with notifications
+  when one appears.
 - **No cases-list SLA column, `sla=` filter or "SLA at risk" saved filter** — no `GET /cases` or screen 2
   exists (design §1.2.6); whichever sub-project builds that screen owns them.
 - **The war room's reassign/force-complete user pickers and the manager picker on the Users screen load
@@ -722,7 +764,8 @@ real gaps, none fixed here):
 - **`user_type` is now `CHECK (INTERNAL|PORTAL)` (`V32`);** any future user type needs a migration, and
   `SYSTEM` is deliberately never persisted. `DocumentAudienceFilter`/`AgreementAudienceFilter` test
   `== PORTAL`, so they treat the system principal as internal: revisit if `SystemPermissions` ever widens
-  beyond case/task/sla view.
+  further (6B added `document.request@ALL`, read only on `DocumentRequest`/`CustomerContact`/`Case`, none
+  of which has an audience filter).
 - **The `dev`-profile endpoints and the process-wide clock offset.** `/dev/clock/offset` shifts "now" for
   every tenant in the backend process and nothing shifts it back; it is absent outside `dev` (proven by
   `DevToolsProfileTest`) but a dev backend left running stays shifted until restart. `forTenant`/`runOne`
@@ -736,7 +779,58 @@ real gaps, none fixed here):
 - **A migration that gives the current stage a new SLA starts no clock until the next stage entry**
   (spec-sanctioned); `MigrationService` keeps the open clock when a case stays in its stage by name.
 - **`Remind customer` and escalation email bodies carry the staff-written journey name/description and
-  the raw document-category enum** (a product call); no public base URL exists for email links yet.
+  the raw document-category enum** (a product call).
+
+**Closed by sub-project 6B** (spec §12.3, verified against the code): a failed escalation or customer
+reminder email is now an `email_outbox` row with attempt tracking, backoff and a five-attempt cap
+(`EmailDispatchTest`, `CustomerReminderOutboxTest.aFailedReminderEmailIsRetriedNotLost`); the public base
+URL exists (`APP_PUBLIC_BASE_URL`, `PublicBaseUrlGuardTest`); and a late sole active administrator is
+their own escalation recipient, the ERROR log reserved for a tenant with none
+(`RecipientResolverTest.aSoleAdministratorWhoIsLateIsTheirOwnRecipient`). A crash between send and stamp
+still resends one row (at-least-once, by design).
+
+**Open at the close of sub-project 6B** (spec §12.4, the ledger's parked rulings and the whole-branch
+review's residuals; real gaps, none fixed here):
+
+- **Out of scope by design:** the badge polls every 60s (real-time invalidation and the dashboard's
+  "Recent notifications" are sub-project 8's); portal-user notifications and a customer-comment type are
+  7's; agreement/document **reviewers are not a relationship**, so "submitted for review" reaches the
+  owner and case owner, never a reviewer (needs a review queue); every email and digest is English plain
+  text.
+- **No manual visual check was done.** The inbox drawer, preferences pane and Administration →
+  Notifications were never compared at 1440px/900px against the prototype, and the `.dc.html` inbox was
+  never opened — pixel values are unverified. Do this before calling the UI finished.
+- **Stored text outlives some access changes.** The inbox and digest re-check each row's *subject*
+  permission, but nothing records which text variant a row holds, so a recipient who had `case.view` at
+  delivery, then lost it while keeping `task.view`/`document.view`/`agreement.view`, still reads the
+  case/customer name in older rows (fix: a detail-level column + migration, honoured by inbox and digest).
+  Immediate emails re-check only `ACTIVE` at dispatch, not access, so a grant revoked between queue and
+  send still sends the stored text.
+- **`DIGEST_PENDING` rows of a recipient who permanently lost access stay pending forever**, re-checked
+  every digest run (needs a `SUPPRESSED` state, i.e. an `email_state` `CHECK` migration).
+- **Inbox paging edges:** the unread count stops at 100 visible / 500 scanned (can under-count a huge
+  hidden backlog, never over-counts); if the newest 500 rows are all hidden the first page is empty with a
+  non-null cursor, and the drawer shows "You're all caught up" with no Load more. Every list/count call re-resolves the
+  caller's grants per distinct subject (memoised per call, bounded by the 500 cap) and the badge polls.
+- **Dispatcher:** SMTP per-operation timeouts can exceed the 70s per-send figure the 3-minute send budget
+  assumes, and stamps carry no claim token, so a late stamp can overwrite another dispatcher's re-claim
+  (at-least-once, never lost).
+- **Sweeps:** candidate queries carry no `NOT EXISTS` pre-filter on the dedupe key (every run
+  re-evaluates every candidate and relies on `ON CONFLICT`), N+1 subject lookups, no per-item isolation.
+  Overdue-task alerts ignore case status (held/closed cases alert once per task and due date — ruled);
+  automatic and deadline document-request reminders skip `COMPLETED` cases while expiry/renewal include
+  them; the at-risk alert fires once per clock (`at_risk_alerted_at` is never cleared); a weekly digest
+  slips a week if the job is down on the first working day.
+- **Admin:** `/admin/notifications` has no route-level gate (the nav item is gated; a direct visit shows
+  the API's 403 as an error state); two concurrent horizon `PUT`s can collide on `deadline_horizon`'s
+  delete+insert and 500 (needs a per-tenant lock); deactivating a template a stage references warns
+  nowhere (the stage simply sends nothing).
+- **`V37`/`V38`'s backfills** (the `notification.manage` grant, default horizons and policy) are untested
+  against pre-existing rows.
+- **Content:** `fulfil` publishes `DocumentUploaded` for a staff upload too, so the title says the customer
+  uploaded it; `InboxList.isAppPath` refuses `//` and `/\` but not a tab/newline variant (`/\t/evil`) —
+  not reachable today, since the backend emits only `Links.*` paths; tighten with a
+  `new URL(path, origin).origin` check.
 
 ### Tests
 
@@ -819,7 +913,7 @@ prints `BUILD SUCCESSFUL` having executed nothing, which reads exactly like a gr
 `org.testcontainers` is pinned to 1.21.4 in `build.gradle.kts` because Boot 3.4.1's managed 1.20.4
 cannot negotiate with current Docker Desktop API versions; do not revert it blindly.
 
-`cd frontend && npx playwright test` is the end-to-end command: sixteen spec files (the list below stops at sub-project 4; sub-project 5 added `agreements.spec.ts`, sub-project 6 `sla.spec.ts`: breach and escalation to the owner's manager, a customer wait pausing the clock with a once-a-day reminder, and the builder's "Pause on customer" toggle surviving a save) — login, activation,
+`cd frontend && npx playwright test` is the end-to-end command: seventeen spec files (the list below stops at sub-project 4; sub-project 5 added `agreements.spec.ts`, sub-project 6 `sla.spec.ts`: breach and escalation to the owner's manager, a customer wait pausing the clock with a once-a-day reminder, and the builder's "Pause on customer" toggle surviving a save; sub-project 6B `notifications.spec.ts`: an assignment raising the badge and the row landing on the case, ⌘/Ctrl-J and Escape, a type switched off staying silent, a keyed stage's alert, one daily digest after a clock shift) — login, activation,
 refresh rotation and reuse, customers with contact create/edit/retire, permission gating and the
 900px card-list fallback, the administration screens, accessibility in the light theme at four
 widths, workflow authoring through publish, a case lifecycle (branch skip, force-complete,
@@ -950,6 +1044,25 @@ back): everything after it in the run, concurrent workers included, and the back
 scheduled sweep (which then escalates other tenants' overdue work) sees a clock about two weeks ahead.
 Harmless today because no other spec asserts an absolute date and SLA audit events are not
 timeline-visible; `reuseExistingServer` leaves a hand-started dev backend shifted until restart.
+
+**Sub-project 6B close-out, 2026-10-09** (Task 36) — all four suites ran green in the same pass at
+`84145bd`, none skipped, no retries. Backend `cleanTest test`, one package per Gradle invocation, 1490 tests,
+0 failures/errors/skipped (root `ApplicationContextTest` 2, agreement 149, architecture 31, audit 15, auth
+59, authz 47, customer 41, document 185, identity 55, journey 155, notification 223, platform 52, programme
+29, provisioning 7, scheduling 18, scoping 35, security 99, sla 138, support 3, task 63, tenancy 15, workflow
+69, each read from `build/test-results/test/*.xml`); `npx vitest run` 129 files / 1049 tests; `npx tsc
+--noEmit` clean; lint 0 errors (the same 2 pre-existing warnings); `npx playwright test` 58 of 58 against
+a fresh scratch database (`onboarding_e2e_6b_close`), `notifications.spec.ts`'s 5 tests included. Same
+environment notes as sub-project 6's. **Live-running found one real product bug:** two quick preference
+toggles sent two full-replace `PUT`s at once and could commit out of order, the earlier click winning (seen
+in the database); `useUpdatePreferences` now runs saves in a serial mutation `scope`, in click order
+(`74584e2`, a vitest case red first). `sla.spec.ts`'s reminder test now runs the dispatcher before reading
+the email — a stale spec, since the reminder goes through the outbox. **The whole-branch review found three
+Importants every per-task review had passed,** all fixed with tests red first: task-shaped notifications
+named the case and customer to a `task.view`-only recipient (the case-free variant, `c5bc0ee`); the inbox
+kept showing a row after its recipient lost access (`NotificationVisibility`, `294735d`); SMTP had no
+timeouts, so one hung send could stall the scheduler and outrun its lease (timeouts, pool 4, a send budget,
+`c57449f`). Full detail: `.superpowers/sdd/2026-10-04-notifications/close-out-report.md`.
 
 API types are generated, never hand-written. `OpenApiDocumentTest` writes `backend/build/openapi.json`
 during `:test`; `./gradlew openApiSpec` is the wrapper that produces it and says where it is. `npm run
@@ -1356,6 +1469,55 @@ administrator cannot opt out; #7 by `security.SystemActorTest`
 `EscalationDeliveryTest.notificationSentIsAuditedOffTheTimeline`; #10 by `sla.SlaIsolationTest`,
 `CalendarRequestViewAlignmentTest` and `identity.ReportingLinesTest.theUpdateRequestAndViewStayFieldForFieldAligned`.
 
+**Sub-project 6B's own ten** (design spec §11's cross-check; a change breaking one of these is a change
+to the design, not an implementation detail):
+
+- No producer module imports a `notification` type; each arrow is its own `ModuleBoundaryTest` rule.
+- Notifications add no caller of `CaseEngine.reconcile` and never mutate the record they report on.
+- A notification commits with its action; an action that rolls back leaves no notification and no
+  outbox row.
+- Nobody is notified about a record they cannot view at write time — scope, audience filters,
+  deactivation and PORTAL all respected (`RecipientAccess`).
+- The actor is never notified of their own action.
+- Escalation cannot be disabled and is always emailed immediately.
+- A sweep never sends the same reminder twice — a database unique key on recipient + `dedupe_key`.
+- Every notification, digest, escalation and customer-reminder email goes through `email_outbox`; none is
+  sent inside a transaction that can roll back; attempts are capped.
+- `SystemPermissions` gains exactly `document.request` at `ALL`, pinned by an exact-set test.
+- Another recipient's and cross-tenant ids are 404; `PUT` request and view types stay field-for-field
+  aligned for preferences, policy and templates.
+
+Each was re-derived against the final code at Task 36's close-out (`84145bd`), every named test read green
+from its XML: #1 by `ModuleBoundaryTest`'s `noTask`/`noJourney`/`noDocument`/`noAgreement`/`noWorkflow`/
+`noCustomerDependencyOnNotification` and `noNotificationDependencyOnSla`, plus a grep of the six producers'
+main sources for `onboarding.notification` (none); #2 by `git log main..HEAD` on `CaseEngine.java` (two
+commits, +11/-1: the publisher field and constructor parameter, three `events.publishEvent(...)` lines and
+one `milestones.flush()` so the listener's SQL sees a milestone created in the same transaction), a
+branch-wide diff with no added or removed `reconcile(` line, no `reconcile` anywhere in `notification`, and
+`notification`'s SQL writing only its own tables; #3 by
+`NotificationPipelineTest.aRolledBackActionLeavesNoNotificationAndNoOutboxRow` and
+`CustomerReminderOutboxTest.aRolledBackReminderQueuesNothing`; #4 by `security.RecipientAccessTest` (all
+nine), `DocumentNotificationTest.aTargetedUploadDoesNotReachAnOwnerOutsideItsAudience`,
+`ExpirySweepTest.aTargetedDocumentsExpiryDoesNotReachAnOwnerOutsideItsAudience` and
+`NotificationPipelineTest.inactiveAndPortalRecipientsGetNothing`; #5 by
+`NotificationPipelineTest.theActorIsNeverNotified` and `TaskNotificationTest.selfAssignmentNotifiesNobody`;
+#6 by `PreferencesApiTest.turningEscalationOffIs422`, `PreferenceReaderTest.escalationIsAlwaysOnAndImmediate`
+and `NotificationPipelineTest.anEscalationDraftIsRefused` (escalations go only through
+`NotificationWriter.escalation`, which skips preferences and always queues); #7 by `V35`'s
+`UNIQUE (tenant_id, recipient_user_id, dedupe_key)`, `NotificationSchemaTest.aDedupeKeyIsUniquePerRecipientButNullsAreNot`
+and `DeadlineSweepTest.anOverdueTaskNotifiesItsAssigneeOnce`/`.movingTheDueDateReArmsTheOverdueNotice`/
+`.whenSeveralLeadsMatchOnlyTheSmallestIsSentAndTheRestAreConsumed`; #8 by
+`rg "email.send\(|EmailSender" backend/src/main/java` (the only non-`auth` caller is
+`scheduling.EmailDispatchJob`; `auth`'s invitation/reset and provisioning's activation sends remain, by
+design; `sla.EscalationMailer` is deleted), `EmailDispatchTest.failuresBackOffThenFailAfterFiveAttemptsAndAreAudited`
+and `.concurrentDispatchersNeverDoubleSend`; #9 by `security.SystemActorTest.theSystemActorHoldsExactlyTheJobPermissionsAtAll`,
+`ModuleBoundaryTest.onlyRemindAutomaticallyIsCalledOutsideDocument` (the brief's
+`AutoReminderTest.theSweepCallsNoOtherDocumentRequestServiceMethod` never shipped: Task 25's fix round
+moved the containment into this ArchUnit rule) and `AutoReminderTest.aHumanCallerIsRefusedEvenHoldingDocumentRequestAtAll`;
+#10 by `NotificationIsolationTest`, `InboxApiTest.anotherUsersNotificationIs404`/`.aCrossTenantIdIs404`,
+`PreferencesApiTest.theRequestAndViewStayAligned`, `PolicyAdminTest.requestAndViewAreAligned` and
+`TemplateAdminTest.requestAndViewAreAligned`.
+
 ---
 
 ## Where the guards live
@@ -1421,6 +1583,23 @@ escalate once), `audit.AuditPartitionJobTest` (the application role can create p
 the function), `scheduling.DevToolsProfileTest` (the dev endpoints and `OffsetClock` are absent outside
 `dev`), and `ModuleBoundaryTest`'s named rules `noJourneyDependencyOnSla`, `noDocumentDependencyOnSla` and
 `onlySchedulingMintsTheSystemPrincipal` (only the `scheduling` slice may construct a `SystemPrincipal`).
+
+Sub-project 6B's own negatives: `security.RecipientAccessTest` (out of scope, deactivated, PORTAL even for
+its own customer, a targeted document refused to an ALL-scoped reader outside its audience, cross-tenant,
+unknown id; the answer is the recipient's, computed fresh), `notification.NotificationIsolationTest`
+(cross-tenant sweep, inbox, mark-read and templates), `InboxApiTest`/`PreferencesApiTest` (another user's
+row or preferences are 404/invisible), `InboxVisibilityTest` (a revoked grant or a left team hides the row
+from list, count and mark-read; fail-closed on an unmappable row; escalations always shown),
+`CaseDetailRedactionTest` and `NotificationPipelineTest`'s case-free cases (a task-only recipient is never
+told the case or customer, in the row, the outbox or the link; a draft with no variant is not delivered),
+`DocumentNotificationTest.aTargetedUploadDoesNotReachAnOwnerOutsideItsAudience`,
+`ExpirySweepTest.aTargetedDocumentsExpiryDoesNotReachAnOwnerOutsideItsAudience`, `DeadlineSweepTest`'s
+narrow-scope recipient cases, `OutboxHeaderTest` (no CR/LF reaches a mail subject), `AutoReminderTest.aHumanCallerIsRefusedEvenHoldingDocumentRequestAtAll`,
+`scheduling.MailAndSchedulerConfigTest` (SMTP timeouts and the four-thread pool, from the shipped
+`application.yml`), `platform.PublicBaseUrlGuardTest`, and `ModuleBoundaryTest`'s six
+`no<Producer>DependencyOnNotification` rules, `noNotificationDependencyOnSla` and
+`onlyRemindAutomaticallyIsCalledOutsideDocument` (no class outside `document` may call any other
+`DocumentRequestService` method — the containment of the system actor's `document.request`).
 
 **These are not to be weakened to make a change pass.** They exist precisely to fail when something
 is missed. An allowlist entry or an exclusion added to green a build defeats the isolation design,
@@ -1609,24 +1788,27 @@ plan's intentions for it:**
   drop-in behind that interface (spec `2026-09-25-agreements-design.md` §3.4) — do not assume it
   exists, and do not start it unprompted.
 
-## What sub-project 6B inherits
+## What sub-project 7 inherits
 
-- **The `notification` table** (`V31`): one row per recipient with `emailed_at`; its `type` `CHECK` allows
-  only `ESCALATION` today, so each new notification type is a migration widening it. It has a recipient-only
-  descriptor and **no HTTP read path** — the inbox is 6B's.
-- **`TenantJobRunner` and the system actor.** New jobs call `forTenant`/`forEachTenant` (per-tenant
-  transaction, advisory lock, fresh request scope, `SystemPrincipal`). `authz.SystemPermissions` is
-  read-only (case/task/sla view); giving it a write permission is a design decision, not a convenience.
-  Run an email step as a **second** tenant run after the work it reports has committed (`SlaSweepJob`
-  does this for escalations).
-- **`atRisk`** on `SlaClockView` is computed but nothing alerts on it; risk alerts (Q19) are 6B's.
-  `document_request.reminders_sent`/`last_reminded_at` exist for automatic reminders (manual remind is the
-  only writer today), and `document.expiresAt` plus the agreement expiry fields are to be reminded against.
-- **No public base URL exists for email links yet**, and a failed reminder or escalation email is not
-  tracked (see the open list above).
-- **The inbox must make `TopBar.test.tsx`'s "ships no dead notification controls" assertion true by
-  shipping a real control**, not by deleting the assertion. `stage.notification_template_key` is still an
-  inert builder field.
+- **Portal recipients are refused twice, on purpose.** `authz.RecipientAccess.canView` is `false` for any
+  non-`INTERNAL` user and `NotificationPipeline`'s step 2 drops them; the inbox returns a portal user an
+  empty list and the Inbox button is not rendered for them. Portal notifications (and a customer-comment
+  type, a `notification.type` `CHECK` migration) widen **both** deliberately, with a portal branch in
+  `RecipientAccess` that runs the audience filters' portal path — never by relaxing one gate alone.
+- **The outbox already carries customer email** (`CUSTOMER_REMINDER` rows addressed to a `contact_id`,
+  skipped at dispatch once the contact is inactive); portal email goes the same way. Nothing may call
+  `EmailSender` for a notification-class email except `EmailDispatchJob`.
+- **The case-free variant mechanism.** A draft naming a case but gated on a narrower permission must carry
+  `Draft.orWithoutCase(...)`, or it is not delivered to a recipient who cannot view the case (fail
+  closed); `CaseDetailRedactionTest` pins it. A portal variant will need the same treatment for
+  operator-only vocabulary.
+- **`notification_template` placeholders** are a fixed whitelist (`TemplatePlaceholders`: `{case}`,
+  `{customer}`, `{stage}`, `{owner}`); a new one is a code change plus the 422 rule's test.
+  `stage.portal_visible` is still untouched (Q24's, 7's).
+- **A new producer** publishes an id-only event from its own package **after** its audit action, and calls
+  `saveAndFlush` first — the listener reads with plain SQL, which Hibernate does not auto-flush for. A
+  listener failure rolls the business action back (no swallow-and-continue), so a notification bug fails
+  the write that caused it.
 
 ## Plan deviations
 
