@@ -24,4 +24,13 @@ public interface SlaClockRepository extends JpaRepository<SlaClock, UUID>, JpaSp
     @Query("update SlaClock c set c.breachedAt = :at, c.updatedAt = :at "
             + "where c.id = :id and c.breachedAt is null and c.stoppedAt is null")
     int stampBreach(@Param("id") UUID id, @Param("at") Instant at);
+
+    /**
+     * The one write of at_risk_alerted_at (6B spec 6.1): conditional, so an alert fires once per clock
+     * even across overlapping sweeps, and never for a stopped or already breached clock.
+     */
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update SlaClock c set c.atRiskAlertedAt = :at, c.updatedAt = :at where c.id = :id "
+            + "and c.atRiskAlertedAt is null and c.breachedAt is null and c.stoppedAt is null")
+    int stampAtRiskAlert(@Param("id") UUID id, @Param("at") Instant at);
 }

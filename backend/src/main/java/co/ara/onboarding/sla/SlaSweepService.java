@@ -1,6 +1,8 @@
 package co.ara.onboarding.sla;
 
 import co.ara.onboarding.notification.NotificationWriter;
+import co.ara.onboarding.notification.RiskChanged;
+import org.springframework.context.ApplicationEventPublisher;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
@@ -64,13 +66,16 @@ public class SlaSweepService {
     private final NotificationWriter notifications;
     private final ReportingLineDirectory people;
     private final JdbcTemplate jdbc;
+    private final ApplicationEventPublisher events;
     private static final Logger log = LoggerFactory.getLogger(SlaSweepService.class);
 
     public SlaSweepService(AuthorizedQuery authorizedQuery, SlaClockRepository clocks, SlaPauseRepository pauses,
                            SlaClockReader reader, AuditRecorder audit, Clock clock, BusinessCalendar calendar,
                            SlaPolicyReader policies, TaskRepository tasks, MilestoneRepository milestones,
                            CaseRepository caseRepository, RecipientResolver resolver, EscalationWriter writer,
-                           NotificationWriter notifications, ReportingLineDirectory people, JdbcTemplate jdbc) {
+                           NotificationWriter notifications, ReportingLineDirectory people, JdbcTemplate jdbc,
+                           ApplicationEventPublisher events) {
+        this.events = events;
         this.notifications = notifications; this.people = people; this.jdbc = jdbc;
         this.authorizedQuery = authorizedQuery; this.clocks = clocks; this.pauses = pauses;
         this.reader = reader; this.audit = audit; this.clock = clock; this.calendar = calendar;
@@ -87,6 +92,7 @@ public class SlaSweepService {
     @Transactional(propagation = Propagation.MANDATORY)
     public void sweep() {
         stampBreaches();
+        stampAtRisk();
         notify(escalateOverdue());
         warnOfUndeliverableEscalations();
     }
@@ -246,6 +252,37 @@ public class SlaSweepService {
             if (clocks.stampBreach(c.getId(), now) != 1) continue;
             audit.record(AuditActions.SLA_BREACHED, "sla_clock", c.getId(), "SLA breached",
                     Map.of("caseId", c.getCaseId().toString(), "targetDays", c.getTargetDays()));
+            events.publishEvent(new RiskChanged(c.getId(), c.getCaseId(), c.getStageId(),
+                    RiskChanged.State.BREACHED, 0, c.getTargetDays()));
+            stamped++;
+        }
+        return stamped;
+    }
+
+    /** 6B spec 6.1: the first sweep that finds a live clock at risk stamps it and alerts once. */
+    @RequirePermission(PermissionKeys.SLA_VIEW)
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int stampAtRisk() {
+        Instant now = Instant.now(clock);
+        double threshold = policies.current().atRiskDays();
+        Specification<SlaClock> candidates = (r, q, cb) -> cb.and(cb.isNull(r.get("stoppedAt")),
+                cb.isNull(r.get("breachedAt")), cb.isNull(r.get("atRiskAlertedAt")));
+        List<SlaClock> open = authorizedQuery.findAll(clocks, SlaClock.class, PermissionKeys.SLA_VIEW, candidates,
+                Pageable.unpaged(Sort.by("id"))).getContent();
+        if (open.isEmpty()) return 0;
+        Set<UUID> ids = open.stream().map(SlaClock::getId).collect(Collectors.toSet());
+        Specification<SlaPause> ofClocks = (r, q, cb) -> r.get("clockId").in(ids);
+        Map<UUID, List<SlaPause>> pausesByClock = authorizedQuery
+                .findAll(pauses, SlaPause.class, PermissionKeys.CASE_VIEW, ofClocks, Pageable.unpaged())
+                .stream().collect(Collectors.groupingBy(SlaPause::getClockId));
+        int stamped = 0;
+        for (SlaClock c : open) {
+            double remaining = c.getTargetDays()
+                    - reader.elapsed(c, pausesByClock.getOrDefault(c.getId(), List.of()), now);
+            if (remaining <= 0 || remaining > threshold + 1e-9) continue;
+            if (clocks.stampAtRiskAlert(c.getId(), now) != 1) continue;
+            events.publishEvent(new RiskChanged(c.getId(), c.getCaseId(), c.getStageId(),
+                    RiskChanged.State.AT_RISK, remaining, c.getTargetDays()));
             stamped++;
         }
         return stamped;
