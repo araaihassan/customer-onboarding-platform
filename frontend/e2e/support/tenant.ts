@@ -173,6 +173,35 @@ export async function readEmail(
   }
 }
 
+/**
+ * Like `readEmail`, but returns the WHOLE body: everything from the `[email] to=… subject=…`
+ * line up to the next log line (which begins with an ISO date). A digest lists many lines and
+ * links, which `readEmail`'s subject-plus-one-line shape would cut off.
+ */
+export async function readEmailBody(
+  email: string,
+  subjectContains: string,
+  timeoutMs = 15_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  const pattern = new RegExp(
+    `\\[email\\] to=${escapeRegExp(email)} subject=[^\\n\\r]*${escapeRegExp(subjectContains)}[^\\n\\r]*[\\s\\S]*?(?=\\r?\\n\\d{4}-\\d{2}-\\d{2}[T ]|$)`,
+    "g",
+  );
+
+  for (;;) {
+    const log = await readFile(BACKEND_LOG, "utf8");
+    const matches = [...log.matchAll(pattern)];
+    const last = matches[matches.length - 1];
+    if (last) return last[0];
+
+    if (Date.now() > deadline) {
+      throw new Error(`No email to ${email} with subject containing "${subjectContains}" appeared in ${BACKEND_LOG} within ${timeoutMs}ms`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
 /** A bearer token, for seeding through the API rather than through the interface. */
 export async function apiLogin(
   request: APIRequestContext,
