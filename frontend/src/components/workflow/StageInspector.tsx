@@ -4,6 +4,7 @@ import { PlusIcon } from "@/components/icons";
 import { Field } from "@/components/ui/Field";
 import { Switch } from "@/components/ui/Switch";
 import { useDepartments } from "@/lib/api/admin";
+import { useTemplateOptions } from "@/lib/api/notifications";
 import type { AttributeDraft, StageDraft } from "./draftState";
 import { BranchRuleCard } from "./BranchRuleCard";
 import { MilestoneEditor } from "./MilestoneEditor";
@@ -44,7 +45,14 @@ export function StageInspector({
   readOnly?: boolean;
 }) {
   const departments = useDepartments();
-  const forwardStagesExist = stageIndex < stages.length - 1;
+  // The builder is reachable only by workflow managers, which is what the options endpoint requires.
+  const options = useTemplateOptions(true);
+  const templateOptions = (options.data ?? []).filter(
+    (o): o is { key: string; name?: string } => typeof o.key === "string" && o.key !== "",
+  );
+  const offeredKeys = new Set(templateOptions.map((o) => o.key));
+  const currentTemplateKey = stage.notificationTemplateKey ?? "";
+  const forwardStagesExist =stageIndex < stages.length - 1;
 
   function updateBranchRule(index: number, patch: Partial<BranchRuleRequest>) {
     const rules = [...(stage.branchRules ?? [])];
@@ -180,8 +188,6 @@ export function StageInspector({
           label={t("workflow.inspector.portalVisible")}
         />
 
-        {/* Authored here, acted on by nothing until sub-project 6 -- a field that
-            silently does nothing is worse than one that says so. */}
         <div className="flex flex-col" style={{ gap: "var(--ob-space-6)" }}>
           <label
             htmlFor="stage-notification-template"
@@ -190,10 +196,26 @@ export function StageInspector({
           >
             {t("workflow.inspector.notificationTemplate")}
           </label>
-          <input id="stage-notification-template" disabled value={stage.notificationTemplateKey ?? ""} style={selectStyle} />
-          <p className="text-text-faint" style={{ font: "10.5px/1.4 var(--ob-font-family-ui)" }}>
-            {t("workflow.inspector.notificationTemplate.hint")}
-          </p>
+          <select
+            id="stage-notification-template"
+            value={currentTemplateKey}
+            onChange={(e) => onChange({ notificationTemplateKey: e.target.value || undefined })}
+            style={selectStyle}
+          >
+            <option value="">{t("workflow.inspector.notificationTemplate.none")}</option>
+            {/* A key the options list does not offer (retired, inactive, unknown, or the list
+                still loading / failed) stays selectable so a save never drops it silently. */}
+            {currentTemplateKey && !offeredKeys.has(currentTemplateKey) && (
+              <option value={currentTemplateKey}>
+                {t("workflow.inspector.notificationTemplate.inactive", { key: currentTemplateKey })}
+              </option>
+            )}
+            {templateOptions.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.name || o.key}
+              </option>
+            ))}
+          </select>
         </div>
 
         <MilestoneEditor

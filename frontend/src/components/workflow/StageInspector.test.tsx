@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setTenantSlug, __setAccessToken } from "@/lib/api/client";
 import { StageInspector } from "./StageInspector";
@@ -52,12 +52,81 @@ function renderInspector(stage: StageDraft, index: number, onChange = vi.fn(), r
 }
 
 describe("StageInspector", () => {
-  it("renders the notification template field disabled with an explanation", () => {
-    renderInspector(threeStages[1]!, 1);
+  describe("Notification template", () => {
+    function answerOptions(options: unknown) {
+      fetchMock.mockImplementation(async (url: string) => {
+        const body = String(url).includes("/notification-templates/options") ? options : [];
+        return {
+          ok: true,
+          status: 200,
+          text: async () => JSON.stringify(body),
+          json: async () => body,
+        } as unknown as Response;
+      });
+    }
+    const field = () => screen.getByLabelText("Notification template") as HTMLSelectElement;
+    const optionLabels = () => Array.from(field().options).map((o) => o.textContent);
 
-    const field = screen.getByLabelText(/notification template/i);
-    expect((field as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/arrives with notifications/i)).not.toBeNull();
+    it("offersNoneAndTheActiveTemplates", async () => {
+      answerOptions([{ key: "kickoff", name: "Kickoff" }]);
+      const onChange = renderInspector(threeStages[1]!, 1);
+
+      await waitFor(() => expect(optionLabels()).toEqual(["None", "Kickoff"]));
+      fireEvent.change(field(), { target: { value: "kickoff" } });
+      expect(onChange).toHaveBeenCalledWith({ notificationTemplateKey: "kickoff" });
+      cleanup();
+
+      const again = renderInspector({ ...threeStages[1]!, notificationTemplateKey: "kickoff" }, 1);
+      await waitFor(() => expect(optionLabels()).toEqual(["None", "Kickoff"]));
+      expect(field().value).toBe("kickoff");
+      fireEvent.change(field(), { target: { value: "" } });
+      expect(again).toHaveBeenCalledWith({ notificationTemplateKey: undefined });
+    });
+
+    it("keepsAKeyThatIsNoLongerOffered", async () => {
+      answerOptions([{ key: "kickoff", name: "Kickoff" }]);
+      renderInspector({ ...threeStages[1]!, notificationTemplateKey: "retired" }, 1);
+
+      await waitFor(() => expect(optionLabels()).toContain("Kickoff"));
+      expect(field().value).toBe("retired");
+      expect(field().selectedOptions[0]?.textContent).toBe("retired (inactive)");
+    });
+
+    it("keeps the current key selected while options load or when the request fails", async () => {
+      fetchMock.mockResolvedValue({
+        ok: false,
+        status: 500,
+        text: async () => "",
+        json: async () => ({}),
+      } as unknown as Response);
+      const onChange = renderInspector({ ...threeStages[1]!, notificationTemplateKey: "kickoff" }, 1);
+
+      expect(field().value).toBe("kickoff");
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(field().value).toBe("kickoff");
+      expect(field().selectedOptions[0]?.textContent).toBe("kickoff (inactive)");
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it("shows no inactive entry for an unset key", async () => {
+      answerOptions([{ key: "kickoff", name: "Kickoff" }]);
+      renderInspector(threeStages[1]!, 1);
+      await waitFor(() => expect(optionLabels()).toEqual(["None", "Kickoff"]));
+      expect(field().value).toBe("");
+    });
+
+    it("isDisabledReadOnly", () => {
+      renderInspector({ ...threeStages[1]!, notificationTemplateKey: "kickoff" }, 1, vi.fn(), true);
+      expect(field().closest("fieldset")?.disabled).toBe(true);
+      expect(field().tagName).toBe("SELECT");
+    });
+
+    it("no longer carries the 'arrives with notifications' hint", () => {
+      renderInspector(threeStages[1]!, 1);
+      expect(screen.queryByText(/arrives with notifications/i)).toBeNull();
+      // positive control: the field itself still renders
+      expect(field()).not.toBeNull();
+    });
   });
 
   it("calls onChange when the stage name is edited", () => {
