@@ -123,7 +123,8 @@ public class NotificationAdminService {
         }
         Map<String, List<Integer>> audited = new TreeMap<>();
         for (HorizonKind k : HorizonKind.values()) {
-            List<Integer> leads = r.horizons().get(k) == null ? List.of() : r.horizons().get(k);
+            List<Integer> leads = r.horizons().get(k);
+            if (leads == null) throw new IllegalArgumentException(k + " needs a list of lead times, empty to turn it off");
             if (leads.size() > 5) throw new NotificationRuleException(k + " takes at most five lead times");
             if (new HashSet<>(leads).size() != leads.size()) throw new NotificationRuleException(k + " has a repeated lead time");
             for (Integer d : leads) {

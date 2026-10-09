@@ -29,6 +29,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class PolicyAdminTest extends SecurityTestBase {
 
     @Autowired ObjectMapper json;
+    @Autowired co.ara.onboarding.provisioning.TenantProvisioningService provisioning;
 
     private static JdbcTemplate owner() { return PostgresTestBase.ownerJdbcForSupport(); }
 
@@ -67,7 +68,28 @@ class PolicyAdminTest extends SecurityTestBase {
     }
 
     @Test
-    void aNewTenantStartsWithTheDefaults() throws Exception {
+    void aProvisionedTenantIsSeededWithTheDefaultRows() {
+        provisioning.provision("pol-seed", "Pol Seed", "admin@pol-seed.example", "Pol Admin");
+        String t = "(select id from tenant where slug = 'pol-seed')";
+        var pol = owner().queryForList("select auto_remind_enabled, auto_remind_interval_days, auto_remind_max "
+                + "from notification_policy where tenant_id = " + t);
+        assertThat(pol).hasSize(1);
+        assertThat(pol.get(0).get("auto_remind_enabled")).isEqualTo(false);
+        assertThat(((Number) pol.get(0).get("auto_remind_interval_days")).intValue()).isEqualTo(3);
+        assertThat(((Number) pol.get(0).get("auto_remind_max")).intValue()).isEqualTo(3);
+        Map<String, List<Integer>> got = new LinkedHashMap<>();
+        owner().queryForList("select kind, lead_days from deadline_horizon where tenant_id = " + t + " order by kind, lead_days")
+                .forEach(r -> got.computeIfAbsent((String) r.get("kind"), k -> new java.util.ArrayList<>())
+                        .add(((Number) r.get("lead_days")).intValue()));
+        assertThat(got).containsOnlyKeys("TASK_DUE", "MILESTONE_DUE", "DOCUMENT_REQUEST_DUE", "DOCUMENT_EXPIRY",
+                "AGREEMENT_EXPIRY", "AGREEMENT_RENEWAL");
+        for (String k : List.of("TASK_DUE", "MILESTONE_DUE", "DOCUMENT_REQUEST_DUE")) assertThat(got.get(k)).containsExactly(2);
+        for (String k : List.of("DOCUMENT_EXPIRY", "AGREEMENT_EXPIRY", "AGREEMENT_RENEWAL")) assertThat(got.get(k)).containsExactly(7, 14, 30);
+    }
+
+    @Test
+    void aTenantWithNoPolicyRowsReadsTheCodeDefaults() throws Exception {
+        // fixture tenants skip provisioning, so this exercises PolicyReader's fallback, not the seed
         AppUser a = adminOf("pol-def");
         JsonNode n = read("pol-def", a);
         for (String k : List.of("TASK_DUE", "MILESTONE_DUE", "DOCUMENT_REQUEST_DUE")) {
@@ -79,6 +101,44 @@ class PolicyAdminTest extends SecurityTestBase {
         assertThat(n.get("autoRemind").get("enabled").asBoolean()).isFalse();
         assertThat(n.get("autoRemind").get("intervalDays").asInt()).isEqualTo(3);
         assertThat(n.get("autoRemind").get("max").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    void aSecondPutFullyReplacesTheFirst() throws Exception {
+        AppUser a = adminOf("pol-twice");
+        Map<String, List<Integer>> h1 = allKinds(List.of(5, 1));
+        assertThat(putStatus("pol-twice", a, policy(h1, true, 7, 4))).isEqualTo(200);
+        Map<String, List<Integer>> h2 = allKinds(List.of(9));
+        h2.put("TASK_DUE", List.of());
+        assertThat(putStatus("pol-twice", a, policy(h2, false, 2, 1))).isEqualTo(200);
+        JsonNode n = read("pol-twice", a);
+        assertThat(n.get("horizons").get("TASK_DUE")).isEmpty();
+        assertThat(n.get("horizons").get("MILESTONE_DUE").toString()).isEqualTo("[9]");
+        assertThat(n.get("autoRemind").get("enabled").asBoolean()).isFalse();
+        assertThat(n.get("autoRemind").get("intervalDays").asInt()).isEqualTo(2);
+        assertThat(owner().queryForObject("select count(*) from deadline_horizon where tenant_id = "
+                + "(select id from tenant where slug = 'pol-twice')", Integer.class)).isEqualTo(5);
+    }
+
+    @Test
+    void aNullListForAKindIs400() throws Exception {
+        AppUser a = adminOf("pol-nulllist");
+        String body = policy(allKinds(List.of(2)), false, 3, 3).replace("\"TASK_DUE\":[2]", "\"TASK_DUE\":null");
+        assertThat(putStatus("pol-nulllist", a, body)).isEqualTo(400);
+    }
+
+    @Test
+    void anUnknownKindIs400() throws Exception {
+        AppUser a = adminOf("pol-unk");
+        String body = policy(allKinds(List.of(2)), false, 3, 3).replace("\"TASK_DUE\"", "\"BOGUS_DUE\"");
+        assertThat(putStatus("pol-unk", a, body)).isEqualTo(400);
+    }
+
+    @Test
+    void aNullLeadInsideAListIs422() throws Exception {
+        AppUser a = adminOf("pol-nullel");
+        String body = policy(allKinds(List.of(2)), false, 3, 3).replace("\"TASK_DUE\":[2]", "\"TASK_DUE\":[null]");
+        assertThat(putStatus("pol-nullel", a, body)).isEqualTo(422);
     }
 
     @Test
@@ -156,7 +216,10 @@ class PolicyAdminTest extends SecurityTestBase {
         adminOf("pol-403");
         UUID t = owner().queryForObject("select id from tenant where slug = 'pol-403'", UUID.class);
         AppUser plain = fixture.createUserWithPassword(t, "plain@pol-403.example", "long-enough-password");
-        fixture.grantAtAllScope(t, plain.getId(), co.ara.onboarding.authz.PermissionKeys.WORKFLOW_MANAGE);
+        for (String k : List.of(co.ara.onboarding.authz.PermissionKeys.WORKFLOW_MANAGE, co.ara.onboarding.authz.PermissionKeys.USER_MANAGE,
+                co.ara.onboarding.authz.PermissionKeys.ROLE_MANAGE, co.ara.onboarding.authz.PermissionKeys.CALENDAR_MANAGE)) {
+            fixture.grantAtAllScope(t, plain.getId(), k);
+        }
         mvc.perform(as(get(url("pol-403")), plain)).andExpect(status().isForbidden());
         assertThat(putStatus("pol-403", plain, policy(allKinds(List.of(2)), false, 3, 3))).isEqualTo(403);
     }
