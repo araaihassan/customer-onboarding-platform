@@ -833,5 +833,20 @@
   "calendar.policy.escalate.hint": "Between 1 and 30 business days.",
   "calendar.policy.escalate.invalid": "Enter a whole number from 1 to 30.",
   "calendar.policy.save": "Save policy",
-  "calendar.policy.saved": "SLA policy saved"
+  "calendar.policy.saved": "SLA policy saved",
+  "inbox.title": "Inbox",
+  "inbox.unread": "{count} UNREAD",
+  "inbox.empty": "You're all caught up.",
+  "inbox.error": "Notifications could not be loaded.",
+  "inbox.loadMore": "Load more",
+  "inbox.tone.risk": "Risk",
+  "inbox.tone.warn": "Warning",
+  "inbox.tone.ok": "Done",
+  "inbox.tone.info": "Information",
+  "inbox.unreadRow": "Unread: {title}",
+  "time.justNow": "JUST NOW",
+  "time.minutesAgo": "{n} MIN AGO",
+  "time.hoursAgo": "{n} HOURS AGO",
+  "time.yesterday": "YESTERDAY",
+  "time.daysAgo": "{n} DAYS AGO"
 }
