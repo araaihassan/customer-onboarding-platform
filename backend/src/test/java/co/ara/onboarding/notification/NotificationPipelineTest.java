@@ -285,4 +285,19 @@ class NotificationPipelineTest extends PostgresTestBase {
                 .as("an unknown agreement resolves to nothing, not an exception").isZero();
         assertThat(support.notifications(w.tenant())).hasSize(3);
     }
+
+    @Test
+    void theGatedConsumeWritesAMarkerOnlyForARecipientWhoCanView() {
+        var w = world("pipe-consume");
+        var visibility = new NotificationPipeline.Visibility(PermissionKeys.TASK_VIEW, Task.class, w.taskId());
+        fixture.runAsUser(w.tenant(), w.actor(), () -> {
+            pipeline.consume(draft(w, "K:1"), w.blind(), visibility);
+            pipeline.consume(draft(w, "K:2"), w.viewer(), visibility);
+        });
+        var rows = support.notifications(w.tenant());
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).get("recipient_user_id")).isEqualTo(w.viewer());
+        assertThat(rows.get(0).get("in_app")).isEqualTo(false);
+        assertThat(rows.get(0).get("dedupe_key")).isEqualTo("K:2");
+    }
 }

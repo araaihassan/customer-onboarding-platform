@@ -68,7 +68,8 @@ public class DeadlineCandidates {
     }
 
     /**
-     * Live (non-retired) documents with an expiry on an ACTIVE case. Columns id, case_id, owner_user_id
+     * Live (non-retired) documents with an expiry on a case that is neither held (ON_HOLD) nor CANCELLED: expiries outlive onboarding, so a
+     * COMPLETED case still reminds. Columns id, case_id, owner_user_id
      * (the case owner), expires_at, name; the caller converts expires_at in the tenant zone. A document
      * belongs to a case (case_id is NOT NULL), and a case with no owner has nobody to remind, so it is skipped.
      */
@@ -78,11 +79,11 @@ public class DeadlineCandidates {
                 SELECT d.id, d.case_id, c.owner_user_id, d.expires_at, d.name FROM document d
                   JOIN onboarding_case c ON c.id = d.case_id
                  WHERE d.status <> 'RETIRED' AND d.expires_at IS NOT NULL AND c.owner_user_id IS NOT NULL
-                   AND c.status = 'ACTIVE'""");
+                   AND c.status NOT IN ('ON_HOLD','CANCELLED')""");
     }
 
     /**
-     * Non-cancelled agreements carrying an expiry or renewal date, on an ACTIVE case. EXPIRED is derived on
+     * Non-cancelled agreements carrying an expiry or renewal date, on a case that is neither ON_HOLD nor CANCELLED (COMPLETED still reminds). EXPIRED is derived on
      * read and never stored, so "not cancelled" is the whole liveness test here; the sweep skips past dates.
      * Columns id, case_id, owner_user_id, name, expires_at, renewal_date (dates), notice_period_days.
      */
@@ -92,6 +93,6 @@ public class DeadlineCandidates {
                 SELECT a.id, a.case_id, a.owner_user_id, a.name, a.expires_at, a.renewal_date, a.notice_period_days
                   FROM agreement a JOIN onboarding_case c ON c.id = a.case_id
                  WHERE a.status <> 'CANCELLED' AND (a.expires_at IS NOT NULL OR a.renewal_date IS NOT NULL)
-                   AND c.status = 'ACTIVE'""");
+                   AND c.status NOT IN ('ON_HOLD','CANCELLED')""");
     }
 }

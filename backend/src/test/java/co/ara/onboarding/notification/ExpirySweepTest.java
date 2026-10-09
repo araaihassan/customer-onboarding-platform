@@ -325,5 +325,37 @@ class ExpirySweepTest extends PostgresTestBase {
         ownerJdbc().update("update agreement set status = 'SENT' where id = ?", agreementId);
         job.runOne(t);
         assertThat(expiryRows(t, portal)).isEmpty();
+        // positive control: an internal owner of the very same agreement is reminded, so the test can fail
+        UUID internal = user(t, "internal@ex-agr-portal.test", AGR_VIEWER);
+        ownerJdbc().update("update agreement set owner_user_id = ? where id = ?", internal, agreementId);
+        job.runOne(t);
+        assertThat(visible(t, internal)).hasSize(1);
+        assertThat(expiryRows(t, portal)).isEmpty();
+    }
+
+    @Test
+    void aCompletedCasesDocumentAndSignedAgreementStillRemind() {
+        var both = Map.of(PermissionKeys.AGREEMENT_VIEW, Scope.ALL, PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
+                PermissionKeys.CASE_VIEW, Scope.ALL);
+        var a = agreement("ex-completed", AGR_VIEWER, both);
+        UUID doc = document(a.tenant(), a.caseId(), "Cert", null, today(a.tenant()).plusDays(5));
+        ownerJdbc().update("update agreement set expires_at = ?, renewal_date = ?, notice_period_days = 0 where id = ?",
+                today(a.tenant()).plusDays(10), today(a.tenant()).plusDays(10), a.agreementId());
+        ownerJdbc().update("update onboarding_case set status = 'COMPLETED' where id = ?", a.caseId());
+        job.runOne(a.tenant());
+        var types = visible(a.tenant(), a.caseOwner()).stream().map(r -> r.get("subject_type") + ":" + r.get("title")).toList();
+        assertThat(types).anyMatch(x -> x.startsWith("document:") && x.contains("Cert"));
+        assertThat(types).anyMatch(x -> x.startsWith("agreement:") && x.contains("expires in 10"));
+        assertThat(types).anyMatch(x -> x.contains("Renewal decision due"));
+        assertThat(doc).isNotNull();
+    }
+
+    @Test
+    void aCancelledCasesRecordsAreNotRemindedAbout() {
+        var a = agreement("ex-case-cancelled", AGR_VIEWER, AGR_VIEWER);
+        ownerJdbc().update("update agreement set expires_at = ? where id = ?", today(a.tenant()).plusDays(5), a.agreementId());
+        ownerJdbc().update("update onboarding_case set status = 'CANCELLED' where id = ?", a.caseId());
+        job.runOne(a.tenant());
+        assertThat(expiryRows(a.tenant(), a.owner())).isEmpty();
     }
 }
