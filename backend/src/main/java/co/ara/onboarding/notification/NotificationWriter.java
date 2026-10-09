@@ -12,6 +12,7 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -52,5 +53,39 @@ public class NotificationWriter {
         audit.record(AuditActions.NOTIFICATION_SENT, "notification", id, "Escalation notification queued",
                 Map.of("escalationId", n.escalationId().toString(), "recipientUserId", n.recipientUserId().toString()));
         return id;
+    }
+
+    /** Inserts one row; with a dedupe key, a conflict inserts nothing and returns empty. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    Optional<UUID> write(NotificationPipeline.Draft d, UUID recipient, boolean inApp, EmailState state, String email) {
+        Optional<UUID> id = insert(d, recipient, inApp, state);
+        if (id.isEmpty()) return id;
+        if (state == EmailState.QUEUED) {
+            outbox.queue(new OutboxWriter.OutboxMessage(OutboxKind.NOTIFICATION, email, recipient, null, id.get(),
+                    null, d.title(), d.body(), d.linkPath()));
+        }
+        audit.record(AuditActions.NOTIFICATION_SENT, "notification", id.get(), d.type().name() + " notification",
+                Map.of("type", d.type().name(), "recipientUserId", recipient.toString(),
+                        "subjectType", d.subjectType(), "subjectId", d.subjectId().toString()));
+        return id;
+    }
+
+    /** Spec 6.2: a consumed lead time -- never in the inbox, never emailed, never audited. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    void writeMarker(NotificationPipeline.Draft d, UUID recipient) {
+        insert(d, recipient, false, EmailState.NONE);
+    }
+
+    private Optional<UUID> insert(NotificationPipeline.Draft d, UUID recipient, boolean inApp, EmailState state) {
+        Timestamp now = Timestamp.from(Instant.now(clock));
+        return jdbc.queryForList("""
+                INSERT INTO notification (id, tenant_id, recipient_user_id, type, title, body, link_path, case_id,
+                    subject_type, subject_id, in_app, email_state, tone, dedupe_key, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT ON CONSTRAINT notification_once_per_dedupe_key DO NOTHING
+                RETURNING id""", UUID.class,
+                Uuid7.generate(), TenantContext.getRequired(), recipient, d.type().name(), Text.clip(d.title(), 120),
+                Text.clip(d.body(), 500), d.linkPath(), d.caseId(), d.subjectType(), d.subjectId(), inApp,
+                state.name(), d.tone().name(), d.dedupeKey(), now, now).stream().findFirst();
     }
 }
