@@ -19,8 +19,10 @@ public class FlakyEmail {
     public static final AtomicBoolean failing = new AtomicBoolean();
     public static final List<EmailMessage> sent = new CopyOnWriteArrayList<>();
     public static volatile CountDownLatch hold = null;
+    /** Runs before each send is recorded, e.g. to let a send take (clock) time. */
+    public static volatile Runnable onSend = null;
 
-    public static void reset() { failing.set(false); sent.clear(); hold = null; }
+    public static void reset() { failing.set(false); sent.clear(); hold = null; onSend = null; }
 
     public static List<String> recipients() { return sent.stream().map(EmailMessage::to).toList(); }
 
@@ -38,6 +40,8 @@ public class FlakyEmail {
                     if (latch != null) {
                         try { latch.await(5, TimeUnit.SECONDS); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
                     }
+                    var before = onSend;
+                    if (before != null) before.run();
                     sent.add(m);
                 };
             }

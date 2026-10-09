@@ -30,10 +30,18 @@ public class EmailDispatchService {
     public static final List<Duration> BACKOFF = List.of(
             Duration.ofMinutes(1), Duration.ofMinutes(5), Duration.ofMinutes(30), Duration.ofHours(2));
     static final Duration LEASE = Duration.ofMinutes(5);
+    /**
+     * How long a dispatcher may keep starting sends on one claimed batch. A send started inside it ends
+     * within the SMTP timeouts (application.yml: connect 10s + write 30s + read 30s = 70s), comfortably
+     * inside the two minutes left on the lease, so no row is still being sent when its lease expires and
+     * another dispatcher could re-claim it. Rows not started in time are released ({@link Outcome#RELEASED}).
+     */
+    public static final Duration SEND_BUDGET = LEASE.minus(Duration.ofMinutes(2));
 
     public record Claimed(UUID id, OutboxKind kind, String to, String subject, String body, String linkPath,
                           UUID notificationId, int attempts) {}
-    public enum Outcome { SENT, FAILED }
+    /** RELEASED: claimed but never attempted (the batch ran out of budget); back to PENDING, attempt un-counted. */
+    public enum Outcome { SENT, FAILED, RELEASED }
     public record Result(UUID id, Outcome outcome, String error) {}
 
     private final JdbcTemplate jdbc;
@@ -97,6 +105,11 @@ public class EmailDispatchService {
                 jdbc.update("UPDATE notification SET emailed_at = ?, updated_at = ? WHERE id ="
                         + " (SELECT notification_id FROM email_outbox WHERE id = ? AND kind = 'NOTIFICATION')"
                         + " AND emailed_at IS NULL", now, now, r.id());
+                continue;
+            }
+            if (r.outcome() == Outcome.RELEASED) {
+                jdbc.update("UPDATE email_outbox SET status = 'PENDING', lease_until = NULL, attempts = attempts - 1,"
+                        + " updated_at = ? WHERE id = ? AND status = 'SENDING'", now, r.id());
                 continue;
             }
             // Guarded on SENDING: a late FAILED result from a dispatcher whose lease expired must not

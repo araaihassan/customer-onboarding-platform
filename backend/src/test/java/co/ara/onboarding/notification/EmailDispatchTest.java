@@ -90,6 +90,33 @@ class EmailDispatchTest extends PostgresTestBase {
         assertThat(support.outbox(x[0]).get(0).get("attempts")).isEqualTo(2);
     }
 
+    /**
+     * Final-review Important 3: a batch whose sends are slow stops before its lease can run out, so a
+     * second dispatcher can never re-claim a row this one is still about to send. The unsent rows go
+     * back to PENDING with their attempt un-counted, and the next run sends them exactly once.
+     */
+    @Test
+    void aSlowBatchReleasesWhatItCannotSendBeforeTheLeaseEnds() {
+        UUID[] x = tenantWithUser("disp-budget");
+        fixture.runAs(x[0], () -> {
+            for (int i = 0; i < 3; i++) support.queueEmail(x[0], x[1], "u@disp-budget.test", "Hello " + i);
+        });
+        FlakyEmail.onSend = () -> clock.advance(Duration.ofMinutes(2));   // each send takes two minutes
+
+        assertThat(dispatch.runOne(x[0])).as("two sends spend four of the five lease minutes").isEqualTo(2);
+        var rows = support.outbox(x[0]);
+        assertThat(rows).filteredOn(r -> "SENT".equals(r.get("status"))).hasSize(2);
+        assertThat(rows).filteredOn(r -> "PENDING".equals(r.get("status"))).singleElement().satisfies(r -> {
+            assertThat(r.get("attempts")).isEqualTo(0);
+            assertThat(r.get("lease_until")).isNull();
+        });
+
+        // Another dispatcher can take the released row at once; nothing is sent twice.
+        assertThat(dispatch.runOne(x[0])).isEqualTo(1);
+        assertThat(FlakyEmail.sent).extracting(m -> m.subject()).containsExactlyInAnyOrder("Hello 0", "Hello 1", "Hello 2");
+        assertThat(support.outbox(x[0])).allSatisfy(r -> assertThat(r.get("status")).isEqualTo("SENT"));
+    }
+
     @Test
     void concurrentDispatchersNeverDoubleSend() throws Exception {   // Review Focus 4
         UUID[] x = tenantWithUser("disp-race");

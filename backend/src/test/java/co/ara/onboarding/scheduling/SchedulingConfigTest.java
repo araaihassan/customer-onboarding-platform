@@ -19,7 +19,7 @@ class SchedulingConfigTest extends PostgresTestBase {
     }
 
     @Test
-    void theSchedulerHasTwoThreadsSoALongSweepCannotDelayThePartitionCron() {
-        assertThat(context.getEnvironment().getProperty("spring.task.scheduling.pool.size")).isEqualTo("2");
+    void theSchedulerHasFourThreadsSoNeitherALongSweepNorASlowDispatchCanStallTheOthers() {
+        assertThat(context.getEnvironment().getProperty("spring.task.scheduling.pool.size")).isEqualTo("4");
     }
 }
