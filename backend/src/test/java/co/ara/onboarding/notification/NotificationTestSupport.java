@@ -1,5 +1,7 @@
 package co.ara.onboarding.notification;
 
+import co.ara.onboarding.authz.RoleService;
+import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.document.DocumentCategory;
 import co.ara.onboarding.document.DocumentRequest;
 import co.ara.onboarding.document.DocumentRequestRepository;
@@ -21,9 +23,11 @@ public class NotificationTestSupport {
     private final TenantFixture fixture;
     private final JourneyFixtures journey;
     private final DocumentRequestRepository requests;
+    private final RoleService roles;
 
     NotificationTestSupport(OutboxWriter outbox, TenantFixture fixture, JourneyFixtures journey,
-                            DocumentRequestRepository requests) {
+                            DocumentRequestRepository requests, RoleService roles) {
+        this.roles = roles;
         this.outbox = outbox;
         this.fixture = fixture;
         this.journey = journey;
@@ -70,5 +74,17 @@ public class NotificationTestSupport {
     public List<Map<String, Object>> notifications(UUID tenant) {
         return PostgresTestBase.ownerJdbcForSupport().queryForList(
                 "select * from notification where tenant_id = ? order by created_at, id", tenant);
+    }
+
+    /** Every notification row addressed to one recipient, oldest first. */
+    public List<Map<String, Object>> rowsFor(UUID tenant, UUID recipientUserId) {
+        return PostgresTestBase.ownerJdbcForSupport().queryForList(
+                "select * from notification where tenant_id = ? and recipient_user_id = ? order by created_at, id",
+                tenant, recipientUserId);
+    }
+
+    /** A fresh role holding exactly {@code grants}, assigned to {@code user}. Call outside runAs. */
+    public void grant(UUID tenant, UUID user, Map<String, Scope> grants) {
+        fixture.runAs(tenant, () -> roles.assignRole(user, roles.createRole("r-" + Uuid7.generate(), "", grants)));
     }
 }

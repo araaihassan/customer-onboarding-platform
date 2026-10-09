@@ -21,6 +21,7 @@ import co.ara.onboarding.workflow.MilestoneDefinition;
 import co.ara.onboarding.workflow.MilestoneDefinitionRepository;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -91,6 +92,7 @@ public class TaskService {
     private final AuditRecorder audit;
     private final AuthContextProvider contextProvider;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     /**
      * The finite status graph drawn in the design spec's §5.1:
@@ -133,7 +135,8 @@ public class TaskService {
                        MilestoneDefinitionRepository milestoneDefinitions, StageRepository stages,
                        AppUserRepository users, AuthorizedQuery authorizedQuery,
                        StageWriteScopeGuard writeScope, RequirementService requirements,
-                       AuditRecorder audit, AuthContextProvider contextProvider, Clock clock) {
+                       AuditRecorder audit, AuthContextProvider contextProvider, Clock clock,
+                       ApplicationEventPublisher events) {
         this.tasks = tasks;
         this.milestones = milestones;
         this.cases = cases;
@@ -147,6 +150,7 @@ public class TaskService {
         this.audit = audit;
         this.contextProvider = contextProvider;
         this.clock = clock;
+        this.events = events;
     }
 
     /**
@@ -184,7 +188,9 @@ public class TaskService {
         t.setStatus(TaskStatus.PENDING);
         t.setAssigneeId(resolveAssigneeId(request.assigneeId()));
         t.setDueDate(request.dueDate());
-        tasks.save(t);
+        // Flushed, not just saved: the TaskAssigned listener below reads the row back through
+        // plain RLS-bound SQL (notification.SubjectFacts), which cannot see a pending insert.
+        tasks.saveAndFlush(t);
 
         // Ad-hoc path only: TaskInstantiation records this same action, once per
         // instantiated task, for the requirement-instantiated path -- see its own
@@ -193,6 +199,12 @@ public class TaskService {
         audit.record(AuditActions.TASK_CREATED, "onboarding_case", c.getId(),
                 "Created task \"" + t.getTitle() + "\"",
                 Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
+
+        // After the audit record: the notification is this creation's consequence (6B spec 5.2).
+        if (t.getAssigneeId() != null) {
+            events.publishEvent(new TaskAssigned(t.getId(), c.getId(), t.getAssigneeId(),
+                    contextProvider.principal().userId()));
+        }
 
         return toView(t);
     }
@@ -284,7 +296,7 @@ public class TaskService {
         UUID newAssigneeId = resolveAssigneeId(request.assigneeId());
         t.setAssigneeId(newAssigneeId);
         t.setDueDate(request.dueDate());
-        tasks.save(t);
+        tasks.saveAndFlush(t);   // flushed for the TaskAssigned listener's SQL read, as in create
 
         // Recorded only on an actual TRANSITION of the assignee (old != new),
         // never on every update that merely carries the same assignee unchanged
@@ -295,6 +307,11 @@ public class TaskService {
             audit.record(AuditActions.TASK_ASSIGNED, "onboarding_case", c.getId(),
                     "Reassigned task \"" + t.getTitle() + "\"",
                     Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
+            // Only the NEW assignee is told; an unassignment tells nobody (6B spec 5.2).
+            if (newAssigneeId != null) {
+                events.publishEvent(new TaskAssigned(t.getId(), c.getId(), newAssigneeId,
+                        contextProvider.principal().userId()));
+            }
         }
 
         return toView(t);

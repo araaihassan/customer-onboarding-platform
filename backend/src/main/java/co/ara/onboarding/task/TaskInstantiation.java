@@ -2,6 +2,7 @@ package co.ara.onboarding.task;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
+import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.journey.Milestone;
 import co.ara.onboarding.journey.MilestoneRepository;
 import co.ara.onboarding.journey.Requirement;
@@ -10,6 +11,7 @@ import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.RequirementDefinition;
 import co.ara.onboarding.workflow.RequirementDefinitionRepository;
 import co.ara.onboarding.workflow.RequirementKind;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -54,16 +56,21 @@ public class TaskInstantiation {
     private final MilestoneRepository milestones;
     private final TaskRepository tasks;
     private final AuditRecorder audit;
+    private final AuthContextProvider contextProvider;
+    private final ApplicationEventPublisher events;
 
     public TaskInstantiation(RequirementRepository requirements,
                               RequirementDefinitionRepository requirementDefinitions,
                               MilestoneRepository milestones, TaskRepository tasks,
-                              AuditRecorder audit) {
+                              AuditRecorder audit, AuthContextProvider contextProvider,
+                              ApplicationEventPublisher events) {
         this.requirements = requirements;
         this.requirementDefinitions = requirementDefinitions;
         this.milestones = milestones;
         this.tasks = tasks;
         this.audit = audit;
+        this.contextProvider = contextProvider;
+        this.events = events;
     }
 
     /**
@@ -95,11 +102,17 @@ public class TaskInstantiation {
             t.setPriority(TaskPriority.MEDIUM);
             t.setStatus(TaskStatus.PENDING);
             t.setAssigneeId(m.getOwnerUserId());
-            tasks.save(t);
+            tasks.saveAndFlush(t);   // the TaskAssigned listener reads it back through plain SQL
 
             audit.record(AuditActions.TASK_CREATED, "onboarding_case", caseId,
                     "Instantiated task \"" + t.getTitle() + "\" from requirement",
                     Map.of("taskId", t.getId().toString(), "milestoneId", m.getId().toString()));
+
+            // After TASK_CREATED: the milestone owner is told about the task they now hold.
+            if (t.getAssigneeId() != null) {
+                events.publishEvent(new TaskAssigned(t.getId(), t.getCaseId(), t.getAssigneeId(),
+                        contextProvider.current().userId()));
+            }
         }
     }
 }

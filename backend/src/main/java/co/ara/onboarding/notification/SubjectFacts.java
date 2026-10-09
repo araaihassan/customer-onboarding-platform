@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.Optional;
 import java.util.Set;
@@ -21,6 +22,7 @@ import java.util.UUID;
  * <ul>
  *   <li>{@link #tenantSlug} -- the bound tenant's slug, for link paths.</li>
  *   <li>{@link #caseFacts} -- a case's name, customer, owner and pinned template/version.</li>
+ *   <li>{@link #task} -- a task's title, case, assignee and due date.</li>
  *   <li>{@link #caseAudience} -- the case owner plus every ACTIVE case participant.</li>
  *   <li>{@link #activeInternalEmail} -- an address only for an ACTIVE INTERNAL user.</li>
  *   <li>{@link #userName} -- a user's full name, or "Someone".</li>
@@ -31,6 +33,8 @@ public class SubjectFacts {
 
     public record CaseFacts(UUID id, String name, UUID customerId, String customerName, UUID ownerUserId,
                             UUID templateId, UUID versionId) {}
+
+    public record TaskFacts(UUID id, String title, UUID caseId, UUID assigneeId, LocalDate dueDate) {}
 
     private final JdbcTemplate jdbc;
 
@@ -49,6 +53,13 @@ public class SubjectFacts {
                 (rs, i) -> new CaseFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class),
                         rs.getString(4), rs.getObject(5, UUID.class), rs.getObject(6, UUID.class),
                         rs.getObject(7, UUID.class)), caseId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public TaskFacts task(UUID taskId) {
+        return jdbc.queryForObject("SELECT id, title, case_id, assignee_id, due_date FROM task WHERE id = ?",
+                (rs, i) -> new TaskFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class),
+                        rs.getObject(4, UUID.class), rs.getObject(5, LocalDate.class)), taskId);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
