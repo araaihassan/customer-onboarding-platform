@@ -17,6 +17,7 @@ import co.ara.onboarding.workflow.RequirementDefinition;
 import co.ara.onboarding.workflow.RequirementDefinitionRepository;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,6 +70,7 @@ class CaseEngine {
     private final AuthContextProvider contextProvider;
     private final Clock clock;
     private final SlaClockLifecycle slaClocks;
+    private final ApplicationEventPublisher events;
 
     CaseEngine(CaseRepository cases, StageRepository stageRepository,
                MilestoneDefinitionRepository milestoneDefinitions,
@@ -80,7 +82,8 @@ class CaseEngine {
                BranchRuleRepository branchRules, ApprovalRepository approvals,
                CustomerDirectory customers, ConditionEvaluator evaluator,
                BusinessCalendar calendar, AuditRecorder audit,
-               AuthContextProvider contextProvider, Clock clock, SlaClockLifecycle slaClocks) {
+               AuthContextProvider contextProvider, Clock clock, SlaClockLifecycle slaClocks,
+               ApplicationEventPublisher events) {
         this.cases = cases;
         this.stageRepository = stageRepository;
         this.milestoneDefinitions = milestoneDefinitions;
@@ -99,6 +102,7 @@ class CaseEngine {
         this.contextProvider = contextProvider;
         this.clock = clock;
         this.slaClocks = slaClocks;
+        this.events = events;
     }
 
     /**
@@ -318,6 +322,10 @@ class CaseEngine {
             // index is what keeps AuditQuery from needing a collection parameter.
             audit.record(AuditActions.MILESTONE_COMPLETED, "onboarding_case", c.getId(),
                     "Completed milestone", Map.of("milestoneId", m.getId().toString()));
+            // The listener reads the milestone and case back with plain SQL, which Hibernate does
+            // not auto-flush for; flush first so a row created in this same transaction is there.
+            milestones.flush();
+            events.publishEvent(new MilestoneCompleted(m.getId(), c.getId(), false, contextProvider.current().userId()));
         }
     }
 
@@ -346,6 +354,7 @@ class CaseEngine {
         // Spec 1.2.1: every gate has passed, so the current stage is really being left (advance or
         // completion alike). The exit is not separately audited.
         slaClocks.stageExited(c.getId(), Instant.now(clock));
+        events.publishEvent(new StageExited(c.getId(), current.getId(), contextProvider.current().userId()));
         if (next == null) {
             // The terminal rule. current_stage_id stays on this stage -- a real one, never a
             // skipped one and never null -- and the case completes.
@@ -521,6 +530,7 @@ class CaseEngine {
         audit.record(AuditActions.CASE_STAGE_ENTERED, "onboarding_case", c.getId(),
                 "Entered stage \"" + stage.getName() + "\"", Map.of("stageId", stage.getId().toString()));
         slaClocks.stageEntered(c.getId(), stage.getId(), Instant.now(clock));   // after its cause
+        events.publishEvent(new StageEntered(c.getId(), stage.getId(), contextProvider.current().userId()));
     }
 
     /** The furthest-out due date scheduled so far -- only entered stages have one. */

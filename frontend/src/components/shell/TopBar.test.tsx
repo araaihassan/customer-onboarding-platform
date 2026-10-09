@@ -1,5 +1,17 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+
+vi.mock("@/lib/auth/useAuth", () => ({ useAuth: () => ({ user: { userType: "INTERNAL" } }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+vi.mock("@/lib/api/notifications", () => ({
+  useUnreadCount: () => ({ data: 3 }),
+  useMarkAllRead: () => ({ mutate: vi.fn() }),
+  useMarkRead: () => ({ mutate: vi.fn() }),
+  useInbox: () => ({ data: { pages: [{ items: [] }] }, isLoading: false, isError: false, hasNextPage: false }),
+  usePreferences: () => ({ data: undefined, isLoading: true, isError: false }),
+  useUpdatePreferences: () => ({ mutate: vi.fn() }),
+}));
 
 const { TopBar } = await import("./TopBar");
 const { PageHeaderProvider, useSetPageHeader } = await import("./PageHeader");
@@ -75,14 +87,19 @@ describe("TopBar", () => {
   });
 
   /**
-   * Search and notifications are visual-only in the prototype, and the account
-   * control moved to Rail — none of them belong here. Shipping a dead control
-   * would be worse than omitting it.
+   * Search is visual-only in the prototype and the account control moved to
+   * Rail -- neither belongs here. The inbox is real (6B): its control must
+   * exist AND open the drawer, not merely be absent of dead ones.
    */
-  it("ships no dead search, notification or account controls", () => {
+  it("ships a live Inbox control and no dead search or account controls", () => {
     renderTopBar();
+    fireEvent.click(screen.getByRole("button", { name: /inbox/i }));
+    const dialog = screen.getByRole("dialog", { name: "Inbox" });
+    expect(dialog).not.toBeNull();
+    // The header is sticky + z-30, a stacking context: a drawer inside it could
+    // never rise above the Rail (z-60). It must be portalled out.
+    expect(screen.getByRole("banner")).not.toContainElement(dialog);
     expect(screen.queryByRole("searchbox")).toBeNull();
-    expect(screen.queryByRole("button", { name: /notification/i })).toBeNull();
     expect(screen.queryByRole("button", { name: /account/i })).toBeNull();
   });
 });

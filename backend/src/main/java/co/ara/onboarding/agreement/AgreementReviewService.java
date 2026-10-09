@@ -6,6 +6,7 @@ import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.platform.Uuid7;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,11 +49,12 @@ public class AgreementReviewService {
     private final AgreementService agreementService;
     private final Clock clock;
     private final AuditRecorder audit;
+    private final ApplicationEventPublisher events;
 
     public AgreementReviewService(AgreementWrites writes, AgreementRepository agreements,
                                   AgreementVersionRepository versions, AgreementVersionReviewRepository reviews,
                                   AuthContextProvider contextProvider, AgreementService agreementService,
-                                  Clock clock, AuditRecorder audit) {
+                                  Clock clock, AuditRecorder audit, ApplicationEventPublisher events) {
         this.writes = writes;
         this.agreements = agreements;
         this.versions = versions;
@@ -61,6 +63,7 @@ public class AgreementReviewService {
         this.agreementService = agreementService;
         this.clock = clock;
         this.audit = audit;
+        this.events = events;
     }
 
     @RequirePermission(PermissionKeys.AGREEMENT_REVIEW)
@@ -93,6 +96,8 @@ public class AgreementReviewService {
                 "onboarding_case", a.getCaseId(),
                 (approved ? "Approved " : "Rejected ") + a.getName() + " v" + versionNumber,
                 Map.of("agreementId", a.getId().toString(), "versionNumber", Integer.toString(versionNumber)));
+        events.publishEvent(new AgreementStatusChanged(a.getId(), a.getCaseId(),
+                approved ? AgreementStatusChanged.Change.APPROVED : AgreementStatusChanged.Change.REJECTED, reviewer));
         return agreementService.get(a.getId());
     }
 }

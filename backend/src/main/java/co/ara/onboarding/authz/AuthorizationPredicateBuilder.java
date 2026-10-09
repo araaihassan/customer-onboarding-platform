@@ -31,14 +31,27 @@ public class AuthorizationPredicateBuilder {
     }
 
     public <T> Specification<T> forPermission(String permissionKey, Class<T> entityType) {
-        Set<Scope> scopes = authorization.effectivePermissions().scopesFor(permissionKey);
+        EffectivePermissions permissions = authorization.effectivePermissions();
 
         // Fail closed: no grant means no rows, never all rows. Returns BEFORE the
         // audience lookup -- there is nothing to narrow, and a filter must never
-        // be able to widen a denial.
-        if (scopes.isEmpty()) return (root, query, cb) -> cb.disjunction();
+        // be able to widen a denial. Checked here as well as in the overload below so
+        // the current-actor path still never resolves its context on a denial.
+        if (permissions.scopesFor(permissionKey).isEmpty()) return (root, query, cb) -> cb.disjunction();
 
-        AuthContext ctx = contextProvider.current();
+        return forPermission(permissionKey, entityType, contextProvider.current(), permissions);
+    }
+
+    /**
+     * The same predicate, for an explicit actor and grant set -- RecipientAccess, asking
+     * about a user who is not the caller. Never widens: it is the identical logic the
+     * public method above delegates to, record scope AND any registered audience filter.
+     * Package-private so nothing outside authz can hand it a fabricated grant set.
+     */
+    <T> Specification<T> forPermission(String permissionKey, Class<T> entityType, AuthContext ctx,
+                                       EffectivePermissions permissions) {
+        Set<Scope> scopes = permissions.scopesFor(permissionKey);
+        if (scopes.isEmpty()) return (root, query, cb) -> cb.disjunction();
         Specification<T> scopePredicate = scopePredicate(scopes, entityType, ctx);
         return withAudience(scopePredicate, entityType, ctx, permissionKey);
     }

@@ -114,8 +114,9 @@ class TenantProvisioningTest extends PostgresTestBase {
                     // (RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
                     // keeps the count honest). Sub-project 6 Task 7 added sla.view
                     // (RECORD) and calendar.manage (ALL-only) (53).
+                    // Sub-project 6B Task 19 added notification.manage (ALL-only) (54).
                     .as("Administrator must be seeded with its full template grant set")
-                    .hasSize(53);
+                    .hasSize(54);
         });
     }
 

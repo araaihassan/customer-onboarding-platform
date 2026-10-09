@@ -17,10 +17,16 @@ export function Switch({
   checked,
   onChange,
   label,
+  disabled = false,
+  ariaLabel,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
+  /** Rendered as aria-disabled (stays focusable and announced); onChange never fires. */
+  disabled?: boolean;
+  /** When present it is the accessible name and aria-labelledby is omitted (it would take precedence). */
+  ariaLabel?: string;
 }) {
   const labelId = useId();
 
@@ -37,8 +43,12 @@ export function Switch({
         type="button"
         role="switch"
         aria-checked={checked}
-        aria-labelledby={labelId}
-        onClick={() => onChange(!checked)}
+        aria-label={ariaLabel}
+        aria-labelledby={ariaLabel ? undefined : labelId}
+        aria-disabled={disabled ? "true" : undefined}
+        onClick={() => {
+          if (!disabled) onChange(!checked);
+        }}
         className="relative inline-flex shrink-0 items-center"
         style={{
           width: 34,
@@ -47,7 +57,8 @@ export function Switch({
           background: checked ? "var(--ob-accent-fg)" : "var(--ob-line-strong)",
           padding: 2,
           border: "none",
-          cursor: "pointer",
+          cursor: disabled ? "not-allowed" : "pointer",
+          opacity: disabled ? 0.55 : 1,
           transition: "background var(--ob-duration-pop) ease",
         }}
       >
@@ -58,6 +69,7 @@ export function Switch({
             height: 15,
             borderRadius: "var(--ob-radius-full)",
             background: "var(--ob-surface)",
+            boxShadow: "0 1px 2px rgba(0,0,0,.2)",
             transform: checked ? "translateX(15px)" : "translateX(0)",
             transition: "transform var(--ob-duration-pop) ease",
           }}

@@ -130,7 +130,7 @@ export function Dialog({
  * explicit tab stop. `summary`, `[contenteditable]` and the media controls are
  * here because they are focusable and a trap that omits them lets Tab escape.
  */
-const FOCUSABLE = [
+export const FOCUSABLE = [
   "button:not([disabled])",
   "[href]",
   "input:not([disabled])",
@@ -153,7 +153,7 @@ const FOCUSABLE = [
  * would make every stop invisible under test. Walking the computed styles works
  * in both, and a dialog's subtree is small enough that the cost does not matter.
  */
-function isVisible(element: HTMLElement): boolean {
+export function isVisible(element: HTMLElement): boolean {
   if (element.hidden) return false;
 
   for (let node: HTMLElement | null = element; node; node = node.parentElement) {

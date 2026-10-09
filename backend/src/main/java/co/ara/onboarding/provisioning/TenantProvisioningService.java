@@ -34,6 +34,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -124,7 +125,7 @@ public class TenantProvisioningService {
         try {
             binder.bind(tenant.getId());
             seedRoles(tenant.getId());
-            seedCalendarAndPolicy(tenant.getId());
+            seedCalendarAndPolicies(tenant.getId());
 
             AppUser admin = new AppUser();
             admin.setId(Uuid7.generate());
@@ -219,14 +220,32 @@ public class TenantProvisioningService {
                 "Use this token to activate your account: " + raw));
     }
 
-    /** Spec §4.1: every tenant starts with a Monday-Friday UTC calendar and the default SLA policy. */
-    private void seedCalendarAndPolicy(UUID tenantId) {
+    /** 6B spec 4.4 / 1.2.1: the default lead times, one row per (kind, lead). */
+    private static final List<Object[]> DEFAULT_HORIZONS = List.of(
+            new Object[]{"TASK_DUE", 2}, new Object[]{"MILESTONE_DUE", 2}, new Object[]{"DOCUMENT_REQUEST_DUE", 2},
+            new Object[]{"DOCUMENT_EXPIRY", 30}, new Object[]{"DOCUMENT_EXPIRY", 14}, new Object[]{"DOCUMENT_EXPIRY", 7},
+            new Object[]{"AGREEMENT_EXPIRY", 30}, new Object[]{"AGREEMENT_EXPIRY", 14}, new Object[]{"AGREEMENT_EXPIRY", 7},
+            new Object[]{"AGREEMENT_RENEWAL", 30}, new Object[]{"AGREEMENT_RENEWAL", 14}, new Object[]{"AGREEMENT_RENEWAL", 7});
+
+    /**
+     * Spec §4.1: every tenant starts with a Monday-Friday UTC calendar and the default SLA policy; 6B
+     * spec §4.4 adds the notification policy (auto-remind off) and the default deadline horizons.
+     */
+    private void seedCalendarAndPolicies(UUID tenantId) {
         jdbc.update("""
                 INSERT INTO business_calendar (id, tenant_id, created_at, updated_at)
                 VALUES (?, ?, now(), now())""", Uuid7.generate(), tenantId);
         jdbc.update("""
                 INSERT INTO sla_policy (id, tenant_id, created_at, updated_at)
                 VALUES (?, ?, now(), now())""", Uuid7.generate(), tenantId);
+        jdbc.update("""
+                INSERT INTO notification_policy (id, tenant_id, created_at, updated_at)
+                VALUES (?, ?, now(), now())""", Uuid7.generate(), tenantId);
+        for (Object[] h : DEFAULT_HORIZONS) {
+            jdbc.update("""
+                    INSERT INTO deadline_horizon (id, tenant_id, kind, lead_days, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, now(), now())""", Uuid7.generate(), tenantId, h[0], h[1]);
+        }
     }
 
     private void seedRoles(UUID tenantId) {

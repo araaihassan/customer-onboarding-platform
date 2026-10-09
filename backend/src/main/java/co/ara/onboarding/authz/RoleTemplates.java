@@ -290,7 +290,7 @@ public final class RoleTemplates {
             // is expected to hold it until a later task decides otherwise.
             entry(PLAN_APPROVE_SHAPE, ALL),
             // sub-project 6 Task 7: SLA visibility and the tenant calendar.
-            entry(SLA_VIEW, ALL), entry(CALENDAR_MANAGE, ALL),
+            entry(SLA_VIEW, ALL), entry(CALENDAR_MANAGE, ALL), entry(NOTIFICATION_MANAGE, ALL),
             // Task 23 (sub-project 3A): gate 2's two permissions, seeded here purely
             // because RoleTemplateValidityTest.administratorGrantsEveryPermissionInTheCatalog
             // requires Administrator to cover the whole catalog -- Project Manager and

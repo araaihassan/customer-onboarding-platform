@@ -72,6 +72,7 @@ const child = spawn(command, [...leadingArgs, "bootRun", "--console=plain"], {
     // to supply one — but a literal here is a secret published in the repository,
     // and this project denylists those. The suite never needs it to be stable: one
     // backend process serves the whole run, and every token it mints dies with it.
+    APP_PUBLIC_BASE_URL: process.env.APP_PUBLIC_BASE_URL ?? "http://localhost:3000",
     JWT_SECRET: process.env.JWT_SECRET ?? randomBytes(48).toString("base64url"),
   },
 });

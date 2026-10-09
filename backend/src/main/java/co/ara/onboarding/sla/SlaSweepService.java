@@ -1,5 +1,9 @@
 package co.ara.onboarding.sla;
 
+import co.ara.onboarding.notification.NotificationWriter;
+import co.ara.onboarding.notification.RiskChanged;
+import org.springframework.context.ApplicationEventPublisher;
+
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
 import co.ara.onboarding.authz.AuthorizedQuery;
@@ -16,12 +20,7 @@ import co.ara.onboarding.task.Task;
 import co.ara.onboarding.task.TaskRepository;
 import co.ara.onboarding.task.TaskStatus;
 import co.ara.onboarding.identity.ReportingLineDirectory;
-import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
-import co.ara.onboarding.tenancy.TenantConnectionCustomizer;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.TransactionDefinition;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -64,25 +63,20 @@ public class SlaSweepService {
     private final CaseRepository caseRepository;
     private final RecipientResolver resolver;
     private final EscalationWriter writer;
-    private final NotificationRepository notifications;
+    private final NotificationWriter notifications;
     private final ReportingLineDirectory people;
-    private final EscalationMailer mailer;
     private final JdbcTemplate jdbc;
-    private final TenantConnectionCustomizer binder;
-    private final TransactionTemplate perRow;
+    private final ApplicationEventPublisher events;
     private static final Logger log = LoggerFactory.getLogger(SlaSweepService.class);
 
     public SlaSweepService(AuthorizedQuery authorizedQuery, SlaClockRepository clocks, SlaPauseRepository pauses,
                            SlaClockReader reader, AuditRecorder audit, Clock clock, BusinessCalendar calendar,
                            SlaPolicyReader policies, TaskRepository tasks, MilestoneRepository milestones,
                            CaseRepository caseRepository, RecipientResolver resolver, EscalationWriter writer,
-                           NotificationRepository notifications, ReportingLineDirectory people,
-                           EscalationMailer mailer, JdbcTemplate jdbc, TenantConnectionCustomizer binder,
-                           PlatformTransactionManager txManager) {
-        this.binder = binder;
-        this.perRow = new TransactionTemplate(txManager);
-        this.perRow.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        this.notifications = notifications; this.people = people; this.mailer = mailer; this.jdbc = jdbc;
+                           NotificationWriter notifications, ReportingLineDirectory people, JdbcTemplate jdbc,
+                           ApplicationEventPublisher events) {
+        this.events = events;
+        this.notifications = notifications; this.people = people; this.jdbc = jdbc;
         this.authorizedQuery = authorizedQuery; this.clocks = clocks; this.pauses = pauses;
         this.reader = reader; this.audit = audit; this.clock = clock; this.calendar = calendar;
         this.policies = policies; this.tasks = tasks; this.milestones = milestones;
@@ -91,13 +85,14 @@ public class SlaSweepService {
 
     /**
      * Run 1 of the sweep (spec 6.1): breaches, escalations and their in-app notifications, all in the
-     * runner's one transaction. Email is NOT sent here -- it goes out in run 2 ({@link #retryUnsentEmail})
-     * once this has committed, so a rolled-back sweep sends nothing.
+     * runner's one transaction. Email is NOT sent here -- each notification queues an outbox row the
+     * dispatcher (6B spec 6.4) sends after this commits, so a rolled-back sweep sends nothing.
      */
     @RequirePermission(PermissionKeys.SLA_VIEW)
     @Transactional(propagation = Propagation.MANDATORY)
     public void sweep() {
         stampBreaches();
+        stampAtRisk();
         notify(escalateOverdue());
         warnOfUndeliverableEscalations();
     }
@@ -142,64 +137,15 @@ public class SlaSweepService {
                 default -> "SLA";
             };
             for (ReportingLineDirectory.Recipient r : recipients) {
-                Notification n = new Notification();
-                n.setId(Uuid7.generate());
-                n.setTenantId(tenant);
-                n.setRecipientUserId(r.userId());
-                n.setType(NotificationType.ESCALATION);
-                n.setTitle("Escalation: " + what + " overdue by " + e.overdueDays() + " business day(s)");
-                n.setBody(what + " overdue on case '" + e.caseName() + "'. Late person: " + late + ".");
-                n.setLinkPath("/t/" + slug + "/customers/" + e.customerId() + "/cases/" + e.caseId());
-                n.setCaseId(e.caseId());
-                n.setEscalationId(e.escalationId());
-                notifications.save(n);
-                audit.record(AuditActions.NOTIFICATION_SENT, "notification", n.getId(),
-                        "Escalation notification queued",
-                        Map.of("escalationId", e.escalationId().toString(),
-                                "recipientUserId", r.userId().toString()));
+                notifications.escalation(new NotificationWriter.EscalationNotice(r.userId(), r.email(),
+                        "Escalation: " + what + " overdue by " + e.overdueDays() + " business day(s)",
+                        what + " overdue on case '" + e.caseName() + "'. Late person: " + late + ".",
+                        "/t/" + slug + "/customers/" + e.customerId() + "/cases/" + e.caseId(),
+                        e.caseId(), e.escalationId()));
                 written++;
             }
         }
         return written;
-    }
-
-    private void stampEmailed(UUID id, Instant at) {
-        UUID tenant = TenantContext.getRequired();
-        perRow.executeWithoutResult(status -> {
-            binder.bind(tenant);
-            jdbc.update("UPDATE notification SET emailed_at = ?, updated_at = ? WHERE id = ? AND emailed_at IS NULL",
-                    java.sql.Timestamp.from(at), java.sql.Timestamp.from(at), id);
-        });
-    }
-
-    /**
-     * Run 2 (spec 6.3), also the retry: sends every committed, unsent ESCALATION notification and stamps
-     * {@code emailed_at} per row, so a retry only reaches recipients not yet emailed. There is no retry cap
-     * (spec 6.3: an outage delays a mandatory escalation, never loses it); attempt counts and delivery
-     * tracking are 6B's. A failed send leaves the row unsent; an inactive recipient is skipped.
-     * Each stamp commits in its own transaction right after its send, so a crash after N sends resends
-     * at most one (residual at-least-once: a crash between a send and its stamp).
-     */
-    @RequirePermission(PermissionKeys.SLA_VIEW)
-    @Transactional(propagation = Propagation.MANDATORY)
-    public int retryUnsentEmail() {
-        Instant now = Instant.now(clock);
-        List<Notification> unsent = authorizedQuery.findAll(notifications, Notification.class,
-                PermissionKeys.SLA_VIEW, (r, q, cb) -> cb.and(cb.equal(r.get("type"), NotificationType.ESCALATION),
-                        cb.isNull(r.get("emailedAt"))), Pageable.unpaged(Sort.by("id"))).getContent();
-        int sent = 0;
-        for (Notification n : unsent) {
-            var recipient = people.activeUser(n.getRecipientUserId());
-            if (recipient.isEmpty()) {
-                log.warn("Escalation email {} skipped: recipient {} is not active", n.getId(), n.getRecipientUserId());
-                continue;
-            }
-            if (mailer.send(n, recipient.get().email())) {
-                stampEmailed(n.getId(), now);
-                sent++;
-            }
-        }
-        return sent;
     }
 
     private record Candidate(EscalationSubject type, UUID id, UUID caseId, UUID latePerson, LocalDate dueDate) {}
@@ -306,6 +252,37 @@ public class SlaSweepService {
             if (clocks.stampBreach(c.getId(), now) != 1) continue;
             audit.record(AuditActions.SLA_BREACHED, "sla_clock", c.getId(), "SLA breached",
                     Map.of("caseId", c.getCaseId().toString(), "targetDays", c.getTargetDays()));
+            events.publishEvent(new RiskChanged(c.getId(), c.getCaseId(), c.getStageId(),
+                    RiskChanged.State.BREACHED, 0, c.getTargetDays()));
+            stamped++;
+        }
+        return stamped;
+    }
+
+    /** 6B spec 6.1: the first sweep that finds a live clock at risk stamps it and alerts once. */
+    @RequirePermission(PermissionKeys.SLA_VIEW)
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int stampAtRisk() {
+        Instant now = Instant.now(clock);
+        double threshold = policies.current().atRiskDays();
+        Specification<SlaClock> candidates = (r, q, cb) -> cb.and(cb.isNull(r.get("stoppedAt")),
+                cb.isNull(r.get("breachedAt")), cb.isNull(r.get("atRiskAlertedAt")));
+        List<SlaClock> open = authorizedQuery.findAll(clocks, SlaClock.class, PermissionKeys.SLA_VIEW, candidates,
+                Pageable.unpaged(Sort.by("id"))).getContent();
+        if (open.isEmpty()) return 0;
+        Set<UUID> ids = open.stream().map(SlaClock::getId).collect(Collectors.toSet());
+        Specification<SlaPause> ofClocks = (r, q, cb) -> r.get("clockId").in(ids);
+        Map<UUID, List<SlaPause>> pausesByClock = authorizedQuery
+                .findAll(pauses, SlaPause.class, PermissionKeys.CASE_VIEW, ofClocks, Pageable.unpaged())
+                .stream().collect(Collectors.groupingBy(SlaPause::getClockId));
+        int stamped = 0;
+        for (SlaClock c : open) {
+            double remaining = c.getTargetDays()
+                    - reader.elapsed(c, pausesByClock.getOrDefault(c.getId(), List.of()), now);
+            if (remaining <= 0 || remaining > threshold + 1e-9) continue;
+            if (clocks.stampAtRiskAlert(c.getId(), now) != 1) continue;
+            events.publishEvent(new RiskChanged(c.getId(), c.getCaseId(), c.getStageId(),
+                    RiskChanged.State.AT_RISK, remaining, c.getTargetDays()));
             stamped++;
         }
         return stamped;

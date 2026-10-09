@@ -9,7 +9,10 @@ import org.springframework.stereotype.Component;
 import java.util.List;
 import java.util.UUID;
 
-/** Spec 3.4, 6.3: run 1 writes and commits; run 2 emails what run 1 committed (and retries failures). */
+/**
+ * Run 1 writes and commits; delivery is the outbox dispatcher's (6B spec 6.4) -- runOne also
+ * dispatches, for the dev endpoint.
+ */
 @Component
 public class SlaSweepJob {
 
@@ -17,8 +20,10 @@ public class SlaSweepJob {
 
     private final TenantJobRunner runner;
     private final SlaSweepService sweep;
+    private final EmailDispatchJob dispatch;
 
-    public SlaSweepJob(TenantJobRunner runner, SlaSweepService sweep) {
+    public SlaSweepJob(TenantJobRunner runner, SlaSweepService sweep, EmailDispatchJob dispatch) {
+        this.dispatch = dispatch;
         this.runner = runner;
         this.sweep = sweep;
     }
@@ -33,15 +38,12 @@ public class SlaSweepJob {
     }
 
     public List<UUID> runAll() {
-        List<UUID> ran = runner.forEachTenant("sla-sweep", t -> sweep.sweep());
-        // A separate run per tenant: email needs run 1's rows committed (retryUnsentEmail's precondition).
-        runner.forEachTenant("sla-email", t -> sweep.retryUnsentEmail());
-        return ran;
+        return runner.forEachTenant("sla-sweep", t -> sweep.sweep());
     }
 
     public boolean runOne(UUID tenantId) {
         boolean ran = runner.forTenant("sla-sweep", tenantId, t -> sweep.sweep());
-        runner.forTenant("sla-email", tenantId, t -> sweep.retryUnsentEmail());
+        dispatch.runOne(tenantId);
         return ran;
     }
 }

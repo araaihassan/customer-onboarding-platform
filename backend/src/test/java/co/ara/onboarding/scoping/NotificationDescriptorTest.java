@@ -5,9 +5,9 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RoleService;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.platform.Uuid7;
-import co.ara.onboarding.sla.Notification;
-import co.ara.onboarding.sla.NotificationRepository;
-import co.ara.onboarding.sla.NotificationType;
+import co.ara.onboarding.notification.Notification;
+import co.ara.onboarding.notification.NotificationRepository;
+import co.ara.onboarding.notification.NotificationType;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
 import org.junit.jupiter.api.Test;
@@ -38,6 +38,8 @@ class NotificationDescriptorTest extends PostgresTestBase {
         n.setTitle("t");
         n.setBody("b");
         n.setLinkPath("/x");
+        n.setSubjectType("case");
+        n.setSubjectId(Uuid7.generate());
         return notifications.saveAndFlush(n).getId();
     }
 

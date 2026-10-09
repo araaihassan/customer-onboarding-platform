@@ -45,14 +45,14 @@ class SlaSweepJobTest extends PostgresTestBase {
     }
 
     @Test
-    void runAllSweepsEveryActiveTenantAndEmails() {
+    void runAllSweepsEveryActiveTenantAndQueuesEmail() {
         UUID a = overdue("job-sweep-a");
         UUID b = overdue("job-sweep-b");
         assertThat(job.runAll()).contains(a, b);
         for (UUID t : new UUID[] {a, b}) {
             assertThat(sla.escalationCount(t)).isEqualTo(1);
             assertThat(ownerJdbc().queryForObject(
-                    "select count(*) from notification where tenant_id = ? and emailed_at is not null",
+                    "select count(*) from email_outbox where tenant_id = ?",
                     Integer.class, t)).isPositive();
         }
     }
@@ -64,9 +64,9 @@ class SlaSweepJobTest extends PostgresTestBase {
         assertThat(job.runOne(a)).isTrue();
         assertThat(sla.escalationCount(a)).isEqualTo(1);
         assertThat(sla.escalationCount(b)).isZero();
-        // runOne also runs the email pass, so a notification written by the sweep is already emailed.
+        // runOne also dispatches, so the queued escalation email is already sent.
         assertThat(ownerJdbc().queryForObject(
-                "select count(*) from notification where tenant_id = ? and emailed_at is not null",
+                "select count(*) from email_outbox where tenant_id = ? and status = 'SENT'",
                 Integer.class, a)).isPositive();
     }
 }

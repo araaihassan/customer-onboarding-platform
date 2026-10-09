@@ -10,6 +10,7 @@ import co.ara.onboarding.identity.AppUser;
 import co.ara.onboarding.identity.AppUserRepository;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.tenancy.TenantContext;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -50,10 +51,13 @@ public class CustomerService {
     private final AuditRecorder audit;
     private final OrgUnitResolver orgUnitResolver;
     private final AppUserRepository users;
+    private final ApplicationEventPublisher events;
 
     public CustomerService(CustomerRepository repository, AuthorizedQuery authorizedQuery,
                            AuthContextProvider contextProvider, AuditRecorder audit,
-                           OrgUnitResolver orgUnitResolver, AppUserRepository users) {
+                           OrgUnitResolver orgUnitResolver, AppUserRepository users,
+                           ApplicationEventPublisher events) {
+        this.events = events;
         this.repository = repository;
         this.authorizedQuery = authorizedQuery;
         this.contextProvider = contextProvider;
@@ -84,11 +88,13 @@ public class CustomerService {
         c.setCreatedBy(actor);
         c.setOwningDepartmentId(orgUnitResolver.resolveDepartment(request.owningDepartmentId()));
         c.setOwningTeamId(orgUnitResolver.resolveTeam(request.owningTeamId()));
-        repository.save(c);
+        repository.saveAndFlush(c);
 
         audit.record(AuditActions.CUSTOMER_CREATED, "customer", c.getId(),
                 "Created customer " + c.getDisplayName(),
                 Map.of("legalName", c.getLegalName()));
+        // Reaches nobody today (owner = actor); published so a create-for-someone-else is covered.
+        events.publishEvent(new CustomerOwnerAssigned(c.getId(), c.getOwnerUserId(), actor));
         return toView(c);
     }
 
@@ -143,15 +149,20 @@ public class CustomerService {
         // (USER_VIEW at ASSIGNED scope has no grant at all in Sales Rep, for example).
         // A no-op round-trip must succeed, but a real ownership handoff (including
         // to a cross-tenant id) must go through the security check.
-        if (!Objects.equals(request.ownerUserId(), c.getOwnerUserId())) {
+        boolean ownerChanged = !Objects.equals(request.ownerUserId(), c.getOwnerUserId());
+        if (ownerChanged) {
             c.setOwnerUserId(resolveOwner(request.ownerUserId()));
         }
         c.setOwningDepartmentId(orgUnitResolver.resolveDepartment(request.owningDepartmentId()));
         c.setOwningTeamId(orgUnitResolver.resolveTeam(request.owningTeamId()));
-        repository.save(c);
+        repository.saveAndFlush(c);
 
         audit.record(AuditActions.CUSTOMER_UPDATED, "customer", c.getId(),
                 "Updated customer " + c.getDisplayName(), Map.of());
+        if (ownerChanged) {
+            events.publishEvent(new CustomerOwnerAssigned(c.getId(), c.getOwnerUserId(),
+                    contextProvider.principal().userId()));
+        }
         return toView(c);
     }
 

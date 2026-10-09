@@ -2,8 +2,6 @@ package co.ara.onboarding.document;
 
 import co.ara.onboarding.audit.AuditActions;
 import co.ara.onboarding.audit.AuditRecorder;
-import co.ara.onboarding.auth.EmailMessage;
-import co.ara.onboarding.auth.EmailSender;
 import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
@@ -15,18 +13,17 @@ import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
 import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.journey.StageWriteScopeGuard;
+import co.ara.onboarding.platform.UserType;
 import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
-import org.springframework.transaction.support.TransactionSynchronizationManager;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -58,7 +55,6 @@ import java.util.UUID;
 @Service
 public class DocumentRequestService {
 
-    private static final Logger log = LoggerFactory.getLogger(DocumentRequestService.class);
     /** The least time between two reminders on one request (spec 8). */
     static final Duration REMINDER_INTERVAL = Duration.ofHours(24);
 
@@ -75,14 +71,14 @@ public class DocumentRequestService {
     private final Clock clock;
     private final AuditRecorder audit;
     private final CustomerWaitLifecycle customerWaits;
-    private final EmailSender email;
+    private final ApplicationEventPublisher events;
 
     public DocumentRequestService(DocumentRequestRepository requests, DocumentRepository documents,
                                   CaseRepository cases, StageRepository stages,
                                   CustomerContactRepository contacts, AuthorizedQuery authorizedQuery,
                                   AuthContextProvider contextProvider, StageWriteScopeGuard writeScope,
                                   RequirementService requirementService, Clock clock, AuditRecorder audit,
-                                  CustomerWaitLifecycle customerWaits, EmailSender email) {
+                                  CustomerWaitLifecycle customerWaits, ApplicationEventPublisher events) {
         this.requests = requests;
         this.documents = documents;
         this.cases = cases;
@@ -95,7 +91,7 @@ public class DocumentRequestService {
         this.clock = clock;
         this.audit = audit;
         this.customerWaits = customerWaits;
-        this.email = email;
+        this.events = events;
     }
 
     /**
@@ -154,6 +150,9 @@ public class DocumentRequestService {
                 "Requested a document on case " + c.getId(),
                 Map.of("requestId", dr.getId().toString(), "category", dr.getCategory().name()));
         customerWaits.requestOpened(c.getId(), dr.getRequestedAt());
+        // After document.requested (cause before effect); dr was saveAndFlushed above, so the
+        // listener's plain-SQL read sees it.
+        events.publishEvent(new DocumentRequested(dr.getId(), c.getId(), contextProvider.current().userId()));
 
         return toView(dr);
     }
@@ -365,6 +364,9 @@ public class DocumentRequestService {
                 Map.of("requestId", dr.getId().toString(), "documentId", d.getId().toString()));
         // Before satisfy, so a satisfy that advances the stage sees the pause already closed.
         customerWaits.requestClosed(dr.getCaseId(), Instant.now(clock));
+        // After document_request.fulfilled, before satisfy's own consequences.
+        events.publishEvent(new DocumentUploaded(d.getId(), dr.getId(), dr.getCaseId(),
+                contextProvider.current().userId()));
 
         if (dr.getRequirementId() != null && !dr.isRequiresReview()) {
             requirementService.satisfy(dr.getRequirementId(), d.getId(), DocumentService.SATISFIED_REF_TYPE);
@@ -380,9 +382,9 @@ public class DocumentRequestService {
      * so two concurrent reminders cannot both pass the rate limit and no stale save can clobber them.
      *
      * <p>Order: validate, record {@code document_request.reminded} (the cause), write the counters,
-     * then email only after the transaction commits -- a rolled-back reminder tells the customer
-     * nothing. A failed send is logged and the counter stays advanced (a reminder the customer may
-     * not have received; delivery tracking is 6B's). The body carries only what the customer asked
+     * then publish {@link CustomerReminderQueued}; notification queues it in the email outbox in
+     * this same transaction, so a rolled-back reminder queues nothing and a failed send is retried
+     * by the dispatcher. The body carries only what the customer asked
      * for: the case name, category and description. The recipient is always the request's contact,
      * never an internal user. The audit event hangs off the case so the timeline read finds it.
      */
@@ -411,10 +413,7 @@ public class DocumentRequestService {
             throw new IllegalStateException("This request was already reminded in the last 24 hours");
         }
 
-        String to = contact.getEmail();
-        String subject = "Reminder: a document is still needed";
-        String body = "We're still waiting on a document from you for \"" + c.getName() + "\": "
-                + dr.getCategory() + (dr.getDescription() == null ? "" : " - " + dr.getDescription());
+        var msg = message(c, dr, contact);
         UUID caseId = c.getId();
         int reminder = dr.getRemindersSent() + 1;
 
@@ -426,17 +425,58 @@ public class DocumentRequestService {
             throw new IllegalStateException("This request was already reminded in the last 24 hours");
         }
 
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override public void afterCommit() {
-                try {
-                    email.send(new EmailMessage(to, subject, body));
-                } catch (RuntimeException e) {
-                    log.warn("Reminder email for document request {} failed", requestId, e);
-                }
-            }
-        });
+        // Plan amendment 3: document never imports notification. The listener queues the outbox
+        // row in this same transaction, so a rolled-back reminder queues nothing.
+        events.publishEvent(new CustomerReminderQueued(requestId, caseId, contact.getId(), msg.to(), msg.subject(), msg.body(), false));
         return toView(authorizedQuery.getById(
                 requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST, requestId));
+    }
+
+    private record ReminderMessage(String to, String subject, String body) {}
+
+    private ReminderMessage message(Case c, DocumentRequest dr, CustomerContact contact) {
+        return new ReminderMessage(contact.getEmail(), "Reminder: a document is still needed",
+                "We're still waiting on a document from you for \"" + c.getName() + "\": "
+                        + dr.getCategory() + (dr.getDescription() == null ? "" : " - " + dr.getDescription()));
+    }
+
+    /**
+     * 6B spec 6.2: the sweep's automatic reminder. Never throws for a not-remindable request --
+     * it runs inside the sweep's tenant transaction, where an escaping exception would roll back
+     * every other reminder (plan amendment 13). Skips StageWriteScopeGuard: a stage's write scope
+     * governs internal collaborators; this is tenant policy acting (the portal-write precedent).
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_REQUEST)
+    @Transactional
+    public boolean remindAutomatically(UUID requestId) {
+        // System-only: it skips the stage write-scope guard and resolves the contact under document.request.
+        if (contextProvider.current().userType() != UserType.SYSTEM) return false;
+        var found = authorizedQuery.findAll(requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST,
+                (r, q, cb) -> cb.equal(r.get("id"), requestId), PageRequest.of(0, 1)).getContent();
+        if (found.isEmpty()) return false;
+        DocumentRequest dr = found.get(0);
+        if (dr.getStatus() != DocumentRequestStatus.OPEN || dr.getRequestedOfContactId() == null) return false;
+        var contactRows = authorizedQuery.findAll(contacts, CustomerContact.class, PermissionKeys.DOCUMENT_REQUEST,
+                (r, q, cb) -> cb.equal(r.get("id"), dr.getRequestedOfContactId()), PageRequest.of(0, 1)).getContent();
+        if (contactRows.isEmpty() || contactRows.get(0).getStatus() != ContactStatus.ACTIVE) return false;
+        var caseRows = authorizedQuery.findAll(cases, Case.class, PermissionKeys.DOCUMENT_REQUEST,
+                (r, q, cb) -> cb.equal(r.get("id"), dr.getCaseId()), PageRequest.of(0, 1)).getContent();
+        if (caseRows.isEmpty()) return false;
+        Instant now = Instant.now(clock);
+        Instant notAfter = now.minus(REMINDER_INTERVAL);
+        if (dr.getLastRemindedAt() != null && dr.getLastRemindedAt().isAfter(notAfter)) return false;
+        var msg = message(caseRows.get(0), dr, contactRows.get(0));
+        int reminder = dr.getRemindersSent() + 1;
+        // The guard comes BEFORE the audit row here, unlike the manual path: a lost race returns
+        // false instead of throwing, so nothing would roll an earlier audit row back. The counter
+        // update is not itself an audited effect, so cause-before-effect still holds.
+        if (requests.markReminded(requestId, now, notAfter) == 0) return false;
+        audit.record(AuditActions.DOCUMENT_REQUEST_REMINDED, "onboarding_case", dr.getCaseId(),
+                "Reminded the customer about document request " + requestId + " (automatic)",
+                Map.of("requestId", requestId.toString(), "reminder", reminder, "automatic", true));
+        events.publishEvent(new CustomerReminderQueued(requestId, dr.getCaseId(), dr.getRequestedOfContactId(),
+                msg.to(), msg.subject(), msg.body(), true));
+        return true;
     }
 
     /**

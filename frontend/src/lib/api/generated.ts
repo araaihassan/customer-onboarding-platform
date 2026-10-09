@@ -52,7 +52,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/t/{tenantSlug}/customers/{id}": {
+    "/api/t/{tenantSlug}/notifications/preferences": {
         parameters: {
             query?: never;
             header?: never;
@@ -60,6 +60,22 @@ export interface paths {
             cookie?: never;
         };
         get: operations["get_2"];
+        put: operations["replace_1"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/customers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_3"];
         put: operations["update_2"];
         post?: never;
         delete?: never;
@@ -123,7 +139,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_3"];
+        get: operations["get_4"];
         put: operations["update_5"];
         post?: never;
         delete?: never;
@@ -171,7 +187,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_4"];
+        get: operations["get_5"];
         put: operations["update_7"];
         post?: never;
         delete?: never;
@@ -205,6 +221,38 @@ export interface paths {
         };
         get?: never;
         put: operations["updateGrants"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/admin/notification-templates/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["update_8"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/admin/notification-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["policy_1"];
+        put: operations["replacePolicy"];
         post?: never;
         delete?: never;
         options?: never;
@@ -526,6 +574,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["upload"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/notifications/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["markRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["readAll"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1364,6 +1444,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/t/{tenantSlug}/admin/notification-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["templates"];
+        put?: never;
+        post: operations["create_10"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/t/{tenantSlug}/admin/departments": {
         parameters: {
             query?: never;
@@ -1435,7 +1531,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_5"];
+        get: operations["get_6"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1451,7 +1547,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_6"];
+        get: operations["get_7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1467,7 +1563,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_7"];
+        get: operations["get_8"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1563,7 +1659,55 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_8"];
+        get: operations["get_9"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_6"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["unreadCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/t/{tenantSlug}/notification-templates/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["options"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1595,7 +1739,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_6"];
+        get: operations["list_7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1723,7 +1867,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["get_9"];
+        get: operations["get_10"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1755,7 +1899,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_7"];
+        get: operations["list_8"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1787,7 +1931,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_8"];
+        get: operations["list_9"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1819,7 +1963,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get: operations["list_9"];
+        get: operations["list_10"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2144,6 +2288,30 @@ export interface components {
             owningTeamId?: string;
             /** @enum {string} */
             status?: "ACTIVE" | "INACTIVE";
+        };
+        TypePreferenceRequest: {
+            /** @enum {string} */
+            type: "ESCALATION" | "TASK_ASSIGNED" | "TASK_OVERDUE" | "NEW_CUSTOMER" | "MILESTONE_COMPLETED" | "STAGE_CHANGED" | "DOCUMENT_REQUESTED" | "DOCUMENT_UPLOADED" | "DOCUMENT_DECIDED" | "AGREEMENT_STATUS" | "NEW_COMMENT" | "WORKFLOW_PUBLISHED" | "RISK_CHANGED" | "DEADLINE_APPROACHING" | "EXPIRY_RENEWAL";
+            inApp: boolean;
+            email: boolean;
+        };
+        UpdatePreferencesRequest: {
+            /** @enum {string} */
+            emailCadence: "IMMEDIATE" | "DAILY" | "WEEKLY";
+            types: components["schemas"]["TypePreferenceRequest"][];
+        };
+        PreferencesView: {
+            /** @enum {string} */
+            emailCadence?: "IMMEDIATE" | "DAILY" | "WEEKLY";
+            types?: components["schemas"]["TypePreferenceView"][];
+        };
+        TypePreferenceView: {
+            /** @enum {string} */
+            type?: "ESCALATION" | "TASK_ASSIGNED" | "TASK_OVERDUE" | "NEW_CUSTOMER" | "MILESTONE_COMPLETED" | "STAGE_CHANGED" | "DOCUMENT_REQUESTED" | "DOCUMENT_UPLOADED" | "DOCUMENT_DECIDED" | "AGREEMENT_STATUS" | "NEW_COMMENT" | "WORKFLOW_PUBLISHED" | "RISK_CHANGED" | "DEADLINE_APPROACHING" | "EXPIRY_RENEWAL";
+            label?: string;
+            inApp?: boolean;
+            email?: boolean;
+            locked?: boolean;
         };
         UpdateCustomerRequest: {
             legalName?: string;
@@ -2471,6 +2639,45 @@ export interface components {
             atRiskDays?: number;
             /** Format: int32 */
             escalateAfterOverdueDays?: number;
+        };
+        UpdateTemplateRequest: {
+            key: string;
+            name: string;
+            enteredSubject: string;
+            enteredBody: string;
+            exitedSubject?: string;
+            exitedBody?: string;
+            active: boolean;
+        };
+        TemplateView: {
+            /** Format: uuid */
+            id?: string;
+            key?: string;
+            name?: string;
+            enteredSubject?: string;
+            enteredBody?: string;
+            exitedSubject?: string;
+            exitedBody?: string;
+            active?: boolean;
+        };
+        AutoRemindView: {
+            enabled: boolean;
+            /** Format: int32 */
+            intervalDays: number;
+            /** Format: int32 */
+            max: number;
+        };
+        UpdatePolicyRequest: {
+            autoRemind: components["schemas"]["AutoRemindView"];
+            horizons: {
+                [key: string]: number[];
+            };
+        };
+        PolicyView: {
+            autoRemind?: components["schemas"]["AutoRemindView"];
+            horizons?: {
+                [key: string]: number[];
+            };
         };
         DepartmentRequest: {
             name?: string;
@@ -3016,6 +3223,15 @@ export interface components {
                 [key: string]: "ALL" | "DEPARTMENT" | "TEAM" | "ASSIGNED";
             };
         };
+        CreateNotificationTemplateRequest: {
+            key: string;
+            name: string;
+            enteredSubject: string;
+            enteredBody: string;
+            exitedSubject?: string;
+            exitedBody?: string;
+            active: boolean;
+        };
         CreateHolidayRequest: {
             /** Format: date */
             date: string;
@@ -3182,10 +3398,10 @@ export interface components {
             sort?: string[];
         };
         PagePortalDocumentView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["PortalDocumentView"][];
@@ -3203,12 +3419,12 @@ export interface components {
             /** Format: int64 */
             offset?: number;
             sort?: components["schemas"]["SortObject"];
-            unpaged?: boolean;
-            paged?: boolean;
-            /** Format: int32 */
-            pageSize?: number;
             /** Format: int32 */
             pageNumber?: number;
+            /** Format: int32 */
+            pageSize?: number;
+            paged?: boolean;
+            unpaged?: boolean;
         };
         SortObject: {
             empty?: boolean;
@@ -3248,6 +3464,30 @@ export interface components {
             /** Format: date */
             signedOn?: string;
         };
+        InboxPage: {
+            items?: components["schemas"]["NotificationView"][];
+            /** Format: int64 */
+            unreadCount?: number;
+            nextCursor?: string;
+        };
+        NotificationView: {
+            /** Format: uuid */
+            id?: string;
+            /** @enum {string} */
+            type?: "ESCALATION" | "TASK_ASSIGNED" | "TASK_OVERDUE" | "NEW_CUSTOMER" | "MILESTONE_COMPLETED" | "STAGE_CHANGED" | "DOCUMENT_REQUESTED" | "DOCUMENT_UPLOADED" | "DOCUMENT_DECIDED" | "AGREEMENT_STATUS" | "NEW_COMMENT" | "WORKFLOW_PUBLISHED" | "RISK_CHANGED" | "DEADLINE_APPROACHING" | "EXPIRY_RENEWAL";
+            title?: string;
+            body?: string;
+            linkPath?: string;
+            /** @enum {string} */
+            tone?: "RISK" | "WARN" | "OK" | "INFO";
+            read?: boolean;
+            /** Format: date-time */
+            createdAt?: string;
+        };
+        TemplateOption: {
+            key?: string;
+            name?: string;
+        };
         Me: {
             /** Format: uuid */
             id?: string;
@@ -3263,10 +3503,10 @@ export interface components {
             };
         };
         PageDocumentView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentView"][];
@@ -3287,10 +3527,10 @@ export interface components {
             hidden?: number;
         };
         PageCustomerView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["CustomerView"][];
@@ -3320,10 +3560,10 @@ export interface components {
             timelineVisible?: boolean;
         };
         PageAuditEventView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AuditEventView"][];
@@ -3412,10 +3652,10 @@ export interface components {
             rows?: components["schemas"]["PlanRevisionDiffRowView"][];
         };
         PageDocumentRequestView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["DocumentRequestView"][];
@@ -3448,10 +3688,10 @@ export interface components {
             candidates?: components["schemas"]["CandidateView"][];
         };
         PageAgreementView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["AgreementView"][];
@@ -3480,10 +3720,10 @@ export interface components {
             expiringWithin30Days?: number;
         };
         PageUserView: {
-            /** Format: int64 */
-            totalElements?: number;
             /** Format: int32 */
             totalPages?: number;
+            /** Format: int64 */
+            totalElements?: number;
             /** Format: int32 */
             size?: number;
             content?: components["schemas"]["UserView"][];
@@ -3885,6 +4125,68 @@ export interface operations {
         parameters: {
             query?: never;
             header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PreferencesView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    replace_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePreferencesRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PreferencesView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    get_3: {
+        parameters: {
+            query?: never;
+            header?: never;
             path: {
                 id: string;
             };
@@ -4134,7 +4436,7 @@ export interface operations {
             };
         };
     };
-    get_3: {
+    get_4: {
         parameters: {
             query?: never;
             header?: never;
@@ -4370,7 +4672,7 @@ export interface operations {
             };
         };
     };
-    get_4: {
+    get_5: {
         parameters: {
             query?: never;
             header?: never;
@@ -4568,6 +4870,184 @@ export interface operations {
                 content?: never;
             };
             /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    update_8: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description The template was replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description Malformed key or invalid field */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description The caller lacks notification.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description No such template */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description Key change, unknown placeholder, or an unpaired exit subject/body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    policy_1: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Deadline lead times and the automatic-reminder policy */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description The caller lacks notification.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    replacePolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePolicyRequest"];
+            };
+        };
+        responses: {
+            /** @description The policy was replaced */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description A kind is missing or the reminder policy is out of range */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description The caller lacks notification.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["PolicyView"];
+                };
+            };
+            /** @description A lead time outside 1-90, repeated, or more than five for a kind */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -5893,6 +6373,66 @@ export interface operations {
                 };
                 content: {
                     "*/*": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    markRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    readAll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
                 };
             };
         };
@@ -9259,6 +9799,122 @@ export interface operations {
             };
         };
     };
+    templates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Every template, by key */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"][];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"][];
+                };
+            };
+            /** @description The caller lacks notification.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"][];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    create_10: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNotificationTemplateRequest"];
+            };
+        };
+        responses: {
+            /** @description The template was created */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description Malformed key or invalid field */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description The caller lacks notification.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description A template with that key exists */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateView"];
+                };
+            };
+            /** @description Unknown placeholder, or an unpaired exit subject/body */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     listDepartments: {
         parameters: {
             query?: never;
@@ -9475,7 +10131,7 @@ export interface operations {
             };
         };
     };
-    get_5: {
+    get_6: {
         parameters: {
             query?: never;
             header?: never;
@@ -9586,7 +10242,7 @@ export interface operations {
             };
         };
     };
-    get_6: {
+    get_7: {
         parameters: {
             query?: never;
             header?: never;
@@ -9706,7 +10362,7 @@ export interface operations {
             };
         };
     };
-    get_7: {
+    get_8: {
         parameters: {
             query?: never;
             header?: never;
@@ -9979,7 +10635,7 @@ export interface operations {
             };
         };
     };
-    get_8: {
+    get_9: {
         parameters: {
             query?: never;
             header?: never;
@@ -10028,6 +10684,116 @@ export interface operations {
             };
         };
     };
+    list_6: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["InboxPage"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    unreadCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
+    options: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Active templates, for the builder's picker */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateOption"][];
+                };
+            };
+            /** @description Not authenticated */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateOption"][];
+                };
+            };
+            /** @description The caller lacks workflow.manage */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["TemplateOption"][];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "*/*": components["schemas"]["ProblemList"];
+                };
+            };
+        };
+    };
     me: {
         parameters: {
             query?: never;
@@ -10057,7 +10823,7 @@ export interface operations {
             };
         };
     };
-    list_6: {
+    list_7: {
         parameters: {
             query: {
                 visibilityTier?: "COMPANY_SHARED" | "CONTACT_ONLY" | "SENSITIVE";
@@ -10435,7 +11201,7 @@ export interface operations {
             };
         };
     };
-    get_9: {
+    get_10: {
         parameters: {
             query?: never;
             header?: never;
@@ -10537,7 +11303,7 @@ export interface operations {
             };
         };
     };
-    list_7: {
+    list_8: {
         parameters: {
             query?: never;
             header?: never;
@@ -10635,7 +11401,7 @@ export interface operations {
             };
         };
     };
-    list_8: {
+    list_9: {
         parameters: {
             query: {
                 status?: "DRAFT" | "UNDER_REVIEW" | "APPROVED" | "SENT" | "AWAITING_SIGNATURE" | "SIGNED" | "EXPIRED" | "CANCELLED";
@@ -10714,7 +11480,7 @@ export interface operations {
             };
         };
     };
-    list_9: {
+    list_10: {
         parameters: {
             query?: never;
             header?: never;

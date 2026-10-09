@@ -173,6 +173,42 @@ export async function readEmail(
   }
 }
 
+/**
+ * Like `readEmail`, but returns the WHOLE body: everything from the `[email] to=… subject=…`
+ * line up to the next log line (which begins with an ISO date). A digest lists many lines and
+ * links, which `readEmail`'s subject-plus-one-line shape would cut off.
+ */
+export async function readEmailBody(
+  email: string,
+  subjectContains: string,
+  timeoutMs = 15_000,
+): Promise<string> {
+  const deadline = Date.now() + timeoutMs;
+  const pattern = new RegExp(
+    `\\[email\\] to=${escapeRegExp(email)} subject=[^\\n\\r]*${escapeRegExp(subjectContains)}[^\\n\\r]*[\\s\\S]*?(?=\\r?\\n\\d{4}-\\d{2}-\\d{2}[T ]|$)`,
+    "g",
+  );
+
+  for (;;) {
+    const log = await readFile(BACKEND_LOG, "utf8");
+    const matches = [...log.matchAll(pattern)];
+    const last = matches[matches.length - 1];
+    if (last) return last[0];
+
+    if (Date.now() > deadline) {
+      throw new Error(`No email to ${email} with subject containing "${subjectContains}" appeared in ${BACKEND_LOG} within ${timeoutMs}ms`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
+/** How many emails to an address with a subject containing the text the backend log holds so far (the log is shared across specs: take a count before, and compare). */
+export async function countEmails(email: string, subjectContains: string): Promise<number> {
+  const log = await readFile(BACKEND_LOG, "utf8");
+  const pattern = new RegExp(`\\[email\\] to=${escapeRegExp(email)} subject=[^\\n\\r]*${escapeRegExp(subjectContains)}`, "g");
+  return [...log.matchAll(pattern)].length;
+}
+
 /** A bearer token, for seeding through the API rather than through the interface. */
 export async function apiLogin(
   request: APIRequestContext,
@@ -284,6 +320,24 @@ export class Api {
   async runSlaSweep(): Promise<boolean> {
     const { ran } = await this.post<{ ran: boolean }>("/dev/jobs/sla-sweep");
     return ran;
+  }
+
+  /** Dev-profile lever: runs the notification sweep (deadlines, expiries, reminders) for this tenant. */
+  async runNotificationSweep(): Promise<boolean> {
+    const { ran } = await this.post<{ ran: boolean }>("/dev/jobs/notification-sweep");
+    return ran;
+  }
+
+  /** Dev-profile lever: queues this tenant's due digests and returns how many. */
+  async runDigest(): Promise<number> {
+    const { queued } = await this.post<{ queued: number }>("/dev/jobs/digest");
+    return queued;
+  }
+
+  /** Dev-profile lever: dispatches this tenant's queued email and returns how many were sent. */
+  async runEmailDispatch(): Promise<number> {
+    const { sent } = await this.post<{ sent: number }>("/dev/jobs/email-dispatch");
+    return sent;
   }
 
   /**

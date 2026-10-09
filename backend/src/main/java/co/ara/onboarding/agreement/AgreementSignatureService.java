@@ -12,6 +12,7 @@ import co.ara.onboarding.journey.RequirementRepository;
 import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.journey.RequirementStatus;
 import co.ara.onboarding.platform.Uuid7;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,6 +49,7 @@ public class AgreementSignatureService {
     private final AuthContextProvider contextProvider;
     private final Clock clock;
     private final AuditRecorder audit;
+    private final ApplicationEventPublisher events;
 
     public AgreementSignatureService(AgreementWrites writes, AgreementRepository agreements,
                                      AgreementSignatoryRepository signatories,
@@ -55,7 +57,7 @@ public class AgreementSignatureService {
                                      RequirementRepository requirements, RequirementService requirementService,
                                      AgreementFiles agreementFiles, AgreementService agreementService,
                                      AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
-                                     Clock clock, AuditRecorder audit) {
+                                     Clock clock, AuditRecorder audit, ApplicationEventPublisher events) {
         this.writes = writes;
         this.agreements = agreements;
         this.signatories = signatories;
@@ -69,6 +71,7 @@ public class AgreementSignatureService {
         this.contextProvider = contextProvider;
         this.clock = clock;
         this.audit = audit;
+        this.events = events;
     }
 
     @RequirePermission(PermissionKeys.AGREEMENT_SIGN_RECORD)
@@ -124,6 +127,8 @@ public class AgreementSignatureService {
             // milestone.completed, which satisfy() records.
             audit.record(AuditActions.AGREEMENT_SIGNED, "onboarding_case", a.getCaseId(),
                     "Signed " + a.getName(), Map.of("agreementId", a.getId().toString()));
+            events.publishEvent(new AgreementStatusChanged(a.getId(), a.getCaseId(),
+                    AgreementStatusChanged.Change.SIGNED, actor));
             satisfyIfStillOpen(a);
         }
         return agreementService.get(a.getId());

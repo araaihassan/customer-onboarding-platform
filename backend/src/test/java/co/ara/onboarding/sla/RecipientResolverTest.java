@@ -10,7 +10,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** Spec 6.2: manager, then department head, then administrators; never the late person, never silently nobody. */
+/**
+ * Spec 6.2: manager, then department head, then administrators; never the late person unless they are the
+ * tenant's sole active administrator, and never silently nobody.
+ */
 class RecipientResolverTest extends PostgresTestBase {
 
     @Autowired TenantFixture fixture;
@@ -23,6 +26,21 @@ class RecipientResolverTest extends PostgresTestBase {
     private void makeAdmin(UUID tenant, String email) {
         fixture.createAdminUser(tenant, email);
         ownerJdbc().update("UPDATE role SET name = 'Administrator' WHERE id = ?", fixture.administratorRoleId(tenant));
+    }
+
+    @Test
+    void aSoleAdministratorWhoIsLateIsTheirOwnRecipient() {
+        // 6B spec 5.4: the only administrator owns the late milestone and has no manager or head.
+        UUID t = fixture.createTenant("rr-sole");
+        fixture.runAs(t, () -> { });   // materialise the fixture's own plumbing administrator first
+        UUID admin = fixture.createAdminUser(t, "only@rr-sole.test").getId();
+        ownerJdbc().update("update role set name = 'Administrator' where id = ?", fixture.administratorRoleId(t));
+        ownerJdbc().update("update app_user set status = 'DEACTIVATED' where id <> ? and id in "
+                + "(select user_id from user_role where role_id = ?)", admin, fixture.administratorRoleId(t));
+        var resolution = resolve(t, admin);
+        assertThat(resolution.route()).isEqualTo(EscalationRoute.ADMINISTRATORS);
+        assertThat(resolution.recipients()).extracting(ReportingLineDirectory.Recipient::userId)
+                .containsExactly(admin);
     }
 
     @Test

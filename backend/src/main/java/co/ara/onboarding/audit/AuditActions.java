@@ -342,4 +342,12 @@ public final class AuditActions {
     public static final AuditAction CALENDAR_HOLIDAY_ADDED   = of("calendar.holiday_added", false);
     public static final AuditAction CALENDAR_HOLIDAY_REMOVED = of("calendar.holiday_removed", false);
     public static final AuditAction SLA_POLICY_UPDATED       = of("sla_policy.updated", false);
+
+    // Notifications (sub-project 6B). All compliance-only (6B spec 4.7).
+    public static final AuditAction EMAIL_FAILED = of("email.failed", false);
+    public static final AuditAction NOTIFICATION_PREFERENCES_CHANGED = of("notification.preferences_changed", false);
+    public static final AuditAction NOTIFICATION_TEMPLATE_CREATED     = of("notification_template.created", false);
+    public static final AuditAction NOTIFICATION_TEMPLATE_UPDATED     = of("notification_template.updated", false);
+    public static final AuditAction NOTIFICATION_TEMPLATE_DEACTIVATED = of("notification_template.deactivated", false);
+    public static final AuditAction NOTIFICATION_POLICY_UPDATED       = of("notification_policy.updated", false);
 }

@@ -25,13 +25,20 @@ public class DevToolsService {
 
     private final OffsetClock clock;
     private final SlaSweepJob sweepJob;
+    private final NotificationSweepJob notificationSweep;
+    private final DigestJob digests;
+    private final EmailDispatchJob dispatch;
 
-    public DevToolsService(OffsetClock clock, SlaSweepJob sweepJob) {
+    public DevToolsService(OffsetClock clock, SlaSweepJob sweepJob, NotificationSweepJob notificationSweep,
+                           DigestJob digests, EmailDispatchJob dispatch) {
         this.clock = clock;
         this.sweepJob = sweepJob;
+        this.notificationSweep = notificationSweep;
+        this.digests = digests;
+        this.dispatch = dispatch;
     }
 
-    // @Transactional(readOnly) on both: the permission gate runs inside the tenant binder, which only
+    // @Transactional(readOnly) on every method here: the permission gate runs inside the tenant binder, which only
     // exists within a transaction; without one the gate reads zero grants (RLS) and 403s an administrator.
     @Transactional(readOnly = true)
     @RequirePermission(PermissionKeys.TENANT_SETTINGS_EDIT)
@@ -48,5 +55,25 @@ public class DevToolsService {
     @RequirePermission(PermissionKeys.TENANT_SETTINGS_EDIT)
     public boolean runSweep() {
         return sweepJob.runOne(TenantContext.getRequired());
+    }
+
+    @Transactional(readOnly = true)
+    @RequirePermission(PermissionKeys.TENANT_SETTINGS_EDIT)
+    public boolean runNotificationSweep() {
+        return notificationSweep.runOne(TenantContext.getRequired());
+    }
+
+    /** Returns how many digests were queued. */
+    @Transactional(readOnly = true)
+    @RequirePermission(PermissionKeys.TENANT_SETTINGS_EDIT)
+    public int runDigest() {
+        return digests.runOne(TenantContext.getRequired());
+    }
+
+    /** Returns how many emails were sent. */
+    @Transactional(readOnly = true)
+    @RequirePermission(PermissionKeys.TENANT_SETTINGS_EDIT)
+    public int runEmailDispatch() {
+        return dispatch.runOne(TenantContext.getRequired());
     }
 }

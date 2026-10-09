@@ -1,9 +1,18 @@
 spring:
   task:
     scheduling:
-      # Two threads so a long SLA sweep cannot delay the audit-partition cron.
+      # Five scheduled jobs (SLA sweep, notification sweep, digest, email dispatch, audit partitions)
+      # share this pool; four threads so a long SLA sweep cannot delay the partition cron and a slow
+      # SMTP server holding the dispatcher cannot stall the sweeps whose escalations have no off switch.
       pool:
-        size: 2
+        size: 4
+  mail:
+    # JavaMail's own defaults wait forever. A send therefore takes at most connect + write + read,
+    # 70 seconds, which EmailDispatchService.SEND_BUDGET's two-minute margin under the lease relies on.
+    properties:
+      mail.smtp.connectiontimeout: 10000
+      mail.smtp.timeout: 30000
+      mail.smtp.writetimeout: 30000
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/onboarding}
     username: ${DB_APP_USER:onboarding_app}
@@ -47,6 +56,10 @@ app:
     enabled: ${APP_SCHEDULING_ENABLED:true}
   sla:
     sweep-interval: PT5M
+  notifications:
+    dispatch-interval: PT1M
+    sweep-interval: PT1H
+    digest-interval: PT15M
   audit:
     partition-cron: "0 15 2 * * *"
   # The first platform administrator, for bootstrapping a fresh deployment.
@@ -56,6 +69,9 @@ app:
   platform-admin:
     email: ${APP_PLATFORM_ADMIN_EMAIL:}
     password: ${APP_PLATFORM_ADMIN_PASSWORD:}
+  # Absolute URL users open the app at; every notification email links through it (6B spec 6.5).
+  # Required outside dev/test -- PublicBaseUrl refuses to start without it, naming the variable.
+  public-base-url: ${APP_PUBLIC_BASE_URL:}
   # app.storage.kind picks the BlobStore adapter (StorageConfig) and deliberately
   # ships with NO default here, on the default profile -- the same shape as
   # JWT_SECRET/DB_APP_PASSWORD above: a production deployment must choose "local"

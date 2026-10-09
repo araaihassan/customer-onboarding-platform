@@ -9,6 +9,7 @@ import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.journey.CaseRepository;
 import co.ara.onboarding.platform.Uuid7;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.access.AccessDeniedException;
@@ -84,10 +85,11 @@ public class CommentService {
     private final AuditRecorder audit;
     private final AuthContextProvider contextProvider;
     private final Clock clock;
+    private final ApplicationEventPublisher events;
 
     public CommentService(CommentRepository comments, CaseRepository cases, TaskRepository tasks,
                           AuthorizedQuery authorizedQuery, AuditRecorder audit,
-                          AuthContextProvider contextProvider, Clock clock) {
+                          AuthContextProvider contextProvider, Clock clock, ApplicationEventPublisher events) {
         this.comments = comments;
         this.cases = cases;
         this.tasks = tasks;
@@ -95,6 +97,7 @@ public class CommentService {
         this.audit = audit;
         this.contextProvider = contextProvider;
         this.clock = clock;
+        this.events = events;
     }
 
     /**
@@ -118,11 +121,16 @@ public class CommentService {
         comment.setResourceId(request.resourceId());
         comment.setAuthorId(contextProvider.principal().userId());
         comment.setBody(request.body());
-        comments.save(comment);
+        // Flushed, not just saved: the CommentAdded listener reads this row (and the thread's
+        // earlier comments) back through plain SQL, which never triggers a JPA auto-flush.
+        comments.saveAndFlush(comment);
 
         audit.record(AuditActions.COMMENT_ADDED, "onboarding_case", c.getId(),
                 "Comment added on " + request.resourceType().wireValue(),
                 Map.of("commentId", comment.getId().toString(), "resourceId", request.resourceId().toString()));
+        // After its cause is recorded; the listener runs synchronously inside this transaction.
+        events.publishEvent(new CommentAdded(comment.getId(), request.resourceType(), request.resourceId(),
+                c.getId(), comment.getAuthorId()));
 
         return toView(comment);
     }

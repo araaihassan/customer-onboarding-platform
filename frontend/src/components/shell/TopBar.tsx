@@ -1,14 +1,14 @@
 "use client";
 
+import { InboxButton } from "@/components/inbox/InboxButton";
 import { usePageHeader } from "./PageHeader";
 
 /**
- * The shell top bar (COMPONENTS.md §1's "Top bar"). Presence cluster, inbox
- * button and a contextual primary action are specified there but have no
- * current counterpart -- no presence tracking, no inbox, no per-screen
- * "primary action" concept exists yet, so the right side is empty rather than
- * a dead control. Same principle this file already applied to search/
- * notifications before this restyle.
+ * The shell top bar (COMPONENTS.md section 1's "Top bar"). The Inbox control
+ * (6B) sits at the right; the presence cluster and a per-screen primary action
+ * are specified there but still have no counterpart -- no presence tracking and
+ * no "primary action" concept exists -- so they are omitted rather than shipped
+ * as dead controls.
  */
 export function TopBar() {
   const { title, meta } = usePageHeader();
@@ -49,6 +49,7 @@ export function TopBar() {
         </span>
       )}
       <div className="flex-1" />
+      <InboxButton />
     </header>
   );
 }

@@ -19,6 +19,7 @@ public class SlaClock extends TenantScopedEntity {
     @Column(name = "stopped_at") private Instant stoppedAt;
     @Enumerated(EnumType.STRING) @Column(name = "outcome") private SlaClockOutcome outcome;
     @Column(name = "breached_at") private Instant breachedAt;
+    @Column(name = "at_risk_alerted_at") private Instant atRiskAlertedAt;
 
     public UUID getCaseId() { return caseId; }
     public void setCaseId(UUID caseId) { this.caseId = caseId; }
@@ -36,4 +37,6 @@ public class SlaClock extends TenantScopedEntity {
     public void setOutcome(SlaClockOutcome outcome) { this.outcome = outcome; }
     public Instant getBreachedAt() { return breachedAt; }
     public void setBreachedAt(Instant breachedAt) { this.breachedAt = breachedAt; }
+    public Instant getAtRiskAlertedAt() { return atRiskAlertedAt; }
+    public void setAtRiskAlertedAt(Instant atRiskAlertedAt) { this.atRiskAlertedAt = atRiskAlertedAt; }
 }

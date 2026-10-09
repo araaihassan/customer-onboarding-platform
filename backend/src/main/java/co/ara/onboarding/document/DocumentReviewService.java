@@ -15,6 +15,7 @@ import co.ara.onboarding.journey.RequirementStatus;
 import co.ara.onboarding.journey.StageWriteScopeGuard;
 import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -122,12 +123,14 @@ public class DocumentReviewService {
     private final StageWriteScopeGuard writeScope;
     private final Clock clock;
     private final AuditRecorder audit;
+    private final ApplicationEventPublisher events;
 
     public DocumentReviewService(DocumentRepository documents, DocumentVersionRepository versions,
                                  DocumentRequestRepository requests, CaseRepository cases, StageRepository stages,
                                  RequirementRepository requirementRepository, RequirementService requirementService,
                                  AuthorizedQuery authorizedQuery, AuthContextProvider contextProvider,
-                                 StageWriteScopeGuard writeScope, Clock clock, AuditRecorder audit) {
+                                 StageWriteScopeGuard writeScope, Clock clock, AuditRecorder audit,
+                                 ApplicationEventPublisher events) {
         this.documents = documents;
         this.versions = versions;
         this.requests = requests;
@@ -140,6 +143,7 @@ public class DocumentReviewService {
         this.writeScope = writeScope;
         this.clock = clock;
         this.audit = audit;
+        this.events = events;
     }
 
     @RequirePermission(PermissionKeys.DOCUMENT_REVIEW)
@@ -161,7 +165,9 @@ public class DocumentReviewService {
         v.setReviewedBy(contextProvider.current().userId());
         v.setReviewedAt(Instant.now(clock));
         v.setReviewNote(note);
-        versions.save(v);
+        // saveAndFlush: the DocumentReviewed listener reads through plain SQL, which never
+        // triggers a JPA auto-flush.
+        versions.saveAndFlush(v);
 
         // Cause before effect (see this method's own javadoc): recorded once,
         // before either branch's own satisfy/reopen calls below.
@@ -169,6 +175,9 @@ public class DocumentReviewService {
                 "Reviewed version " + versionNo + " of document " + d.getName() + ": " + decision,
                 Map.of("documentId", d.getId().toString(), "versionNo", versionNo,
                         "decision", decision.name()));
+        // After document.reviewed, before either branch's satisfy/reopen consequences.
+        events.publishEvent(new DocumentReviewed(d.getId(), versionNo, c.getId(), decision.name(),
+                contextProvider.current().userId()));
 
         if (decision == ReviewDecision.APPROVED) {
             for (DocumentRequest request : requests.fulfilledBy(d.getId())) {

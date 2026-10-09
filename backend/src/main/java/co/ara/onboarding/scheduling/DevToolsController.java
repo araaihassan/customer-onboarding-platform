@@ -29,4 +29,19 @@ public class DevToolsController {
     public Map<String, Boolean> sweep() {
         return Map.of("ran", service.runSweep());
     }
+
+    @PostMapping("/jobs/notification-sweep")
+    public Map<String, Boolean> notificationSweep() {
+        return Map.of("ran", service.runNotificationSweep());
+    }
+
+    @PostMapping("/jobs/digest")
+    public Map<String, Integer> digest() {
+        return Map.of("queued", service.runDigest());
+    }
+
+    @PostMapping("/jobs/email-dispatch")
+    public Map<String, Integer> emailDispatch() {
+        return Map.of("sent", service.runEmailDispatch());
+    }
 }

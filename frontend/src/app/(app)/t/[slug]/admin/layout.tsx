@@ -31,6 +31,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   const canManageTeams = useHasPermission("team.manage");
   const canViewWorkflows = useHasPermission("workflow.view");
   const canManageCalendar = useHasPermission("calendar.manage");
+  const canManageNotifications = useHasPermission("notification.manage");
 
   const tabs: { label: string; href: string }[] = [];
   if (canViewUsers) tabs.push({ label: t("admin.users.title"), href: `/t/${slug}/admin/users` });
@@ -40,6 +41,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   }
   if (canViewWorkflows) tabs.push({ label: t("workflow.list.title"), href: `/t/${slug}/admin/workflows` });
   if (canManageCalendar) tabs.push({ label: t("calendar.title"), href: `/t/${slug}/admin/business-calendar` });
+  if (canManageNotifications) tabs.push({ label: t("notifications.admin.title"), href: `/t/${slug}/admin/notifications` });
 
   return (
     <>

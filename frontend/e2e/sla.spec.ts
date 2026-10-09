@@ -164,6 +164,9 @@ test("an open document request pauses the clock, and a customer can be reminded 
   await dialog.getByRole("button", { name: "Remind", exact: true }).click();
   await expect(dialog.getByText("Already reminded in the last 24 hours.")).toBeVisible();
 
+  // 6B: a customer reminder is queued in the email outbox in the request's own transaction and
+  // leaves through the dispatcher (every minute in production), no longer inline. Run it now.
+  await admin.runEmailDispatch();
   const reminder = await readEmail(contactEmail, "Reminder:");
   expect(reminder).toContain("Reminder:");
 });
