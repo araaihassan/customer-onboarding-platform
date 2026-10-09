@@ -2,6 +2,8 @@ package co.ara.onboarding.notification;
 
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import co.ara.onboarding.agreement.Agreement;
+import co.ara.onboarding.document.Document;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.platform.BusinessCalendar;
 import co.ara.onboarding.task.Task;
@@ -11,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -44,7 +47,8 @@ public class NotificationSweepService {
         var policy = policies.current();
         taskOverdue(today);
         deadlines(today, policy);
-        // Task 24: expiries(today, policy);  Task 25: autoReminders(policy);
+        expiries(today, policy);
+        // Task 25: autoReminders(policy);
     }
 
     void taskOverdue(LocalDate today) {
@@ -98,7 +102,62 @@ public class NotificationSweepService {
                     Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), Tone.WARN,
                     "DEADLINE:" + kind + ":" + item.id() + ":" + item.date() + ":" + lead);
             if (i == 0) pipeline.deliver(draft, List.of(item.ownerUserId()), null, visibility);
-            else pipeline.consume(draft, item.ownerUserId());
+            else pipeline.consume(draft, item.ownerUserId(), visibility);
+        }
+    }
+
+    /** Document expiry and agreement expiry/renewal (PRD section 9), in calendar days. */
+    void expiries(LocalDate today, PolicyReader.Policy policy) {
+        for (var d : candidates.liveDocumentsExpiring()) {
+            LocalDate date = calendar.localDate(((java.sql.Timestamp) d.get("expires_at")).toInstant());
+            UUID id = (UUID) d.get("id");
+            expiry(HorizonKind.DOCUMENT_EXPIRY, "document", id, (UUID) d.get("case_id"),
+                    List.of((UUID) d.get("owner_user_id")), date,
+                    "\"" + Text.clip((String) d.get("name"), 80) + "\" expires", today, policy,
+                    new NotificationPipeline.Visibility(PermissionKeys.DOCUMENT_VIEW, Document.class, id));
+        }
+        for (var a : candidates.liveAgreementsWithDates()) {
+            UUID id = (UUID) a.get("id");
+            UUID caseId = (UUID) a.get("case_id");
+            var owners = new ArrayList<UUID>();
+            if (a.get("owner_user_id") != null) owners.add((UUID) a.get("owner_user_id"));
+            UUID caseOwner = facts.caseFacts(caseId).ownerUserId();
+            if (caseOwner != null && !owners.contains(caseOwner)) owners.add(caseOwner);
+            var visibility = new NotificationPipeline.Visibility(PermissionKeys.AGREEMENT_VIEW, Agreement.class, id);
+            String name = Text.clip((String) a.get("name"), 80);
+            if (a.get("expires_at") != null) {
+                expiry(HorizonKind.AGREEMENT_EXPIRY, "agreement", id, caseId, owners, toLocalDate(a.get("expires_at")),
+                        name + " expires", today, policy, visibility);
+            }
+            if (a.get("renewal_date") != null) {
+                int notice = a.get("notice_period_days") == null ? 0 : ((Number) a.get("notice_period_days")).intValue();
+                LocalDate decision = toLocalDate(a.get("renewal_date")).minusDays(notice);
+                expiry(HorizonKind.AGREEMENT_RENEWAL, "agreement", id, caseId, owners, decision,
+                        "Renewal decision due for " + name, today, policy, visibility);
+            }
+        }
+    }
+
+    private static LocalDate toLocalDate(Object o) {
+        return o instanceof java.sql.Date d ? d.toLocalDate() : (LocalDate) o;
+    }
+
+    private void expiry(HorizonKind kind, String subjectType, UUID id, UUID caseId, List<UUID> recipients,
+                        LocalDate date, String what, LocalDate today, PolicyReader.Policy policy,
+                        NotificationPipeline.Visibility visibility) {
+        long away = ChronoUnit.DAYS.between(today, date);
+        if (away < 0) return;
+        List<Integer> matching = policy.horizons().get(kind).stream().filter(lead -> away <= lead).sorted().toList();
+        if (matching.isEmpty()) return;
+        var kase = facts.caseFacts(caseId);
+        for (int i = 0; i < matching.size(); i++) {
+            var draft = new NotificationPipeline.Draft(NotificationType.EXPIRY_RENEWAL, subjectType, id, kase.id(),
+                    what + (away == 0 ? " today" : " in " + away + " day(s)"),
+                    kase.name() + " (" + kase.customerName() + "): " + date + ".",
+                    Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), Tone.WARN,
+                    "EXPIRY:" + kind + ":" + id + ":" + date + ":" + matching.get(i));
+            if (i == 0) pipeline.deliver(draft, recipients, null, visibility);
+            else for (UUID r : recipients) pipeline.consume(draft, r, visibility);
         }
     }
 }

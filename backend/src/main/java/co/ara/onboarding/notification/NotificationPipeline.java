@@ -67,4 +67,16 @@ public class NotificationPipeline {
         if (draft.dedupeKey() == null) throw new IllegalArgumentException("A marker needs a dedupe key");
         writer.writeMarker(draft, recipientUserId);
     }
+
+    /**
+     * As {@link #consume(Draft, UUID)}, but only for a recipient who could still be notified about the subject:
+     * a marker carries the draft's title and body, so one written for someone outside the subject's audience
+     * (a portal user, an out-of-scope owner) would store text they may not see.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void consume(Draft draft, UUID recipientUserId, Visibility visibility) {
+        if (recipientUserId == null || facts.activeInternalEmail(recipientUserId).isEmpty()) return;
+        if (!access.canView(recipientUserId, visibility.permissionKey(), visibility.entityType(), visibility.id())) return;
+        consume(draft, recipientUserId);
+    }
 }

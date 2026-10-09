@@ -66,4 +66,32 @@ public class DeadlineCandidates {
                   JOIN onboarding_case c ON c.id = r.case_id
                  WHERE r.status = 'OPEN' AND r.due_at IS NOT NULL AND c.status = 'ACTIVE'""");
     }
+
+    /**
+     * Live (non-retired) documents with an expiry on an ACTIVE case. Columns id, case_id, owner_user_id
+     * (the case owner), expires_at, name; the caller converts expires_at in the tenant zone. A document
+     * belongs to a case (case_id is NOT NULL), and a case with no owner has nobody to remind, so it is skipped.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<Map<String, Object>> liveDocumentsExpiring() {
+        return jdbc.queryForList("""
+                SELECT d.id, d.case_id, c.owner_user_id, d.expires_at, d.name FROM document d
+                  JOIN onboarding_case c ON c.id = d.case_id
+                 WHERE d.status <> 'RETIRED' AND d.expires_at IS NOT NULL AND c.owner_user_id IS NOT NULL
+                   AND c.status = 'ACTIVE'""");
+    }
+
+    /**
+     * Non-cancelled agreements carrying an expiry or renewal date, on an ACTIVE case. EXPIRED is derived on
+     * read and never stored, so "not cancelled" is the whole liveness test here; the sweep skips past dates.
+     * Columns id, case_id, owner_user_id, name, expires_at, renewal_date (dates), notice_period_days.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<Map<String, Object>> liveAgreementsWithDates() {
+        return jdbc.queryForList("""
+                SELECT a.id, a.case_id, a.owner_user_id, a.name, a.expires_at, a.renewal_date, a.notice_period_days
+                  FROM agreement a JOIN onboarding_case c ON c.id = a.case_id
+                 WHERE a.status <> 'CANCELLED' AND (a.expires_at IS NOT NULL OR a.renewal_date IS NOT NULL)
+                   AND c.status = 'ACTIVE'""");
+    }
 }
