@@ -53,6 +53,8 @@ public final class PermissionKeys {
     public static final String PLAN_APPROVE_SHAPE    = "plan.approve_shape";
     public static final String SLA_VIEW        = "sla.view";
     public static final String CALENDAR_MANAGE = "calendar.manage";
+    // Sub-project 6B Task 19.
+    public static final String NOTIFICATION_MANAGE = "notification.manage";
     public static final String PLAN_ISSUE               = "plan.issue";
     public static final String PLAN_APPROVE_SCHEDULE    = "plan.approve_schedule";
     // Task 3 (sub-project 4) added the four keys PortalPermissions references.

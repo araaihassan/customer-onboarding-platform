@@ -112,6 +112,7 @@ public final class PermissionCatalog {
         // CaseAttributeValueDescriptor exist ahead of validate() ever requiring them.
         add(SLA_VIEW,        "sla",      "sla_clock", "View SLA clocks and the war room", RECORD);
         add(CALENDAR_MANAGE, "tenant",   null,        "Manage the business calendar and SLA policy", ALL_ONLY);
+        add(NOTIFICATION_MANAGE, "tenant", null, "Manage notification templates, deadline horizons and automatic reminders", ALL_ONLY);
         add(PLAN_ISSUE,              "plan",      "onboarding_case", "Issue a schedule revision for a journey", RECORD);
         add(PLAN_APPROVE_SCHEDULE,   "plan",      "onboarding_case", "Record the customer's decision on a schedule revision", RECORD);
         // Task 3 (sub-project 4) catalogued these four ALL-only with a null
