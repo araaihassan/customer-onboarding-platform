@@ -2,6 +2,14 @@ package co.ara.onboarding.notification;
 
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.Scope;
+import co.ara.onboarding.document.CreateDocumentRequest;
+import co.ara.onboarding.document.CreateDocumentRequestRequest;
+import co.ara.onboarding.document.DocumentCategory;
+import co.ara.onboarding.document.DocumentRequestService;
+import co.ara.onboarding.document.DocumentReviewService;
+import co.ara.onboarding.document.DocumentService;
+import co.ara.onboarding.document.ReviewDecision;
+import co.ara.onboarding.document.VisibilityTier;
 import co.ara.onboarding.journey.RequirementService;
 import co.ara.onboarding.sla.SlaTestSupport;
 import co.ara.onboarding.support.PostgresTestBase;
@@ -34,6 +42,9 @@ class NotificationOrderingTest extends PostgresTestBase {
     @Autowired NotificationTestSupport support;
     @Autowired CommentService comments;
     @Autowired RequirementService requirements;
+    @Autowired DocumentRequestService documentRequests;
+    @Autowired DocumentService documents;
+    @Autowired DocumentReviewService reviews;
 
     /** Cause before effect: the cause's audit row is not later than the notification it led to. */
     private void assertCauseFirst(UUID tenant, String cause) {
@@ -118,5 +129,82 @@ class NotificationOrderingTest extends PostgresTestBase {
 
         assertThat(support.rowsFor(t, owner)).hasSize(1);
         assertCauseFirst(t, "milestone.completed");
+    }
+
+    private static final byte[] PDF_BYTES =
+            "%PDF-1.4\n%âãÏÓ\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n"
+                    .getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+
+    /** An internal upload publishes nothing, so it adds no notification.sent row of its own. */
+    private UUID internalUpload(UUID t, UUID actor, UUID caseId) {
+        UUID[] id = new UUID[1];
+        fixture.runAsUser(t, actor, () -> id[0] = documents.upload(caseId,
+                new CreateDocumentRequest("Memo.pdf", DocumentCategory.OTHER, VisibilityTier.COMPANY_SHARED,
+                        null, null, null, null),
+                new java.io.ByteArrayInputStream(PDF_BYTES), PDF_BYTES.length, "application/pdf").id());
+        return id[0];
+    }
+
+    @Test
+    void requestingADocumentIsRecordedBeforeItsNotification() {
+        UUID t = fixture.createTenant("order-document-requested");
+        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@order-document-requested.test"));
+        support.grant(t, owner, Map.of(PermissionKeys.CASE_VIEW, Scope.ALL));
+        UUID caseId = fixture.runAsReturning(t, () ->
+                sla.openFor(fixture.createCustomerOwnedBy(t, "Acme", owner)));
+        UUID actor = fixture.runAsReturning(t, () -> fixture.createUser(t, "actor@order-document-requested.test"));
+        support.grant(t, actor, Map.of(PermissionKeys.DOCUMENT_REQUEST, Scope.ALL, PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+
+        // The owner is the only candidate, so the only notification.sent row is the request's.
+        fixture.runAsUser(t, actor, () -> documentRequests.create(caseId,
+                new CreateDocumentRequestRequest(DocumentCategory.NDA, "Mutual NDA", null, false, null)));
+
+        assertThat(support.rowsFor(t, owner)).hasSize(1);
+        assertCauseFirst(t, "document.requested");
+    }
+
+    @Test
+    void fulfillingARequestIsRecordedBeforeItsNotification() {
+        UUID t = fixture.createTenant("order-document-fulfilled");
+        // No grants: the case owner hears about nothing, leaving the requester the only recipient.
+        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@order-document-fulfilled.test"));
+        UUID caseId = fixture.runAsReturning(t, () ->
+                sla.openFor(fixture.createCustomerOwnedBy(t, "Acme", owner)));
+        Map<String, Scope> staff = Map.of(PermissionKeys.DOCUMENT_REQUEST, Scope.ALL, PermissionKeys.DOCUMENT_VIEW,
+                Scope.ALL, PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL, PermissionKeys.WORKFLOW_VIEW, Scope.ALL);
+        UUID requester = fixture.runAsReturning(t, () -> fixture.createUser(t, "req@order-document-fulfilled.test"));
+        support.grant(t, requester, staff);
+        UUID staffer = fixture.runAsReturning(t, () -> fixture.createUser(t, "staff@order-document-fulfilled.test"));
+        support.grant(t, staffer, staff);
+        UUID[] requestId = new UUID[1];
+        fixture.runAsUser(t, requester, () -> requestId[0] = documentRequests.create(caseId,
+                new CreateDocumentRequestRequest(DocumentCategory.NDA, null, null, false, null)).id());
+        UUID documentId = internalUpload(t, staffer, caseId);
+
+        fixture.runAsUser(t, staffer, () -> documentRequests.fulfil(requestId[0], documentId));
+
+        assertThat(support.rowsFor(t, requester)).hasSize(1);
+        assertCauseFirst(t, "document.request_fulfilled");
+    }
+
+    @Test
+    void reviewingIsRecordedBeforeItsNotification() {
+        UUID t = fixture.createTenant("order-document-reviewed");
+        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@order-document-reviewed.test"));
+        UUID caseId = fixture.runAsReturning(t, () ->
+                sla.openFor(fixture.createCustomerOwnedBy(t, "Acme", owner)));
+        UUID uploader = fixture.runAsReturning(t, () -> fixture.createUser(t, "up@order-document-reviewed.test"));
+        support.grant(t, uploader, Map.of(PermissionKeys.DOCUMENT_UPLOAD, Scope.ALL, PermissionKeys.DOCUMENT_VIEW,
+                Scope.ALL, PermissionKeys.WORKFLOW_VIEW, Scope.ALL));
+        UUID reviewer = fixture.runAsReturning(t, () -> fixture.createUser(t, "rev@order-document-reviewed.test"));
+        support.grant(t, reviewer, Map.of(PermissionKeys.DOCUMENT_REVIEW, Scope.ALL, PermissionKeys.WORKFLOW_VIEW,
+                Scope.ALL, PermissionKeys.MILESTONE_COMPLETE, Scope.ALL));
+        UUID documentId = internalUpload(t, uploader, caseId);
+
+        // The internal uploader is the only recipient, so the only notification.sent row is the decision's.
+        fixture.runAsUser(t, reviewer, () -> reviews.review(documentId, 1, ReviewDecision.APPROVED, null));
+
+        assertThat(support.rowsFor(t, uploader)).hasSize(1);
+        assertCauseFirst(t, "document.reviewed");
     }
 }

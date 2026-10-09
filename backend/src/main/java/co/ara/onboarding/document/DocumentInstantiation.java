@@ -9,6 +9,7 @@ import co.ara.onboarding.platform.Uuid7;
 import co.ara.onboarding.workflow.RequirementDefinition;
 import co.ara.onboarding.workflow.RequirementDefinitionRepository;
 import co.ara.onboarding.workflow.RequirementKind;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -66,13 +67,14 @@ public class DocumentInstantiation {
     private final AuthContextProvider contextProvider;
     private final Clock clock;
     private final CustomerWaitLifecycle customerWaits;
+    private final ApplicationEventPublisher events;
 
     public DocumentInstantiation(RequirementRepository requirements,
                                   RequirementDefinitionRepository requirementDefinitions,
                                   MilestoneRepository milestones,
                                   DocumentRequestRepository documentRequests,
                                   AuthContextProvider contextProvider, Clock clock,
-                                  CustomerWaitLifecycle customerWaits) {
+                                  CustomerWaitLifecycle customerWaits, ApplicationEventPublisher events) {
         this.requirements = requirements;
         this.requirementDefinitions = requirementDefinitions;
         this.milestones = milestones;
@@ -80,6 +82,7 @@ public class DocumentInstantiation {
         this.contextProvider = contextProvider;
         this.clock = clock;
         this.customerWaits = customerWaits;
+        this.events = events;
     }
 
     /**
@@ -129,9 +132,13 @@ public class DocumentInstantiation {
             dr.setRequestedBy(owner != null ? owner : contextProvider.principal().userId());
             dr.setRequestedAt(Instant.now(clock));
 
-            documentRequests.save(dr);
+            // saveAndFlush, not save: the DocumentRequested listener reads this row (and the
+            // case's own, still pending from CaseService.create) through plain SQL, which never
+            // triggers a JPA auto-flush.
+            documentRequests.saveAndFlush(dr);
             // No-op on a brand-new case (no clock yet); SlaClockWriter.start sees the open request.
             customerWaits.requestOpened(caseId, dr.getRequestedAt());
+            events.publishEvent(new DocumentRequested(dr.getId(), caseId, contextProvider.current().userId()));
         }
     }
 

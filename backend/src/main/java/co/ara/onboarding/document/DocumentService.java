@@ -25,6 +25,7 @@ import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
 import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -105,6 +106,7 @@ public class DocumentService {
     private final Clock clock;
     private final AuditRecorder audit;
     private final DocumentContentWriter contentWriter;
+    private final ApplicationEventPublisher events;
 
     public DocumentService(DocumentRepository documents, DocumentVersionRepository versions,
                            DocumentShareRepository shares, DocumentCaseLinkRepository caseLinks,
@@ -116,7 +118,7 @@ public class DocumentService {
                            StageWriteScopeGuard writeScope,
                            StorageProperties storageProperties,
                            OrgUnitResolver orgUnits, Clock clock, AuditRecorder audit,
-                           DocumentContentWriter contentWriter) {
+                           DocumentContentWriter contentWriter, ApplicationEventPublisher events) {
         this.documents = documents;
         this.versions = versions;
         this.shares = shares;
@@ -135,6 +137,7 @@ public class DocumentService {
         this.clock = clock;
         this.audit = audit;
         this.contentWriter = contentWriter;
+        this.events = events;
     }
 
     /**
@@ -573,7 +576,11 @@ public class DocumentService {
         // place (PortalCreateDocumentRequest carries neither), and
         // actingContactId -- never request.ownerContactId() -- is always the
         // owner. See this method's own javadoc.
-        return persistNewDocument(c, actor, request, null, null, actingContactId, stored, sizeBytes);
+        DocumentView view = persistNewDocument(c, actor, request, null, null, actingContactId, stored, sizeBytes);
+        // After document.uploaded (persistNewDocument records it); createDocument saveAndFlushes the
+        // row, so the listener's plain-SQL read sees it.
+        events.publishEvent(new DocumentUploaded(view.id(), null, c.getId(), actor));
+        return view;
     }
 
     /**

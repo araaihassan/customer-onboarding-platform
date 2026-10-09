@@ -6,6 +6,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -25,6 +26,10 @@ import java.util.UUID;
  *   <li>{@link #caseFacts} -- a case's name, customer, owner and pinned template/version.</li>
  *   <li>{@link #task} -- a task's title, case, assignee and due date.</li>
  *   <li>{@link #milestone} -- a milestone's definition name, case, owner and due date.</li>
+ *   <li>{@link #document} / {@link #documentRequest} -- a document's name, case, uploader and expiry;
+ *       a request's case, category, description and requester.</li>
+ *   <li>{@link #requesterOfDocument} / {@link #internalVersionUploader} -- who asked for the document,
+ *       and a version's uploader when INTERNAL.</li>
  *   <li>{@link #earlierCommenters} / {@link #commentBody} -- a comment thread's earlier authors, and one body.</li>
  *   <li>{@link #caseAudience} -- the case owner plus every ACTIVE case participant.</li>
  *   <li>{@link #activeInternalEmail} -- an address only for an ACTIVE INTERNAL user.</li>
@@ -40,6 +45,10 @@ public class SubjectFacts {
     public record TaskFacts(UUID id, String title, UUID caseId, UUID assigneeId, LocalDate dueDate) {}
 
     public record MilestoneFacts(UUID id, String name, UUID caseId, UUID ownerUserId, LocalDate dueDate) {}
+
+    public record DocumentFacts(UUID id, String name, UUID caseId, UUID uploadedBy, Instant expiresAt) {}
+
+    public record RequestFacts(UUID id, UUID caseId, String category, String description, UUID requestedBy) {}
 
     private final JdbcTemplate jdbc;
 
@@ -75,6 +84,39 @@ public class SubjectFacts {
                   FROM milestone m JOIN milestone_definition d ON d.id = m.milestone_definition_id WHERE m.id = ?""",
                 (rs, i) -> new MilestoneFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class),
                         rs.getObject(4, UUID.class), rs.getObject(5, LocalDate.class)), milestoneId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public DocumentFacts document(UUID documentId) {
+        return jdbc.queryForObject("SELECT id, name, case_id, uploaded_by, expires_at FROM document WHERE id = ?",
+                (rs, i) -> new DocumentFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class),
+                        rs.getObject(4, UUID.class), rs.getTimestamp(5) == null ? null : rs.getTimestamp(5).toInstant()),
+                documentId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public RequestFacts documentRequest(UUID requestId) {
+        return jdbc.queryForObject(
+                "SELECT id, case_id, category, description, requested_by FROM document_request WHERE id = ?",
+                (rs, i) -> new RequestFacts(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3),
+                        rs.getString(4), rs.getObject(5, UUID.class)), requestId);
+    }
+
+    /** The requester of the (latest) request this document fulfilled, if any. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<UUID> requesterOfDocument(UUID documentId) {
+        return jdbc.queryForList("""
+                SELECT requested_by FROM document_request WHERE fulfilled_document_id = ?
+                 ORDER BY requested_at DESC LIMIT 1""", UUID.class, documentId).stream().findFirst();
+    }
+
+    /** A version's uploader, only when that uploader is an INTERNAL user (never a portal contact). */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<UUID> internalVersionUploader(UUID documentId, int versionNo) {
+        return jdbc.queryForList("""
+                SELECT v.uploaded_by FROM document_version v JOIN app_user u ON u.id = v.uploaded_by
+                 WHERE v.document_id = ? AND v.version_no = ? AND u.user_type = 'INTERNAL'""",
+                UUID.class, documentId, versionNo).stream().findFirst();
     }
 
     /**

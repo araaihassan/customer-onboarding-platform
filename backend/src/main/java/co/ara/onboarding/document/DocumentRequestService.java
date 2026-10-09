@@ -148,6 +148,9 @@ public class DocumentRequestService {
                 "Requested a document on case " + c.getId(),
                 Map.of("requestId", dr.getId().toString(), "category", dr.getCategory().name()));
         customerWaits.requestOpened(c.getId(), dr.getRequestedAt());
+        // After document.requested (cause before effect); dr was saveAndFlushed above, so the
+        // listener's plain-SQL read sees it.
+        events.publishEvent(new DocumentRequested(dr.getId(), c.getId(), contextProvider.current().userId()));
 
         return toView(dr);
     }
@@ -359,6 +362,9 @@ public class DocumentRequestService {
                 Map.of("requestId", dr.getId().toString(), "documentId", d.getId().toString()));
         // Before satisfy, so a satisfy that advances the stage sees the pause already closed.
         customerWaits.requestClosed(dr.getCaseId(), Instant.now(clock));
+        // After document_request.fulfilled, before satisfy's own consequences.
+        events.publishEvent(new DocumentUploaded(d.getId(), dr.getId(), dr.getCaseId(),
+                contextProvider.current().userId()));
 
         if (dr.getRequirementId() != null && !dr.isRequiresReview()) {
             requirementService.satisfy(dr.getRequirementId(), d.getId(), DocumentService.SATISFIED_REF_TYPE);
