@@ -80,10 +80,16 @@ export function usePreferences(enabled: boolean) {
   });
 }
 
+const PREFERENCES_MUTATION = ["notifications", "preferences", "update"] as const;
+
 /** Optimistic: the toggle moves at once and snaps back if the server refuses (spec 9.3). */
 export function useUpdatePreferences() {
   const queryClient = useQueryClient();
   return useMutation({
+    mutationKey: PREFERENCES_MUTATION,
+    // The PUT is a full replace, so two in flight at once can commit in either order and the
+    // earlier click would win. A shared scope runs them one at a time, in click order.
+    scope: { id: "notification-preferences" },
     mutationFn: (body: UpdatePreferencesRequest) =>
       apiFetch<Preferences>("/notifications/preferences", { method: "PUT", body: JSON.stringify(body) }),
     onMutate: async (body) => {
@@ -103,7 +109,13 @@ export function useUpdatePreferences() {
     onError: (_err, _body, context) => {
       if (context?.previous) queryClient.setQueryData(notificationKeys.preferences(), context.previous);
     },
-    onSuccess: (data) => queryClient.setQueryData(notificationKeys.preferences(), data),
+    // While a later save is queued its optimistic value is already in the cache; this response is
+    // older than that, so it must not overwrite it (the last save's response will).
+    onSuccess: (data) => {
+      if (queryClient.isMutating({ mutationKey: PREFERENCES_MUTATION }) <= 1) {
+        queryClient.setQueryData(notificationKeys.preferences(), data);
+      }
+    },
   });
 }
 

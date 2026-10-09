@@ -183,6 +183,34 @@ describe("useUpdatePreferences", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
   });
 
+  it("sends overlapping saves one at a time, so the last click is the last write", async () => {
+    // The PUT is a full replace: two in flight at once can commit in either order and the
+    // earlier click would win. Found live by e2e/notifications.spec.ts (two switches clicked in
+    // quick succession left the first one's value on the server).
+    const releases: ((r: Response) => void)[] = [];
+    fetchMock.mockImplementation(() => new Promise<Response>((res) => releases.push(res)));
+    const { client, Wrapper } = setup();
+    client.setQueryData(notificationKeys.preferences(), before);
+    const { result } = renderHook(() => useUpdatePreferences(), { wrapper: Wrapper });
+    const second = { ...body, emailCadence: "WEEKLY" as const };
+    act(() => {
+      result.current.mutate(body);
+      result.current.mutate(second);
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(fetchMock).toHaveBeenCalledTimes(1); // the second waits for the first
+    await act(async () => {
+      releases[0]!(reply({ ...before, emailCadence: "DAILY" }));
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(init(1).body).toBe(JSON.stringify(second));
+    await act(async () => {
+      releases[1]!(reply({ ...before, emailCadence: "WEEKLY" }));
+    });
+    await waitFor(() => expect(client.getQueryData<Preferences>(notificationKeys.preferences())?.emailCadence).toBe("WEEKLY"));
+  });
+
   it("restores the previous value when the request fails", async () => {
     fetchMock.mockResolvedValue(reply({ message: "no" }, 500));
     const { client, Wrapper } = setup();
