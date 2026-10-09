@@ -23,6 +23,7 @@ class InboxApiTest extends SecurityTestBase {
     private UUID tenant;
     private AppUser me;
     private AppUser other;
+    private UUID customerId;
 
     @BeforeEach
     void seed() {
@@ -30,6 +31,12 @@ class InboxApiTest extends SecurityTestBase {
         tenant = fixture.createTenant(slug);
         me = fixture.createUserWithPassword(tenant, "me+" + Uuid7.generate() + "@inbox.example", "long-enough-password");
         other = fixture.createUserWithPassword(tenant, "other+" + Uuid7.generate() + "@inbox.example", "long-enough-password");
+        // Every row below is about a customer both users may view: the inbox re-checks each row against
+        // its recipient's current access (InboxVisibilityTest), and these tests are about paging and state.
+        customerId = fixture.runAsReturning(tenant, () -> fixture.createCustomer(tenant, "Acme", null, null, null));
+        for (AppUser u : List.of(me, other)) {
+            fixture.grantAtAllScope(tenant, u.getId(), co.ara.onboarding.authz.PermissionKeys.CUSTOMER_VIEW);
+        }
     }
 
     private String base() { return "/api/t/" + slug + "/notifications"; }
@@ -39,8 +46,8 @@ class InboxApiTest extends SecurityTestBase {
         ownerJdbc().update("""
             insert into notification (id, tenant_id, recipient_user_id, type, title, body, link_path, subject_type,
                 subject_id, in_app, email_state, tone, read_at, created_at, updated_at)
-            values (?, ?, ?, 'TASK_ASSIGNED', ?, 'b', '/t/x', 'task', gen_random_uuid(), ?, 'NONE', 'INFO', ?, now(), now())""",
-            id, tenant, recipient, title, inApp, read ? java.sql.Timestamp.from(java.time.Instant.now()) : null);
+            values (?, ?, ?, 'TASK_ASSIGNED', ?, 'b', '/t/x', 'customer', ?, ?, 'NONE', 'INFO', ?, now(), now())""",
+            id, tenant, recipient, title, customerId, inApp, read ? java.sql.Timestamp.from(java.time.Instant.now()) : null);
         return id;
     }
 

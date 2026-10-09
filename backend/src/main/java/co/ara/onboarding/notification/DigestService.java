@@ -1,16 +1,10 @@
 package co.ara.onboarding.notification;
 
-import co.ara.onboarding.agreement.Agreement;
 import co.ara.onboarding.authz.PermissionKeys;
-import co.ara.onboarding.authz.RecipientAccess;
 import co.ara.onboarding.authz.RequirePermission;
-import co.ara.onboarding.customer.Customer;
-import co.ara.onboarding.document.Document;
-import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.platform.BusinessCalendar;
 import co.ara.onboarding.platform.PublicBaseUrl;
 import co.ara.onboarding.platform.Uuid7;
-import co.ara.onboarding.task.Task;
 import co.ara.onboarding.tenancy.TenantContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -38,7 +32,7 @@ import java.util.UUID;
  *
  * <p>A notification's title and body can disclose a record, and a digest is sent later than the
  * row was written, so each pending row is checked again against the recipient's CURRENT grants
- * ({@link RecipientAccess}, the pipeline's own gate) and one they can no longer see is left
+ * ({@link NotificationVisibility}, shared with the inbox) and one they can no longer see is left
  * DIGEST_PENDING, never emailed. Only ACTIVE INTERNAL users are candidates at all. The run executes
  * under the per-tenant advisory lock, and every row is moved DIGEST_PENDING to DIGESTED in the same
  * transaction that queues the email, so a row is in at most one digest and a failed send is retried
@@ -55,17 +49,17 @@ public class DigestService {
     private final OutboxWriter outbox;
     private final PublicBaseUrl baseUrl;
     private final SubjectFacts facts;
-    private final RecipientAccess access;
+    private final NotificationVisibility visibility;
 
     DigestService(JdbcTemplate jdbc, BusinessCalendar calendar, Clock clock, OutboxWriter outbox,
-                  PublicBaseUrl baseUrl, SubjectFacts facts, RecipientAccess access) {
+                  PublicBaseUrl baseUrl, SubjectFacts facts, NotificationVisibility visibility) {
         this.jdbc = jdbc;
         this.calendar = calendar;
         this.clock = clock;
         this.outbox = outbox;
         this.baseUrl = baseUrl;
         this.facts = facts;
-        this.access = access;
+        this.visibility = visibility;
     }
 
     private record Candidate(UUID userId, EmailCadence cadence, Instant lastDigestAt) {}
@@ -122,7 +116,8 @@ public class DigestService {
         for (var r : jdbc.queryForList("""
                 SELECT id, type, title, link_path, subject_type, subject_id, case_id FROM notification
                  WHERE recipient_user_id = ? AND email_state = 'DIGEST_PENDING' ORDER BY type, id DESC""", c.userId())) {
-            if (stillVisible(c.userId(), r)) rows.add(r);
+            if (visibility.visibleNow(c.userId(), (String) r.get("subject_type"), (UUID) r.get("subject_id"),
+                    (UUID) r.get("case_id"))) rows.add(r);
         }
         if (rows.isEmpty()) return false;
         String heading = switch (c.cadence()) {
@@ -150,48 +145,5 @@ public class DigestService {
                     at, r.get("id"));
         }
         return true;
-    }
-
-    /**
-     * The recipient's CURRENT access to what the row is about, never broader than the gate the
-     * pipeline applied when it was written: the subject under its own permission where it had one
-     * (task, document, agreement, customer), a comment on its commented task (task.view) or on its
-     * journey (case.view) exactly as TaskNotifications gated it, a workflow-published row on a case
-     * of that template the recipient owns and can view (WorkflowNotifications gated on the first
-     * such case), and otherwise the case. A row with nothing to check against fails closed.
-     */
-    private boolean stillVisible(UUID userId, Map<String, Object> row) {
-        String subjectType = (String) row.get("subject_type");
-        UUID subjectId = (UUID) row.get("subject_id");
-        UUID caseId = (UUID) row.get("case_id");
-        if (subjectType != null) {
-            switch (subjectType) {
-                case "task" -> { return access.canView(userId, PermissionKeys.TASK_VIEW, Task.class, subjectId); }
-                case "document" -> { return access.canView(userId, PermissionKeys.DOCUMENT_VIEW, Document.class, subjectId); }
-                case "agreement" -> { return access.canView(userId, PermissionKeys.AGREEMENT_VIEW, Agreement.class, subjectId); }
-                case "customer" -> { return access.canView(userId, PermissionKeys.CUSTOMER_VIEW, Customer.class, subjectId); }
-                case "comment" -> { return commentVisible(userId, subjectId); }
-                case "workflow_version" -> { return workflowVersionVisible(userId, subjectId); }
-                default -> { }
-            }
-        }
-        return caseId != null && access.canView(userId, PermissionKeys.CASE_VIEW, Case.class, caseId);
-    }
-
-    private boolean commentVisible(UUID userId, UUID commentId) {
-        var rows = jdbc.queryForList("SELECT resource_type, resource_id, case_id FROM comment WHERE id = ?", commentId);
-        if (rows.isEmpty()) return false;
-        var c = rows.get(0);
-        if ("task".equals(c.get("resource_type"))) {
-            return access.canView(userId, PermissionKeys.TASK_VIEW, Task.class, (UUID) c.get("resource_id"));
-        }
-        return access.canView(userId, PermissionKeys.CASE_VIEW, Case.class, (UUID) c.get("case_id"));
-    }
-
-    private boolean workflowVersionVisible(UUID userId, UUID versionId) {
-        List<UUID> cases = jdbc.queryForList("""
-                SELECT c.id FROM onboarding_case c JOIN workflow_version v ON v.template_id = c.template_id
-                 WHERE v.id = ? AND c.owner_user_id = ? ORDER BY c.id""", UUID.class, versionId, userId);
-        return cases.stream().anyMatch(id -> access.canView(userId, PermissionKeys.CASE_VIEW, Case.class, id));
     }
 }
