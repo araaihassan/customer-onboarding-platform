@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -23,6 +24,7 @@ import java.util.UUID;
  *   <li>{@link #tenantSlug} -- the bound tenant's slug, for link paths.</li>
  *   <li>{@link #caseFacts} -- a case's name, customer, owner and pinned template/version.</li>
  *   <li>{@link #task} -- a task's title, case, assignee and due date.</li>
+ *   <li>{@link #earlierCommenters} / {@link #commentBody} -- a comment thread's earlier authors, and one body.</li>
  *   <li>{@link #caseAudience} -- the case owner plus every ACTIVE case participant.</li>
  *   <li>{@link #activeInternalEmail} -- an address only for an ACTIVE INTERNAL user.</li>
  *   <li>{@link #userName} -- a user's full name, or "Someone".</li>
@@ -60,6 +62,23 @@ public class SubjectFacts {
         return jdbc.queryForObject("SELECT id, title, case_id, assignee_id, due_date FROM task WHERE id = ?",
                 (rs, i) -> new TaskFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class),
                         rs.getObject(4, UUID.class), rs.getObject(5, LocalDate.class)), taskId);
+    }
+
+    /**
+     * Distinct authors on the same thread as {@code commentId}, written at or before it. Compares
+     * {@code resource_type} within the one table, so it is independent of the stored spelling.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<UUID> earlierCommenters(UUID commentId) {
+        return jdbc.queryForList("""
+                SELECT DISTINCT e.author_id FROM comment e JOIN comment c
+                  ON c.resource_type = e.resource_type AND c.resource_id = e.resource_id
+                 WHERE c.id = ? AND e.id <> c.id AND e.created_at <= c.created_at""", UUID.class, commentId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String commentBody(UUID commentId) {
+        return jdbc.queryForObject("SELECT body FROM comment WHERE id = ?", String.class, commentId);
     }
 
     @Transactional(propagation = Propagation.MANDATORY)

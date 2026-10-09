@@ -83,8 +83,17 @@ public class NotificationTestSupport {
                 tenant, recipientUserId);
     }
 
-    /** A fresh role holding exactly {@code grants}, assigned to {@code user}. Call outside runAs. */
-    public void grant(UUID tenant, UUID user, Map<String, Scope> grants) {
-        fixture.runAs(tenant, () -> roles.assignRole(user, roles.createRole("r-" + Uuid7.generate(), "", grants)));
+    /** A fresh role holding exactly {@code grants}, assigned to {@code user}; returns the role id. Call outside runAs. */
+    public UUID grant(UUID tenant, UUID user, Map<String, Scope> grants) {
+        return fixture.runAsReturning(tenant, () -> {
+            UUID role = roles.createRole("r-" + Uuid7.generate(), "", grants);
+            roles.assignRole(user, role);
+            return role;
+        });
+    }
+
+    /** Takes a role {@link #grant} gave back off {@code user}. Call outside runAs. */
+    public void revoke(UUID tenant, UUID user, UUID roleId) {
+        fixture.runAs(tenant, () -> roles.unassignRole(user, roleId));
     }
 }

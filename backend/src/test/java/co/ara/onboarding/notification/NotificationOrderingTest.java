@@ -5,6 +5,9 @@ import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.sla.SlaTestSupport;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
+import co.ara.onboarding.task.CommentResourceType;
+import co.ara.onboarding.task.CommentService;
+import co.ara.onboarding.task.CreateCommentRequest;
 import co.ara.onboarding.task.CreateTaskRequest;
 import co.ara.onboarding.task.TaskPriority;
 import co.ara.onboarding.task.TaskService;
@@ -28,6 +31,7 @@ class NotificationOrderingTest extends PostgresTestBase {
     @Autowired SlaTestSupport sla;
     @Autowired TaskService tasks;
     @Autowired NotificationTestSupport support;
+    @Autowired CommentService comments;
 
     /** Cause before effect: the cause's audit row is not later than the notification it led to. */
     private void assertCauseFirst(UUID tenant, String cause) {
@@ -75,5 +79,23 @@ class NotificationOrderingTest extends PostgresTestBase {
 
         assertThat(support.rowsFor(t, carol)).hasSize(1);
         assertCauseFirst(t, "task.assigned");
+    }
+
+    @Test
+    void commentingIsRecordedBeforeItsNotification() {
+        UUID t = fixture.createTenant("order-comment-added");
+        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@order-comment-added.test"));
+        support.grant(t, owner, Map.of(PermissionKeys.CASE_VIEW, Scope.ALL));
+        UUID caseId = fixture.runAsReturning(t, () ->
+                sla.openFor(fixture.createCustomerOwnedBy(t, "Acme", owner)));
+        UUID author = fixture.runAsReturning(t, () -> fixture.createUser(t, "author@order-comment-added.test"));
+        support.grant(t, author, Map.of(PermissionKeys.COMMENT_CREATE, Scope.ALL));
+
+        // A journey comment: the owner is the only candidate and the only notification.sent row.
+        fixture.runAsUser(t, author, () -> comments.create(caseId,
+                new CreateCommentRequest(CommentResourceType.CASE, caseId, "Kick-off booked")));
+
+        assertThat(support.rowsFor(t, owner)).hasSize(1);
+        assertCauseFirst(t, "comment.added");
     }
 }
