@@ -69,10 +69,13 @@ class DocumentNotificationTest extends PostgresTestBase {
         return u;
     }
 
-    /** May create, list and fulfil requests and see documents (write scope needs workflow.view). */
+    /**
+     * May create, list and fulfil requests and see documents (write scope needs workflow.view), and view
+     * the case: the full text names the case and customer, which only a case viewer is told.
+     */
     private static Map<String, Scope> requester() {
         return Map.of(PermissionKeys.DOCUMENT_REQUEST, Scope.ALL, PermissionKeys.DOCUMENT_VIEW, Scope.ALL,
-                PermissionKeys.WORKFLOW_VIEW, Scope.ALL);
+                PermissionKeys.WORKFLOW_VIEW, Scope.ALL, PermissionKeys.CASE_VIEW, Scope.ALL);
     }
 
     private UUID ownedCase(UUID t, UUID owner, String customer) {
@@ -218,6 +221,10 @@ class DocumentNotificationTest extends PostgresTestBase {
         assertThat(row.get("body")).isEqualTo("Tax 2025.pdf on SLA case.");
         assertThat(row.get("dedupe_key")).isEqualTo("UPLOADED:" + documentId);
         assertThat(rowsOfType(t, fulfiller, NotificationType.DOCUMENT_UPLOADED)).isEmpty();
+        // The owner holds document.view but not case.view: told of the document, not the customer or journey.
+        assertThat(ownerRows.get(0).get("title")).isEqualTo("A document was uploaded");
+        assertThat(ownerRows.get(0).get("body")).isEqualTo("Tax 2025.pdf.");
+        assertThat(ownerRows.get(0).get("link_path")).isEqualTo(Links.documentsLink("doc-notify-uploaded"));
     }
 
     /** Review Focus 1: targeting binds a recipient holding document.view at ALL. */
@@ -268,7 +275,12 @@ class DocumentNotificationTest extends PostgresTestBase {
         assertThat(approved.get(0).get("tone")).isEqualTo("OK");
         assertThat((String) approved.get(0).get("title")).isEqualTo("Tax 2025.pdf approved");
         assertThat(approved.get(0).get("body")).isEqualTo("Version 1 on SLA case.");
-        assertThat(rowsOfType(t, owner, NotificationType.DOCUMENT_DECIDED)).hasSize(1);
+        var ownerApproved = rowsOfType(t, owner, NotificationType.DOCUMENT_DECIDED);
+        assertThat(ownerApproved).hasSize(1);
+        // document.view without case.view: the case-free text and the documents index, not the case page.
+        assertThat(ownerApproved.get(0).get("title")).isEqualTo("Tax 2025.pdf approved");
+        assertThat(ownerApproved.get(0).get("body")).isEqualTo("Version 1.");
+        assertThat(ownerApproved.get(0).get("link_path")).isEqualTo(Links.documentsLink("doc-notify-reviewed"));
 
         // A second look changes the decision; the new decision is what the new row says.
         fixture.runAsUser(t, reviewer, () -> reviews.review(documentId, 1, ReviewDecision.REJECTED, "Unsigned"));

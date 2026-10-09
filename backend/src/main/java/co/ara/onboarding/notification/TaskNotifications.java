@@ -30,10 +30,12 @@ public class TaskNotifications {
         var task = facts.task(e.taskId());
         var kase = facts.caseFacts(e.caseId());
         String due = task.dueDate() == null ? "" : ", due " + task.dueDate();
+        String title = "Task assigned to you: " + Text.clip(task.title(), 80);
+        String quoted = "\"" + Text.clip(task.title(), 120) + "\"";
         var draft = new NotificationPipeline.Draft(NotificationType.TASK_ASSIGNED, "task", task.id(), kase.id(),
-                "Task assigned to you: " + Text.clip(task.title(), 80),
-                "\"" + Text.clip(task.title(), 120) + "\" on " + kase.name() + " (" + kase.customerName() + ")" + due + ".",
-                Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), Tone.INFO, null);
+                title, quoted + " on " + kase.name() + " (" + kase.customerName() + ")" + due + ".",
+                Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), Tone.INFO, null)
+                .orWithoutCase(title, quoted + due + ".", Links.workLink(facts.tenantSlug()));
         pipeline.deliver(draft, List.of(e.assigneeId()), e.actorId(),
                 new NotificationPipeline.Visibility(PermissionKeys.TASK_VIEW, Task.class, task.id()));
     }
@@ -60,10 +62,15 @@ public class TaskNotifications {
             about = kase.name();
         }
         candidates.addAll(facts.earlierCommenters(e.commentId()));
+        String title = "New comment on " + Text.clip(about, 90);
+        String author = facts.userName(e.authorId());
+        // A task thread is gated task.view, but a comment is read under case.view: a recipient who
+        // cannot view the case is told only that a comment was added, never its text (the journey
+        // thread is gated on the case itself, so its variant is never used).
         var draft = new NotificationPipeline.Draft(NotificationType.NEW_COMMENT, "comment", e.commentId(), kase.id(),
-                "New comment on " + Text.clip(about, 90),
-                facts.userName(e.authorId()) + ": " + Text.clip(facts.commentBody(e.commentId()), 300),
-                Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), Tone.INFO, null);
+                title, author + ": " + Text.clip(facts.commentBody(e.commentId()), 300),
+                Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), Tone.INFO, null)
+                .orWithoutCase(title, author + " added a comment.", Links.workLink(facts.tenantSlug()));
         pipeline.deliver(draft, candidates, e.authorId(), visibility);
     }
 }

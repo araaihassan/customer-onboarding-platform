@@ -7,6 +7,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -47,9 +48,14 @@ public class AgreementNotifications {
         Set<UUID> candidates = new LinkedHashSet<>();
         if (a.ownerUserId() != null) candidates.add(a.ownerUserId());
         if (kase.ownerUserId() != null) candidates.add(kase.ownerUserId());
+        String title = Text.clip(a.name(), 80) + ": " + WORDS.get(e.change());
+        // agreement.view does not imply case.view: a recipient who cannot view the case is not told its
+        // or the customer's name, and is sent to the agreements screen rather than a case page that 404s.
         var draft = new NotificationPipeline.Draft(NotificationType.AGREEMENT_STATUS, "agreement", a.id(), kase.id(),
-                Text.clip(a.name(), 80) + ": " + WORDS.get(e.change()), kase.name() + " (" + kase.customerName() + ")",
-                Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), tone, null);
+                title, kase.name() + " (" + kase.customerName() + ")",
+                Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), tone, null)
+                .orWithoutCase(title, "Agreement " + WORDS.get(e.change()).toLowerCase(Locale.ROOT) + ".",
+                        Links.agreementsLink(facts.tenantSlug()));
         pipeline.deliver(draft, candidates, e.actorId(),
                 new NotificationPipeline.Visibility(PermissionKeys.AGREEMENT_VIEW, Agreement.class, a.id()));
     }

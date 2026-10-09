@@ -54,7 +54,11 @@ class TaskNotificationTest extends PostgresTestBase {
                 PermissionKeys.TASK_MANAGE, Scope.ALL, PermissionKeys.TASK_VIEW, Scope.ALL,
                 PermissionKeys.TASK_COMPLETE, Scope.ALL, PermissionKeys.CASE_VIEW, Scope.ALL,
                 PermissionKeys.WORKFLOW_VIEW, Scope.ALL, PermissionKeys.USER_VIEW, Scope.ALL));
-        for (UUID u : List.of(bob, carol)) support.grant(t, u, Map.of(PermissionKeys.TASK_VIEW, Scope.ALL));
+        // Case viewers too: the full body and the case link below are what a case viewer receives;
+        // a task.view-only assignee gets the case-free text (CaseDetailRedactionTest).
+        for (UUID u : List.of(bob, carol)) {
+            support.grant(t, u, Map.of(PermissionKeys.TASK_VIEW, Scope.ALL, PermissionKeys.CASE_VIEW, Scope.ALL));
+        }
         return new World(t, caseId, milestoneId, actor, bob, carol, blind);
     }
 

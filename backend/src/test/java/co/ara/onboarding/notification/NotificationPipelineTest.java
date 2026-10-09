@@ -61,20 +61,78 @@ class NotificationPipelineTest extends PostgresTestBase {
         fixture.runAs(t, () -> roles.assignRole(user, roles.createRole("r-" + user, "", grants)));
     }
 
+    /** A producer-shaped draft: case detail in the body, plus the case-free variant every task draft carries. */
     private NotificationPipeline.Draft draft(World w, String dedupe) {
+        return bareDraft(w, dedupe).orWithoutCase("Task assigned to you: Chase", "case-free body", "/t/x/work");
+    }
+
+    /** As {@link #draft}, without a case-free variant. */
+    private NotificationPipeline.Draft bareDraft(World w, String dedupe) {
         return new NotificationPipeline.Draft(NotificationType.TASK_ASSIGNED, "task", w.taskId(), w.caseId(),
                 "Task assigned to you: Chase", "body", "/t/" + "x" + "/path", Tone.INFO, dedupe);
     }
 
+    private NotificationPipeline.Visibility taskGate(World w) {
+        return new NotificationPipeline.Visibility(PermissionKeys.TASK_VIEW, Task.class, w.taskId());
+    }
+
     private int deliver(World w, List<UUID> to, String dedupe) {
-        return deliver(w, to, dedupe, new NotificationPipeline.Visibility(PermissionKeys.TASK_VIEW, Task.class, w.taskId()));
+        return deliver(w, to, dedupe, taskGate(w));
     }
 
     private int deliver(World w, List<UUID> to, String dedupe, NotificationPipeline.Visibility visibility) {
+        return deliver(w, draft(w, dedupe), to, visibility);
+    }
+
+    private int deliver(World w, NotificationPipeline.Draft draft, List<UUID> to, NotificationPipeline.Visibility visibility) {
         var written = new int[1];
-        fixture.runAsUser(w.tenant(), w.actor(), () -> written[0] = pipeline.deliver(draft(w, dedupe), to, w.actor(),
-                visibility));
+        fixture.runAsUser(w.tenant(), w.actor(), () -> written[0] = pipeline.deliver(draft, to, w.actor(), visibility));
         return written[0];
+    }
+
+    /** Final-review Important 1, at the mechanism: task.view without case.view gets the case-free text. */
+    @Test
+    void aRecipientWhoSeesTheSubjectButNotTheCaseGetsTheCaseFreeTextEverywhere() {
+        var w = world("pipe-casefree");
+        UUID taskOnly = fixture.runAsReturning(w.tenant(), () -> fixture.createUser(w.tenant(), "taskonly@pipe-casefree.test"));
+        grant(w.tenant(), taskOnly, Map.of(PermissionKeys.TASK_VIEW, Scope.ALL));
+
+        assertThat(deliver(w, List.of(taskOnly, w.viewer()), null)).isEqualTo(2);
+        var hidden = support.rowsFor(w.tenant(), taskOnly).get(0);
+        assertThat(hidden.get("body")).isEqualTo("case-free body");
+        assertThat(hidden.get("link_path")).isEqualTo("/t/x/work");
+        var full = support.rowsFor(w.tenant(), w.viewer()).get(0);        // positive control: case.view holder
+        assertThat(full.get("body")).isEqualTo("body");
+        assertThat(full.get("link_path")).isEqualTo("/t/x/path");
+        var mail = support.outbox(w.tenant()).stream()
+                .filter(r -> taskOnly.equals(r.get("recipient_user_id"))).toList();
+        assertThat(mail).hasSize(1);
+        assertThat(mail.get(0).get("body")).isEqualTo("case-free body");
+        assertThat(mail.get(0).get("link_path")).isEqualTo("/t/x/work");
+    }
+
+    @Test
+    void aDraftWithNoCaseFreeVariantIsNotDeliveredToSomeoneWhoCannotViewTheCase() {
+        var w = world("pipe-casefree-none");
+        UUID taskOnly = fixture.runAsReturning(w.tenant(), () -> fixture.createUser(w.tenant(), "taskonly@pipe-casefree-none.test"));
+        grant(w.tenant(), taskOnly, Map.of(PermissionKeys.TASK_VIEW, Scope.ALL));
+
+        assertThat(deliver(w, bareDraft(w, null), List.of(taskOnly, w.viewer()), taskGate(w))).isEqualTo(1);
+        assertThat(support.rowsFor(w.tenant(), taskOnly)).isEmpty();
+        assertThat(support.rowsFor(w.tenant(), w.viewer())).hasSize(1);   // positive control
+    }
+
+    @Test
+    void aConsumedMarkerForSomeoneWhoCannotViewTheCaseStoresTheCaseFreeText() {
+        var w = world("pipe-casefree-marker");
+        UUID taskOnly = fixture.runAsReturning(w.tenant(), () -> fixture.createUser(w.tenant(), "taskonly@pipe-casefree-marker.test"));
+        grant(w.tenant(), taskOnly, Map.of(PermissionKeys.TASK_VIEW, Scope.ALL));
+        fixture.runAs(w.tenant(), () -> {
+            pipeline.consume(draft(w, "K:1"), taskOnly, taskGate(w));
+            pipeline.consume(draft(w, "K:2"), w.viewer(), taskGate(w));
+        });
+        assertThat(support.rowsFor(w.tenant(), taskOnly).get(0).get("body")).isEqualTo("case-free body");
+        assertThat(support.rowsFor(w.tenant(), w.viewer()).get(0).get("body")).isEqualTo("body");
     }
 
     private long sentAudits(UUID tenant) {
@@ -212,7 +270,7 @@ class NotificationPipelineTest extends PostgresTestBase {
     @Test
     void aConsumedMarkerIsInvisibleUnsentAndUnaudited() {
         var w = world("pipe-marker");
-        fixture.runAs(w.tenant(), () -> pipeline.consume(draft(w, "M1"), w.viewer()));
+        fixture.runAs(w.tenant(), () -> pipeline.consume(draft(w, "M1"), w.viewer(), taskGate(w)));
         var n = support.notifications(w.tenant()).get(0);
         assertThat(n.get("in_app")).isEqualTo(false);
         assertThat(n.get("email_state")).isEqualTo("NONE");
@@ -224,7 +282,7 @@ class NotificationPipelineTest extends PostgresTestBase {
     @Test
     void aMarkerNeedsADedupeKey() {
         var w = world("pipe-marker-nokey");
-        assertThatThrownBy(() -> fixture.runAs(w.tenant(), () -> pipeline.consume(draft(w, null), w.viewer())))
+        assertThatThrownBy(() -> fixture.runAs(w.tenant(), () -> pipeline.consume(draft(w, null), w.viewer(), taskGate(w))))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

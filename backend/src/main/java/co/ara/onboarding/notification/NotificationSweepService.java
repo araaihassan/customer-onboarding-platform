@@ -74,11 +74,13 @@ public class NotificationSweepService {
         for (var t : candidates.openTasksDueBefore(today)) {
             var kase = facts.caseFacts(t.caseId());
             int late = calendar.businessDaysBetween(t.date(), today);
+            String title = "Overdue: " + Text.clip(t.label(), 90);
+            String due = "due " + t.date() + (late > 0 ? ", " + late + " business day(s) ago." : ".");
             var draft = new NotificationPipeline.Draft(NotificationType.TASK_OVERDUE, "task", t.id(), kase.id(),
-                    "Overdue: " + Text.clip(t.label(), 90),
-                    kase.name() + ": due " + t.date() + (late > 0 ? ", " + late + " business day(s) ago." : "."),
+                    title, kase.name() + ": " + due,
                     Links.caseLink(slug, kase.customerId(), kase.id()), Tone.WARN,
-                    "TASK_OVERDUE:" + t.id() + ":" + t.date());
+                    "TASK_OVERDUE:" + t.id() + ":" + t.date())
+                    .orWithoutCase(title, "Task " + due, Links.workLink(slug));
             pipeline.deliver(draft, List.of(t.ownerUserId()), null,
                     new NotificationPipeline.Visibility(PermissionKeys.TASK_VIEW, Task.class, t.id()));
         }
@@ -114,11 +116,14 @@ public class NotificationSweepService {
         String when = away == 0 ? "today" : "in " + away + (kind.businessDays ? " business day(s)" : " day(s)");
         for (int i = 0; i < matching.size(); i++) {
             int lead = matching.get(i);
+            String title = Text.clip(item.label(), 90) + " is due " + when;
+            // Milestones and document requests are gated on the case itself; only a task's deadline can
+            // reach someone who cannot view the case, and they are pointed at their own work instead.
             var draft = new NotificationPipeline.Draft(NotificationType.DEADLINE_APPROACHING, subjectType, item.id(),
-                    kase.id(), Text.clip(item.label(), 90) + " is due " + when,
-                    kase.name() + " (" + kase.customerName() + "): due " + item.date() + ".",
+                    kase.id(), title, kase.name() + " (" + kase.customerName() + "): due " + item.date() + ".",
                     Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), Tone.WARN,
-                    "DEADLINE:" + kind + ":" + item.id() + ":" + item.date() + ":" + lead);
+                    "DEADLINE:" + kind + ":" + item.id() + ":" + item.date() + ":" + lead)
+                    .orWithoutCase(title, "Due " + item.date() + ".", Links.workLink(facts.tenantSlug()));
             if (i == 0) pipeline.deliver(draft, List.of(item.ownerUserId()), null, visibility);
             else pipeline.consume(draft, item.ownerUserId(), visibility);
         }
@@ -168,12 +173,16 @@ public class NotificationSweepService {
         List<Integer> matching = policy.horizons().get(kind).stream().filter(lead -> away <= lead).sorted().toList();
         if (matching.isEmpty()) return;
         var kase = facts.caseFacts(caseId);
+        String slug = facts.tenantSlug();
+        // Gated document.view / agreement.view, neither of which implies case.view.
+        String ownScreen = "agreement".equals(subjectType) ? Links.agreementsLink(slug) : Links.documentsLink(slug);
         for (int i = 0; i < matching.size(); i++) {
+            String title = what + (away == 0 ? " today" : " in " + away + " day(s)");
             var draft = new NotificationPipeline.Draft(NotificationType.EXPIRY_RENEWAL, subjectType, id, kase.id(),
-                    what + (away == 0 ? " today" : " in " + away + " day(s)"),
-                    kase.name() + " (" + kase.customerName() + "): " + date + ".",
-                    Links.caseLink(facts.tenantSlug(), kase.customerId(), kase.id()), Tone.WARN,
-                    "EXPIRY:" + kind + ":" + id + ":" + date + ":" + matching.get(i));
+                    title, kase.name() + " (" + kase.customerName() + "): " + date + ".",
+                    Links.caseLink(slug, kase.customerId(), kase.id()), Tone.WARN,
+                    "EXPIRY:" + kind + ":" + id + ":" + date + ":" + matching.get(i))
+                    .orWithoutCase(title, "On " + date + ".", ownScreen);
             if (i == 0) pipeline.deliver(draft, recipients, null, visibility);
             else for (UUID r : recipients) pipeline.consume(draft, r, visibility);
         }
