@@ -4,6 +4,7 @@ import co.ara.onboarding.auth.ActivationService;
 import co.ara.onboarding.auth.LoginService;
 import co.ara.onboarding.auth.MeService;
 import co.ara.onboarding.notification.InboxService;
+import co.ara.onboarding.notification.NotificationPreferenceService;
 import co.ara.onboarding.auth.PasswordResetService;
 import co.ara.onboarding.auth.LoginThrottleService;
 import co.ara.onboarding.auth.RefreshTokenService;
@@ -81,6 +82,9 @@ class AuthorizationCoverageTest {
      *   - InboxService (6B spec 7.3) -- the caller's own notifications only: every
      *     predicate carries recipient_user_id = caller, so another user's id and a
      *     cross-tenant id are both 404. Same basis as MeService.
+     *   - NotificationPreferenceService (6B spec 8) -- the caller's own preference
+     *     rows only: it takes no id from the request, and every read and upsert is
+     *     keyed on user_id = caller. Same basis as MeService and InboxService.
      *
      * Note what is NOT excluded: InvitationService. Issuing an invitation is an
      * authenticated staff action and invitation.send is a real catalogued permission,
@@ -136,6 +140,8 @@ class AuthorizationCoverageTest {
                      .and().areNotDeclaredIn(MeService.class)
                      // 6B spec 7.3: the caller's own rows only (recipient = caller in every predicate) -- MeService's basis.
                      .and().areNotDeclaredIn(InboxService.class)
+                     // 6B spec 8: the caller's own preference rows only (user_id = caller, no id taken) -- MeService's basis.
+                     .and().areNotDeclaredIn(NotificationPreferenceService.class)
                      // Spring Security SPI, not a domain service: invoked by the filter
                      // chain during authentication, never reachable from a controller.
                      .and().areDeclaredInClassesThat().areNotAssignableTo(UserDetailsService.class)
@@ -434,6 +440,8 @@ class AuthorizationCoverageTest {
                 .and().areNotAssignableTo(MeService.class)
                 // 6B spec 7.3: the caller's own rows only (recipient = caller in every predicate) -- MeService's basis.
                 .and().areNotAssignableTo(InboxService.class)
+                // 6B spec 8: the caller's own preference rows only (user_id = caller, no id taken) -- MeService's basis.
+                .and().areNotAssignableTo(NotificationPreferenceService.class)
                 // Every exemption from the injection-shaped rule is a named line in
                 // FINDER_RULE_EXCLUSIONS above, not a naming choice that happens to
                 // dodge a suffix match.

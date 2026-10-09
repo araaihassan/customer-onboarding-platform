@@ -345,4 +345,5 @@ public final class AuditActions {
 
     // Notifications (sub-project 6B). All compliance-only (6B spec 4.7).
     public static final AuditAction EMAIL_FAILED = of("email.failed", false);
+    public static final AuditAction NOTIFICATION_PREFERENCES_CHANGED = of("notification.preferences_changed", false);
 }
