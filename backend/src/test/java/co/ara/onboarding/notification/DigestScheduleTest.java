@@ -2,7 +2,15 @@ package co.ara.onboarding.notification;
 
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.Scope;
+import co.ara.onboarding.journey.CaseService;
+import co.ara.onboarding.journey.CreateCaseRequest;
+import co.ara.onboarding.journey.JourneyFixtures;
 import co.ara.onboarding.scheduling.DigestJob;
+import co.ara.onboarding.task.CommentResourceType;
+import co.ara.onboarding.task.CommentService;
+import co.ara.onboarding.task.CreateCommentRequest;
+import co.ara.onboarding.workflow.PublishService;
+import co.ara.onboarding.workflow.WorkflowService;
 import co.ara.onboarding.sla.SlaTestSupport;
 import co.ara.onboarding.support.PostgresTestBase;
 import co.ara.onboarding.support.TenantFixture;
@@ -42,6 +50,11 @@ class DigestScheduleTest extends PostgresTestBase {
     @Autowired TaskService tasks;
     @Autowired NotificationTestSupport support;
     @Autowired DigestJob job;
+    @Autowired CommentService comments;
+    @Autowired JourneyFixtures journey;
+    @Autowired CaseService cases;
+    @Autowired WorkflowService workflows;
+    @Autowired PublishService publishService;
 
     private static final Map<String, Scope> VIEWER = Map.of(
             PermissionKeys.TASK_VIEW, Scope.ALL, PermissionKeys.CASE_VIEW, Scope.ALL);
@@ -189,10 +202,12 @@ class DigestScheduleTest extends PostgresTestBase {
         ownerJdbc().update("update business_calendar set timezone = 'Pacific/Auckland' where tenant_id = ?", w.t());
         assign(w, "Chase KYC");
 
-        advanceTo(auckland, DayOfWeek.TUESDAY, LocalTime.of(7, 55));
+        advanceTo(auckland, DayOfWeek.TUESDAY, LocalTime.of(7, 59, 59));
         assertThat(job.runOne(w.t())).isZero();
 
-        advanceTo(auckland, DayOfWeek.TUESDAY, LocalTime.of(8, 5));
+        clock.advance(Duration.ofSeconds(2));   // exactly 08:00:01 Auckland
+        assertThat(clock.instant().atZone(auckland).toLocalTime().truncatedTo(java.time.temporal.ChronoUnit.SECONDS))
+                .isEqualTo(LocalTime.of(8, 0, 1));
         assertThat(clock.instant().atZone(ZoneOffset.UTC).getHour()).isNotEqualTo(8);
         assertThat(job.runOne(w.t())).isEqualTo(1);
         assertThat(digests(w.t())).hasSize(1);
@@ -242,6 +257,109 @@ class DigestScheduleTest extends PostgresTestBase {
         assertThat(FlakyEmail.recipients()).containsExactly(other.email());
         assertThat(FlakyEmail.sent.get(0).body()).doesNotContain("Secret KYC");
         assertThat(states(w.t(), w.user())).containsOnly("DIGEST_PENDING");
+    }
+
+    private UUID tenantWithConfig(String slug) {
+        UUID t = fixture.createTenant(slug);
+        ownerJdbc().update("insert into business_calendar (id, tenant_id, created_at, updated_at) "
+                + "values (gen_random_uuid(), ?, now(), now()) on conflict (tenant_id) do nothing", t);
+        ownerJdbc().update("insert into notification_policy (id, tenant_id, created_at, updated_at) "
+                + "values (gen_random_uuid(), ?, now(), now()) on conflict (tenant_id) do nothing", t);
+        return t;
+    }
+
+    private UUID dailyUser(UUID t, String email, Map<String, Scope> grants) {
+        UUID u = fixture.runAsReturning(t, () -> fixture.createUser(t, email));
+        support.grant(t, u, grants);
+        setCadence(t, u, "DAILY");
+        return u;
+    }
+
+    private static final Map<String, Scope> COMMENTER = Map.of(
+            PermissionKeys.COMMENT_CREATE, Scope.ALL, PermissionKeys.TASK_VIEW, Scope.ALL,
+            PermissionKeys.CASE_VIEW, Scope.ALL);
+
+    /** A comment row is gated on the commented task's task.view, as the pipeline gated it: case.view alone is not enough. */
+    @Test
+    void aTaskCommentIsWithheldFromARecipientWhoLostTaskViewButStillHoldsCaseView() {
+        UUID t = tenantWithConfig("dg-comment");
+        UUID caseId = fixture.runAsReturning(t, () -> sla.caseWithSla(t, 5, true));
+        UUID milestoneId = fixture.runAsReturning(t, () -> sla.milestoneIdAt(caseId, 0));
+        UUID manager = fixture.runAsReturning(t, () -> fixture.createUser(t, "manager@dg-comment.test"));
+        support.grant(t, manager, Map.of(PermissionKeys.TASK_MANAGE, Scope.ALL, PermissionKeys.TASK_VIEW, Scope.ALL,
+                PermissionKeys.CASE_VIEW, Scope.ALL, PermissionKeys.WORKFLOW_VIEW, Scope.ALL,
+                PermissionKeys.USER_VIEW, Scope.ALL));
+        UUID bob = fixture.runAsReturning(t, () -> fixture.createUser(t, "bob@dg-comment.test"));
+        UUID bobsRole = support.grant(t, bob, COMMENTER);
+        setCadence(t, bob, "DAILY");
+        UUID eve = dailyUser(t, "eve@dg-comment.test", COMMENTER);          // positive control
+        UUID carol = dailyUser(t, "carol@dg-comment.test", COMMENTER);
+        UUID[] task = new UUID[1];
+        fixture.runAsUser(t, manager, () -> task[0] = tasks.create(caseId, new CreateTaskRequest(
+                milestoneId, null, "Chase the KYC pack", null, TaskPriority.MEDIUM, bob, null)).id());
+        fixture.runAsUser(t, eve, () -> comments.create(caseId, new CreateCommentRequest(
+                CommentResourceType.TASK, task[0], "Eve opened the thread")));
+        fixture.runAsUser(t, carol, () -> comments.create(caseId, new CreateCommentRequest(
+                CommentResourceType.TASK, task[0], "Carol says the customer is unhappy")));
+        // bob keeps case.view but loses task.view for the task.
+        support.revoke(t, bob, bobsRole);
+        support.grant(t, bob, Map.of(PermissionKeys.CASE_VIEW, Scope.ALL));
+
+        advanceTo(ZoneOffset.UTC, DayOfWeek.TUESDAY, LocalTime.of(8, 5));
+        job.runOne(t);
+
+        assertThat(FlakyEmail.recipients()).contains("eve@dg-comment.test").doesNotContain("bob@dg-comment.test");
+        assertThat(FlakyEmail.lastTo("eve@dg-comment.test").body()).contains("New comment on \"Chase the KYC pack\"");
+        assertThat(states(t, bob)).contains("DIGEST_PENDING").doesNotContain("DIGESTED");
+    }
+
+    /** WORKFLOW_PUBLISHED rows have no case id; they are gated on a case of that template the owner can view. */
+    @Test
+    void aWorkflowPublishedRowReachesADailyOwnerWhoCanSeeTheCaseAndNotOneWhoCannot() {
+        UUID t = tenantWithConfig("dg-wf");
+        UUID alice = dailyUser(t, "alice@dg-wf.test", Map.of(PermissionKeys.CASE_VIEW, Scope.ALL));
+        UUID bob = fixture.runAsReturning(t, () -> fixture.createUser(t, "bob@dg-wf.test"));
+        UUID bobsRole = support.grant(t, bob, Map.of(PermissionKeys.CASE_VIEW, Scope.ALL));
+        setCadence(t, bob, "DAILY");
+        for (UUID u : List.of(alice, bob)) {   // email is opt-in for this type
+            ownerJdbc().update("insert into notification_preference (id, tenant_id, user_id, type, in_app_enabled, email_enabled, "
+                    + "created_at, updated_at) values (gen_random_uuid(), ?, ?, 'WORKFLOW_PUBLISHED', true, true, now(), now())", t, u);
+        }
+        UUID templateId = fixture.runAsReturning(t, () -> journey.publishedTemplate());
+        for (UUID owner : List.of(alice, bob)) {
+            fixture.runAs(t, () -> {
+                UUID customer = fixture.createCustomerOwnedBy(t, "Cust " + owner, owner);
+                cases.create(new CreateCaseRequest(customer, templateId, "Case " + owner, Map.of()));
+            });
+        }
+        fixture.runAs(t, () -> publishService.publish(workflows.createDraft(templateId)));
+        assertThat(states(t, alice)).containsExactly("DIGEST_PENDING");
+        assertThat(states(t, bob)).containsExactly("DIGEST_PENDING");
+        support.revoke(t, bob, bobsRole);
+
+        advanceTo(ZoneOffset.UTC, DayOfWeek.TUESDAY, LocalTime.of(8, 5));
+        job.runOne(t);
+
+        assertThat(FlakyEmail.recipients()).containsExactly("alice@dg-wf.test");
+        assertThat(FlakyEmail.lastTo("alice@dg-wf.test").body()).contains("is live");
+        assertThat(states(t, alice)).containsExactly("DIGESTED");
+        assertThat(states(t, bob)).containsExactly("DIGEST_PENDING");
+    }
+
+    @Test
+    void theSendTimeIsEightOClockWallClockOnADstChangeDay() {
+        // Pacific/Auckland springs forward on Sunday 2026-09-27 (02:00 NZST -> 03:00 NZDT). That day's
+        // midnight is 2026-09-26T12:00Z (UTC+12) but 08:00 wall-clock is 2026-09-26T19:00Z (UTC+13);
+        // "midnight + 8h" would say 20:00Z, an hour late. Every weekday is working so Sunday counts.
+        var w = world("dg-dst", "DAILY");
+        ownerJdbc().update("update business_calendar set timezone = 'Pacific/Auckland', "
+                + "working_days = '{1,2,3,4,5,6,7}' where tenant_id = ?", w.t());
+        assign(w, "Chase KYC");
+        Instant target = Instant.parse("2026-09-26T19:00:00Z");
+        clock.advance(Duration.between(clock.instant(), target.minusSeconds(300)));
+        assertThat(job.runOne(w.t())).isZero();
+        clock.advance(Duration.ofSeconds(600));
+        assertThat(job.runOne(w.t())).isEqualTo(1);
     }
 
     @Test

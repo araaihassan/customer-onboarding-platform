@@ -22,6 +22,7 @@ class SlaClockReaderTest {
             public LocalDate today() { return r.today(clock); }
             public LocalDate localDate(Instant i) { return r.localDate(i); }
             public Instant startOfDay(LocalDate d) { return r.startOfDay(d); }
+            public ZoneId zone() { return r.zone(); }
             public String name() { return "Test calendar"; }
         };
     }

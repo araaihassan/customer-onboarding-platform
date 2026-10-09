@@ -76,7 +76,7 @@ public class DigestService {
     public int run() {
         Instant now = Instant.now(clock);
         LocalDate today = calendar.today();
-        Instant sendAt = calendar.startOfDay(today).plus(Duration.between(LocalTime.MIDNIGHT, SEND_AT));
+        Instant sendAt = today.atTime(SEND_AT).atZone(calendar.zone()).toInstant();   // wall-clock 08:00, DST-correct
         boolean workingDay = calendar.businessDaysBetween(today, today.plusDays(1)) == 1;
         // No working day in [Monday, today) means today is the week's first working day.
         boolean firstWorkingDayOfWeek = workingDay && calendar.businessDaysBetween(
@@ -153,8 +153,12 @@ public class DigestService {
     }
 
     /**
-     * The recipient's CURRENT access to what the row is about: the subject under its own permission
-     * where the pipeline gated on it, otherwise the case. A row with nothing to check against fails closed.
+     * The recipient's CURRENT access to what the row is about, never broader than the gate the
+     * pipeline applied when it was written: the subject under its own permission where it had one
+     * (task, document, agreement, customer), a comment on its commented task (task.view) or on its
+     * journey (case.view) exactly as TaskNotifications gated it, a workflow-published row on a case
+     * of that template the recipient owns and can view (WorkflowNotifications gated on the first
+     * such case), and otherwise the case. A row with nothing to check against fails closed.
      */
     private boolean stillVisible(UUID userId, Map<String, Object> row) {
         String subjectType = (String) row.get("subject_type");
@@ -166,9 +170,28 @@ public class DigestService {
                 case "document" -> { return access.canView(userId, PermissionKeys.DOCUMENT_VIEW, Document.class, subjectId); }
                 case "agreement" -> { return access.canView(userId, PermissionKeys.AGREEMENT_VIEW, Agreement.class, subjectId); }
                 case "customer" -> { return access.canView(userId, PermissionKeys.CUSTOMER_VIEW, Customer.class, subjectId); }
+                case "comment" -> { return commentVisible(userId, subjectId); }
+                case "workflow_version" -> { return workflowVersionVisible(userId, subjectId); }
                 default -> { }
             }
         }
         return caseId != null && access.canView(userId, PermissionKeys.CASE_VIEW, Case.class, caseId);
+    }
+
+    private boolean commentVisible(UUID userId, UUID commentId) {
+        var rows = jdbc.queryForList("SELECT resource_type, resource_id, case_id FROM comment WHERE id = ?", commentId);
+        if (rows.isEmpty()) return false;
+        var c = rows.get(0);
+        if ("task".equals(c.get("resource_type"))) {
+            return access.canView(userId, PermissionKeys.TASK_VIEW, Task.class, (UUID) c.get("resource_id"));
+        }
+        return access.canView(userId, PermissionKeys.CASE_VIEW, Case.class, (UUID) c.get("case_id"));
+    }
+
+    private boolean workflowVersionVisible(UUID userId, UUID versionId) {
+        List<UUID> cases = jdbc.queryForList("""
+                SELECT c.id FROM onboarding_case c JOIN workflow_version v ON v.template_id = c.template_id
+                 WHERE v.id = ? AND c.owner_user_id = ? ORDER BY c.id""", UUID.class, versionId, userId);
+        return cases.stream().anyMatch(id -> access.canView(userId, PermissionKeys.CASE_VIEW, Case.class, id));
     }
 }

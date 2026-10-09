@@ -19,6 +19,8 @@ public interface BusinessCalendar {
     LocalDate localDate(Instant instant);
     /** Midnight at the start of a tenant-zone date. */
     Instant startOfDay(LocalDate d);
+    /** The tenant's timezone, for wall-clock times (a daily send time) that must follow DST. */
+    java.time.ZoneId zone();
     /** The calendar's display name, e.g. for the war room eyebrow. */
     String name();
 }
