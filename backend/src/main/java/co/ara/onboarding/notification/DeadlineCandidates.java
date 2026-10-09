@@ -95,4 +95,20 @@ public class DeadlineCandidates {
                  WHERE a.status <> 'CANCELLED' AND (a.expires_at IS NOT NULL OR a.renewal_date IS NOT NULL)
                    AND c.status NOT IN ('ON_HOLD','CANCELLED')""");
     }
+
+    /**
+     * OPEN requests with an ACTIVE contact, on a case that is neither held nor cancelled, under the cap.
+     * The 24-hour floor is deliberately NOT filtered here: it is measured against the application Clock
+     * (the database's now() can disagree with it, and the tests move only the former), so
+     * remindAutomatically owns it. Columns id, requested_at, last_reminded_at.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<Map<String, Object>> remindableRequests(int max) {
+        return jdbc.queryForList("""
+                SELECT r.id, r.requested_at, r.last_reminded_at FROM document_request r
+                  JOIN customer_contact k ON k.id = r.requested_of_contact_id AND k.status = 'ACTIVE'
+                  JOIN onboarding_case c ON c.id = r.case_id
+                 WHERE r.status = 'OPEN' AND r.reminders_sent < ?
+                   AND c.status NOT IN ('ON_HOLD','CANCELLED')""", max);
+    }
 }

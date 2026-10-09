@@ -37,10 +37,12 @@ class SystemActorTest extends PostgresTestBase {
         fixture.runUnauthenticated(tenant, () -> {
             var effective = authorization.effectivePermissions();
             assertThat(effective.byPermission().keySet()).containsExactlyInAnyOrder(
-                    PermissionKeys.CASE_VIEW, PermissionKeys.TASK_VIEW, PermissionKeys.SLA_VIEW);
+                    PermissionKeys.CASE_VIEW, PermissionKeys.TASK_VIEW, PermissionKeys.SLA_VIEW,
+                    PermissionKeys.DOCUMENT_REQUEST);
             assertThat(effective.scopesFor(PermissionKeys.CASE_VIEW)).containsExactly(Scope.ALL);
             assertThat(effective.scopesFor(PermissionKeys.TASK_VIEW)).containsExactly(Scope.ALL);
             assertThat(effective.scopesFor(PermissionKeys.SLA_VIEW)).containsExactly(Scope.ALL);
+            assertThat(effective.scopesFor(PermissionKeys.DOCUMENT_REQUEST)).containsExactly(Scope.ALL);
             var ctx = contexts.current();
             assertThat(ctx.userType()).isEqualTo(UserType.SYSTEM);
             assertThat(ctx.tenantId()).isEqualTo(tenant);

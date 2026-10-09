@@ -18,6 +18,7 @@ import co.ara.onboarding.workflow.Stage;
 import co.ara.onboarding.workflow.StageRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -411,10 +412,7 @@ public class DocumentRequestService {
             throw new IllegalStateException("This request was already reminded in the last 24 hours");
         }
 
-        String to = contact.getEmail();
-        String subject = "Reminder: a document is still needed";
-        String body = "We're still waiting on a document from you for \"" + c.getName() + "\": "
-                + dr.getCategory() + (dr.getDescription() == null ? "" : " - " + dr.getDescription());
+        var msg = message(c, dr, contact);
         UUID caseId = c.getId();
         int reminder = dr.getRemindersSent() + 1;
 
@@ -428,9 +426,54 @@ public class DocumentRequestService {
 
         // Plan amendment 3: document never imports notification. The listener queues the outbox
         // row in this same transaction, so a rolled-back reminder queues nothing.
-        events.publishEvent(new CustomerReminderQueued(requestId, caseId, contact.getId(), to, subject, body, false));
+        events.publishEvent(new CustomerReminderQueued(requestId, caseId, contact.getId(), msg.to(), msg.subject(), msg.body(), false));
         return toView(authorizedQuery.getById(
                 requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST, requestId));
+    }
+
+    private record ReminderMessage(String to, String subject, String body) {}
+
+    private ReminderMessage message(Case c, DocumentRequest dr, CustomerContact contact) {
+        return new ReminderMessage(contact.getEmail(), "Reminder: a document is still needed",
+                "We're still waiting on a document from you for \"" + c.getName() + "\": "
+                        + dr.getCategory() + (dr.getDescription() == null ? "" : " - " + dr.getDescription()));
+    }
+
+    /**
+     * 6B spec 6.2: the sweep's automatic reminder. Never throws for a not-remindable request --
+     * it runs inside the sweep's tenant transaction, where an escaping exception would roll back
+     * every other reminder (plan amendment 13). Skips StageWriteScopeGuard: a stage's write scope
+     * governs internal collaborators; this is tenant policy acting (the portal-write precedent).
+     */
+    @RequirePermission(PermissionKeys.DOCUMENT_REQUEST)
+    @Transactional
+    public boolean remindAutomatically(UUID requestId) {
+        var found = authorizedQuery.findAll(requests, DocumentRequest.class, PermissionKeys.DOCUMENT_REQUEST,
+                (r, q, cb) -> cb.equal(r.get("id"), requestId), PageRequest.of(0, 1)).getContent();
+        if (found.isEmpty()) return false;
+        DocumentRequest dr = found.get(0);
+        if (dr.getStatus() != DocumentRequestStatus.OPEN || dr.getRequestedOfContactId() == null) return false;
+        var contactRows = authorizedQuery.findAll(contacts, CustomerContact.class, PermissionKeys.DOCUMENT_REQUEST,
+                (r, q, cb) -> cb.equal(r.get("id"), dr.getRequestedOfContactId()), PageRequest.of(0, 1)).getContent();
+        if (contactRows.isEmpty() || contactRows.get(0).getStatus() != ContactStatus.ACTIVE) return false;
+        var caseRows = authorizedQuery.findAll(cases, Case.class, PermissionKeys.DOCUMENT_REQUEST,
+                (r, q, cb) -> cb.equal(r.get("id"), dr.getCaseId()), PageRequest.of(0, 1)).getContent();
+        if (caseRows.isEmpty()) return false;
+        Instant now = Instant.now(clock);
+        Instant notAfter = now.minus(REMINDER_INTERVAL);
+        if (dr.getLastRemindedAt() != null && dr.getLastRemindedAt().isAfter(notAfter)) return false;
+        var msg = message(caseRows.get(0), dr, contactRows.get(0));
+        int reminder = dr.getRemindersSent() + 1;
+        // The guard comes BEFORE the audit row here, unlike the manual path: a lost race returns
+        // false instead of throwing, so nothing would roll an earlier audit row back. The counter
+        // update is not itself an audited effect, so cause-before-effect still holds.
+        if (requests.markReminded(requestId, now, notAfter) == 0) return false;
+        audit.record(AuditActions.DOCUMENT_REQUEST_REMINDED, "onboarding_case", dr.getCaseId(),
+                "Reminded the customer about document request " + requestId + " (automatic)",
+                Map.of("requestId", requestId.toString(), "reminder", reminder, "automatic", true));
+        events.publishEvent(new CustomerReminderQueued(requestId, dr.getCaseId(), dr.getRequestedOfContactId(),
+                msg.to(), msg.subject(), msg.body(), true));
+        return true;
     }
 
     /**

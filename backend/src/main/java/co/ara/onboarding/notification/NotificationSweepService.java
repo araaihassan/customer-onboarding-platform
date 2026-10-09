@@ -4,6 +4,7 @@ import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
 import co.ara.onboarding.agreement.Agreement;
 import co.ara.onboarding.document.Document;
+import co.ara.onboarding.document.DocumentRequestService;
 import co.ara.onboarding.journey.Case;
 import co.ara.onboarding.platform.BusinessCalendar;
 import co.ara.onboarding.task.Task;
@@ -11,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -30,14 +32,17 @@ public class NotificationSweepService {
     private final SubjectFacts facts;
     private final PolicyReader policies;
     private final BusinessCalendar calendar;
+    private final DocumentRequestService documentRequests;
 
     NotificationSweepService(DeadlineCandidates candidates, NotificationPipeline pipeline, SubjectFacts facts,
-                             PolicyReader policies, BusinessCalendar calendar) {
+                             PolicyReader policies, BusinessCalendar calendar,
+                             DocumentRequestService documentRequests) {
         this.candidates = candidates;
         this.pipeline = pipeline;
         this.facts = facts;
         this.policies = policies;
         this.calendar = calendar;
+        this.documentRequests = documentRequests;
     }
 
     @RequirePermission(PermissionKeys.SLA_VIEW)
@@ -48,7 +53,20 @@ public class NotificationSweepService {
         taskOverdue(today);
         deadlines(today, policy);
         expiries(today, policy);
-        // Task 25: autoReminders(policy);
+        autoReminders(policy);
+    }
+
+    /** Spec 6.2: policy-driven customer reminders; the only DocumentRequestService call the sweep makes. */
+    void autoReminders(PolicyReader.Policy policy) {
+        if (!policy.autoRemindEnabled()) return;
+        LocalDate today = calendar.today();
+        for (var r : candidates.remindableRequests(policy.max())) {
+            Instant since = r.get("last_reminded_at") != null
+                    ? ((java.sql.Timestamp) r.get("last_reminded_at")).toInstant()
+                    : ((java.sql.Timestamp) r.get("requested_at")).toInstant();
+            if (calendar.businessDaysBetween(calendar.localDate(since), today) < policy.intervalDays()) continue;
+            documentRequests.remindAutomatically((UUID) r.get("id"));
+        }
     }
 
     void taskOverdue(LocalDate today) {
