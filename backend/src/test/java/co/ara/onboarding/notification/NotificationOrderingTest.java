@@ -69,6 +69,19 @@ class NotificationOrderingTest extends PostgresTestBase {
         assertThat(causeAt).isBeforeOrEqualTo(effectAt);
     }
 
+    /** As {@link #assertCauseFirst}, but strictly: the cause's audit row is earlier than the notification's. */
+    private void assertCauseStrictlyFirst(UUID tenant, String cause) {
+        var causeAt = ownerJdbc().queryForObject(
+                "select max(occurred_at) from audit_event where tenant_id = ? and action = ?",
+                java.sql.Timestamp.class, tenant, cause);
+        var effectAt = ownerJdbc().queryForObject(
+                "select min(occurred_at) from audit_event where tenant_id = ? and action = 'notification.sent'",
+                java.sql.Timestamp.class, tenant);
+        assertThat(causeAt).isNotNull();
+        assertThat(effectAt).isNotNull();
+        assertThat(causeAt).isBefore(effectAt);
+    }
+
     /** A user who may create and edit tasks (and resolve an assignee) at ALL. */
     private UUID taskManager(UUID t, String email) {
         UUID u = fixture.runAsReturning(t, () -> fixture.createUser(t, email));
@@ -311,5 +324,47 @@ class NotificationOrderingTest extends PostgresTestBase {
 
         assertThat(support.rowsFor(a.tenant(), a.watcher())).hasSize(1);
         assertCauseFirst(a.tenant(), "agreement.cancelled");
+    }
+
+    // ---- workflow publish and customer assignment ------------------------------------------
+
+    @Autowired co.ara.onboarding.journey.JourneyFixtures journeyFixtures;
+    @Autowired co.ara.onboarding.journey.CaseService caseService;
+    @Autowired co.ara.onboarding.workflow.WorkflowService workflowService;
+    @Autowired co.ara.onboarding.workflow.PublishService publishService;
+    @Autowired co.ara.onboarding.customer.CustomerService customerService;
+
+    @Test
+    void publishingIsRecordedBeforeItsNotification() {
+        UUID t = fixture.createTenant("order-workflow-published");
+        UUID owner = fixture.runAsReturning(t, () -> fixture.createUser(t, "owner@order-workflow-published.test"));
+        support.grant(t, owner, Map.of(PermissionKeys.CASE_VIEW, Scope.ALL));
+        UUID templateId = fixture.runAsReturning(t, () -> journeyFixtures.publishedTemplate());
+        fixture.runAs(t, () -> {
+            UUID customer = fixture.createCustomerOwnedBy(t, "Acme", owner);
+            caseService.create(new co.ara.onboarding.journey.CreateCaseRequest(customer, templateId, "Case", Map.of()));
+        });
+
+        // The owner's open case is the only candidate, so the only notification.sent row is the publish's.
+        fixture.runAs(t, () -> publishService.publish(workflowService.createDraft(templateId)));
+
+        assertThat(support.rowsFor(t, owner)).hasSize(1);
+        assertCauseStrictlyFirst(t, "workflow.published");
+    }
+
+    @Test
+    void reassigningACustomerIsRecordedBeforeItsNotification() {
+        UUID t = fixture.createTenant("order-customer-assigned");
+        UUID dave = fixture.runAsReturning(t, () -> fixture.createUser(t, "dave@order-customer-assigned.test"));
+        support.grant(t, dave, Map.of(PermissionKeys.CUSTOMER_VIEW, Scope.ALL));
+        UUID customerId = fixture.runAsReturning(t, () -> fixture.createCustomer(t, "Acme", null, null, null));
+        UUID admin = administrator(t, "admin");
+
+        fixture.runAsUser(t, admin, () -> customerService.update(customerId,
+                new co.ara.onboarding.customer.CustomerService.UpdateCustomerRequest(
+                        "Acme Holdings Ltd", "Acme Holdings", null, null, null, dave, null, null)));
+
+        assertThat(support.rowsFor(t, dave)).hasSize(1);
+        assertCauseStrictlyFirst(t, "customer.updated");
     }
 }

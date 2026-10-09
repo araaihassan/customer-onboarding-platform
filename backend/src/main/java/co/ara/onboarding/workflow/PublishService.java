@@ -6,6 +6,7 @@ import co.ara.onboarding.authz.AuthContextProvider;
 import co.ara.onboarding.authz.AuthorizedQuery;
 import co.ara.onboarding.authz.PermissionKeys;
 import co.ara.onboarding.authz.RequirePermission;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -45,6 +46,7 @@ public class PublishService {
     private final AuthContextProvider contextProvider;
     private final AuditRecorder audit;
     private final WorkflowService workflows;
+    private final ApplicationEventPublisher events;
 
     public PublishService(WorkflowTemplateRepository templates,
                           WorkflowVersionRepository versions,
@@ -57,7 +59,9 @@ public class PublishService {
                           AuthorizedQuery authorizedQuery,
                           AuthContextProvider contextProvider,
                           AuditRecorder audit,
-                          WorkflowService workflows) {
+                          WorkflowService workflows,
+                          ApplicationEventPublisher events) {
+        this.events = events;
         this.templates = templates;
         this.versions = versions;
         this.stages = stages;
@@ -85,15 +89,19 @@ public class PublishService {
         version.setStatus(VersionStatus.PUBLISHED);          // the last legal UPDATE to this row
         version.setPublishedAt(Instant.now());
         version.setPublishedBy(contextProvider.principal().userId());
+        versions.saveAndFlush(version);
 
         WorkflowTemplate template = authorizedQuery.getById(
                 templates, WorkflowTemplate.class, PermissionKeys.WORKFLOW_MANAGE, version.getTemplateId());
         // "No longer offered to new cases" is this pointer moving -- never a status change on
         // a frozen row, which the trigger would refuse anyway.
         template.setCurrentVersionId(versionId);
+        templates.saveAndFlush(template);
 
         audit.record(AuditActions.WORKFLOW_PUBLISHED, "workflow_version", versionId,
                 "Published v" + version.getVersionNo() + " of " + template.getName(), Map.of());
+        events.publishEvent(new WorkflowVersionPublished(template.getId(), versionId, version.getVersionNo(),
+                contextProvider.principal().userId()));
         return definitionOf(versionId);
     }
 

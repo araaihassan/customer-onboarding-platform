@@ -162,6 +162,32 @@ public class SubjectFacts {
                 .stream().findFirst().orElse("Someone");
     }
 
+    public record OutdatedCase(UUID caseId, UUID ownerUserId, UUID customerId) {}
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public List<OutdatedCase> openCasesOnEarlierVersions(UUID templateId, UUID publishedVersionId) {
+        return jdbc.query("""
+                SELECT id, owner_user_id, customer_id FROM onboarding_case
+                 WHERE template_id = ? AND version_id <> ? AND status IN ('ACTIVE','ON_HOLD') AND owner_user_id IS NOT NULL
+                 ORDER BY id""",
+                (rs, i) -> new OutdatedCase(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getObject(3, UUID.class)),
+                templateId, publishedVersionId);
+    }
+
+    public record CustomerFacts(UUID id, String displayName, UUID ownerUserId) {}
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public CustomerFacts customer(UUID customerId) {
+        return jdbc.queryForObject("SELECT id, display_name, owner_user_id FROM customer WHERE id = ?",
+                (rs, i) -> new CustomerFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class)),
+                customerId);
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public String templateName(UUID templateId) {
+        return jdbc.queryForObject("SELECT name FROM workflow_template WHERE id = ?", String.class, templateId);
+    }
+
     @Transactional(propagation = Propagation.MANDATORY)
     public AgreementFacts agreement(UUID agreementId) {
         return jdbc.queryForObject("""
