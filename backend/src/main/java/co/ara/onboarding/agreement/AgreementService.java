@@ -23,6 +23,7 @@ import co.ara.onboarding.workflow.AgreementRecordMode;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -79,6 +80,7 @@ public class AgreementService {
     private final List<SignatureProvider> signatureProviders;
     private final Clock clock;
     private final AuditRecorder audit;
+    private final ApplicationEventPublisher events;
 
     public AgreementService(AgreementRepository agreements, AgreementSignatoryRepository signatories,
                             AgreementVersionRepository versions, AgreementVersionReviewRepository versionReviews,
@@ -87,7 +89,7 @@ public class AgreementService {
                             AuthorizedQuery authorizedQuery, AgreementWrites writes,
                             AuthContextProvider contextProvider, AgreementFiles agreementFiles,
                             List<SignatureProvider> signatureProviders, Clock clock,
-                            AuditRecorder audit) {
+                            AuditRecorder audit, ApplicationEventPublisher events) {
         this.agreements = agreements;
         this.signatories = signatories;
         this.versions = versions;
@@ -103,6 +105,7 @@ public class AgreementService {
         this.signatureProviders = signatureProviders;
         this.clock = clock;
         this.audit = audit;
+        this.events = events;
     }
 
     /**
@@ -456,6 +459,8 @@ public class AgreementService {
                 "Submitted " + a.getName() + " v" + v.getVersionNumber() + " for review",
                 Map.of("agreementId", a.getId().toString(), "versionNumber", Integer.toString(v.getVersionNumber()),
                        "contentSha256", contentSha));
+        events.publishEvent(new AgreementStatusChanged(a.getId(), a.getCaseId(),
+                AgreementStatusChanged.Change.SUBMITTED, actor));
         return get(a.getId());
     }
 
@@ -492,6 +497,8 @@ public class AgreementService {
         audit.record(AuditActions.AGREEMENT_SENT, "onboarding_case", a.getCaseId(),
                 "Sent " + a.getName() + " v" + sent.getVersionNumber() + " for signature",
                 Map.of("agreementId", a.getId().toString(), "versionNumber", Integer.toString(sent.getVersionNumber())));
+        events.publishEvent(new AgreementStatusChanged(a.getId(), a.getCaseId(),
+                AgreementStatusChanged.Change.SENT, contextProvider.current().userId()));
         return get(a.getId());
     }
 
@@ -521,6 +528,8 @@ public class AgreementService {
         if (wasSent && old.getDocumentId() != null) agreementFiles.retier(old.getDocumentId(), VisibilityTier.SENSITIVE);
         audit.record(AuditActions.AGREEMENT_CANCELLED, "onboarding_case", old.getCaseId(),
                 "Cancelled " + old.getName() + ": " + r.reason(), Map.of("agreementId", old.getId().toString()));
+        events.publishEvent(new AgreementStatusChanged(old.getId(), old.getCaseId(),
+                AgreementStatusChanged.Change.CANCELLED, actor));
 
         Agreement next = new Agreement();
         next.setId(Uuid7.generate());

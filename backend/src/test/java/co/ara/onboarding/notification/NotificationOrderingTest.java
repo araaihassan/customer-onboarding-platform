@@ -1,6 +1,16 @@
 package co.ara.onboarding.notification;
 
+import co.ara.onboarding.agreement.AgreementRepository;
+import co.ara.onboarding.agreement.AgreementReviewService;
+import co.ara.onboarding.agreement.AgreementService;
+import co.ara.onboarding.agreement.AgreementSignatureService;
+import co.ara.onboarding.agreement.AgreementStatus;
+import co.ara.onboarding.agreement.AgreementTestSupport;
+import co.ara.onboarding.agreement.CancelAgreementRequest;
+import co.ara.onboarding.agreement.RecordSignatureRequest;
+import co.ara.onboarding.agreement.ReviewAgreementRequest;
 import co.ara.onboarding.authz.PermissionKeys;
+import co.ara.onboarding.workflow.AgreementRecordMode;
 import co.ara.onboarding.authz.Scope;
 import co.ara.onboarding.document.CreateDocumentRequest;
 import co.ara.onboarding.document.CreateDocumentRequestRequest;
@@ -206,5 +216,100 @@ class NotificationOrderingTest extends PostgresTestBase {
 
         assertThat(support.rowsFor(t, uploader)).hasSize(1);
         assertCauseFirst(t, "document.reviewed");
+    }
+
+    // ---- agreements: one case per publish site ------------------------------------------
+
+    @Autowired AgreementTestSupport agreementSupport;
+    @Autowired AgreementRepository agreementRepository;
+    @Autowired AgreementService agreementService;
+    @Autowired AgreementReviewService agreementReviewService;
+    @Autowired AgreementSignatureService agreementSignatureService;
+    @Autowired java.time.Clock clock;
+
+    private record AgreementArranged(UUID tenant, UUID watcher, AgreementTestSupport.Driven driven) {}
+
+    /**
+     * Drives an agreement to {@code status} while its owner (also the case owner) holds nothing,
+     * so no AGREEMENT_STATUS row exists yet; only then grants agreement.view. The transition under
+     * test is therefore the only notification.sent row in the tenant.
+     */
+    private AgreementArranged agreementAt(String slug, AgreementStatus status, int signatories) {
+        UUID t = fixture.createTenant(slug);
+        UUID watcher = fixture.runAsReturning(t, () -> fixture.createUser(t, "watcher@" + slug + ".test"));
+        UUID caseId = fixture.runAsReturning(t, () ->
+                agreementSupport.openCaseWithSignatureRequirement(t, AgreementRecordMode.STRUCTURED_ONLY));
+        UUID agreementId = fixture.runAsReturning(t, () -> agreementRepository.findByCaseId(caseId).get(0).getId());
+        ownerJdbc().update("update agreement set owner_user_id = ? where id = ?", watcher, agreementId);
+        ownerJdbc().update("update onboarding_case set owner_user_id = ? where id = ?", watcher, caseId);
+        var driven = agreementSupport.drive(t, caseId, status, signatories, null, null);
+        support.grant(t, watcher, Map.of(PermissionKeys.AGREEMENT_VIEW, Scope.ALL));
+        return new AgreementArranged(t, watcher, driven);
+    }
+
+    private UUID administrator(UUID t, String who) {
+        return fixture.createAdministrator(t, who + "+" + co.ara.onboarding.platform.Uuid7.generate() + "@example.com");
+    }
+
+    @Test
+    void submittingAnAgreementIsRecordedBeforeItsNotification() {
+        var a = agreementAt("order-agreement-submitted", AgreementStatus.DRAFT, 1);
+        UUID submitter = administrator(a.tenant(), "submitter");
+
+        fixture.runAsUser(a.tenant(), submitter, () -> agreementService.submit(
+                a.driven().agreementId(), a.driven().lockVersion()));
+
+        assertThat(support.rowsFor(a.tenant(), a.watcher())).hasSize(1);
+        assertCauseFirst(a.tenant(), "agreement.submitted");
+    }
+
+    @Test
+    void reviewingAnAgreementIsRecordedBeforeItsNotification() {
+        var a = agreementAt("order-agreement-reviewed", AgreementStatus.UNDER_REVIEW, 1);
+        UUID reviewer = administrator(a.tenant(), "reviewer");
+
+        fixture.runAsUser(a.tenant(), reviewer, () -> agreementReviewService.review(a.driven().agreementId(), 1,
+                new ReviewAgreementRequest(co.ara.onboarding.agreement.ReviewDecision.APPROVE, null, a.driven().lockVersion())));
+
+        assertThat(support.rowsFor(a.tenant(), a.watcher())).hasSize(1);
+        assertCauseFirst(a.tenant(), "agreement.approved");
+    }
+
+    @Test
+    void sendingAnAgreementIsRecordedBeforeItsNotification() {
+        var a = agreementAt("order-agreement-sent", AgreementStatus.APPROVED, 1);
+        UUID sender = administrator(a.tenant(), "sender");
+
+        fixture.runAsUser(a.tenant(), sender, () -> agreementService.send(
+                a.driven().agreementId(), a.driven().lockVersion()));
+
+        assertThat(support.rowsFor(a.tenant(), a.watcher())).hasSize(1);
+        assertCauseFirst(a.tenant(), "agreement.sent");
+    }
+
+    @Test
+    void signingIsRecordedBeforeItsNotification() {
+        var a = agreementAt("order-agreement-signed", AgreementStatus.SENT, 1);
+        UUID recorder = administrator(a.tenant(), "recorder");
+
+        // The watcher holds no case.view, so the milestone completion adds no row of its own.
+        fixture.runAsUser(a.tenant(), recorder, () -> agreementSignatureService.record(a.driven().agreementId(),
+                new RecordSignatureRequest(a.driven().signatoryIds().get(0), java.time.LocalDate.now(clock),
+                        "Wet ink, scanned", a.driven().lockVersion()), null, 0));
+
+        assertThat(support.rowsFor(a.tenant(), a.watcher())).hasSize(1);
+        assertCauseFirst(a.tenant(), "agreement.signed");
+    }
+
+    @Test
+    void cancellingAnAgreementIsRecordedBeforeItsNotification() {
+        var a = agreementAt("order-agreement-cancelled", AgreementStatus.SENT, 1);
+        UUID canceller = administrator(a.tenant(), "canceller");
+
+        fixture.runAsUser(a.tenant(), canceller, () -> agreementService.cancel(a.driven().agreementId(),
+                new CancelAgreementRequest("Customer changed entity", a.driven().lockVersion())));
+
+        assertThat(support.rowsFor(a.tenant(), a.watcher())).hasSize(1);
+        assertCauseFirst(a.tenant(), "agreement.cancelled");
     }
 }

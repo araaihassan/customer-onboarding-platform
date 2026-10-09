@@ -48,6 +48,9 @@ public class SubjectFacts {
 
     public record DocumentFacts(UUID id, String name, UUID caseId, UUID uploadedBy, Instant expiresAt) {}
 
+    public record AgreementFacts(UUID id, String name, UUID caseId, UUID ownerUserId, String status,
+                                 LocalDate expiresAt, LocalDate renewalDate, Integer noticePeriodDays) {}
+
     public record RequestFacts(UUID id, UUID caseId, String category, String description, UUID requestedBy) {}
 
     private final JdbcTemplate jdbc;
@@ -157,5 +160,15 @@ public class SubjectFacts {
         if (userId == null) return "Someone";
         return jdbc.queryForList("SELECT full_name FROM app_user WHERE id = ?", String.class, userId)
                 .stream().findFirst().orElse("Someone");
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AgreementFacts agreement(UUID agreementId) {
+        return jdbc.queryForObject("""
+                SELECT id, name, case_id, owner_user_id, status, expires_at, renewal_date, notice_period_days
+                  FROM agreement WHERE id = ?""",
+                (rs, i) -> new AgreementFacts(rs.getObject(1, UUID.class), rs.getString(2), rs.getObject(3, UUID.class),
+                        rs.getObject(4, UUID.class), rs.getString(5), rs.getObject(6, LocalDate.class),
+                        rs.getObject(7, LocalDate.class), (Integer) rs.getObject(8)), agreementId);
     }
 }
