@@ -286,6 +286,24 @@ export class Api {
     return ran;
   }
 
+  /** Dev-profile lever: runs the notification sweep (deadlines, expiries, reminders) for this tenant. */
+  async runNotificationSweep(): Promise<boolean> {
+    const { ran } = await this.post<{ ran: boolean }>("/dev/jobs/notification-sweep");
+    return ran;
+  }
+
+  /** Dev-profile lever: queues this tenant's due digests and returns how many. */
+  async runDigest(): Promise<number> {
+    const { queued } = await this.post<{ queued: number }>("/dev/jobs/digest");
+    return queued;
+  }
+
+  /** Dev-profile lever: dispatches this tenant's queued email and returns how many were sent. */
+  async runEmailDispatch(): Promise<number> {
+    const { sent } = await this.post<{ sent: number }>("/dev/jobs/email-dispatch");
+    return sent;
+  }
+
   /**
    * `PUT /admin/users/{id}` is a full replace: a GET first, then every field of
    * `UpdateUserRequest` sent back, so setting the manager cannot blank the name or department.
