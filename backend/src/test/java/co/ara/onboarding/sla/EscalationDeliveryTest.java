@@ -62,6 +62,10 @@ class EscalationDeliveryTest extends PostgresTestBase {
         return ownerJdbc().queryForList("select * from notification where tenant_id = ?", t);
     }
 
+    private List<Map<String, Object>> escalations(UUID t) {
+        return ownerJdbc().queryForList("select * from notification where tenant_id = ? and type = 'ESCALATION'", t);
+    }
+
     @Test
     void anEscalationNotifiesAndEmailsTheManager() {
         UUID[] x = overdue("del-mgr", "late@del-mgr.test");
@@ -131,9 +135,10 @@ class EscalationDeliveryTest extends PostgresTestBase {
         ownerJdbc().update("update role set name = 'Administrator' where id = ?", fixture.administratorRoleId(x[0]));
         fixture.createAdminUser(x[0], "other@del-selfadm.test");
         sla.sweepAndEmail(x[0]);
-        assertThat(notifications(x[0])).extracting(n -> n.get("recipient_user_id")).isNotEmpty().doesNotContain(x[2]);
+        // 6B producers also tell the late person "Task assigned to you"; only the ESCALATION rows are under test.
+        assertThat(escalations(x[0])).extracting(n -> n.get("recipient_user_id")).isNotEmpty().doesNotContain(x[2]);
         assertThat(emails.lastTo("other@del-selfadm.test")).isPresent();
-        assertThat(emails.lastTo("late@del-selfadm.test")).isEmpty();
+        assertThat(emails.lastTo("late@del-selfadm.test").filter(m -> m.subject().startsWith("Escalation:"))).isEmpty();
     }
 
     @Test
